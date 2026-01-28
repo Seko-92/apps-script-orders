@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <style>
+    :root {
+      --primary: #D4AF37;
+      --primary-glow: rgba(212, 175, 55, 0.6);
+      --bg-dark: #0a0a0a;
+      --danger: #ff3e3e;
+      --danger-glow: rgba(255, 62, 62, 0.4);
+    }
+
+    body { 
+      background-color: var(--bg-dark); 
+      color: var(--primary); 
+      font-family: 'Courier New', monospace; 
+      display: flex; 
+      flex-direction: column; 
+      align-items: center; 
+      margin: 0; 
+      padding: 10px;
+      overflow-y: auto; 
+      height: 100vh;
+      user-select: none; /* Prevents highlighting text while playing */
+    }
+
+    /* Scanline Effect */
+    body::before {
+      content: " ";
+      display: block;
+      position: absolute;
+      top: 0; left: 0; bottom: 0; right: 0;
+      background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), 
+                  linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06));
+      z-index: 10;
+      background-size: 100% 4px, 3px 100%;
+      pointer-events: none;
+    }
+
+    h2 { 
+      font-size: 18px; 
+      margin: 5px 0 15px 0; 
+      text-transform: uppercase; 
+      letter-spacing: 4px; 
+      text-shadow: 0 0 10px var(--primary-glow);
+    }
+
+    #menu { 
+      display: flex; 
+      flex-direction: column; 
+      align-items: center; 
+      gap: 12px; 
+      z-index: 5;
+      width: 100%;
+    }
+
+    #game-container { 
+      border: 1px solid var(--primary); 
+      box-shadow: 0 0 20px rgba(212, 175, 55, 0.2); 
+      background: #000;
+      position: relative;
+      overflow: hidden;
+    }
+
+    canvas { display: block; cursor: pointer; }
+
+    .btn {
+      background: transparent;
+      color: var(--primary);
+      border: 1px solid var(--primary);
+      padding: 10px;
+      width: 240px;
+      cursor: pointer;
+      font-family: 'Courier New', monospace;
+      font-weight: bold;
+      text-transform: uppercase;
+      transition: 0.2s;
+      position: relative;
+      font-size: 14px;
+    }
+
+    .btn:hover {
+      background: var(--primary);
+      color: #000;
+      box-shadow: 0 0 15px var(--primary);
+    }
+
+    /* Danger / Exit Button Styling */
+    .btn.danger {
+      color: var(--danger);
+      border-color: var(--danger);
+      margin-top: 10px;
+    }
+    .btn.danger:hover {
+      background: var(--danger);
+      color: #000;
+      box-shadow: 0 0 15px var(--danger);
+    }
+
+    .status-bar {
+      width: 280px;
+      display: flex;
+      justify-content: space-between;
+      font-size: 12px;
+      margin-bottom: 5px;
+      color: #888;
+    }
+
+    .score-board { 
+      font-size: 20px; 
+      margin: 5px 0; 
+      color: #fff; 
+      text-shadow: 0 0 8px var(--primary-glow);
+    }
+
+    #game-area { display: none; flex-direction: column; align-items: center; }
+
+    /* D-PAD STYLING */
+    .d-pad {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 5px;
+      margin-top: 10px;
+      margin-bottom: 10px;
+    }
+    .d-btn {
+      width: 50px;
+      height: 40px;
+      background: rgba(212, 175, 55, 0.1);
+      border: 1px solid var(--primary);
+      color: var(--primary);
+      font-size: 18px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      user-select: none;
+    }
+    .d-btn:active { background: var(--primary); color: black; }
+    .d-spacer { visibility: hidden; }
+
+    /* Screen Shake Animation */
+    @keyframes shake {
+      0% { transform: translate(1px, 1px) rotate(0deg); }
+      20% { transform: translate(-3px, 0px) rotate(1deg); }
+      40% { transform: translate(3px, 2px) rotate(-1deg); }
+      60% { transform: translate(-3px, 1px) rotate(0deg); }
+      80% { transform: translate(3px, 1px) rotate(-1deg); }
+      100% { transform: translate(1px, -2px) rotate(-1deg); }
+    }
+    .shake { animation: shake 0.4s; }
+  </style>
+</head>
+<body>
+
+  <h2>HQ//OPERATIONS</h2>
+
+  <div id="menu">
+    <div style="font-size: 10px; margin-bottom: 10px; color: #888;">STATUS: READY_TO_DEPLOY</div>
+    <button class="btn" onclick="startGame(140)">LEVEL 1: ROOKIE</button>
+    <button class="btn" onclick="startGame(90)">LEVEL 2: VETERAN</button>
+    <button class="btn" onclick="startGame(55)">LEVEL 3: ELITE</button>
+    
+    <div style="margin-top: 10px; font-size: 11px;">RECORD: <span id="highScore">0</span></div>
+
+    <button class="btn danger" onclick="goBack()">🔙 EXIT ARCADE</button>
+  </div>
+
+  <div id="game-area">
+    <div class="status-bar">
+      <span>SECURE_LINE: ACTIVE</span>
+      <span id="speedDisplay">SPD: 100%</span>
+    </div>
+    
+    <div id="game-container">
+      <canvas id="snakeGame" width="280" height="380"></canvas>
+    </div>
+
+    <div class="d-pad">
+       <div class="d-spacer"></div>
+       <div class="d-btn" onpointerdown="setDir('UP')">▲</div>
+       <div class="d-spacer"></div>
+       <div class="d-btn" onpointerdown="setDir('LEFT')">◀</div>
+       <div class="d-btn" onpointerdown="setDir('DOWN')">▼</div>
+       <div class="d-btn" onpointerdown="setDir('RIGHT')">▶</div>
+    </div>
+
+    <div class="score-board">DATA_PACKETS: <span id="scoreVal">0</span></div>
+    
+    <div style="display:flex; gap:10px;">
+        <button class="btn" style="width: 100px; font-size: 10px;" onclick="togglePause()">PAUSE</button>
+        <button class="btn" style="width: 100px; font-size: 10px;" onclick="backToMenu()">ABORT</button>
+    </div>
+  </div>
+
+<script>
+    const canvas = document.getElementById("snakeGame");
+    const ctx = canvas.getContext("2d");
+    const scoreElement = document.getElementById("scoreVal");
+    const highScoreElement = document.getElementById("highScore");
+    const menu = document.getElementById("menu");
+    const gameArea = document.getElementById("game-area");
+    const container = document.getElementById("game-container");
+    
+    const box = 20;
+    let score, snake, food, d, gameLoop, speed, particles, highScore;
+    let isPaused = false;
+
+    // Load High Score
+    highScore = localStorage.getItem("snakeHighScore") || 0;
+    highScoreElement.innerText = highScore;
+
+    function goBack() {
+        // Attempt to close the Google Sheet Sidebar
+        try {
+            google.script.host.close();
+        } catch(e) {
+            console.log("Not in Google Sheets environment");
+            alert("COMMAND: EXIT_SIDEBAR // EXECUTED");
+        }
+    }
+
+    function startGame(selectedSpeed) {
+      speed = selectedSpeed;
+      document.getElementById("speedDisplay").innerText = `SPD: ${Math.round(150/speed * 100)}%`;
+      menu.style.display = "none";
+      gameArea.style.display = "flex";
+      resetGame();
+      if(gameLoop) clearInterval(gameLoop);
+      gameLoop = setInterval(draw, speed);
+    }
+
+    function resetGame() {
+      score = 0;
+      isPaused = false;
+      particles = [];
+      scoreElement.innerHTML = score;
+      snake = [{ x: 7 * box, y: 10 * box }, { x: 6 * box, y: 10 * box }];
+      generateFood();
+      d = null; // Start stationary
+    }
+
+    function generateFood() {
+      food = { 
+        x: Math.floor(Math.random() * (canvas.width/box)) * box, 
+        y: Math.floor(Math.random() * (canvas.height/box)) * box 
+      };
+      // Prevent food spawning on snake
+      for(let seg of snake) {
+        if(food.x == seg.x && food.y == seg.y) generateFood();
+      }
+    }
+
+    function createParticles(x, y) {
+      for(let i=0; i<8; i++) {
+        particles.push({
+          x: x + box/2,
+          y: y + box/2,
+          vx: (Math.random() - 0.5) * 10,
+          vy: (Math.random() - 0.5) * 10,
+          life: 1.0
+        });
+      }
+    }
+
+    // Direction Handler (Used by Keyboard and Buttons)
+    function setDir(newDir) {
+        if(isPaused) togglePause(); // Unpause on input
+        if(newDir == "LEFT" && d != "RIGHT") d = "LEFT";
+        else if(newDir == "UP" && d != "DOWN") d = "UP";
+        else if(newDir == "RIGHT" && d != "LEFT") d = "RIGHT";
+        else if(newDir == "DOWN" && d != "UP") d = "DOWN";
+    }
+
+    function togglePause() {
+        if(!d) return; // Don't pause if game hasn't started
+        isPaused = !isPaused;
+    }
+
+    document.addEventListener("keydown", (e) => {
+      // Spacebar to Pause
+      if(e.keyCode == 32) {
+          togglePause();
+          return;
+      }
+      if([37, 38, 39, 40].includes(e.keyCode)) e.preventDefault();
+      if(e.keyCode == 37) setDir("LEFT");
+      else if(e.keyCode == 38) setDir("UP");
+      else if(e.keyCode == 39) setDir("RIGHT");
+      else if(e.keyCode == 40) setDir("DOWN");
+    });
+
+    // Tap canvas to pause
+    canvas.addEventListener("click", togglePause);
+
+    function draw() {
+      // Clear with slight trail
+      ctx.fillStyle = "rgba(5, 5, 5, 1)";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      // Cyber Grid Background
+      ctx.strokeStyle = "#111";
+      ctx.lineWidth = 1;
+      for(let i=0; i<canvas.width; i+=box) {
+        ctx.beginPath(); ctx.moveTo(i,0); ctx.lineTo(i,canvas.height); ctx.stroke();
+      }
+      for(let j=0; j<canvas.height; j+=box) {
+        ctx.beginPath(); ctx.moveTo(0,j); ctx.lineTo(canvas.width,j); ctx.stroke();
+      }
+
+      // Draw Particles
+      particles.forEach((p, index) => {
+        p.x += p.vx; p.y += p.vy; p.life -= 0.05;
+        if(p.life <= 0) particles.splice(index, 1);
+        ctx.fillStyle = `rgba(212, 175, 55, ${p.life})`;
+        ctx.fillRect(p.x, p.y, 3, 3);
+      });
+
+      // Draw Snake
+      snake.forEach((seg, i) => {
+        const isHead = i === 0;
+        ctx.fillStyle = isHead ? "#FFF" : "#D4AF37";
+        ctx.shadowBlur = isHead ? 15 : 5;
+        ctx.shadowColor = "#D4AF37";
+        
+        const offset = isHead ? 0 : 2;
+        ctx.fillRect(seg.x + offset, seg.y + offset, box - offset*2, box - offset*2);
+        ctx.shadowBlur = 0;
+      });
+
+      // Draw Food
+      const pulse = Math.sin(Date.now() / 100) * 5;
+      ctx.fillStyle = "#FFF";
+      ctx.shadowBlur = 10 + pulse;
+      ctx.shadowColor = "#FFF";
+      ctx.fillRect(food.x + 4, food.y + 4, box - 8, box - 8);
+      ctx.shadowBlur = 0;
+
+      // Handle Pause State
+      if (isPaused) {
+          ctx.fillStyle = "rgba(0,0,0,0.7)";
+          ctx.fillRect(0,0, canvas.width, canvas.height);
+          ctx.fillStyle = "#D4AF37";
+          ctx.font = "20px 'Courier New'";
+          ctx.textAlign = "center";
+          ctx.fillText("// PAUSED //", canvas.width/2, canvas.height/2);
+          return; // Stop update logic
+      }
+
+      if (!d) {
+        ctx.fillStyle = "rgba(212, 175, 55, 0.8)";
+        ctx.font = "10px 'Courier New'";
+        ctx.textAlign = "center";
+        ctx.fillText("WAITING FOR INPUT...", canvas.width/2, canvas.height/2);
+      }
+
+      let snakeX = snake[0].x;
+      let snakeY = snake[0].y;
+
+      if( d == "LEFT") snakeX -= box;
+      if( d == "UP") snakeY -= box;
+      if( d == "RIGHT") snakeX += box;
+      if( d == "DOWN") snakeY += box;
+
+      // Check Food Collision
+      if(snakeX == food.x && snakeY == food.y) {
+        score++;
+        scoreElement.innerHTML = score;
+        createParticles(food.x, food.y);
+        generateFood();
+      } else if(d) {
+        snake.pop();
+      }
+
+      let newHead = { x: snakeX, y: snakeY };
+
+      // Game Over Logic
+      if(d && (snakeX < 0 || snakeX >= canvas.width || snakeY < 0 || snakeY >= canvas.height || collision(newHead, snake))) {
+        gameOver();
+      }
+
+      if(d) snake.unshift(newHead);
+    }
+
+    function collision(head, array) {
+      return array.some(seg => head.x === seg.x && head.y === seg.y);
+    }
+
+    function gameOver() {
+      clearInterval(gameLoop);
+      container.classList.add("shake");
+      
+      // Update High Score
+      if(score > highScore) {
+        highScore = score;
+        localStorage.setItem("snakeHighScore", highScore);
+        highScoreElement.innerText = highScore;
+      }
+
+      setTimeout(() => {
+        ctx.fillStyle = "rgba(255, 0, 0, 0.3)";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = "white";
+        ctx.font = "20px 'Courier New'";
+        ctx.textAlign = "center";
+        ctx.fillText("SYSTEM CRASHED", canvas.width/2, canvas.height/2 - 10);
+        ctx.font = "12px 'Courier New'";
+        ctx.fillText("PACKETS LOST: " + score, canvas.width/2, canvas.height/2 + 20);
+        container.classList.remove("shake");
+      }, 400);
+    }
+
+    function backToMenu() {
+      clearInterval(gameLoop);
+      menu.style.display = "flex";
+      gameArea.style.display = "none";
+    }
+</script>
+</body>
+</html>

@@ -1,0 +1,47 @@
+# =======================================================================================
+# .gitignore - Files to NEVER push to GitHub
+# =======================================================================================
+
+# CRITICAL: Secret Configuration Files
+Secrets.js
+Config.local.js
+
+# CLASP Configuration (contains Google Apps Script Project ID)
+.clasp.json
+.clasprc.json
+
+# Google Apps Script Credentials
+.clasprc.json
+appsscript.json
+
+# Node modules (if you add npm packages later)
+node_modules/
+package-lock.json
+
+# Environment files
+.env
+.env.local
+.env.production
+
+# OS-specific files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE-specific files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Test files (optional - remove this line if you want to include tests)
+test.js
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+*.tmp
+*.temp

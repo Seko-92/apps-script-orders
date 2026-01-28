@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+
+  <style>
+    /* ===== BASE ===== */
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      padding: 24px;
+      color: #202124;
+      background: #fff;
+      counter-reset: page;
+    }
+
+    h2 {
+      text-align: center;
+      margin: 0;
+      font-size: 20px;
+      font-weight: 700;
+    }
+
+    h3 {
+      background: #eee;
+      padding: 8px;
+      margin-top: 20px;
+      margin-bottom: 5px;
+      font-size: 16px;
+      border-radius: 4px;
+      border-left: 5px solid #1a73e8;
+    }
+
+    /* ===== ACTION BAR ===== */
+    .no-print {
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+
+    .print-btn {
+      background: #1a73e8;
+      color: #fff;
+      padding: 10px 18px;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-weight: 600;
+      font-size: 13px;
+    }
+
+    .print-btn.secondary {
+      background: #f1f3f4;
+      color: #202124;
+    }
+
+    /* ===== TABLE ===== */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+      margin-bottom: 20px;
+    }
+
+    th, td {
+      border: 1px solid #ddd;
+      padding: 10px;
+      text-align: left;
+      vertical-align: top;
+      word-break: break-word;
+    }
+
+    th {
+      background: #f2f2f2;
+      font-weight: 600;
+    }
+
+    tr:nth-child(even) { background: #fafafa; }
+    tr { page-break-inside: avoid; }
+
+    /* ===== INVENTORY COLUMNS ===== */
+    .col-hand, .col-left {
+      text-align: center;
+      font-weight: 600;
+    }
+    
+    .col-hand {
+      background: #e3f2fd !important;
+      color: #1565c0;
+    }
+    
+    .col-left {
+      background: #fff3e0 !important;
+      color: #e65100;
+    }
+    
+    th.col-hand {
+      background: #bbdefb !important;
+    }
+    
+    th.col-left {
+      background: #ffe0b2 !important;
+    }
+
+    /* ===== PRINT STYLES ===== */
+    @media print {
+      .no-print { display: none !important; }
+      body { padding: 0; margin-bottom: 1cm; }
+      table { font-size: 11px; }
+      th { background: #eee !important; -webkit-print-color-adjust: exact; }
+      
+      th.col-hand { background: #bbdefb !important; -webkit-print-color-adjust: exact; }
+      th.col-left { background: #ffe0b2 !important; -webkit-print-color-adjust: exact; }
+      td.col-hand { background: #e3f2fd !important; -webkit-print-color-adjust: exact; }
+      td.col-left { background: #fff3e0 !important; -webkit-print-color-adjust: exact; }
+
+      h3 { 
+        -webkit-print-color-adjust: exact; 
+        border-left: 5px solid #000;
+      }
+
+      .print-footer-fixed {
+        position: fixed;
+        bottom: 0;
+        right: 0;
+        width: 100%;
+        text-align: right;
+        font-size: 10px;
+        font-weight: bold;
+        background: white;
+        padding: 5px 0;
+      }
+
+      .page-number::after {
+        counter-increment: page;
+        content: "Page " counter(page);
+      }
+    }
+  </style>
+</head>
+
+<body>
+
+  <div class="no-print">
+    <button class="print-btn secondary" onclick="window.close()">✖ Close</button>
+    <button class="print-btn" onclick="window.print()">🖨 Confirm Print</button>
+  </div>
+
+  <div class="print-footer-fixed no-print-screen">
+    Documentation - <span class="page-number"></span>
+  </div>
+
+  <div style="text-align: center; border-bottom: 2px solid #202124; margin-bottom: 20px; padding-bottom: 10px;">
+    <h2 style="margin: 0; font-size: 24px; text-transform: uppercase;">Pending Fulfillment List</h2>
+    <div style="display: flex; justify-content: space-between; margin-top: 10px; font-size: 13px; font-weight: 600;">
+      <span>Date: <?= new Date().toLocaleDateString() ?> | Time: <?= new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) ?></span>
+      <span>Employee ID: <span style="color: #1a73e8;"><?= employeeId ?></span></span>
+    </div>
+  </div>
+
+  <? if (ebayItems.length > 0) { ?>
+    <h3>eBay Items (<?= ebayItems.length ?> items)</h3>
+    <table>
+      <thead>
+        <tr>
+          <th style="width: 15%">SKU</th>
+          <th style="width: 6%">Qty</th>
+          <th style="width: 10%">Location</th>
+          <th style="width: 25%">Sales Order</th>
+          <th style="width: 12%">Status</th>
+          <th style="width: 8%" class="col-hand">◫ HAND</th>
+          <th style="width: 8%" class="col-left">◩ LEFT</th>
+        </tr>
+      </thead>
+      <tbody>
+        <? for (var i = 0; i < ebayItems.length; i++) { ?>
+          <tr>
+            <td><?= ebayItems[i][0] ?></td>
+            <td style="text-align: center; font-weight: 600;"><?= ebayItems[i][1] ?></td>
+            <td style="font-weight: 600; font-family: monospace;"><?= ebayItems[i][2] ?></td>
+            <td><?= ebayItems[i][3] ?></td>
+            <td><?= ebayItems[i][4] ?></td>
+            <td class="col-hand"><?= ebayItems[i][5] ?></td>
+            <td class="col-left"><?= ebayItems[i][6] ?></td>
+          </tr>
+        <? } ?>
+      </tbody>
+    </table>
+    
+    <? if (directItems.length > 0) { ?>
+      <div style="page-break-after: always;"></div>
+    <? } ?>
+    <? } ?>
+
+  <? if (directItems.length > 0) { ?>
+    <h3>DIRECT Items (<?= directItems.length ?> items)</h3>
+    <table>
+      <thead>
+        <tr>
+          <th style="width: 15%">SKU</th>
+          <th style="width: 6%">Qty</th>
+          <th style="width: 10%">Location</th>
+          <th style="width: 25%">Sales Order</th>
+          <th style="width: 12%">Status</th>
+          <th style="width: 8%" class="col-hand">◫ HAND</th>
+          <th style="width: 8%" class="col-left">◩ LEFT</th>
+        </tr>
+      </thead>
+      <tbody>
+        <? for (var i = 0; i < directItems.length; i++) { ?>
+          <tr>
+            <td><?= directItems[i][0] ?></td>
+            <td style="text-align: center; font-weight: 600;"><?= directItems[i][1] ?></td>
+            <td style="font-weight: 600; font-family: monospace;"><?= directItems[i][2] ?></td>
+            <td><?= directItems[i][3] ?></td>
+            <td><?= directItems[i][4] ?></td>
+            <td class="col-hand"><?= directItems[i][5] ?></td>
+            <td class="col-left"><?= directItems[i][6] ?></td>
+          </tr>
+        <? } ?>
+      </tbody>
+    </table>
+  <? } ?>
+
+  <!-- Summary Footer -->
+  <div style="margin-top: 30px; padding: 15px; background: #f5f5f5; border-radius: 8px; display: flex; justify-content: space-between; align-items: center;">
+    <div>
+      <strong>Total Items:</strong> <?= ebayItems.length + directItems.length ?>
+      <span style="margin-left: 20px;"><strong>eBay:</strong> <?= ebayItems.length ?></span>
+      <span style="margin-left: 20px;"><strong>Direct:</strong> <?= directItems.length ?></span>
+    </div>
+    <div style="font-size: 11px; color: #666;">
+      Generated: <?= new Date().toLocaleString() ?>
+    </div>
+  </div>
+
+  <script>
+    window.onload = function () {
+      setTimeout(function () {
+        window.print();
+      }, 500);
+    };
+  </script>
+
+</body>
+</html>

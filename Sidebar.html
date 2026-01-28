@@ -1,0 +1,1574 @@
+<!DOCTYPE html>
+<html>
+<head>
+<base target="_top">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+
+<style>
+/* HQ COMMAND CENTER v2.2 - PRODUCTION READY */
+
+:root {
+  --hq-gold: #D4AF37;
+  --hq-yellow: #F7CB4D;
+  --hq-yellow-light: #FFF8E7;
+  --bg-primary: #FAFAFA;
+  --bg-card: #FFFFFF;
+  --bg-charcoal: #212121;
+  --bg-terminal: #0a0a0a;
+  --text-primary: #212121;
+  --text-secondary: #616161;
+  --text-muted: #9E9E9E;
+  --text-light: #FFFFFF;
+  --text-terminal: #00ff00;
+  --status-pending: #D32F2F;
+  --status-preparing: #F7CB4D;
+  --status-shipped: #388E3C;
+  --border: #E8E8E8;
+  --border-hover: #D4AF37;
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.05);
+  --shadow-md: 0 4px 12px rgba(0,0,0,0.08);
+  --shadow-gold: 0 4px 15px rgba(212,175,55,0.25);
+  --ease-out: cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  --ease-spring: cubic-bezier(0.68, -0.55, 0.265, 1.55);
+}
+
+/* DARK THEME */
+body.dark-theme {
+  --bg-primary: #121212;
+  --bg-card: #1E1E1E;
+  --bg-charcoal: #0D0D0D;
+  --text-primary: #E0E0E0;
+  --text-secondary: #B0B0B0;
+  --text-muted: #707070;
+  --border: #2C2C2C;
+}
+
+body.dark-theme .header {
+  background: linear-gradient(135deg, #0a0a0a 0%, #1a1a1a 100%);
+}
+
+body.dark-theme .card {
+  background: var(--bg-card);
+  border-color: #2C2C2C;
+}
+
+body.dark-theme button {
+  background: #2C2C2C;
+  color: var(--text-primary);
+}
+
+body.dark-theme .btn-primary {
+  background: linear-gradient(135deg, #D4AF37 0%, #F7CB4D 100%);
+  color: #000;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: 'Roboto', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  font-size: 15px;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   COMPACT HEADER - Sleek & Polished
+   ═══════════════════════════════════════════════════════════════════════════════ */
+.header {
+  background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%);
+  padding: 8px 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+  border-bottom: 2px solid var(--hq-gold);
+  min-height: 52px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+}
+
+.brand-container {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.brand-logo-text {
+  width: 36px;
+  height: 36px;
+  border-radius: 6px;
+  background: linear-gradient(135deg, #D4AF37 0%, #F7CB4D 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 900;
+  font-size: 16px;
+  color: #000;
+  letter-spacing: -1px;
+  border: 2px solid #000;
+  box-shadow: 0 2px 8px rgba(212, 175, 55, 0.4);
+}
+
+.brand-info {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.brand-info h1 {
+  font-size: 14px;
+  margin: 0;
+  color: var(--hq-gold);
+  letter-spacing: 1.2px;
+  font-weight: 700;
+}
+
+.brand-clock {
+  font-family: 'Courier New', monospace;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--hq-yellow);
+  letter-spacing: 0.5px;
+}
+
+.system-status {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  margin-top: 1px;
+}
+
+.pulse-dot {
+  width: 6px;
+  height: 6px;
+  background-color: #4CAF50;
+  border-radius: 50%;
+  animation: pulse-green 2s infinite;
+}
+
+@keyframes pulse-green {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(76, 175, 80, 0.7); }
+  50% { box-shadow: 0 0 0 3px rgba(76, 175, 80, 0); }
+}
+
+.pulse-text {
+  font-size: 9px;
+  color: #4CAF50;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.top-controls {
+  display: flex;
+  gap: 5px;
+}
+
+.ctrl-btn {
+  cursor: pointer;
+  padding: 5px 7px;
+  border-radius: 4px;
+  background: rgba(255,255,255,0.08);
+  font-size: 13px;
+  transition: all 0.2s;
+  position: relative;
+}
+
+.ctrl-btn:hover {
+  background: var(--hq-gold);
+  color: #000;
+  transform: scale(1.05);
+}
+
+.ctrl-btn.muted { opacity: 0.5; }
+
+.ctrl-btn .badge {
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  min-width: 13px;
+  height: 13px;
+  background: var(--status-pending);
+  color: white;
+  font-size: 11px;
+  font-weight: 700;
+  border-radius: 7px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   COMPACT STATUS COUNTERS - 30% smaller, more space efficient
+   ═══════════════════════════════════════════════════════════════════════════════ */
+.quick-stats {
+  display: flex;
+  gap: 4px;
+  padding: 6px 8px;
+  background: linear-gradient(180deg, #f8f8f8 0%, #ffffff 100%);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.stat-pill {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 5px 4px;
+  border-radius: 8px;
+  cursor: default;
+  user-select: none;
+  transition: all 0.3s var(--ease-out);
+  position: relative;
+  overflow: hidden;
+}
+
+.stat-pill::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  border-radius: 8px 8px 0 0;
+}
+
+.stat-pill.pending {
+  background: linear-gradient(135deg, #FFEBEE 0%, #FFCDD2 100%);
+  border: 1px solid #FFCDD2;
+}
+.stat-pill.pending::before { background: var(--status-pending); }
+.stat-pill.pending .stat-count { color: var(--status-pending); }
+
+.stat-pill.pending.has-items {
+  animation: pulse-red 1.5s infinite;
+  box-shadow: 0 0 0 0 rgba(211, 47, 47, 0.4);
+}
+
+@keyframes pulse-red {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(211, 47, 47, 0.4); }
+  50% { box-shadow: 0 0 6px 1px rgba(211, 47, 47, 0.3); }
+}
+
+.stat-pill.preparing {
+  background: linear-gradient(135deg, #FFF8E1 0%, #FFECB3 100%);
+  border: 1px solid #FFE082;
+}
+.stat-pill.preparing::before { background: #F57C00; }
+.stat-pill.preparing .stat-count { color: #E65100; }
+
+.stat-pill.shipped {
+  background: linear-gradient(135deg, #E8F5E9 0%, #C8E6C9 100%);
+  border: 1px solid #A5D6A7;
+}
+.stat-pill.shipped::before { background: var(--status-shipped); }
+.stat-pill.shipped .stat-count { color: var(--status-shipped); }
+
+.stat-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  color: var(--text-muted);
+  margin-bottom: 1px;
+}
+
+.stat-count {
+  font-size: 16px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.stat-icon {
+  font-size: 11px;
+  margin-top: 1px;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   TERMINAL-STYLE STATUS BAR - Only for System Ready (polished look)
+   ═══════════════════════════════════════════════════════════════════════════════ */
+.status-bar {
+  padding: 5px 10px;
+  background: var(--bg-terminal);
+  flex-shrink: 0;
+  border-bottom: 1px solid #1a3a1a;
+}
+
+#status {
+  font-family: 'Courier New', 'Consolas', monospace;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-terminal);
+  padding: 6px 10px;
+  background: transparent;
+  border: 1px solid #1a3a1a;
+  border-radius: 4px;
+  text-align: left;
+  position: relative;
+  overflow: hidden;
+  text-shadow: 0 0 5px rgba(0, 255, 0, 0.5);
+  min-height: 28px;
+  display: flex;
+  align-items: center;
+}
+
+#status::before {
+  content: '>';
+  margin-right: 6px;
+  color: var(--hq-gold);
+  font-weight: bold;
+}
+
+#status.running {
+  color: #00bfff;
+  text-shadow: 0 0 5px rgba(0, 191, 255, 0.5);
+  border-color: #0a2a3a;
+}
+
+#status.running::after {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 12px;
+  background: #00bfff;
+  margin-left: 6px;
+  animation: blink 0.7s infinite;
+}
+
+@keyframes blink {
+  0%, 50% { opacity: 1; }
+  51%, 100% { opacity: 0; }
+}
+
+#status.success {
+  color: #00ff00;
+  text-shadow: 0 0 5px rgba(0, 255, 0, 0.5);
+  border-color: #1a3a1a;
+}
+
+#status.error {
+  color: #ff4444;
+  text-shadow: 0 0 5px rgba(255, 68, 68, 0.5);
+  border-color: #3a1a1a;
+}
+
+#status.syncing {
+  color: #ffaa00;
+  text-shadow: 0 0 5px rgba(255, 170, 0, 0.5);
+  border-color: #3a2a0a;
+}
+
+/* Subtle scanline effect */
+.status-bar::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    rgba(0, 0, 0, 0.05),
+    rgba(0, 0, 0, 0.05) 1px,
+    transparent 1px,
+    transparent 2px
+  );
+  pointer-events: none;
+  opacity: 0.4;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   MODULES AREA - More space for cards
+   ═══════════════════════════════════════════════════════════════════════════════ */
+#modules {
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex-grow: 1;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: #CCCCCC transparent;
+}
+
+#modules::-webkit-scrollbar { width: 4px; }
+#modules::-webkit-scrollbar-track { background: transparent; }
+#modules::-webkit-scrollbar-thumb { background: #CCCCCC; border-radius: 2px; }
+#modules::-webkit-scrollbar-thumb:hover { background: var(--hq-gold); }
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   CARDS - Sleek & Polished Design
+   ═══════════════════════════════════════════════════════════════════════════════ */
+.card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  transition: all 0.3s var(--ease-out);
+  box-shadow: var(--shadow-sm);
+  flex-shrink: 0;
+}
+
+.card:not(.collapsed) {
+  border-left: 3px solid var(--hq-gold);
+  box-shadow: 0 2px 8px rgba(212, 175, 55, 0.12);
+}
+
+/* DIRECT card distinction */
+.card[data-id="direct"]:not(.collapsed) {
+  border-left: 3px solid #2196F3;
+  box-shadow: 0 2px 8px rgba(33, 150, 243, 0.12);
+}
+
+.card[data-id="direct"] .card-icon {
+  background: #E3F2FD !important;
+}
+
+.card[data-id="direct"]:hover .card-icon {
+  background: #90CAF9 !important;
+}
+
+.card:hover {
+  border-color: var(--border-hover);
+  box-shadow: var(--shadow-md);
+}
+
+.card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 10px;
+  background: linear-gradient(180deg, #fafafa 0%, #f5f5f5 100%);
+  cursor: pointer;
+  transition: background 0.2s ease;
+  user-select: none;
+}
+
+.card-header:hover { background: var(--hq-yellow-light); }
+
+.card-title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.card-icon {
+  width: 24px;
+  height: 24px;
+  background: var(--hq-yellow-light);
+  border-radius: 5px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  transition: all 0.3s var(--ease-out);
+}
+
+.card:hover .card-icon { background: var(--hq-yellow); }
+
+.card-title h3 {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.card-toggle {
+  width: 16px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  font-size: 11px;
+  transition: transform 0.3s var(--ease-out);
+}
+
+.card.collapsed .card-toggle { transform: rotate(-90deg); }
+
+.card-body {
+  padding: 10px;
+  border-top: 1px solid var(--border);
+  max-height: 800px;
+  opacity: 1;
+  transition: max-height 0.4s ease, opacity 0.3s ease, padding 0.3s ease;
+  overflow: hidden;
+}
+
+.card.collapsed .card-body {
+  max-height: 0;
+  opacity: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+  border-top: 1px solid transparent;
+  pointer-events: none;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   UI ELEMENTS
+   ═══════════════════════════════════════════════════════════════════════════════ */
+.toggle-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 7px 8px;
+  background: var(--bg-primary);
+  border-radius: 5px;
+  margin-bottom: 6px;
+}
+
+.toggle-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.switch {
+  width: 34px;
+  height: 18px;
+  background: var(--border);
+  border-radius: 9px;
+  position: relative;
+  cursor: pointer;
+  transition: background 0.3s ease;
+}
+
+.switch::after {
+  content: '';
+  position: absolute;
+  width: 13px;
+  height: 13px;
+  background: white;
+  border-radius: 50%;
+  top: 2.5px;
+  left: 2.5px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.15);
+  transition: transform 0.3s var(--ease-spring);
+}
+
+.switch.on { background: var(--status-shipped); }
+.switch.on::after { transform: translateX(16px); }
+
+/* BUTTONS */
+button {
+  width: 100%;
+  padding: 8px;
+  margin-top: 5px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  background: var(--bg-card);
+  color: var(--text-primary);
+  transition: all 0.2s var(--ease-out);
+  outline: none;
+}
+
+button:hover {
+  border-color: var(--hq-gold);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-sm);
+}
+
+button:active { transform: translateY(0) scale(0.98); }
+button:disabled { opacity: 0.5; cursor: not-allowed; transform: none !important; }
+button:first-child { margin-top: 0; }
+
+.btn-primary {
+  background: linear-gradient(135deg, #D4AF37 0%, #F7CB4D 100%);
+  border: none;
+  color: #000;
+  box-shadow: 0 2px 5px rgba(212, 175, 55, 0.3);
+}
+
+.btn-danger { background: #FFEBEE; border-color: #FFCDD2; color: var(--status-pending); }
+.btn-success { background: #E8F5E9; border-color: #C8E6C9; color: var(--status-shipped); }
+.btn-dark { background: var(--bg-charcoal); border: none; color: var(--text-light); }
+.btn-warning { background: #FFF3E0; border-color: #FFE0B2; color: #E65100; }
+.btn-info { background: transparent; border: 1px solid var(--border); color: var(--text-secondary); }
+.btn-info:hover { background: #E3F2FD; border-color: #1565C0; color: #1565C0; }
+
+.btn-sync {
+  background: linear-gradient(135deg, #1976D2, #42A5F5);
+  border: none;
+  color: white;
+}
+
+.btn-sync:disabled { background: #90CAF9; }
+
+.btn-sync .sync-spinner {
+  display: none;
+  width: 11px;
+  height: 11px;
+  border: 2px solid rgba(255,255,255,0.3);
+  border-top-color: white;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.btn-sync.syncing .sync-spinner { display: inline-block; }
+.btn-sync.syncing .sync-icon { display: none; }
+
+.btn-group { display: flex; gap: 5px; margin-top: 6px; }
+.btn-group button { margin-top: 0; flex: 1; }
+.btn-group:first-child { margin-top: 0; }
+
+/* RANGE CONTROL */
+.range-control {
+  margin-top: 6px;
+  padding: 6px;
+  background: var(--bg-primary);
+  border-radius: 5px;
+}
+
+.range-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 3px;
+}
+
+.range-label {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+}
+
+.range-value {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--hq-gold);
+}
+
+input[type="range"] {
+  width: 100%;
+  height: 5px;
+  border-radius: 2.5px;
+  background: var(--border);
+  outline: none;
+  -webkit-appearance: none;
+  margin: 6px 0;
+  cursor: pointer;
+}
+
+input[type="range"]::-webkit-slider-track {
+  width: 100%;
+  height: 5px;
+  border-radius: 2.5px;
+  background: var(--border);
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--hq-gold), var(--hq-yellow));
+  cursor: grab;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.25);
+  transition: transform 0.1s ease;
+}
+
+input[type="range"]::-webkit-slider-thumb:hover {
+  transform: scale(1.1);
+}
+
+input[type="range"]::-webkit-slider-thumb:active {
+  cursor: grabbing;
+  transform: scale(1.2);
+}
+
+input[type="range"]::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--hq-gold), var(--hq-yellow));
+  cursor: grab;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.25);
+  border: none;
+  transition: transform 0.1s ease;
+}
+
+input[type="range"]::-moz-range-thumb:hover {
+  transform: scale(1.1);
+}
+
+input[type="range"]::-moz-range-thumb:active {
+  cursor: grabbing;
+  transform: scale(1.2);
+}
+
+.last-sync {
+  font-size: 9px;
+  color: var(--text-muted);
+  text-align: center;
+  padding: 3px;
+  margin-top: 3px;
+}
+
+/* COLOR LEGEND */
+.color-legend {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  margin-top: 6px;
+  padding: 5px;
+  background: var(--bg-primary);
+  border-radius: 4px;
+  font-size: 8px;
+  color: var(--text-secondary);
+}
+
+.legend-item { display: flex; align-items: center; gap: 3px; }
+
+.legend-color {
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  border: 1px solid rgba(0,0,0,0.1);
+}
+
+.legend-color.first { background: #dd7e6b; }
+.legend-color.dupe { background: #e6b8af; }
+
+/* Empty state hint */
+.empty-hint {
+  font-size: 9px;
+  color: var(--text-muted);
+  text-align: center;
+  padding: 3px;
+  opacity: 0.85;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   COMMAND PALETTE
+   ═══════════════════════════════════════════════════════════════════════════════ */
+#palette {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.7);
+  backdrop-filter: blur(5px);
+  display: none;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 40px;
+  z-index: 2000;
+}
+
+#palette.active { display: flex; animation: fadeIn 0.2s ease; }
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+.palette-box {
+  width: 92%;
+  max-width: 360px;
+  background: var(--bg-card);
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 8px 40px rgba(0,0,0,0.35);
+  border: 2px solid var(--hq-gold);
+}
+
+.palette-header {
+  padding: 9px 12px;
+  background: var(--bg-charcoal);
+  border-bottom: 2px solid var(--hq-gold);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.palette-icon { 
+  font-size: 15px; 
+  color: var(--hq-gold); 
+}
+
+.palette-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  font-size: 12px;
+  color: var(--text-light);
+  font-weight: 500;
+}
+
+.palette-input::placeholder {
+  color: var(--text-muted);
+}
+
+.palette-hint {
+  font-size: 9px;
+  font-weight: 700;
+  color: #000;
+  background: var(--hq-yellow);
+  padding: 3px 7px;
+  border-radius: 3px;
+  letter-spacing: 0.5px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+}
+
+/* Ensure the whole header is clickable for the dropdown */
+.card-header {
+  cursor: pointer;
+}
+
+/* Ensure only the handle shows the "move" cursor */
+.drag-handle {
+  cursor: grab !important;
+}
+
+.drag-handle:active {
+  cursor: grabbing !important;
+}
+
+/* Your existing visuals */
+.card.dragging {
+  opacity: 0.5;
+  border: 1px solid var(--hq-gold);
+}
+
+.card.drag-over {
+  border: 2px dashed var(--hq-gold) !important;
+}
+
+#cmdList { max-height: 220px; overflow-y: auto; }
+
+.cmd {
+  padding: 7px 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  transition: all 0.15s;
+  border-left: 3px solid transparent;
+}
+
+.cmd:hover, .cmd.active {
+  background: var(--hq-yellow-light);
+  border-left-color: var(--hq-gold);
+}
+
+.cmd-icon {
+  width: 22px;
+  height: 22px;
+  background: var(--bg-primary);
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+}
+
+.cmd:hover .cmd-icon, .cmd.active .cmd-icon { background: var(--hq-yellow); }
+
+.cmd-text { font-size: 11px; font-weight: 500; color: var(--text-primary); }
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   FOOTER
+   ═══════════════════════════════════════════════════════════════════════════════ */
+.footer {
+  padding: 5px 10px;
+  background: var(--bg-card);
+  border-top: 1px solid var(--border);
+  font-size: 9px;
+  color: var(--text-muted);
+  text-align: center;
+  flex-shrink: 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.footer-time { font-weight: 600; color: var(--text-secondary); }
+.footer-version { color: var(--text-muted); }
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   MOBILE RESPONSIVENESS
+   ═══════════════════════════════════════════════════════════════════════════════ */
+@media screen and (max-width: 380px) {
+  .header { padding: 7px 9px; }
+  .brand-logo-text { width: 32px; height: 32px; font-size: 14px; }
+  .brand-info h1 { font-size: 9px; }
+  .brand-clock { font-size: 10px; }
+  
+  .stat-pill { padding: 4px 3px; }
+  .stat-count { font-size: 14px; }
+  .stat-label { font-size: 6px; }
+  
+  .card-header { padding: 7px 9px; }
+  .card-body { padding: 9px; }
+  .card-icon { width: 20px; height: 20px; font-size: 10px; }
+  .card-title h3 { font-size: 9px; }
+  
+  button { padding: 7px; font-size: 8px; }
+  .btn-group { gap: 4px; }
+}
+
+@media screen and (max-height: 600px) {
+  .header { padding: 6px 9px; min-height: 48px; }
+  .brand-logo-text { width: 30px; height: 30px; font-size: 13px; }
+  .quick-stats { padding: 5px 7px; }
+  .stat-pill { padding: 4px 3px; }
+  .stat-count { font-size: 14px; }
+  #modules { padding: 7px; gap: 7px; }
+  .card-header { padding: 7px; }
+  .card-body { padding: 8px; }
+}
+
+
+/* Touch-friendly adjustments */
+@media (hover: none) and (pointer: coarse) {
+  button { padding: 10px; min-height: 40px; }
+  .switch { width: 40px; height: 22px; }
+  .switch::after { width: 17px; height: 17px; }
+  .switch.on::after { transform: translateX(18px); }
+  .ctrl-btn { padding: 7px 9px; }
+}
+</style>
+</head>
+
+<body>
+
+<div class="header">
+  <div class="brand-container">
+    <div class="brand-logo-text">HQ</div>
+    <div class="brand-info">
+      <h1>COMMAND CENTER</h1>
+      <div class="brand-clock" id="live-sidebar-clock">00:00:00 AM</div>
+      <div class="system-status">
+        <div class="pulse-dot"></div>
+        <span class="pulse-text">Online</span>
+      </div>
+    </div>
+  </div>
+  <div class="top-controls">
+    <div id="themeBtn" class="ctrl-btn" onclick="toggleTheme()">🌙</div>
+    <div id="muteBtn" class="ctrl-btn" onclick="toggleMute()" title="Toggle Sound">🔔</div>
+    <div class="ctrl-btn" onclick="openPalette()" title="Command Palette (Ctrl+K)">⌘</div>
+  </div>
+</div>
+
+<div class="quick-stats">
+  <div class="stat-pill pending" id="statPending">
+    <span class="stat-label">Pending</span>
+    <span class="stat-count" id="pendingCount">0</span>
+    <span class="stat-icon">🔴</span>
+  </div>
+  <div class="stat-pill preparing" id="statPreparing">
+    <span class="stat-label">Preparing</span>
+    <span class="stat-count" id="preparingCount">0</span>
+    <span class="stat-icon">🟡</span>
+  </div>
+  <div class="stat-pill shipped" id="statShipped">
+    <span class="stat-label">Shipped</span>
+    <span class="stat-count" id="shippedCount">0</span>
+    <span class="stat-icon">🟢</span>
+  </div>
+</div>
+
+<!-- Terminal section (System Ready only) -->
+<div class="status-bar">
+  <div id="status">System ready_</div>
+</div>
+
+<div id="modules">
+
+  <div class="card" data-id="ebay" draggable="true">
+    <div class="card-header" onclick="toggleCollapse(this)">
+      <div class="drag-handle" title="Drag to reorder">☰</div>
+      <div class="card-title"><div class="card-icon">🛒</div><h3>eBay Orders</h3></div>
+      <div class="card-toggle">▼</div>
+    </div>
+    <div class="card-body">
+      <button class="btn-sync" id="syncBtn" onclick="triggerN8NSync()">
+        <span class="sync-icon">📥</span><span class="sync-spinner"></span><span class="sync-text">Sync Orders</span>
+      </button>
+      <div class="last-sync" id="lastSync">Last sync: --</div>
+      <div class="btn-group">
+        <button onclick="run('runUpdateLocationsTableOne')"><span>📍</span> Locations</button>
+        <button onclick="run('sortEbayTable')"><span>🔤</span> Sort</button>
+      </div>
+      <button class="btn-danger" onclick="run('runDeleteEmptyRowsTableOne')"><span>🗑</span> Cleanup Rows</button>
+      <div class="range-control">
+        <div class="range-header"><span class="range-label">Insert Rows</span><span class="range-value" id="r1">10</span></div>
+        <input type="range" min="1" max="50" value="10" step="1" oninput="document.getElementById('r1').innerText=this.value">
+        <button class="btn-success" onclick="run('addRowsTableOne', Number(document.getElementById('r1').innerText))"><span>➕</span> Add Rows</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" data-id="duplicates" draggable="true">
+    <div class="card-header" onclick="toggleCollapse(this)">
+      <div class="drag-handle" title="Drag to reorder">☰</div>
+      <div class="card-title"><div class="card-icon">🔍</div><h3>Duplicate Check</h3></div>
+      <div class="card-toggle">▼</div>
+    </div>
+    <div class="card-body">
+      <div class="btn-group">
+        <button class="btn-warning" onclick="run('highlightAllDuplicates')"><span>🔍</span> Find</button>
+        <button class="btn-info" onclick="run('clearAllDuplicateHighlights')"><span>✨</span> Clear</button>
+      </div>
+      <div class="color-legend">
+        <div class="legend-item"><div class="legend-color first"></div><span>1st occurrence</span></div>
+        <div class="legend-item"><div class="legend-color dupe"></div><span>Duplicate</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" data-id="live" draggable="true">
+    <div class="card-header" onclick="toggleCollapse(this)">
+      <div class="drag-handle" title="Drag to reorder">☰</div>
+      <div class="card-title"><div class="card-icon">⚡</div><h3>Live Sync</h3></div>
+      <div class="card-toggle">▼</div>
+    </div>
+    <div class="card-body">
+      <div class="toggle-row">
+        <span class="toggle-label">Auto-Sync Enabled</span>
+        <div id="liveSwitch" class="switch" onclick="event.stopPropagation(); toggleLive()"></div>
+      </div>
+      <div class="toggle-row">
+        <span class="toggle-label">Focus Mode (Hide Shipped)</span>
+        <div id="focusSwitch" class="switch" onclick="toggleFocus()"></div>
+      </div>
+      <div class="btn-group">
+        <button onclick="run('updateDailyDate')"><span>📅</span> Clock</button>
+        <button onclick="run('refreshProDashboard')"><span>🔄</span> Refresh</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="card collapsed" data-id="direct" draggable="true">
+    <div class="card-header" onclick="toggleCollapse(this)">
+      <div class="drag-handle" title="Drag to reorder">☰</div>
+      <div class="card-title"><div class="card-icon">📦</div><h3>Direct Orders</h3></div>
+      <div class="card-toggle">▼</div>
+    </div>
+    <div class="card-body">
+      <div class="btn-group">
+        <button onclick="run('runUpdateLocationsTableTwo')"><span>📍</span> Locations</button>
+        <button onclick="run('sortDirectTable')"><span>🔤</span> Sort</button>
+      </div>
+      <button class="btn-danger" onclick="run('runDeleteEmptyRowsTableTwo')"><span>🗑</span> Cleanup Rows</button>
+      <div class="range-control">
+        <div class="range-header"><span class="range-label">Insert Rows</span><span class="range-value" id="r2">10</span></div>
+        <input type="range" min="1" max="50" value="10" step="1" oninput="document.getElementById('r2').innerText=this.value">
+        <button class="btn-success" onclick="run('addRowsTableTwo', Number(document.getElementById('r2').innerText))"><span>➕</span> Add Rows</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="card collapsed" data-id="fulfill" draggable="true">
+    <div class="card-header" onclick="toggleCollapse(this)">
+      <div class="drag-handle" title="Drag to reorder">☰</div>
+      <div class="card-title"><div class="card-icon">🚀</div><h3>Fulfillment</h3></div>
+      <div class="card-toggle">▼</div>
+    </div>
+    <div class="card-body">
+      <button class="btn-dark" onclick="run('markSelectedPreparing')"><span>📦</span> Mark Preparing</button>
+      <button class="btn-primary" onclick="run('preparePrintSheet')"><span>🖨</span> Print Pick List</button>
+    </div>
+  </div>
+
+  <div class="card collapsed" data-id="arcade" draggable="true">
+    <div class="card-header" onclick="toggleCollapse(this)">
+      <div class="drag-handle" title="Drag to reorder">☰</div>
+      <div class="card-title"><div class="card-icon">🎮</div><h3>HQ Operations: Snake</h3></div>
+      <div class="card-toggle">▼</div>
+    </div>
+    <div class="card-body">
+      <button class="btn-primary" onclick="openSnakeGame()"><span>🎮</span> Launch Game</button>
+      <div class="empty-hint">Take a break! Beat the high score.</div>
+    </div>
+  </div>
+
+</div>
+
+<div class="footer">
+  <span>Last activity: <span class="footer-time" id="lastActivity">--</span></span>
+  <span class="footer-version">v2.2</span>
+</div>
+
+<div id="palette">
+  <div class="palette-box">
+    <div class="palette-header">
+      <span class="palette-icon">⌘</span>
+      <input class="palette-input" id="cmdInput" placeholder="Search commands...">
+      <span class="palette-hint">ESC</span>
+    </div>
+    <div id="cmdList"></div>
+  </div>
+</div>
+
+<script>
+const status = document.getElementById('status');
+const statusMessages = [
+  'Awaiting command_',
+  'Systems operational_',
+  'Ready for deployment_',
+  'Standing by_'
+];
+
+function run(fn, param) {
+  status.className = 'running';
+  status.textContent = 'Processing..._';
+  
+  if (typeof google !== 'undefined' && google.script) {
+    google.script.run
+      .withSuccessHandler(function(result) {
+        status.className = 'success';
+        status.textContent = result || 'Complete_';
+        updateLastActivity();
+        refreshStats();
+        setTimeout(function() {
+          status.className = '';
+          status.textContent = statusMessages[Math.floor(Math.random() * statusMessages.length)];
+        }, 3000);
+      })
+      .withFailureHandler(function(err) {
+        status.className = 'error';
+        status.textContent = 'Error: ' + err.message;
+      })
+      [fn](param);
+  }
+}
+
+function updateLastActivity() {
+  var now = new Date();
+  var time = now.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+  document.getElementById('lastActivity').textContent = time;
+  localStorage.setItem('lastActivity', time);
+}
+
+var savedActivity = localStorage.getItem('lastActivity');
+if (savedActivity) document.getElementById('lastActivity').textContent = savedActivity;
+
+function refreshStats() {
+  if (typeof google !== 'undefined' && google.script) {
+    google.script.run
+      .withSuccessHandler(function(stats) {
+        document.getElementById('pendingCount').textContent = stats.pending;
+        document.getElementById('preparingCount').textContent = stats.preparing;
+        document.getElementById('shippedCount').textContent = stats.shipped;
+
+        var pendingPill = document.getElementById('statPending');
+        if (stats.pending > 0) {
+          pendingPill.classList.add('has-items');
+        } else {
+          pendingPill.classList.remove('has-items');
+        }
+      })
+      .getOrderStats();
+  }
+}
+
+if (typeof google !== 'undefined') {
+  refreshStats();
+  setInterval(refreshStats, 30000);
+}
+
+var isSyncing = false;
+var SYNC_COOLDOWN = 30000;
+
+function triggerN8NSync() {
+  var btn = document.getElementById('syncBtn');
+  if (isSyncing) {
+    status.className = 'error';
+    status.textContent = 'Sync in progress..._';
+    return;
+  }
+  isSyncing = true;
+  btn.classList.add('syncing');
+  btn.disabled = true;
+  status.className = 'syncing';
+  status.textContent = 'Connecting to eBay API..._';
+  
+  if (typeof google !== 'undefined' && google.script) {
+    google.script.run
+      .withSuccessHandler(function(result) {
+        status.className = 'success';
+        status.textContent = result || 'Sync complete_';
+        updateLastSync();
+        updateLastActivity();
+        refreshStats();
+        setTimeout(function() {
+          btn.classList.remove('syncing');
+          btn.disabled = false;
+          isSyncing = false;
+          status.className = '';
+          status.textContent = 'System ready_';
+        }, SYNC_COOLDOWN);
+      })
+      .withFailureHandler(function(err) {
+        status.className = 'error';
+        status.textContent = 'Sync failed: ' + err.message;
+        btn.classList.remove('syncing');
+        btn.disabled = false;
+        isSyncing = false;
+      })
+      .triggerN8NWebhook();
+  }
+}
+
+function updateLastSync() {
+  var now = new Date();
+  var time = now.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+  document.getElementById('lastSync').textContent = 'Last sync: ' + time;
+  localStorage.setItem('lastSync', time);
+}
+
+var savedSync = localStorage.getItem('lastSync');
+if (savedSync) document.getElementById('lastSync').textContent = 'Last sync: ' + savedSync;
+
+function toggleCollapse(header) {
+  // If the user clicked the drag handle, ignore the toggle collapse
+  if (event && event.target.closest('.drag-handle')) return;
+
+  var card = header.closest('.card');
+  card.classList.toggle('collapsed');
+  saveState();
+}
+
+function toggleLive() {
+  var sw = document.getElementById('liveSwitch');
+  sw.classList.toggle('on');
+  var newState = sw.classList.contains('on') ? 'ON' : 'OFF';
+  run('toggleLiveUpdate', newState);
+  if (newState === 'ON') setTimeout(function() { run('runUpdateLocationsTableOne'); }, 500);
+}
+
+function toggleFocus() {
+  var sw = document.getElementById('focusSwitch');
+  sw.classList.toggle('on');
+  var newState = sw.classList.contains('on') ? 'ON' : 'OFF';
+  // Implement focus mode logic here
+}
+
+function saveState() {
+  var collapsed = Array.from(document.querySelectorAll('.card.collapsed')).map(function(c) { return c.dataset.id; });
+  localStorage.setItem('proCollapsed', JSON.stringify(collapsed));
+}
+
+var savedCollapsed = localStorage.getItem('proCollapsed');
+if (savedCollapsed) {
+  JSON.parse(savedCollapsed).forEach(function(id) {
+    var card = document.querySelector('[data-id="'+id+'"]');
+    if (card) card.classList.add('collapsed');
+  });
+}
+
+if (typeof google !== 'undefined') {
+  google.script.run.withSuccessHandler(function(state) {
+    var sw = document.getElementById('liveSwitch');
+    if (state === 'ON') sw.classList.add('on');
+  }).getLiveUpdateState();
+}
+
+// Command Palette
+var palette = document.getElementById('palette');
+var cmdInput = document.getElementById('cmdInput');
+var cmdList = document.getElementById('cmdList');
+
+var commands = [
+  ['📥', 'Sync eBay Orders', 'triggerN8NWebhook'],
+  ['📍', 'Update Locations (eBay)', 'runUpdateLocationsTableOne'],
+  ['📍', 'Update Locations (Direct)', 'runUpdateLocationsTableTwo'],
+  ['🔤', 'Sort eBay Table', 'sortEbayTable'],
+  ['🔤', 'Sort Direct Table', 'sortDirectTable'],
+  ['🔍', 'Find Duplicates', 'highlightAllDuplicates'],
+  ['✨', 'Clear Highlights', 'clearAllDuplicateHighlights'],
+  ['🗑', 'Cleanup eBay Table', 'runDeleteEmptyRowsTableOne'],
+  ['🗑', 'Cleanup Direct Table', 'runDeleteEmptyRowsTableTwo'],
+  ['🖨', 'Print Pick List', 'preparePrintSheet'],
+  ['📦', 'Mark as Preparing', 'markSelectedPreparing'],
+  ['📅', 'Update Clock', 'updateDailyDate'],
+  ['🔄', 'Refresh Dashboard', 'refreshProDashboard'],
+  ['🎮', 'Launch Snake Game', 'openSnakeGame']
+];
+
+var cmdIndex = 0;
+
+function openPalette() {
+  palette.classList.add('active');
+  cmdInput.focus();
+  cmdInput.value = '';
+  renderCommands('');
+}
+
+document.addEventListener('keydown', function(e) {
+  if ((e.ctrlKey || e.metaKey) && e.key === 'k') { 
+    e.preventDefault(); 
+    openPalette(); 
+  }
+  if (e.key === 'Escape' && palette.classList.contains('active')) {
+    e.preventDefault();
+    palette.classList.remove('active');
+  }
+  if (palette.classList.contains('active')) {
+    if (e.key === 'ArrowDown') { e.preventDefault(); cmdIndex++; highlightCmd(); }
+    if (e.key === 'ArrowUp') { e.preventDefault(); cmdIndex--; highlightCmd(); }
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      var items = cmdList.children;
+      if (items[cmdIndex]) items[cmdIndex].click();
+    }
+  }
+});
+
+palette.addEventListener('click', function(e) {
+  if (e.target === palette) palette.classList.remove('active');
+});
+
+cmdInput.addEventListener('input', function() { renderCommands(cmdInput.value); });
+
+function renderCommands(query) {
+  cmdList.innerHTML = '';
+  cmdIndex = 0;
+  var filtered = commands.filter(function(c) {
+    return c[1].toLowerCase().indexOf(query.toLowerCase()) !== -1;
+  });
+  filtered.forEach(function(cmd, i) {
+    var div = document.createElement('div');
+    div.className = 'cmd' + (i === 0 ? ' active' : '');
+    div.innerHTML = '<div class="cmd-icon">' + cmd[0] + '</div><span class="cmd-text">' + cmd[1] + '</span>';
+    div.onclick = function() { 
+      palette.classList.remove('active'); 
+      if (cmd[2] === 'openSnakeGame') {
+        openSnakeGame();
+      } else {
+        run(cmd[2]); 
+      }
+    };
+    cmdList.appendChild(div);
+  });
+}
+
+function highlightCmd() {
+  var items = cmdList.children;
+  cmdIndex = Math.max(0, Math.min(cmdIndex, items.length - 1));
+  Array.from(items).forEach(function(c, i) {
+    if (i === cmdIndex) c.classList.add('active');
+    else c.classList.remove('active');
+  });
+}
+
+// Mute functionality
+var isMuted = localStorage.getItem('proMuted') === 'true';
+var lastPending = -1;
+var newOrderCount = 0;
+
+function toggleMute() {
+  isMuted = !isMuted;
+  localStorage.setItem('proMuted', isMuted);
+  updateMuteBtn();
+  newOrderCount = 0;
+  updateBadge();
+}
+
+function updateMuteBtn() {
+  var btn = document.getElementById('muteBtn');
+  if (isMuted) btn.classList.add('muted');
+  else btn.classList.remove('muted');
+  btn.textContent = isMuted ? '🔕' : '🔔';
+}
+
+function updateBadge() {
+  var btn = document.getElementById('muteBtn');
+  var existing = btn.querySelector('.badge');
+  if (existing) existing.remove();
+  if (newOrderCount > 0 && !isMuted) {
+    var badge = document.createElement('span');
+    badge.className = 'badge';
+    badge.textContent = newOrderCount > 9 ? '9+' : newOrderCount;
+    btn.appendChild(badge);
+  }
+}
+
+updateMuteBtn();
+
+// Live Clock
+function startLiveClock() {
+  const clockElement = document.getElementById('live-sidebar-clock');
+  
+  function updateClock() {
+    const now = new Date();
+    const houstonTime = now.toLocaleTimeString('en-US', {
+      timeZone: 'America/Chicago',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: true
+    });
+    clockElement.textContent = houstonTime;
+  }
+  
+  updateClock();
+  setInterval(updateClock, 1000);
+}
+
+startLiveClock();
+
+// Snake Game - FIXED
+function openSnakeGame() {
+  if (typeof google !== 'undefined' && google.script) {
+    google.script.run
+      .withSuccessHandler(function(html) {
+        if (html) {
+          var newWindow = window.open('', 'HQ Operations: Snake', 'width=320,height=540,menubar=no,toolbar=no,location=no,scrollbars=no');
+          if (newWindow) {
+            newWindow.document.open();
+            newWindow.document.write(html);
+            newWindow.document.close();
+          } else {
+            status.className = 'error';
+            status.textContent = 'Pop-up blocked! Allow pop-ups to play.';
+          }
+        } else {
+          status.className = 'error';
+          status.textContent = 'Game file not found';
+        }
+      })
+      .withFailureHandler(function(err) {
+        status.className = 'error';
+        status.textContent = 'Failed to load game: ' + err.message;
+      })
+      .include('Snake');
+  } else {
+    alert('Game requires Apps Script environment');
+  }
+}
+
+// DARK THEME TOGGLE
+var isDark = localStorage.getItem('hq-theme') === 'dark';
+
+function toggleTheme() {
+  isDark = !isDark;
+  document.body.classList.toggle('dark-theme', isDark);
+  localStorage.setItem('hq-theme', isDark ? 'dark' : 'light');
+  document.getElementById('themeBtn').textContent = isDark ? '☀️' : '🌙';
+}
+
+if (isDark) {
+  document.body.classList.add('dark-theme');
+  document.getElementById('themeBtn').textContent = '☀️';
+}
+
+// Initial animation
+setTimeout(function() {
+  status.textContent = 'HQ Command Center v2.2 online_';
+  setTimeout(function() {
+    status.textContent = 'System ready_';
+  }, 2000);
+}, 500);
+
+function openSnakeGame() {
+    // This tells Google to run the function in your main.gs
+    google.script.run.showSnakeSidebar();
+  }
+
+/* === CARD DRAG & DROP REORDER === */
+
+const moduleContainer = document.getElementById('modules');
+let draggedCard = null;
+let isHandleClicked = false; // Flag to track if the drag started on the handle
+
+// 1. Restore order from LocalStorage
+function restoreCardOrder() {
+  const saved = localStorage.getItem('cardOrder');
+  if (!saved) return;
+
+  const order = JSON.parse(saved);
+  const cards = {};
+  document.querySelectorAll('.card').forEach(c => {
+    cards[c.dataset.id] = c;
+  });
+
+  order.forEach(id => {
+    if (cards[id]) moduleContainer.appendChild(cards[id]);
+  });
+}
+
+function saveCardOrder() {
+  const order = Array.from(document.querySelectorAll('.card'))
+    .map(card => card.dataset.id);
+  localStorage.setItem('cardOrder', JSON.stringify(order));
+}
+
+restoreCardOrder();
+
+// 2. Event Listeners for Reordering
+// Use mousedown to detect if the user specifically grabbed the handle
+moduleContainer.addEventListener('mousedown', (e) => {
+  isHandleClicked = !!e.target.closest('.drag-handle');
+});
+
+moduleContainer.addEventListener('dragstart', (e) => {
+  const card = e.target.closest('.card');
+  
+  // Only allow drag if the handle was the starting point
+  if (isHandleClicked && card) {
+    draggedCard = card;
+    card.classList.add('dragging');
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', card.dataset.id);
+  } else {
+    e.preventDefault(); // Cancel drag if not started on handle
+  }
+});
+
+moduleContainer.addEventListener('dragend', () => {
+  if (draggedCard) draggedCard.classList.remove('dragging');
+  document.querySelectorAll('.card').forEach(c => c.classList.remove('drag-over'));
+  draggedCard = null;
+  isHandleClicked = false;
+  saveCardOrder();
+});
+
+moduleContainer.addEventListener('dragover', (e) => {
+  e.preventDefault();
+  const overCard = e.target.closest('.card');
+  if (overCard && overCard !== draggedCard) {
+    overCard.classList.add('drag-over');
+  }
+});
+
+moduleContainer.addEventListener('dragleave', (e) => {
+  const overCard = e.target.closest('.card');
+  if (overCard) overCard.classList.remove('drag-over');
+});
+
+moduleContainer.addEventListener('drop', (e) => {
+  e.preventDefault();
+  const dropTarget = e.target.closest('.card');
+  if (!draggedCard || !dropTarget || draggedCard === dropTarget) return;
+
+  dropTarget.classList.remove('drag-over');
+
+  // Logic: Check if dropping on top or bottom half of the target card
+  const rect = dropTarget.getBoundingClientRect();
+  const midpoint = (e.clientY - rect.top) / (rect.bottom - rect.top);
+  
+  if (midpoint > 0.5) {
+    moduleContainer.insertBefore(draggedCard, dropTarget.nextSibling);
+  } else {
+    moduleContainer.insertBefore(draggedCard, dropTarget);
+  }
+});
+
+</script>
+
+</body>
+</html>
