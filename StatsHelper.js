@@ -1,5 +1,5 @@
 // =======================================================================================
-// STATS_HELPER.gs - v3.0 - Support Sidebar Notifications
+// STATS_HELPER.gs - v3.1 - Added CANCELED Support
 // =======================================================================================
 
 /**
@@ -13,7 +13,7 @@ function getOrderStats() {
   var sheet = ss.getSheetByName(MAIN_SHEET_NAME);
   
   if (!sheet) {
-    return { pending: 0, preparing: 0, shipped: 0 };
+    return { pending: 0, preparing: 0, shipped: 0, canceled: 0 };
   }
   
   var boundary = getBoundaryRow();
@@ -23,7 +23,8 @@ function getOrderStats() {
   var stats = {
     pending: 0,
     preparing: 0,
-    shipped: 0
+    shipped: 0,
+    canceled: 0  // ✅ Added
   };
   
   if (endRow < startRow) {
@@ -42,6 +43,8 @@ function getOrderStats() {
       stats.preparing++;
     } else if (status === 'SHIPPED') {
       stats.shipped++;
+    } else if (status === 'CANCELED') {  // ✅ Added
+      stats.canceled++;
     }
   });
   
@@ -57,5 +60,6 @@ function getStatsMessage() {
   var stats = getOrderStats();
   return "📊 PENDING: " + stats.pending + 
          " | PREPARING: " + stats.preparing + 
-         " | SHIPPED: " + stats.shipped;
+         " | SHIPPED: " + stats.shipped +
+         " | CANCELED: " + stats.canceled;  // ✅ Added
 }
