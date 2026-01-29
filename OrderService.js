@@ -544,9 +544,10 @@ function findAndUpdateOrder(orderId, newStatus) {
       currentStatus = String(data[i][5]).toUpperCase();
       
       // ✨ IMPORTANT: Return current status if SHIPPED
-      if (currentStatus === "SHIPPED") {
-        logDebug("Row " + actualRow + " is already SHIPPED. Cannot revert.");
-        return { found: true, count: 0, currentStatus: "SHIPPED" };
+      // Prevent reverting from final states
+      if (currentStatus === "SHIPPED" || currentStatus === "CANCELED") {
+        logDebug("Row " + actualRow + " is already " + currentStatus + ". Cannot revert.");
+        return { found: true, count: 0, currentStatus: currentStatus };
       }
 
       // Update the status
@@ -598,37 +599,40 @@ function updateMessageStatus(chatId, messageId, originalText, orderId, newStatus
   var statusEmoji = "";
   var statusText = "";
   
-  if (newStatus === "SHIPPED") {
-    statusEmoji = "✅";
-    statusText = "SHIPPED - Order Complete!";
-  } else if (newStatus === "PREPARING") {
-    statusEmoji = "🟡";
-    statusText = "PREPARING";
-  } else {
-    statusEmoji = "🔴";
-    statusText = "PENDING";
-  }
+if (newStatus === "SHIPPED") {
+  statusEmoji = "✅";
+  statusText = "SHIPPED - Order Complete!";
+} else if (newStatus === "CANCELED") {
+  statusEmoji = "❌";
+  statusText = "CANCELED - Order Cancelled";
+} else if (newStatus === "PREPARING") {
+  statusEmoji = "🟡";
+  statusText = "PREPARING";
+} else {
+  statusEmoji = "🔴";
+  statusText = "PENDING";
+}
   
   var newText = cleanText + "\n\n📋 Status: " + statusEmoji + " " + statusText;
   
   // ✨ NO buttons if SHIPPED!
   var keyboard = null;
   
-  if (newStatus === "SHIPPED") {
-    keyboard = { "inline_keyboard": [] };  // NO BUTTONS
-  } else if (newStatus === "PENDING") {
-    keyboard = { 
-      "inline_keyboard": [
-        [{ "text": "🚀 Mark as Preparing", "callback_data": "PREP_" + orderId }]
-      ] 
-    };
-  } else if (newStatus === "PREPARING") {
-    keyboard = { 
-      "inline_keyboard": [
-        [{ "text": "🔄 Revert to Pending", "callback_data": "PEND_" + orderId }]
-      ] 
-    };
-  }
+if (newStatus === "SHIPPED" || newStatus === "CANCELED") {
+  keyboard = { "inline_keyboard": [] };  // NO BUTTONS for final states
+} else if (newStatus === "PENDING") {
+  keyboard = { 
+    "inline_keyboard": [
+      [{ "text": "🚀 Mark as Preparing", "callback_data": "PREP_" + orderId }]
+    ] 
+  };
+} else if (newStatus === "PREPARING") {
+  keyboard = { 
+    "inline_keyboard": [
+      [{ "text": "🔄 Revert to Pending", "callback_data": "PEND_" + orderId }]
+    ] 
+  };
+}
   
   var payload = {
     "chat_id": chatId,
@@ -756,29 +760,44 @@ function getOrderStats() {
   var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(MAIN_SHEET_NAME);
   if (!sheet) throw new Error("Main sheet not found");
   var lastRow = sheet.getLastRow();
-  if (lastRow < DATA_START_ROW) return { pending: 0, preparing: 0, shipped: 0 };
-  var statuses = sheet.getRange(DATA_START_ROW, 6, lastRow - DATA_START_ROW + 1, 1).getValues().flat();
-  var stats = { pending: 0, preparing: 0, shipped: 0 };
-  statuses.forEach(function(s) {
-    s = String(s).trim().toUpperCase();
-    if (s === 'PENDING') stats.pending++;
-    else if (s === 'PREPARING') stats.preparing++;
-    else if (s === 'SHIPPED') stats.shipped++;
-  });
-  return stats;
+if (lastRow < DATA_START_ROW) return { pending: 0, preparing: 0, shipped: 0, canceled: 0 };
+var statuses = sheet.getRange(DATA_START_ROW, 6, lastRow - DATA_START_ROW + 1, 1).getValues().flat();
+var stats = { pending: 0, preparing: 0, shipped: 0, canceled: 0 };
+statuses.forEach(function(s) {
+  s = String(s).trim().toUpperCase();
+  if (s === 'PENDING') stats.pending++;
+  else if (s === 'PREPARING') stats.preparing++;
+  else if (s === 'SHIPPED') stats.shipped++;
+  else if (s === 'CANCELED') stats.canceled++;
+});
+return stats;
 }
 
 function updateOrderStatsInSheet() {
   var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(MAIN_SHEET_NAME);
   if (!sheet) return;
+  
   var stats = getOrderStats();
-  var text = "🔴 Pending: " + stats.pending + "   🟡 Preparing: " + stats.preparing + "   🟢 Shipped Today: " + stats.shipped;
+  
+  // ✅ Updated to include CANCELED
+  var text = "🔴 Pending: " + stats.pending + 
+             "   🟡 Preparing: " + stats.preparing + 
+             "   🟢 Shipped: " + stats.shipped +
+             "   ⚫ Canceled: " + stats.canceled;
+  
   var range = sheet.getRange('F1:H1');
   try { range.breakApart(); } catch(e) {}
   range.merge();
-  sheet.getRange('F1').setValue(text).setFontWeight('bold').setFontSize(11)
-    .setHorizontalAlignment('left').setVerticalAlignment('middle')
-    .setBackground('#212121').setFontColor('#FFFFFF').setWrap(false);
+  
+  sheet.getRange('F1')
+    .setValue(text)
+    .setFontWeight('bold')
+    .setFontSize(11)
+    .setHorizontalAlignment('left')
+    .setVerticalAlignment('middle')
+    .setBackground('#212121')
+    .setFontColor('#FFFFFF')
+    .setWrap(false);
 }
 
 function updateLastSyncTimestamp() {
@@ -802,7 +821,7 @@ function sortTableByStatusAndLocation(tableNumber) {
   var numRows = lastDataRow - startRow + 1;
   var range = sheet.getRange(startRow, 1, numRows, 8);
   var data = range.getValues();
-  var statusOrder = { 'PENDING': 1, 'PREPARING': 2, 'SHIPPED': 3, '': 4 };
+  var statusOrder = { 'PENDING': 1, 'PREPARING': 2, 'SHIPPED': 3, 'CANCELED': 4, '': 5 };
   data.sort(function(a, b) {
     var sA = String(a[5] || '').trim().toUpperCase();
     var sB = String(b[5] || '').trim().toUpperCase();
