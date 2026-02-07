@@ -80,37 +80,48 @@ function preparePrintSheet() {
  * Changes the status in Column F to "PREPARING" and syncs to Telegram.
  */
 function markSelectedPreparing() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var sheet = ss.getSheetByName(MAIN_SHEET_NAME);
-  var range = ss.getActiveRange();
-  if (!range) return;
-
-  var startRow = range.getRow();
-  var numRows = range.getNumRows();
-
-  if (startRow < DATA_START_ROW) {
-    var adj = DATA_START_ROW - startRow;
-    startRow = DATA_START_ROW;
-    numRows -= adj;
+  var lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(15000);
+  } catch (e) {
+    return "Server busy, please try again.";
   }
-  if (numRows <= 0) return;
 
-  // 1. Batch Update the Sheet
-  var statusRange = sheet.getRange(startRow, 6, numRows, 1);
-  var values = Array(numRows).fill(["PREPARING"]);
-  statusRange.setValues(values);
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var sheet = ss.getSheetByName(MAIN_SHEET_NAME);
+    var range = ss.getActiveRange();
+    if (!range) return;
 
-  // 2. Sync each unique Order ID in the selection to Telegram
-  var orderIdData = sheet.getRange(startRow, 4, numRows, 1).getValues();
-  var processedIds = new Set();
+    var startRow = range.getRow();
+    var numRows = range.getNumRows();
 
-  for (var i = 0; i < orderIdData.length; i++) {
-    var id = orderIdData[i][0];
-    if (id && !processedIds.has(id)) {
-      syncStatusToTelegram(id, "PREPARING");
-      processedIds.add(id);
+    if (startRow < DATA_START_ROW) {
+      var adj = DATA_START_ROW - startRow;
+      startRow = DATA_START_ROW;
+      numRows -= adj;
     }
-  }
+    if (numRows <= 0) return;
 
-  updateOrderStatsInSheet();
+    // 1. Batch Update the Sheet
+    var statusRange = sheet.getRange(startRow, 6, numRows, 1);
+    var values = Array(numRows).fill(["PREPARING"]);
+    statusRange.setValues(values);
+
+    // 2. Sync each unique Order ID in the selection to Telegram
+    var orderIdData = sheet.getRange(startRow, 4, numRows, 1).getValues();
+    var processedIds = new Set();
+
+    for (var i = 0; i < orderIdData.length; i++) {
+      var id = orderIdData[i][0];
+      if (id && !processedIds.has(id)) {
+        syncStatusToTelegram(id, "PREPARING");
+        processedIds.add(id);
+      }
+    }
+
+    updateOrderStatsInSheet();
+  } finally {
+    lock.releaseLock();
+  }
 }

@@ -5,42 +5,105 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 
 <style>
-/* HQ COMMAND CENTER v2.2 - PRODUCTION READY */
+/* ═══════════════════════════════════════════════════════════════════════════════
+   HQ COMMAND CENTER v2.3 - PRODUCTION READY
+   Unified Typography + Complete Dark Theme + Card Accents//
+   ═══════════════════════════════════════════════════════════════════════════════ */
 
 :root {
+  /* === FONT SCALE SYSTEM === */
+  --font-scale: 1;
+  --fs-2xs: calc(8px * var(--font-scale));
+  --fs-xs: calc(9px * var(--font-scale));
+  --fs-sm: calc(10px * var(--font-scale));
+  --fs-base: calc(11px * var(--font-scale));
+  --fs-md: calc(12px * var(--font-scale));
+  --fs-lg: calc(14px * var(--font-scale));
+  --fs-xl: calc(16px * var(--font-scale));
+  --fs-2xl: calc(18px * var(--font-scale));
+
+  /* === BRAND COLORS === */
   --hq-gold: #D4AF37;
   --hq-yellow: #F7CB4D;
   --hq-yellow-light: #FFF8E7;
+
+  /* === CARD ACCENT COLORS === */
+  --accent-ebay: #D4AF37;
+  --accent-duplicates: #FF9800;
+  --accent-live: #4CAF50;
+  --accent-direct: #2196F3;
+  --accent-fulfill: #9C27B0;
+  --accent-arcade: #E91E63;
+
+  /* === SURFACE COLORS === */
   --bg-primary: #FAFAFA;
+  --bg-secondary: #F5F5F5;
   --bg-card: #FFFFFF;
+  --bg-card-header: linear-gradient(180deg, #fafafa 0%, #f5f5f5 100%);
+  --bg-card-header-hover: #FFF8E7;
   --bg-charcoal: #212121;
   --bg-terminal: #0a0a0a;
+  --bg-stats: linear-gradient(180deg, #f8f8f8 0%, #ffffff 100%);
+
+  /* === TEXT COLORS === */
   --text-primary: #212121;
   --text-secondary: #616161;
   --text-muted: #9E9E9E;
   --text-light: #FFFFFF;
   --text-terminal: #00ff00;
+
+  /* === STATUS COLORS === */
   --status-pending: #D32F2F;
-  --status-preparing: #F7CB4D;
+  --status-pending-bg: linear-gradient(135deg, #FFEBEE 0%, #FFCDD2 100%);
+  --status-pending-border: #FFCDD2;
+  --status-preparing: #F57C00;
+  --status-preparing-bg: linear-gradient(135deg, #FFF8E1 0%, #FFECB3 100%);
+  --status-preparing-border: #FFE082;
   --status-shipped: #388E3C;
+  --status-shipped-bg: linear-gradient(135deg, #E8F5E9 0%, #C8E6C9 100%);
+  --status-shipped-border: #A5D6A7;
+
+  /* === BORDERS & SHADOWS === */
   --border: #E8E8E8;
   --border-hover: #D4AF37;
   --shadow-sm: 0 1px 2px rgba(0,0,0,0.05);
   --shadow-md: 0 4px 12px rgba(0,0,0,0.08);
+  --shadow-lg: 0 8px 24px rgba(0,0,0,0.12);
   --shadow-gold: 0 4px 15px rgba(212,175,55,0.25);
+
+  /* === ANIMATIONS === */
   --ease-out: cubic-bezier(0.25, 0.46, 0.45, 0.94);
   --ease-spring: cubic-bezier(0.68, -0.55, 0.265, 1.55);
 }
 
-/* DARK THEME */
+/* ═══════════════════════════════════════════════════════════════════════════════
+   DARK THEME - Complete Coverage
+   ═══════════════════════════════════════════════════════════════════════════════ */
 body.dark-theme {
   --bg-primary: #121212;
+  --bg-secondary: #1A1A1A;
   --bg-card: #1E1E1E;
+  --bg-card-header: linear-gradient(180deg, #252525 0%, #1E1E1E 100%);
+  --bg-card-header-hover: #2A2A2A;
   --bg-charcoal: #0D0D0D;
+  --bg-terminal: #050505;
+  --bg-stats: linear-gradient(180deg, #1A1A1A 0%, #121212 100%);
+
   --text-primary: #E0E0E0;
   --text-secondary: #B0B0B0;
   --text-muted: #707070;
+
+  --status-pending-bg: linear-gradient(135deg, #2D1A1A 0%, #3D2020 100%);
+  --status-pending-border: #5D2020;
+  --status-preparing-bg: linear-gradient(135deg, #2D2A1A 0%, #3D3520 100%);
+  --status-preparing-border: #5D4520;
+  --status-shipped-bg: linear-gradient(135deg, #1A2D1A 0%, #203D20 100%);
+  --status-shipped-border: #205D20;
+
   --border: #2C2C2C;
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.3);
+  --shadow-md: 0 4px 12px rgba(0,0,0,0.4);
+  --shadow-lg: 0 8px 24px rgba(0,0,0,0.5);
 }
 
 body.dark-theme .header {
@@ -49,12 +112,25 @@ body.dark-theme .header {
 
 body.dark-theme .card {
   background: var(--bg-card);
-  border-color: #2C2C2C;
+  border-color: var(--border);
+}
+
+body.dark-theme .card-header {
+  background: var(--bg-card-header);
+}
+
+body.dark-theme .card-header:hover {
+  background: var(--bg-card-header-hover);
 }
 
 body.dark-theme button {
   background: #2C2C2C;
   color: var(--text-primary);
+  border-color: var(--border);
+}
+
+body.dark-theme button:hover {
+  border-color: var(--hq-gold);
 }
 
 body.dark-theme .btn-primary {
@@ -62,6 +138,92 @@ body.dark-theme .btn-primary {
   color: #000;
 }
 
+body.dark-theme .btn-danger {
+  background: #3D2020;
+  border-color: #5D2020;
+  color: #FF6B6B;
+}
+
+body.dark-theme .btn-success {
+  background: #1A3D1A;
+  border-color: #205D20;
+  color: #66BB6A;
+}
+
+body.dark-theme .btn-warning {
+  background: #3D3520;
+  border-color: #5D4520;
+  color: #FFB74D;
+}
+
+body.dark-theme .btn-info {
+  background: transparent;
+  border-color: var(--border);
+  color: var(--text-secondary);
+}
+
+body.dark-theme .btn-info:hover {
+  background: #1A2D3D;
+  border-color: #1565C0;
+  color: #64B5F6;
+}
+
+body.dark-theme .btn-dark {
+  background: #0D0D0D;
+  color: var(--text-light);
+}
+
+body.dark-theme .toggle-row {
+  background: var(--bg-secondary);
+}
+
+body.dark-theme .range-control {
+  background: var(--bg-secondary);
+}
+
+body.dark-theme .color-legend {
+  background: var(--bg-secondary);
+}
+
+body.dark-theme .cmd:hover,
+body.dark-theme .cmd.active {
+  background: #2A2A2A;
+}
+
+body.dark-theme .cmd-icon {
+  background: var(--bg-secondary);
+}
+
+body.dark-theme .cmd:hover .cmd-icon,
+body.dark-theme .cmd.active .cmd-icon {
+  background: var(--hq-gold);
+  color: #000;
+}
+
+body.dark-theme .palette-box {
+  background: var(--bg-card);
+}
+
+body.dark-theme input[type="range"] {
+  background: var(--border);
+}
+
+body.dark-theme input[type="range"]::-webkit-slider-track {
+  background: var(--border);
+}
+
+/* === SCROLLBAR DARK THEME === */
+body.dark-theme #modules::-webkit-scrollbar-thumb {
+  background: #444;
+}
+
+body.dark-theme #modules::-webkit-scrollbar-thumb:hover {
+  background: var(--hq-gold);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   BASE RESET & BODY
+   ═══════════════════════════════════════════════════════════════════════════════ */
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
 body {
@@ -74,11 +236,11 @@ body {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  font-size: 15px;
+  font-size: var(--fs-base);
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════════
-   COMPACT HEADER - Sleek & Polished
+   COMPACT HEADER
    ═══════════════════════════════════════════════════════════════════════════════ */
 .header {
   background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%);
@@ -107,7 +269,7 @@ body {
   align-items: center;
   justify-content: center;
   font-weight: 900;
-  font-size: 16px;
+  font-size: var(--fs-xl);
   color: #000;
   letter-spacing: -1px;
   border: 2px solid #000;
@@ -121,7 +283,7 @@ body {
 }
 
 .brand-info h1 {
-  font-size: 14px;
+  font-size: var(--fs-lg);
   margin: 0;
   color: var(--hq-gold);
   letter-spacing: 1.2px;
@@ -130,7 +292,7 @@ body {
 
 .brand-clock {
   font-family: 'Courier New', monospace;
-  font-size: 14px;
+  font-size: var(--fs-lg);
   font-weight: 700;
   color: var(--hq-yellow);
   letter-spacing: 0.5px;
@@ -157,7 +319,7 @@ body {
 }
 
 .pulse-text {
-  font-size: 9px;
+  font-size: var(--fs-xs);
   color: #4CAF50;
   text-transform: uppercase;
   letter-spacing: 0.3px;
@@ -173,7 +335,7 @@ body {
   padding: 5px 7px;
   border-radius: 4px;
   background: rgba(255,255,255,0.08);
-  font-size: 13px;
+  font-size: var(--fs-md);
   transition: all 0.2s;
   position: relative;
 }
@@ -188,29 +350,36 @@ body {
 
 .ctrl-btn .badge {
   position: absolute;
-  top: -3px;
-  right: -3px;
-  min-width: 13px;
-  height: 13px;
+  top: -4px;
+  right: -4px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
   background: var(--status-pending);
   color: white;
-  font-size: 11px;
+  font-size: var(--fs-xs);
   font-weight: 700;
-  border-radius: 7px;
+  border-radius: 8px;
   display: flex;
   align-items: center;
   justify-content: center;
   box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+  animation: badge-pulse 1.5s infinite;
+}
+
+@keyframes badge-pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.1); }
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════════
-   COMPACT STATUS COUNTERS - 30% smaller, more space efficient
+   COMPACT STATUS COUNTERS
    ═══════════════════════════════════════════════════════════════════════════════ */
 .quick-stats {
   display: flex;
   gap: 4px;
   padding: 6px 8px;
-  background: linear-gradient(180deg, #f8f8f8 0%, #ffffff 100%);
+  background: var(--bg-stats);
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
 }
@@ -241,38 +410,37 @@ body {
 }
 
 .stat-pill.pending {
-  background: linear-gradient(135deg, #FFEBEE 0%, #FFCDD2 100%);
-  border: 1px solid #FFCDD2;
+  background: var(--status-pending-bg);
+  border: 1px solid var(--status-pending-border);
 }
 .stat-pill.pending::before { background: var(--status-pending); }
 .stat-pill.pending .stat-count { color: var(--status-pending); }
 
 .stat-pill.pending.has-items {
   animation: pulse-red 1.5s infinite;
-  box-shadow: 0 0 0 0 rgba(211, 47, 47, 0.4);
 }
 
 @keyframes pulse-red {
   0%, 100% { box-shadow: 0 0 0 0 rgba(211, 47, 47, 0.4); }
-  50% { box-shadow: 0 0 6px 1px rgba(211, 47, 47, 0.3); }
+  50% { box-shadow: 0 0 8px 2px rgba(211, 47, 47, 0.3); }
 }
 
 .stat-pill.preparing {
-  background: linear-gradient(135deg, #FFF8E1 0%, #FFECB3 100%);
-  border: 1px solid #FFE082;
+  background: var(--status-preparing-bg);
+  border: 1px solid var(--status-preparing-border);
 }
-.stat-pill.preparing::before { background: #F57C00; }
+.stat-pill.preparing::before { background: var(--status-preparing); }
 .stat-pill.preparing .stat-count { color: #E65100; }
 
 .stat-pill.shipped {
-  background: linear-gradient(135deg, #E8F5E9 0%, #C8E6C9 100%);
-  border: 1px solid #A5D6A7;
+  background: var(--status-shipped-bg);
+  border: 1px solid var(--status-shipped-border);
 }
 .stat-pill.shipped::before { background: var(--status-shipped); }
 .stat-pill.shipped .stat-count { color: var(--status-shipped); }
 
 .stat-label {
-  font-size: 11px;
+  font-size: var(--fs-xs);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.3px;
@@ -281,29 +449,30 @@ body {
 }
 
 .stat-count {
-  font-size: 16px;
+  font-size: var(--fs-xl);
   font-weight: 800;
   line-height: 1;
 }
 
 .stat-icon {
-  font-size: 11px;
+  font-size: var(--fs-base);
   margin-top: 1px;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════════
-   TERMINAL-STYLE STATUS BAR - Only for System Ready (polished look)
+   TERMINAL-STYLE STATUS BAR
    ═══════════════════════════════════════════════════════════════════════════════ */
 .status-bar {
   padding: 5px 10px;
   background: var(--bg-terminal);
   flex-shrink: 0;
   border-bottom: 1px solid #1a3a1a;
+  position: relative;
 }
 
 #status {
   font-family: 'Courier New', 'Consolas', monospace;
-  font-size: 11px;
+  font-size: var(--fs-base);
   font-weight: 500;
   color: var(--text-terminal);
   padding: 6px 10px;
@@ -365,7 +534,6 @@ body {
   border-color: #3a2a0a;
 }
 
-/* Subtle scanline effect */
 .status-bar::after {
   content: '';
   position: absolute;
@@ -385,7 +553,7 @@ body {
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════════
-   MODULES AREA - More space for cards
+   MODULES AREA
    ═══════════════════════════════════════════════════════════════════════════════ */
 #modules {
   padding: 8px;
@@ -404,7 +572,7 @@ body {
 #modules::-webkit-scrollbar-thumb:hover { background: var(--hq-gold); }
 
 /* ═══════════════════════════════════════════════════════════════════════════════
-   CARDS - Sleek & Polished Design
+   CARDS - With Category Color Accents
    ═══════════════════════════════════════════════════════════════════════════════ */
 .card {
   background: var(--bg-card);
@@ -417,22 +585,8 @@ body {
 }
 
 .card:not(.collapsed) {
-  border-left: 3px solid var(--hq-gold);
-  box-shadow: 0 2px 8px rgba(212, 175, 55, 0.12);
-}
-
-/* DIRECT card distinction */
-.card[data-id="direct"]:not(.collapsed) {
-  border-left: 3px solid #2196F3;
-  box-shadow: 0 2px 8px rgba(33, 150, 243, 0.12);
-}
-
-.card[data-id="direct"] .card-icon {
-  background: #E3F2FD !important;
-}
-
-.card[data-id="direct"]:hover .card-icon {
-  background: #90CAF9 !important;
+  border-left: 3px solid var(--card-accent, var(--hq-gold));
+  box-shadow: var(--shadow-md);
 }
 
 .card:hover {
@@ -440,18 +594,47 @@ body {
   box-shadow: var(--shadow-md);
 }
 
+/* === CARD ACCENT COLORS === */
+.card[data-id="ebay"] { --card-accent: var(--accent-ebay); }
+.card[data-id="duplicates"] { --card-accent: var(--accent-duplicates); }
+.card[data-id="live"] { --card-accent: var(--accent-live); }
+.card[data-id="direct"] { --card-accent: var(--accent-direct); }
+.card[data-id="fulfill"] { --card-accent: var(--accent-fulfill); }
+.card[data-id="arcade"] { --card-accent: var(--accent-arcade); }
+
+/* === CARD ICON ACCENT COLORS === */
+.card[data-id="ebay"] .card-icon { background: rgba(212, 175, 55, 0.15); }
+.card[data-id="ebay"]:hover .card-icon { background: rgba(212, 175, 55, 0.3); }
+
+.card[data-id="duplicates"] .card-icon { background: rgba(255, 152, 0, 0.15); }
+.card[data-id="duplicates"]:hover .card-icon { background: rgba(255, 152, 0, 0.3); }
+
+.card[data-id="live"] .card-icon { background: rgba(76, 175, 80, 0.15); }
+.card[data-id="live"]:hover .card-icon { background: rgba(76, 175, 80, 0.3); }
+
+.card[data-id="direct"] .card-icon { background: rgba(33, 150, 243, 0.15); }
+.card[data-id="direct"]:hover .card-icon { background: rgba(33, 150, 243, 0.3); }
+
+.card[data-id="fulfill"] .card-icon { background: rgba(156, 39, 176, 0.15); }
+.card[data-id="fulfill"]:hover .card-icon { background: rgba(156, 39, 176, 0.3); }
+
+.card[data-id="arcade"] .card-icon { background: rgba(233, 30, 99, 0.15); }
+.card[data-id="arcade"]:hover .card-icon { background: rgba(233, 30, 99, 0.3); }
+
 .card-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
   padding: 8px 10px;
-  background: linear-gradient(180deg, #fafafa 0%, #f5f5f5 100%);
+  background: var(--bg-card-header);
   cursor: pointer;
   transition: background 0.2s ease;
   user-select: none;
 }
 
-.card-header:hover { background: var(--hq-yellow-light); }
+.card-header:hover {
+  background: var(--bg-card-header-hover);
+}
 
 .card-title {
   display: flex;
@@ -462,19 +645,16 @@ body {
 .card-icon {
   width: 24px;
   height: 24px;
-  background: var(--hq-yellow-light);
   border-radius: 5px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 12px;
+  font-size: var(--fs-md);
   transition: all 0.3s var(--ease-out);
 }
 
-.card:hover .card-icon { background: var(--hq-yellow); }
-
 .card-title h3 {
-  font-size: 12px;
+  font-size: var(--fs-md);
   font-weight: 600;
   color: var(--text-primary);
 }
@@ -486,7 +666,7 @@ body {
   align-items: center;
   justify-content: center;
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: var(--fs-base);
   transition: transform 0.3s var(--ease-out);
 }
 
@@ -524,7 +704,7 @@ body {
 }
 
 .toggle-label {
-  font-size: 11px;
+  font-size: var(--fs-base);
   font-weight: 600;
   color: var(--text-primary);
 }
@@ -562,7 +742,7 @@ button {
   margin-top: 5px;
   border: 1px solid var(--border);
   border-radius: 5px;
-  font-size: 11px;
+  font-size: var(--fs-base);
   font-weight: 600;
   cursor: pointer;
   display: flex;
@@ -642,14 +822,14 @@ button:first-child { margin-top: 0; }
 }
 
 .range-label {
-  font-size: 10px;
+  font-size: var(--fs-sm);
   font-weight: 600;
   color: var(--text-secondary);
   text-transform: uppercase;
 }
 
 .range-value {
-  font-size: 12px;
+  font-size: var(--fs-md);
   font-weight: 700;
   color: var(--hq-gold);
 }
@@ -683,14 +863,8 @@ input[type="range"]::-webkit-slider-thumb {
   transition: transform 0.1s ease;
 }
 
-input[type="range"]::-webkit-slider-thumb:hover {
-  transform: scale(1.1);
-}
-
-input[type="range"]::-webkit-slider-thumb:active {
-  cursor: grabbing;
-  transform: scale(1.2);
-}
+input[type="range"]::-webkit-slider-thumb:hover { transform: scale(1.1); }
+input[type="range"]::-webkit-slider-thumb:active { cursor: grabbing; transform: scale(1.2); }
 
 input[type="range"]::-moz-range-thumb {
   width: 16px;
@@ -703,17 +877,11 @@ input[type="range"]::-moz-range-thumb {
   transition: transform 0.1s ease;
 }
 
-input[type="range"]::-moz-range-thumb:hover {
-  transform: scale(1.1);
-}
-
-input[type="range"]::-moz-range-thumb:active {
-  cursor: grabbing;
-  transform: scale(1.2);
-}
+input[type="range"]::-moz-range-thumb:hover { transform: scale(1.1); }
+input[type="range"]::-moz-range-thumb:active { cursor: grabbing; transform: scale(1.2); }
 
 .last-sync {
-  font-size: 9px;
+  font-size: var(--fs-xs);
   color: var(--text-muted);
   text-align: center;
   padding: 3px;
@@ -729,7 +897,7 @@ input[type="range"]::-moz-range-thumb:active {
   padding: 5px;
   background: var(--bg-primary);
   border-radius: 4px;
-  font-size: 8px;
+  font-size: var(--fs-2xs);
   color: var(--text-secondary);
 }
 
@@ -745,9 +913,8 @@ input[type="range"]::-moz-range-thumb:active {
 .legend-color.first { background: #dd7e6b; }
 .legend-color.dupe { background: #e6b8af; }
 
-/* Empty state hint */
 .empty-hint {
-  font-size: 9px;
+  font-size: var(--fs-xs);
   color: var(--text-muted);
   text-align: center;
   padding: 3px;
@@ -778,7 +945,7 @@ input[type="range"]::-moz-range-thumb:active {
   background: var(--bg-card);
   border-radius: 10px;
   overflow: hidden;
-  box-shadow: 0 8px 40px rgba(0,0,0,0.35);
+  box-shadow: var(--shadow-lg);
   border: 2px solid var(--hq-gold);
 }
 
@@ -791,9 +958,9 @@ input[type="range"]::-moz-range-thumb:active {
   gap: 8px;
 }
 
-.palette-icon { 
-  font-size: 15px; 
-  color: var(--hq-gold); 
+.palette-icon {
+  font-size: var(--fs-lg);
+  color: var(--hq-gold);
 }
 
 .palette-input {
@@ -801,7 +968,7 @@ input[type="range"]::-moz-range-thumb:active {
   background: transparent;
   border: none;
   outline: none;
-  font-size: 12px;
+  font-size: var(--fs-md);
   color: var(--text-light);
   font-weight: 500;
 }
@@ -811,7 +978,7 @@ input[type="range"]::-moz-range-thumb:active {
 }
 
 .palette-hint {
-  font-size: 9px;
+  font-size: var(--fs-xs);
   font-weight: 700;
   color: #000;
   background: var(--hq-yellow);
@@ -821,21 +988,21 @@ input[type="range"]::-moz-range-thumb:active {
   box-shadow: 0 1px 3px rgba(0,0,0,0.2);
 }
 
-/* Ensure the whole header is clickable for the dropdown */
 .card-header {
   cursor: pointer;
 }
 
-/* Ensure only the handle shows the "move" cursor */
 .drag-handle {
   cursor: grab !important;
+  font-size: var(--fs-md);
+  color: var(--text-muted);
+  padding: 0 4px;
 }
 
 .drag-handle:active {
   cursor: grabbing !important;
 }
 
-/* Your existing visuals */
 .card.dragging {
   opacity: 0.5;
   border: 1px solid var(--hq-gold);
@@ -858,7 +1025,7 @@ input[type="range"]::-moz-range-thumb:active {
 }
 
 .cmd:hover, .cmd.active {
-  background: var(--hq-yellow-light);
+  background: var(--bg-card-header-hover);
   border-left-color: var(--hq-gold);
 }
 
@@ -870,12 +1037,12 @@ input[type="range"]::-moz-range-thumb:active {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 12px;
+  font-size: var(--fs-md);
 }
 
 .cmd:hover .cmd-icon, .cmd.active .cmd-icon { background: var(--hq-yellow); }
 
-.cmd-text { font-size: 11px; font-weight: 500; color: var(--text-primary); }
+.cmd-text { font-size: var(--fs-base); font-weight: 500; color: var(--text-primary); }
 
 /* ═══════════════════════════════════════════════════════════════════════════════
    FOOTER
@@ -884,7 +1051,7 @@ input[type="range"]::-moz-range-thumb:active {
   padding: 5px 10px;
   background: var(--bg-card);
   border-top: 1px solid var(--border);
-  font-size: 9px;
+  font-size: var(--fs-xs);
   color: var(--text-muted);
   text-align: center;
   flex-shrink: 0;
@@ -900,37 +1067,36 @@ input[type="range"]::-moz-range-thumb:active {
    MOBILE RESPONSIVENESS
    ═══════════════════════════════════════════════════════════════════════════════ */
 @media screen and (max-width: 380px) {
+  :root {
+    --fs-2xs: calc(7px * var(--font-scale));
+    --fs-xs: calc(8px * var(--font-scale));
+    --fs-sm: calc(9px * var(--font-scale));
+    --fs-base: calc(10px * var(--font-scale));
+    --fs-md: calc(11px * var(--font-scale));
+    --fs-lg: calc(12px * var(--font-scale));
+    --fs-xl: calc(14px * var(--font-scale));
+  }
+
   .header { padding: 7px 9px; }
-  .brand-logo-text { width: 32px; height: 32px; font-size: 14px; }
-  .brand-info h1 { font-size: 9px; }
-  .brand-clock { font-size: 10px; }
-  
+  .brand-logo-text { width: 32px; height: 32px; }
   .stat-pill { padding: 4px 3px; }
-  .stat-count { font-size: 14px; }
-  .stat-label { font-size: 6px; }
-  
   .card-header { padding: 7px 9px; }
   .card-body { padding: 9px; }
-  .card-icon { width: 20px; height: 20px; font-size: 10px; }
-  .card-title h3 { font-size: 9px; }
-  
-  button { padding: 7px; font-size: 8px; }
+  .card-icon { width: 20px; height: 20px; }
+  button { padding: 7px; }
   .btn-group { gap: 4px; }
 }
 
 @media screen and (max-height: 600px) {
   .header { padding: 6px 9px; min-height: 48px; }
-  .brand-logo-text { width: 30px; height: 30px; font-size: 13px; }
+  .brand-logo-text { width: 30px; height: 30px; }
   .quick-stats { padding: 5px 7px; }
   .stat-pill { padding: 4px 3px; }
-  .stat-count { font-size: 14px; }
   #modules { padding: 7px; gap: 7px; }
   .card-header { padding: 7px; }
   .card-body { padding: 8px; }
 }
 
-
-/* Touch-friendly adjustments */
 @media (hover: none) and (pointer: coarse) {
   button { padding: 10px; min-height: 40px; }
   .switch { width: 40px; height: 22px; }
@@ -956,9 +1122,10 @@ input[type="range"]::-moz-range-thumb:active {
     </div>
   </div>
   <div class="top-controls">
-    <div id="themeBtn" class="ctrl-btn" onclick="toggleTheme()">🌙</div>
+    <div id="themeBtn" class="ctrl-btn" onclick="toggleTheme()" title="Toggle Theme">🌙</div>
     <div id="muteBtn" class="ctrl-btn" onclick="toggleMute()" title="Toggle Sound">🔔</div>
     <div class="ctrl-btn" onclick="openPalette()" title="Command Palette (Ctrl+K)">⌘</div>
+    <div id="fontBtn" class="ctrl-btn" onclick="toggleFontScale()" title="Text Size">🔠</div>
   </div>
 </div>
 
@@ -980,7 +1147,6 @@ input[type="range"]::-moz-range-thumb:active {
   </div>
 </div>
 
-<!-- Terminal section (System Ready only) -->
 <div class="status-bar">
   <div id="status">System ready_</div>
 </div>
@@ -1086,11 +1252,11 @@ input[type="range"]::-moz-range-thumb:active {
   <div class="card collapsed" data-id="arcade" draggable="true">
     <div class="card-header" onclick="toggleCollapse(this)">
       <div class="drag-handle" title="Drag to reorder">☰</div>
-      <div class="card-title"><div class="card-icon">🎮</div><h3>HQ Operations: Snake</h3></div>
+      <div class="card-title"><div class="card-icon">🎮</div><h3>HQ Arcade</h3></div>
       <div class="card-toggle">▼</div>
     </div>
     <div class="card-body">
-      <button class="btn-primary" onclick="openSnakeGame()"><span>🎮</span> Launch Game</button>
+      <button class="btn-primary" onclick="openSnakeGame()"><span>🎮</span> Launch Snake</button>
       <div class="empty-hint">Take a break! Beat the high score.</div>
     </div>
   </div>
@@ -1099,7 +1265,7 @@ input[type="range"]::-moz-range-thumb:active {
 
 <div class="footer">
   <span>Last activity: <span class="footer-time" id="lastActivity">--</span></span>
-  <span class="footer-version">v2.2</span>
+  <span class="footer-version">v2.3</span>
 </div>
 
 <div id="palette">
@@ -1113,7 +1279,16 @@ input[type="range"]::-moz-range-thumb:active {
   </div>
 </div>
 
+<!-- Notification Sound (silent until played) -->
+<audio id="notificationSound" preload="auto">
+  <source src="data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJGrp5dvcWiFr7mtl3N0iaCvm5d4fI2jrpqMeIGMna+jlIJ+h5WqppuIgYeLnKWfk4eDiJCdoJmPhoyOlZuYkouNj5KWlZGNjpCRk5KQjo+QkZGQj4+PkJCPj4+PkJCQj4+Qj5CPkI+Pj5CPkI+Pj5CPkI+Qj5CPkI+Qj5CPkI+Qj5CPkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQ" type="audio/wav">
+</audio>
+
 <script>
+// ═══════════════════════════════════════════════════════════════════════════════
+// HQ COMMAND CENTER v2.3 - JavaScript
+// ═══════════════════════════════════════════════════════════════════════════════
+
 const status = document.getElementById('status');
 const statusMessages = [
   'Awaiting command_',
@@ -1122,10 +1297,14 @@ const statusMessages = [
   'Standing by_'
 ];
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// CORE FUNCTIONS
+// ═══════════════════════════════════════════════════════════════════════════════
+
 function run(fn, param) {
   status.className = 'running';
   status.textContent = 'Processing..._';
-  
+
   if (typeof google !== 'undefined' && google.script) {
     google.script.run
       .withSuccessHandler(function(result) {
@@ -1153,32 +1332,142 @@ function updateLastActivity() {
   localStorage.setItem('lastActivity', time);
 }
 
+// Restore last activity
 var savedActivity = localStorage.getItem('lastActivity');
 if (savedActivity) document.getElementById('lastActivity').textContent = savedActivity;
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// STATS & NOTIFICATIONS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+var lastPendingCount = parseInt(localStorage.getItem('lastPendingCount')) || 0;
+var newOrderCount = 0;
+var isMuted = localStorage.getItem('proMuted') === 'true';
 
 function refreshStats() {
   if (typeof google !== 'undefined' && google.script) {
     google.script.run
       .withSuccessHandler(function(stats) {
+        var currentPending = parseInt(stats.pending) || 0;
+
+        // Update display
         document.getElementById('pendingCount').textContent = stats.pending;
         document.getElementById('preparingCount').textContent = stats.preparing;
         document.getElementById('shippedCount').textContent = stats.shipped;
 
+        // Pending animation
         var pendingPill = document.getElementById('statPending');
-        if (stats.pending > 0) {
+        if (currentPending > 0) {
           pendingPill.classList.add('has-items');
         } else {
           pendingPill.classList.remove('has-items');
         }
+
+        // Check for new orders
+        if (currentPending > lastPendingCount && lastPendingCount >= 0) {
+          var newOrders = currentPending - lastPendingCount;
+          newOrderCount += newOrders;
+
+          // Play notification sound if not muted
+          if (!isMuted) {
+            playNotificationSound();
+          }
+
+          updateBadge();
+        }
+
+        // Save current count for next comparison
+        lastPendingCount = currentPending;
+        localStorage.setItem('lastPendingCount', currentPending);
       })
       .getOrderStats();
   }
 }
 
+function playNotificationSound() {
+  try {
+    // Create a simple beep using Web Audio API
+    var audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    var oscillator = audioContext.createOscillator();
+    var gainNode = audioContext.createGain();
+
+    oscillator.connect(gainNode);
+    gainNode.connect(audioContext.destination);
+
+    oscillator.frequency.value = 800; // Hz
+    oscillator.type = 'sine';
+
+    gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+    gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.3);
+
+    oscillator.start(audioContext.currentTime);
+    oscillator.stop(audioContext.currentTime + 0.3);
+
+    // Second beep
+    setTimeout(function() {
+      var osc2 = audioContext.createOscillator();
+      var gain2 = audioContext.createGain();
+      osc2.connect(gain2);
+      gain2.connect(audioContext.destination);
+      osc2.frequency.value = 1000;
+      osc2.type = 'sine';
+      gain2.gain.setValueAtTime(0.3, audioContext.currentTime);
+      gain2.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.3);
+      osc2.start(audioContext.currentTime);
+      osc2.stop(audioContext.currentTime + 0.3);
+    }, 150);
+  } catch (e) {
+    console.log('Audio notification not supported');
+  }
+}
+
+function toggleMute() {
+  isMuted = !isMuted;
+  localStorage.setItem('proMuted', isMuted);
+  updateMuteBtn();
+
+  // Clear badge when unmuting (acknowledges notifications)
+  if (!isMuted) {
+    newOrderCount = 0;
+    updateBadge();
+  }
+}
+
+function updateMuteBtn() {
+  var btn = document.getElementById('muteBtn');
+  if (isMuted) {
+    btn.classList.add('muted');
+    btn.textContent = '🔕';
+  } else {
+    btn.classList.remove('muted');
+    btn.textContent = '🔔';
+  }
+}
+
+function updateBadge() {
+  var btn = document.getElementById('muteBtn');
+  var existing = btn.querySelector('.badge');
+  if (existing) existing.remove();
+
+  if (newOrderCount > 0 && !isMuted) {
+    var badge = document.createElement('span');
+    badge.className = 'badge';
+    badge.textContent = newOrderCount > 9 ? '9+' : newOrderCount;
+    btn.appendChild(badge);
+  }
+}
+
+updateMuteBtn();
+
+// Initialize stats refresh
 if (typeof google !== 'undefined') {
   refreshStats();
   setInterval(refreshStats, 30000);
 }
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// N8N SYNC
+// ═══════════════════════════════════════════════════════════════════════════════
 
 var isSyncing = false;
 var SYNC_COOLDOWN = 30000;
@@ -1195,7 +1484,7 @@ function triggerN8NSync() {
   btn.disabled = true;
   status.className = 'syncing';
   status.textContent = 'Connecting to eBay API..._';
-  
+
   if (typeof google !== 'undefined' && google.script) {
     google.script.run
       .withSuccessHandler(function(result) {
@@ -1233,35 +1522,25 @@ function updateLastSync() {
 var savedSync = localStorage.getItem('lastSync');
 if (savedSync) document.getElementById('lastSync').textContent = 'Last sync: ' + savedSync;
 
-function toggleCollapse(header) {
-  // If the user clicked the drag handle, ignore the toggle collapse
-  if (event && event.target.closest('.drag-handle')) return;
+// ═══════════════════════════════════════════════════════════════════════════════
+// CARD COLLAPSE & STATE
+// ═══════════════════════════════════════════════════════════════════════════════
 
+function toggleCollapse(header) {
+  if (event && event.target.closest('.drag-handle')) return;
   var card = header.closest('.card');
   card.classList.toggle('collapsed');
   saveState();
 }
 
-function toggleLive() {
-  var sw = document.getElementById('liveSwitch');
-  sw.classList.toggle('on');
-  var newState = sw.classList.contains('on') ? 'ON' : 'OFF';
-  run('toggleLiveUpdate', newState);
-  if (newState === 'ON') setTimeout(function() { run('runUpdateLocationsTableOne'); }, 500);
-}
-
-function toggleFocus() {
-  var sw = document.getElementById('focusSwitch');
-  sw.classList.toggle('on');
-  var newState = sw.classList.contains('on') ? 'ON' : 'OFF';
-  // Implement focus mode logic here
-}
-
 function saveState() {
-  var collapsed = Array.from(document.querySelectorAll('.card.collapsed')).map(function(c) { return c.dataset.id; });
+  var collapsed = Array.from(document.querySelectorAll('.card.collapsed')).map(function(c) {
+    return c.dataset.id;
+  });
   localStorage.setItem('proCollapsed', JSON.stringify(collapsed));
 }
 
+// Restore collapsed state
 var savedCollapsed = localStorage.getItem('proCollapsed');
 if (savedCollapsed) {
   JSON.parse(savedCollapsed).forEach(function(id) {
@@ -1270,6 +1549,53 @@ if (savedCollapsed) {
   });
 }
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// FONT SCALING
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const FONT_SCALES = [0.9, 1, 1.15];
+let fontScaleIndex = 1;
+
+function applyFontScale(scale) {
+  document.documentElement.style.setProperty('--font-scale', scale);
+  localStorage.setItem('hqFontScale', scale);
+}
+
+function toggleFontScale() {
+  fontScaleIndex = (fontScaleIndex + 1) % FONT_SCALES.length;
+  applyFontScale(FONT_SCALES[fontScaleIndex]);
+}
+
+// Restore font scale
+const savedScale = localStorage.getItem('hqFontScale');
+if (savedScale) {
+  applyFontScale(savedScale);
+  fontScaleIndex = FONT_SCALES.indexOf(Number(savedScale));
+  if (fontScaleIndex === -1) fontScaleIndex = 1;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// TOGGLES (LIVE SYNC, FOCUS MODE)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function toggleLive() {
+  var sw = document.getElementById('liveSwitch');
+  sw.classList.toggle('on');
+  var newState = sw.classList.contains('on') ? 'ON' : 'OFF';
+  run('toggleLiveUpdate', newState);
+  if (newState === 'ON') {
+    setTimeout(function() { run('runUpdateLocationsTableOne'); }, 500);
+  }
+}
+
+function toggleFocus() {
+  var sw = document.getElementById('focusSwitch');
+  sw.classList.toggle('on');
+  var newState = sw.classList.contains('on') ? 'ON' : 'OFF';
+  run('toggleFocusMode', newState);
+}
+
+// Restore live sync state
 if (typeof google !== 'undefined') {
   google.script.run.withSuccessHandler(function(state) {
     var sw = document.getElementById('liveSwitch');
@@ -1277,7 +1603,10 @@ if (typeof google !== 'undefined') {
   }).getLiveUpdateState();
 }
 
-// Command Palette
+// ═══════════════════════════════════════════════════════════════════════════════
+// COMMAND PALETTE
+// ═══════════════════════════════════════════════════════════════════════════════
+
 var palette = document.getElementById('palette');
 var cmdInput = document.getElementById('cmdInput');
 var cmdList = document.getElementById('cmdList');
@@ -1308,18 +1637,38 @@ function openPalette() {
   renderCommands('');
 }
 
+function closePalette() {
+  palette.classList.remove('active');
+}
+
+// Keyboard handling
 document.addEventListener('keydown', function(e) {
-  if ((e.ctrlKey || e.metaKey) && e.key === 'k') { 
-    e.preventDefault(); 
-    openPalette(); 
-  }
-  if (e.key === 'Escape' && palette.classList.contains('active')) {
+  // Open palette with Ctrl+K / Cmd+K
+  if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
     e.preventDefault();
-    palette.classList.remove('active');
+    openPalette();
   }
+
+  // Close palette with ESC
+  if (e.key === 'Escape') {
+    if (palette.classList.contains('active')) {
+      e.preventDefault();
+      closePalette();
+    }
+  }
+
+  // Navigate palette with arrows
   if (palette.classList.contains('active')) {
-    if (e.key === 'ArrowDown') { e.preventDefault(); cmdIndex++; highlightCmd(); }
-    if (e.key === 'ArrowUp') { e.preventDefault(); cmdIndex--; highlightCmd(); }
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      cmdIndex++;
+      highlightCmd();
+    }
+    if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      cmdIndex--;
+      highlightCmd();
+    }
     if (e.key === 'Enter') {
       e.preventDefault();
       var items = cmdList.children;
@@ -1328,11 +1677,14 @@ document.addEventListener('keydown', function(e) {
   }
 });
 
+// Close palette when clicking backdrop
 palette.addEventListener('click', function(e) {
-  if (e.target === palette) palette.classList.remove('active');
+  if (e.target === palette) closePalette();
 });
 
-cmdInput.addEventListener('input', function() { renderCommands(cmdInput.value); });
+cmdInput.addEventListener('input', function() {
+  renderCommands(cmdInput.value);
+});
 
 function renderCommands(query) {
   cmdList.innerHTML = '';
@@ -1344,12 +1696,12 @@ function renderCommands(query) {
     var div = document.createElement('div');
     div.className = 'cmd' + (i === 0 ? ' active' : '');
     div.innerHTML = '<div class="cmd-icon">' + cmd[0] + '</div><span class="cmd-text">' + cmd[1] + '</span>';
-    div.onclick = function() { 
-      palette.classList.remove('active'); 
+    div.onclick = function() {
+      closePalette();
       if (cmd[2] === 'openSnakeGame') {
         openSnakeGame();
       } else {
-        run(cmd[2]); 
+        run(cmd[2]);
       }
     };
     cmdList.appendChild(div);
@@ -1360,49 +1712,17 @@ function highlightCmd() {
   var items = cmdList.children;
   cmdIndex = Math.max(0, Math.min(cmdIndex, items.length - 1));
   Array.from(items).forEach(function(c, i) {
-    if (i === cmdIndex) c.classList.add('active');
-    else c.classList.remove('active');
+    c.classList.toggle('active', i === cmdIndex);
   });
 }
 
-// Mute functionality
-var isMuted = localStorage.getItem('proMuted') === 'true';
-var lastPending = -1;
-var newOrderCount = 0;
+// ═══════════════════════════════════════════════════════════════════════════════
+// LIVE CLOCK
+// ═══════════════════════════════════════════════════════════════════════════════
 
-function toggleMute() {
-  isMuted = !isMuted;
-  localStorage.setItem('proMuted', isMuted);
-  updateMuteBtn();
-  newOrderCount = 0;
-  updateBadge();
-}
-
-function updateMuteBtn() {
-  var btn = document.getElementById('muteBtn');
-  if (isMuted) btn.classList.add('muted');
-  else btn.classList.remove('muted');
-  btn.textContent = isMuted ? '🔕' : '🔔';
-}
-
-function updateBadge() {
-  var btn = document.getElementById('muteBtn');
-  var existing = btn.querySelector('.badge');
-  if (existing) existing.remove();
-  if (newOrderCount > 0 && !isMuted) {
-    var badge = document.createElement('span');
-    badge.className = 'badge';
-    badge.textContent = newOrderCount > 9 ? '9+' : newOrderCount;
-    btn.appendChild(badge);
-  }
-}
-
-updateMuteBtn();
-
-// Live Clock
 function startLiveClock() {
   const clockElement = document.getElementById('live-sidebar-clock');
-  
+
   function updateClock() {
     const now = new Date();
     const houstonTime = now.toLocaleTimeString('en-US', {
@@ -1414,44 +1734,29 @@ function startLiveClock() {
     });
     clockElement.textContent = houstonTime;
   }
-  
+
   updateClock();
   setInterval(updateClock, 1000);
 }
 
 startLiveClock();
 
-// Snake Game - FIXED
+// ═══════════════════════════════════════════════════════════════════════════════
+// SNAKE GAME
+// ═══════════════════════════════════════════════════════════════════════════════
+
 function openSnakeGame() {
   if (typeof google !== 'undefined' && google.script) {
-    google.script.run
-      .withSuccessHandler(function(html) {
-        if (html) {
-          var newWindow = window.open('', 'HQ Operations: Snake', 'width=320,height=540,menubar=no,toolbar=no,location=no,scrollbars=no');
-          if (newWindow) {
-            newWindow.document.open();
-            newWindow.document.write(html);
-            newWindow.document.close();
-          } else {
-            status.className = 'error';
-            status.textContent = 'Pop-up blocked! Allow pop-ups to play.';
-          }
-        } else {
-          status.className = 'error';
-          status.textContent = 'Game file not found';
-        }
-      })
-      .withFailureHandler(function(err) {
-        status.className = 'error';
-        status.textContent = 'Failed to load game: ' + err.message;
-      })
-      .include('Snake');
+    google.script.run.showSnakeSidebar();
   } else {
     alert('Game requires Apps Script environment');
   }
 }
 
-// DARK THEME TOGGLE
+// ═══════════════════════════════════════════════════════════════════════════════
+// DARK THEME
+// ═══════════════════════════════════════════════════════════════════════════════
+
 var isDark = localStorage.getItem('hq-theme') === 'dark';
 
 function toggleTheme() {
@@ -1461,31 +1766,20 @@ function toggleTheme() {
   document.getElementById('themeBtn').textContent = isDark ? '☀️' : '🌙';
 }
 
+// Restore theme
 if (isDark) {
   document.body.classList.add('dark-theme');
   document.getElementById('themeBtn').textContent = '☀️';
 }
 
-// Initial animation
-setTimeout(function() {
-  status.textContent = 'HQ Command Center v2.2 online_';
-  setTimeout(function() {
-    status.textContent = 'System ready_';
-  }, 2000);
-}, 500);
-
-function openSnakeGame() {
-    // This tells Google to run the function in your main.gs
-    google.script.run.showSnakeSidebar();
-  }
-
-/* === CARD DRAG & DROP REORDER === */
+// ═══════════════════════════════════════════════════════════════════════════════
+// CARD DRAG & DROP REORDER
+// ═══════════════════════════════════════════════════════════════════════════════
 
 const moduleContainer = document.getElementById('modules');
 let draggedCard = null;
-let isHandleClicked = false; // Flag to track if the drag started on the handle
+let isHandleClicked = false;
 
-// 1. Restore order from LocalStorage
 function restoreCardOrder() {
   const saved = localStorage.getItem('cardOrder');
   if (!saved) return;
@@ -1509,23 +1803,20 @@ function saveCardOrder() {
 
 restoreCardOrder();
 
-// 2. Event Listeners for Reordering
-// Use mousedown to detect if the user specifically grabbed the handle
 moduleContainer.addEventListener('mousedown', (e) => {
   isHandleClicked = !!e.target.closest('.drag-handle');
 });
 
 moduleContainer.addEventListener('dragstart', (e) => {
   const card = e.target.closest('.card');
-  
-  // Only allow drag if the handle was the starting point
+
   if (isHandleClicked && card) {
     draggedCard = card;
     card.classList.add('dragging');
     e.dataTransfer.effectAllowed = 'move';
     e.dataTransfer.setData('text/plain', card.dataset.id);
   } else {
-    e.preventDefault(); // Cancel drag if not started on handle
+    e.preventDefault();
   }
 });
 
@@ -1557,16 +1848,26 @@ moduleContainer.addEventListener('drop', (e) => {
 
   dropTarget.classList.remove('drag-over');
 
-  // Logic: Check if dropping on top or bottom half of the target card
   const rect = dropTarget.getBoundingClientRect();
   const midpoint = (e.clientY - rect.top) / (rect.bottom - rect.top);
-  
+
   if (midpoint > 0.5) {
     moduleContainer.insertBefore(draggedCard, dropTarget.nextSibling);
   } else {
     moduleContainer.insertBefore(draggedCard, dropTarget);
   }
 });
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// STARTUP
+// ═══════════════════════════════════════════════════════════════════════════════
+
+setTimeout(function() {
+  status.textContent = 'HQ Command Center v2.3 online_';
+  setTimeout(function() {
+    status.textContent = 'System ready_';
+  }, 2000);
+}, 500);
 
 </script>
 

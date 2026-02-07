@@ -50,6 +50,36 @@ function findLastDataRowInSegment(startRow, endRow) {
 }
 
 /**
+ * Builds a map of SKU → total committed quantity (PENDING + PREPARING orders)
+ * Used to subtract from Master Inventory available for accurate HAND values
+ * @returns {Map} - Map of SKU (lowercase) → total committed qty
+ */
+function getCommittedQuantities() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName(MAIN_SHEET_NAME);
+  var lastRow = sheet.getLastRow();
+
+  if (lastRow < DATA_START_ROW) return new Map();
+
+  // Read SKU (A), QTY (B), STATUS (F)
+  var data = sheet.getRange(DATA_START_ROW, 1, lastRow - DATA_START_ROW + 1, 6).getValues();
+  var committed = new Map();
+
+  for (var i = 0; i < data.length; i++) {
+    var sku = String(data[i][0]).trim().toLowerCase();
+    var qty = parseInt(data[i][1]) || 0;
+    var status = String(data[i][5]).trim().toUpperCase();
+
+    if (!sku || sku === TABLE_TWO_IDENTIFIER.toLowerCase()) continue;
+    if (status !== 'PENDING' && status !== 'PREPARING') continue;
+
+    committed.set(sku, (committed.get(sku) || 0) + qty);
+  }
+
+  return committed;
+}
+
+/**
  * Gets the live update state from Settings sheet
  * @returns {string} - "ON" or "OFF"
  */

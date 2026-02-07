@@ -29,6 +29,44 @@ function runDeleteEmptyRowsTableOne() { return deleteEmptyRows(1); }
 function runDeleteEmptyRowsTableTwo() { return deleteEmptyRows(2); }
 
 /**
+ * Ensures the DIRECT table always has at least 3 empty buffer rows
+ * with proper data formatting (not header formatting).
+ * Called automatically via onChange when rows are deleted.
+ */
+function ensureDirectTableBuffer() {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(MAIN_SHEET_NAME);
+  if (!sheet) return;
+
+  var boundary = getBoundaryRow();
+  if (boundary === -1) return;
+
+  var BUFFER_SIZE = 3;
+  var directDataStart = boundary + 2; // First data row after DIRECT header
+  var lastRow = sheet.getLastRow();
+
+  // Find last data row in DIRECT table
+  var lastDataRow = findLastDataRowInSegment(directDataStart, lastRow);
+
+  // Count empty rows after last data (or after header if no data)
+  var emptyStart = (lastDataRow >= directDataStart) ? lastDataRow + 1 : directDataStart;
+  var emptyCount = lastRow - emptyStart + 1;
+  if (emptyStart > lastRow) emptyCount = 0;
+
+  if (emptyCount >= BUFFER_SIZE) return; // Buffer already exists
+
+  var rowsToAdd = BUFFER_SIZE - emptyCount;
+
+  // Add rows at the end of the sheet
+  sheet.insertRowsAfter(lastRow, rowsToAdd);
+
+  // Copy formatting from eBay data row (which always has correct format)
+  var sourceRange = sheet.getRange(DATA_START_ROW, 1, 1, 8);
+  var targetRange = sheet.getRange(lastRow + 1, 1, rowsToAdd, 8);
+  sourceRange.copyTo(targetRange, SpreadsheetApp.CopyPasteType.PASTE_FORMAT, false);
+  sheet.setRowHeights(lastRow + 1, rowsToAdd, 30);
+}
+
+/**
  * Adds rows to Table 1 (eBay) - PUSHES DIRECT TABLE DOWN
  * @param {number} n - Number of rows to add
  * @returns {string} - Status message

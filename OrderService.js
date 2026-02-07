@@ -1,5 +1,5 @@
 // =======================================================================================
-// ORDER_SERVICE.gs - COMPLETE with Hidden Sheet Message ID Storage
+// ORDER_SERVICE.gs - COMPLETE with Hidden Sheet Message ID Storage//
 // =======================================================================================
 
 // Note: TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID are now defined in Secrets.js
@@ -9,115 +9,190 @@ var HIDDEN_SHEET_NAME = "Telegram_Messages"; // Hidden sheet for message IDs
 /**
  * The "Front Door" for n8n - Receives POST requests
  */
+/**
+ * The "Front Door" for n8n - Receives POST requests
+ */
 function doPost(e) {
-  // 🔒 LOCK: Prevent race conditions (Crucial for n8n stability)
   var lock = LockService.getScriptLock();
   try {
-    lock.waitLock(30000); 
-  } catch (e) {
+    lock.waitLock(30000);
+  } catch (lockErr) {
     return ContentService.createTextOutput(JSON.stringify({"status": "error", "message": "Server Busy"})).setMimeType(ContentService.MimeType.JSON);
   }
 
   try {
     var payload = JSON.parse(e.postData.contents);
 
-    // --- PRESERVED TELEGRAM & STATUS ACTIONS ---
+    // --- AUTHENTICATION ---
+    // Telegram callbacks are verified by their structure (callback_query with valid bot data)
+    // All other requests must include the shared secret token
+    if (!payload.callback_query) {
+      var token = String(payload.token || (e.parameter && e.parameter.token) || "").trim();
+      var expected = APP_SECRET_TOKEN;
+      if (token !== expected) {
+        console.log("AUTH FAILED - received: [" + token + "] expected: [" + expected + "]");
+        return ContentService.createTextOutput(JSON.stringify({
+          "status": "error", "message": "Unauthorized"
+        })).setMimeType(ContentService.MimeType.JSON);
+      }
+    }
+
+    // --- TELEGRAM ACTIONS ---
     if (payload.action === 'storeMessageId') return storeMessageId(payload.orderId, payload.messageId, payload.chatId);
     if (payload.action === 'notifyShipped') return notifyTelegramShipped(payload.orderId);
     if (payload.callback_query) return handleTelegramCallback(payload);
-    
+
+    // --- STATUS UPDATES ---
     if (payload.action === 'updateOrderStatus') {
       var result = findAndUpdateOrder(payload.orderId, payload.newStatus);
-      return ContentService.createTextOutput(JSON.stringify({
-        "status": "success",
-        "found": result.found,
-        "orderId": payload.orderId,
-        "newStatus": payload.newStatus
-      })).setMimeType(ContentService.MimeType.JSON);
+      return ContentService.createTextOutput(JSON.stringify(result)).setMimeType(ContentService.MimeType.JSON);
     }
-
     if (payload.action === 'updateStatus') {
-      return updateStatus(payload.rowNumber, payload.status);
+      // Validate row number is within data range
+      var rowNum = parseInt(payload.rowNumber);
+      if (isNaN(rowNum) || rowNum < DATA_START_ROW) {
+        return ContentService.createTextOutput(JSON.stringify({
+          "status": "error", "message": "Invalid row number"
+        })).setMimeType(ContentService.MimeType.JSON);
+      }
+      return updateStatus(rowNum, payload.status);
     }
 
-    // --- IMPROVED ORDER INSERTION LOGIC ---
+    // --- IMPROVED BATCH ORDER INSERTION ---
     var orders = payload.orders || [];
-    var results = [];
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     var sheet = ss.getSheetByName(MAIN_SHEET_NAME);
     
-    // 1. Find the eBay boundary (Don't look past the DIRECT table)
-    var fullData = sheet.getDataRange().getValues();
-    var ebayBoundaryRow = fullData.length; 
+    // 1. Gather Existing Orders to prevent duplicates
+    // Scan ALL data rows to avoid duplicate insertions
+    var lastRow = sheet.getLastRow();
+    var scanRows = Math.max(0, lastRow - DATA_START_ROW + 1);
+    if (scanRows === 0) scanRows = 1;
+    var existingData = sheet.getRange(DATA_START_ROW, 1, scanRows, 4).getValues();
+    var existingSignatures = new Set();
+    existingData.forEach(function(row) {
+      if (row[3] && row[0]) existingSignatures.add(String(row[3]).trim() + "|" + String(row[0]).trim().toUpperCase());
+    });
 
-    for (var i = 0; i < fullData.length; i++) {
-      var rowStr = fullData[i].join("||").toUpperCase();
-      if (rowStr.indexOf("DIRECT") > -1 && rowStr.length < 200) {
-        ebayBoundaryRow = i; 
-        break;
-      }
-    }
+    var newRows = [];
+    var results = [];
+    var lowStockRows = []; // Track indices that need red highlight
 
-    // 2. Identify existing orders in the eBay section ONLY
-    var existingEbaySignatures = new Set();
-    for (var j = DATA_START_ROW - 1; j < ebayBoundaryRow; j++) {
-      var existingSku = String(fullData[j][0] || "").trim().toUpperCase();
-      var existingOrder = String(fullData[j][3] || "").trim();
-      if (existingSku && existingOrder) {
-        existingEbaySignatures.add(existingOrder + "|" + existingSku);
-      }
-    }
+    // 2. Build location & inventory maps ONCE (not per-item)
+    // This reads Master Inventory LIVE - fresh data every doPost call
+    // but avoids re-reading the entire sheet for EACH item
+    var maps = buildLocationAndInventoryMaps();
+    var locationMap = maps.locationMap;
+    var inventoryMap = maps.inventoryMap;
 
-    var addedCount = 0;
+    // Track available stock decrements within this batch
+    var batchStock = {};
 
+    // Build committed orders map to subtract existing PENDING/PREPARING from available
+    var committedMap = getCommittedQuantities();
+
+    // 3. Build the data array first (Don't touch the sheet yet)
     orders.forEach(function(item) {
       var sku = String(item.SKU || "").trim().toUpperCase();
+      var skuLower = sku.toLowerCase();
       var salesOrder = String(item["SALES ORDER"] || "").trim();
-      
-      // Validation: Fixes the "wrong/broken sales order" issue
-      if (!salesOrder || salesOrder.toLowerCase() === "undefined" || salesOrder.length < 3) {
-        results.push("Skipped: Invalid ID (" + salesOrder + ")");
+
+      if (!salesOrder || salesOrder.length < 3) {
+        results.push("Skipped: Invalid ID");
         return;
       }
 
-      var currentSignature = salesOrder + "|" + sku;
-
-      // 3. Duplicate Check (Targeted to eBay section)
-      if (existingEbaySignatures.has(currentSignature)) {
+      // Duplicate Check
+      if (existingSignatures.has(salesOrder + "|" + sku)) {
         results.push("Skipped: Duplicate " + salesOrder);
         return;
       }
 
-      // 4. Insert Row
-      sheet.insertRowBefore(DATA_START_ROW);
-      var location = getSingleLocation(sku.toLowerCase());
-      var rowData = [[sku, item.QTY || 1, location, salesOrder, item.NOTE || "", "PENDING"]];
-      sheet.getRange(DATA_START_ROW, 1, 1, 6).setValues(rowData);
-      
-      // Update local set so same-batch duplicates are also caught
-      existingEbaySignatures.add(currentSignature);
-      addedCount++;
+      // LIVE location lookup from map (built fresh this request)
+      var location = locationMap.get(skuLower) || "NOT FOUND";
+
+      // Inventory with batch-level decrement tracking
+      // Also subtract already committed orders (PENDING/PREPARING) in the sheet
+      if (!(skuLower in batchStock)) {
+        var invData = inventoryMap.get(skuLower);
+        var baseAvailable = invData ? invData.available : 0;
+        var alreadyCommitted = committedMap.get(skuLower) || 0;
+        batchStock[skuLower] = baseAvailable - alreadyCommitted;
+      }
+      var itemQty = parseInt(item.QTY) || 1;
+
+      // Subtract this item's qty to show what's LEFT after this order
+      var handValue = batchStock[skuLower] - itemQty;
+
+      // Store row data: [SKU, Qty, Loc, OrderID, Note, Status, Hand/Stock]
+      newRows.push([
+        sku,
+        item.QTY || 1,
+        location,
+        salesOrder,
+        item.NOTE || "",
+        "PENDING",
+        handValue
+      ]);
+
+      // Update batchStock for next order with same SKU in this batch
+      batchStock[skuLower] = handValue;
+
+      // If stock is low, mark this index relative to the new batch
+      if (handValue <= 20) {
+        lowStockRows.push(newRows.length - 1);
+      }
+
+      existingSignatures.add(salesOrder + "|" + sku);
       results.push("Added: " + salesOrder);
     });
 
-    if (addedCount > 0) {
+    // 3. Insert and Format in ONE GO (Much Faster)
+    if (newRows.length > 0) {
+      // A. Insert blank rows at the top
+      sheet.insertRowsBefore(DATA_START_ROW, newRows.length);
+      
+      // B. Get the target range
+      var range = sheet.getRange(DATA_START_ROW, 1, newRows.length, 7);
+      
+      // C. Paste Data
+      range.setValues(newRows);
+      
+      // D. Clean Formatting (Fixes "Format Persistence")
+      // We copy format from the row *below* the insertion to ensure borders/fonts match
+      var templateRow = DATA_START_ROW + newRows.length;
+      sheet.getRange(templateRow, 1, 1, 7).copyFormatToRange(sheet, 1, 7, DATA_START_ROW, DATA_START_ROW + newRows.length - 1);
+
+      // E. Apply Highlighting specific to the HAND column (Column 7)
+      // Reset background first to ensure no old colors stick
+      range.offset(0, 6, newRows.length, 1).setBackground(null);
+      
+      // Apply Red to specific low stock cells
+      lowStockRows.forEach(function(rowIndex) {
+        // DATA_START_ROW + rowIndex is the specific row number
+        sheet.getRange(DATA_START_ROW + rowIndex, 7).setBackground("#FF6B6B");
+      });
+
       updateOrderStatsInSheet();
       updateLastSyncTimestamp();
-      sortTableByStatusAndLocation(1);
     }
 
     return ContentService.createTextOutput(JSON.stringify({
       "status": "success", 
-      "added": addedCount, 
+      "added": newRows.length, 
       "details": results
     })).setMimeType(ContentService.MimeType.JSON);
 
   } catch (err) {
     return ContentService.createTextOutput(JSON.stringify({"status": "error", "message": err.toString()})).setMimeType(ContentService.MimeType.JSON);
   } finally {
-    lock.releaseLock(); // ALWAYS release the lock
+    lock.releaseLock();
   }
 }
+
+// ═══════════════════════════════════════════════════════════════════════════════════════
+// 📊 INVENTORY LOOKUP - Single definition is at the bottom of this file
+// ═══════════════════════════════════════════════════════════════════════════════════════
 
 // ═══════════════════════════════════════════════════════════════════════════════════════
 // ✨ HIDDEN SHEET MANAGEMENT - Store Message IDs
@@ -161,67 +236,7 @@ function getHiddenSheet() {
   return sheet;
 }
 
-/**
- * Store message ID after Telegram sends message
- * Called by n8n after sending Telegram message
- */
-function storeMessageId(orderId, messageId, chatId) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var sheet = ss.getSheetByName(HIDDEN_SHEET_NAME);
-  
-  // 1. Check if sheet exists
-  if (!sheet) {
-    return ContentService.createTextOutput("Error: Sheet [" + HIDDEN_SHEET_NAME + "] not found!");
-  }
-  
-  // 2. Log what we are trying to save
-  logDebug("Attempting to store: Order=" + orderId + ", Msg=" + messageId);
-  
-  // 3. Perform the save
-  try {
-    sheet.appendRow([
-      String(orderId), 
-      String(messageId), 
-      String(chatId), 
-      new Date()
-    ]);
-    
-    // 4. Return confirmation to n8n
-    return ContentService.createTextOutput("✅ Success: Added Order " + orderId + " to sheet.");
-  } catch (e) {
-    return ContentService.createTextOutput("❌ Script Error: " + e.toString());
-  }
-}
-
-/**
- * Get message ID for an order
- */
-function getMessageId(orderId) {
-  try {
-    var sheet = getHiddenSheet();
-    var data = sheet.getDataRange().getValues();
-    
-    logDebug("Searching for message ID for order: " + orderId);
-    
-    for (var i = 1; i < data.length; i++) {
-      if (String(data[i][0]).trim() === String(orderId).trim()) {
-        logDebug("✅ Found message ID: " + data[i][1]);
-        return {
-          messageId: data[i][1],
-          chatId: data[i][2],
-          timestamp: data[i][3]
-        };
-      }
-    }
-    
-    logDebug("❌ No message ID found for order: " + orderId);
-    return null;
-    
-  } catch (e) {
-    logDebug("Error getting message ID: " + e.toString());
-    return null;
-  }
-}
+// storeMessageId() and getMessageId() - single definitions are at the bottom of this file
 
 /**
  * Delete message ID entry after order is deleted or completed
@@ -325,10 +340,6 @@ function setupWeeklyCleanup() {
  * Called by n8n when an order is marked SHIPPED
  * Updates the existing Telegram message using stored message_id
  */
-// ═══════════════════════════════════════════════════════════════════════════════════════
-// 🚀 NOTIFICATION WORKERS
-// ═══════════════════════════════════════════════════════════════════════════════════════
-
 function notifyTelegramShipped(orderId) {
   // 1. Retrieve the Chat ID and Message ID from the hidden sheet
   var msgData = getMessageId(orderId);
@@ -352,7 +363,7 @@ function notifyTelegramShipped(orderId) {
 
   var payload = {
     'chat_id': String(msgData.chatId),      // Ensure it's a string
-    'message_id': String(msgData.messageId), // Ensure it's a string
+    'message_id': parseInt(msgData.messageId), // Must be integer for Telegram API
     'text': newText,
     'parse_mode': 'HTML',
     'reply_markup': { 'inline_keyboard': [] } // Removes the buttons
@@ -393,15 +404,7 @@ function updateTelegramMessageToShipped(chatId, messageId, orderId) {
   var url = "https://api.telegram.org/bot" + TELEGRAM_BOT_TOKEN + "/editMessageText";
   
   try {
-    // Get current message text to preserve order details
-    var getMessage = UrlFetchApp.fetch(
-      "https://api.telegram.org/bot" + TELEGRAM_BOT_TOKEN + 
-      "/getUpdates?offset=-1",
-      { muteHttpExceptions: true }
-    );
-    
-    // Build new message text (keep original content, just update status)
-    // We'll rebuild from the original message structure
+    // Build new message text for shipped status
     var newText = buildShippedMessageText(orderId);
     
     // Build payload with NO buttons
@@ -749,8 +752,15 @@ function addOrderFromN8N(sku, salesOrder, qty) {
     }
   }
   var location = getSingleLocation(String(sku).toLowerCase().trim());
+  var baseQty = getInventoryForSKU(sku);
+  var committedMap = getCommittedQuantities();
+  var committedQty = committedMap.get(String(sku).trim().toLowerCase()) || 0;
+  var availableQty = baseQty - committedQty - (parseInt(qty) || 1);
   sheet.insertRowBefore(DATA_START_ROW);
-  sheet.getRange(DATA_START_ROW, 1, 1, 6).setValues([[sku, qty, location, salesOrder, "", "PENDING"]]);
+  sheet.getRange(DATA_START_ROW, 1, 1, 7).setValues([[sku, qty, location, salesOrder, "", "PENDING", availableQty]]);  // ✅ Changed from 6 to 7
+
+  // ✅ NEW: Apply formatting
+  applyHandFormatting(sheet, DATA_START_ROW, availableQty);
   updateOrderStatsInSheet();
   updateLastSyncTimestamp();
   return "Added: " + salesOrder;
@@ -892,7 +902,8 @@ function getMessageId(orderId) {
   var targetId = String(orderId).trim().toLowerCase();
   
   // Loop backwards (bottom to top) to find the most recent entry for this order
-  for (var i = data.length - 1; i >= 0; i--) {
+  // Start at i >= 1 to skip the header row
+  for (var i = data.length - 1; i >= 1; i--) {
     var rowId = String(data[i][0]).trim().toLowerCase();
     
     if (rowId === targetId) {
@@ -906,91 +917,129 @@ function getMessageId(orderId) {
   return null; // Not found
 }
 
+
 // ═══════════════════════════════════════════════════════════════════════════════════════
-// 💾 DATABASE WORKERS - These actually talk to the Telegram_Messages sheet
+// 📊 INVENTORY LOOKUP FUNCTIONS - For Auto-Populating HAND Column
 // ═══════════════════════════════════════════════════════════════════════════════════════
 
-function storeMessageId(orderId, messageId, chatId) {
+/**
+ * Get available inventory for a SKU
+ * Used when inserting new orders via n8n
+ */
+function getInventoryForSKU(sku) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var sheet = ss.getSheetByName(HIDDEN_SHEET_NAME);
+  var dbSheet = ss.getSheetByName(DB_SHEET_NAME);
   
-  // If the sheet doesn't exist, create it
-  if (!sheet) {
-    sheet = ss.insertSheet(HIDDEN_SHEET_NAME);
-    sheet.appendRow(["Order ID", "Message ID", "Chat ID", "Timestamp"]);
+  if (!dbSheet || !sku) {
+    return 0;
   }
   
-  // Add the info to the sheet
-  sheet.appendRow([orderId, messageId, chatId, new Date()]);
+  var skuLower = String(sku).trim().toLowerCase();
+  var data = dbSheet.getDataRange().getValues();
+  var headers = data[0];
   
-  return ContentService.createTextOutput("✅ Stored successfully");
-}
-
-function getMessageId(orderId) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var sheet = ss.getSheetByName(HIDDEN_SHEET_NAME);
-  if (!sheet) return null;
+  var skuCol = headers.indexOf(DB_SKU_HEADER);
+  var qtyCol = headers.indexOf(DB_QUANTITY_HEADER);
+  var soldCol = headers.indexOf(DB_QUANTITY_SOLD_HEADER);
   
-  var data = sheet.getDataRange().getValues();
-  var targetId = String(orderId).trim().toLowerCase();
+  if (skuCol === -1 || qtyCol === -1 || soldCol === -1) {
+    return 0;
+  }
   
-  // Look from bottom to top (get most recent message for this order)
-  for (var i = data.length - 1; i >= 0; i--) {
-    if (String(data[i][0]).trim().toLowerCase() === targetId) {
-      return {
-        messageId: data[i][1],
-        chatId: data[i][2]
-      };
+  // Search for SKU
+  for (var i = 1; i < data.length; i++) {
+    var dbSku = String(data[i][skuCol] || "").trim().toLowerCase();
+    
+    if (dbSku === skuLower) {
+      var qty = parseInt(data[i][qtyCol]) || 0;
+      var sold = parseInt(data[i][soldCol]) || 0;
+      return qty - sold; // Return available quantity
     }
   }
-  return null;
+  
+  return 0; // SKU not found
 }
 
 /**
- * Main function to sync a sheet status change to Telegram.
- * Rebuilds the message to show the new status and removes all buttons.
+ * Apply low stock formatting to HAND column cell
+ * Red background if quantity <= 20
  */
-/**
+function applyHandFormatting(sheet, row, value) {
+  var cell = sheet.getRange(row, HAND_COLUMN);
+  
+  if (value === "" || value === null || value === undefined) {
+    return; // Don't format empty cells
+  }
+  
+  var numValue = typeof value === 'number' ? value : parseInt(value);
+  
+  if (!isNaN(numValue) && numValue <= 20) {
+    cell.setBackground("#FF6B6B"); // Red for low stock
+  } else {
+    cell.setBackground(null); // Default for good stock
+  }
+}
+
 /**
  * Synchronizes a status change from the sheet to Telegram.
- * Rebuilds the "Elegant Mobile-Friendly Design" from the n8n template.
+ * REPLICATES THE "ELEGANT MOBILE DESIGN" FROM N8N WORKFLOW
  */
 function syncStatusToTelegram(orderId, newStatus) {
+  logDebug("=== SYNC SHEET → TELEGRAM ===");
+  logDebug("Order: " + orderId + " → " + newStatus);
+
   var msgData = getMessageId(orderId);
-  if (!msgData) return;
+  if (!msgData) {
+    logDebug("⚠️ Order " + orderId + ": No Telegram ID found in Telegram_Messages sheet. Skipping.");
+    return;
+  }
+  logDebug("Found Message ID: " + msgData.messageId + " | Chat ID: " + msgData.chatId);
 
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var sheet = ss.getSheetByName(MAIN_SHEET_NAME);
-  var data = sheet.getDataRange().getValues();
+  // 1. GATHER DATA & CALCULATE TOTALS
+  // We grab all rows for this order to build the "Pick List"
+  var items = getItemsFromSheet(orderId);
+  var totalUnits = 0;
+  for (var k = 0; k < items.length; k++) totalUnits += parseInt(items[k].qty) || 0;
 
-  // 1. GATHER ALL ITEMS FOR THIS ORDER ID
-  var items = [];
-  var buyerNote = "";
-  for (var i = DATA_START_ROW - 1; i < data.length; i++) {
-    if (String(data[i][3]).trim() === String(orderId).trim()) {
-      items.push({
-        sku: data[i][0],
-        qty: data[i][1],
-        loc: data[i][2],
-        note: data[i][4]
-      });
-      if (data[i][4]) buyerNote = data[i][4]; // Take note from row
-    }
+  // 2. DEFINE STATUS EMOJI & BUTTONS
+  var statusEmoji = "🔴";
+  var buttons = []; 
+
+  if (newStatus === "PREPARING") {
+    statusEmoji = "🟡";
+    buttons.push([{ "text": "🔄 Revert to Pending", "callback_data": "PEND_" + orderId }]);
+  } else if (newStatus === "PENDING") {
+    statusEmoji = "🔴";
+    buttons.push([{ "text": "🚀 Mark as Preparing", "callback_data": "PREP_" + orderId }]);
+  } else if (newStatus === "SHIPPED") {
+    statusEmoji = "✅"; // No buttons
+  } else if (newStatus === "CANCELED") {
+    statusEmoji = "❌"; // No buttons
   }
 
-  if (items.length === 0) return;
+  // 3. BUILD MESSAGE (Exact N8N Template Port)
+  // Pre-build inventory map once instead of calling getInventoryForSKU per item
+  var inventoryCache = {};
+  try {
+    var maps = buildLocationAndInventoryMaps();
+    var invMap = maps.inventoryMap;
+  } catch (e) {
+    invMap = new Map();
+  }
 
-  // 2. REPLICATE N8N ELEGANT DESIGN
+  var timestamp = Utilities.formatDate(new Date(), "America/Chicago", "EEE, MMM d, h:mm a"); // Houston Time
+
   var msg = "══════════════════════\n";
-  msg += "         📦  ORDER UPDATE\n";
-  msg += "══════════════════════\n\n";
-  
+  msg += "       📦  ORDER\n";
+  msg += "══════════════════════\n";
+  msg += "🕐  " + timestamp + " CST\n\n";
+
   msg += "🔖  " + orderId + "\n";
-  // Note: Buyer Name/City isn't in your main sheet columns, so we skip or use Order ID
-  msg += "\n";
-  
+  msg += "📦  " + totalUnits + " total units\n\n";
+
+  // -- PICK LIST SECTION --
   msg += "┌─────────────────────\n";
-  msg += "│  📋  PICK LIST\n";
+  msg += "│ PICK LIST\n";
   msg += "├─────────────────────\n";
 
   for (var j = 0; j < items.length; j++) {
@@ -998,67 +1047,212 @@ function syncStatusToTelegram(orderId, newStatus) {
     var isLast = j === items.length - 1;
     var prefix = isLast ? '└' : '├';
     var linePrefix = isLast ? ' ' : '│';
-    
+
+    // Get Live Inventory from cached map (single read)
+    var invData = invMap.get(String(item.sku).trim().toLowerCase());
+    var availableStock = invData ? invData.available : 0;
+    var stockStatus = availableStock <= 20 ? '⚠️' : '✅';
+
     msg += "│\n";
-    msg += prefix + "─ " + (j + 1) + ". " + item.sku + "\n";
-    msg += linePrefix + "      ├─ 📦 SKU: " + item.sku + "\n";
+    msg += prefix + "─ " + (j + 1) + ". SKU: " + item.sku + "\n";
+    msg += linePrefix + "      ├─ 📦 " + item.sku + "\n"; // Added explicit SKU line to match n8n
     msg += linePrefix + "      ├─ 📍 Loc: " + item.loc + "\n";
-    msg += linePrefix + "      └─ 🔢 Qty: " + item.qty + "\n";
+    msg += linePrefix + "      ├─ 🔢 Qty: " + item.qty + "\n";
+    msg += linePrefix + "      └─ 📊 Stock: " + stockStatus + " " + availableStock + " units\n";
   }
   msg += "\n";
 
-  if (buyerNote) {
+  // -- NOTE SECTION --
+  // If any item has a note, we display the first one (common for order-level notes)
+  var orderNote = items.find(i => i.note !== "")?.note || "";
+  if (orderNote) {
     msg += "┌─────────────────────\n";
     msg += "│ 💬 BUYER NOTE\n";
     msg += "├─────────────────────\n";
-    msg += "│ " + buyerNote + "\n";
+    msg += "│ " + orderNote + "\n";
     msg += "└─────────────────────\n\n";
   }
 
-  var statusEmoji = newStatus === "PREPARING" ? "🟡" : (newStatus === "SHIPPED" ? "✅" : "🔴");
   msg += "📋 Status: " + statusEmoji + " " + newStatus;
 
-  // 3. BUILD BUTTONS (Keep "Revert" for Preparing, "Mark Prep" for Pending)
-  var buttons = [];
-  if (newStatus === "PREPARING") {
-    buttons.push([{ "text": "↩️ Revert to Pending", "callback_data": "PEND_" + orderId }]);
-  } else if (newStatus === "PENDING") {
-    buttons.push([{ "text": "🚀 Mark as Preparing", "callback_data": "PREP_" + orderId }]);
-  }
-
+  // 4. SEND UPDATE
+  // NOTE: No parse_mode set — message uses Unicode box-drawing, not HTML.
+  // Setting parse_mode:"HTML" caused silent failures when eBay titles contain & < > chars.
   var payload = {
     "chat_id": String(msgData.chatId),
-    "message_id": String(msgData.messageId),
+    "message_id": parseInt(msgData.messageId),
     "text": msg,
-    "parse_mode": "HTML",
     "reply_markup": { "inline_keyboard": buttons }
   };
 
-  UrlFetchApp.fetch("https://api.telegram.org/bot" + TELEGRAM_BOT_TOKEN + "/editMessageText", {
-    "method": "post",
-    "contentType": "application/json",
-    "payload": JSON.stringify(payload),
-    "muteHttpExceptions": true
-  });
+  try {
+    var response = UrlFetchApp.fetch("https://api.telegram.org/bot" + TELEGRAM_BOT_TOKEN + "/editMessageText", {
+      "method": "post",
+      "contentType": "application/json",
+      "payload": JSON.stringify(payload),
+      "muteHttpExceptions": true
+    });
+    var respCode = response.getResponseCode();
+    if (respCode !== 200) {
+      logDebug("❌ Telegram editMessage failed (" + respCode + "): " + response.getContentText());
+    } else {
+      logDebug("✅ Telegram synced for " + orderId + " → " + newStatus);
+    }
+  } catch (e) {
+    logDebug("❌ Sync Error: " + e.toString());
+  }
 }
 
 /**
- * Automatically triggers when a cell in the sheet is changed manually.
+ * Helper: Gets all items for a specific order ID from the sheet
  */
-function onEdit(e) {
-  var range = e.range;
-  var sheet = range.getSheet();
-  
-  // Only trigger if we are on the Main Sheet and Column F (6)
-  if (sheet.getName() === MAIN_SHEET_NAME && range.getColumn() === 6) {
-    var row = range.getRow();
-    if (row < DATA_START_ROW) return;
+function getItemsFromSheet(orderId) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName(MAIN_SHEET_NAME);
+  var lastRow = sheet.getLastRow();
 
-    var newStatus = range.getValue();
-    var orderId = sheet.getRange(row, 4).getValue(); // Get Order ID from Column D
+  if (lastRow < DATA_START_ROW) return [];
 
-    if (orderId && (newStatus === "PREPARING" || newStatus === "PENDING")) {
-      syncStatusToTelegram(orderId, newStatus);
+  // Search ALL rows (both eBay and Direct tables) for the order ID
+  var data = sheet.getRange(DATA_START_ROW, 1, lastRow - DATA_START_ROW + 1, 5).getValues();
+  var items = [];
+  var cleanOrderId = String(orderId).trim();
+
+  for (var i = 0; i < data.length; i++) {
+    // Skip the DIRECT boundary row
+    if (String(data[i][0]).trim().toUpperCase() === TABLE_TWO_IDENTIFIER) continue;
+
+    if (String(data[i][3]).trim() === cleanOrderId) {
+      items.push({
+        sku: data[i][0],
+        qty: data[i][1],
+        loc: data[i][2],
+        note: data[i][4]
+      });
     }
   }
+  return items;
+}
+
+/**
+ * HANDLES MANUAL EDITS
+ */
+function handleManualStatusChange(e) {
+  if (!e || !e.range) return;
+  var range = e.range;
+  var sheet = range.getSheet();
+
+  // Only process status column edits on the main sheet
+  if (sheet.getName() !== MAIN_SHEET_NAME) return;
+  if (range.getColumn() !== STATUS_COLUMN) return;
+  if (range.getRow() < DATA_START_ROW) return;
+
+  logDebug("=== MANUAL STATUS EDIT DETECTED ===");
+  logDebug("Row: " + range.getRow() + " | Column: " + range.getColumn());
+
+  // Concurrency lock: prevents conflicts with doPost or other users
+  var lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(10000);
+  } catch (lockErr) {
+    logDebug("❌ Could not acquire lock, skipping sync");
+    return;
+  }
+
+  try {
+    var numRows = range.getHeight();
+    var statuses = sheet.getRange(range.getRow(), STATUS_COLUMN, numRows, 1).getValues();
+    var orderIds = sheet.getRange(range.getRow(), 4, numRows, 1).getValues();
+
+    var synced = {};
+    for (var i = 0; i < numRows; i++) {
+      var newStatus = String(statuses[i][0]).trim().toUpperCase();
+      var orderId = String(orderIds[i][0]).trim();
+
+      logDebug("Processing row " + (range.getRow() + i) + ": Order=" + orderId + " Status=" + newStatus);
+
+      if (!orderId || orderId === "" || synced[orderId]) continue;
+      if (!["PENDING", "PREPARING", "SHIPPED", "CANCELED"].includes(newStatus)) continue;
+
+      synced[orderId] = true;
+      try {
+        syncStatusToTelegram(orderId, newStatus);
+      } catch (err) {
+        logDebug("❌ handleManualStatusChange error for " + orderId + ": " + err.toString());
+      }
+    }
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════════════
+// 🔍 DIAGNOSTIC - Run from Script Editor to debug Telegram 404///
+// ═══════════════════════════════════════════════════════════════════════════════════════
+
+function diagnoseTelegram() {
+  logDebug("=== TELEGRAM DIAGNOSTIC START ===");
+
+  // 1. Check bot token
+  var tokenPreview = TELEGRAM_BOT_TOKEN
+    ? (TELEGRAM_BOT_TOKEN.substring(0, 6) + "..." + TELEGRAM_BOT_TOKEN.substring(TELEGRAM_BOT_TOKEN.length - 4))
+    : "UNDEFINED";
+  logDebug("Token preview: " + tokenPreview);
+  logDebug("Token length: " + (TELEGRAM_BOT_TOKEN ? TELEGRAM_BOT_TOKEN.length : 0));
+  logDebug("Token type: " + typeof TELEGRAM_BOT_TOKEN);
+
+  // 2. Test getMe (verifies token is valid)
+  try {
+    var getMeUrl = "https://api.telegram.org/bot" + TELEGRAM_BOT_TOKEN + "/getMe";
+    logDebug("Calling getMe...");
+    var getMeResp = UrlFetchApp.fetch(getMeUrl, { "muteHttpExceptions": true });
+    logDebug("getMe status: " + getMeResp.getResponseCode());
+    logDebug("getMe response: " + getMeResp.getContentText());
+  } catch (e) {
+    logDebug("getMe ERROR: " + e.toString());
+  }
+
+  // 3. Test with the most recent message in Telegram_Messages sheet
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var msgSheet = ss.getSheetByName(HIDDEN_SHEET_NAME);
+  if (!msgSheet || msgSheet.getLastRow() < 2) {
+    logDebug("No messages stored in Telegram_Messages sheet");
+    logDebug("=== DIAGNOSTIC END ===");
+    return;
+  }
+
+  var lastRow = msgSheet.getLastRow();
+  var testData = msgSheet.getRange(lastRow, 1, 1, 3).getValues()[0];
+  var testOrderId = testData[0];
+  var testMsgId = testData[1];
+  var testChatId = testData[2];
+
+  logDebug("Test order: " + testOrderId);
+  logDebug("Test message_id: " + testMsgId + " (type: " + typeof testMsgId + ")");
+  logDebug("Test chat_id: " + testChatId + " (type: " + typeof testChatId + ")");
+  logDebug("parseInt(message_id): " + parseInt(testMsgId));
+
+  // 4. Try editMessageText with minimal payload
+  try {
+    var editUrl = "https://api.telegram.org/bot" + TELEGRAM_BOT_TOKEN + "/editMessageText";
+    var testPayload = {
+      "chat_id": String(testChatId),
+      "message_id": parseInt(testMsgId),
+      "text": "Diagnostic test - " + new Date().toLocaleString()
+    };
+    logDebug("Edit payload: " + JSON.stringify(testPayload));
+
+    var editResp = UrlFetchApp.fetch(editUrl, {
+      "method": "post",
+      "contentType": "application/json",
+      "payload": JSON.stringify(testPayload),
+      "muteHttpExceptions": true
+    });
+    logDebug("Edit status: " + editResp.getResponseCode());
+    logDebug("Edit response: " + editResp.getContentText());
+  } catch (e) {
+    logDebug("Edit ERROR: " + e.toString());
+  }
+
+  logDebug("=== DIAGNOSTIC END ===");
 }
