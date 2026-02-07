@@ -162,7 +162,7 @@ Configure your n8n workflows to:
      "action": "storeMessageId",
      "orderId": "ORDER-001",
      "messageId": "12345",
-     "chatId": "-5269079865"
+     "chatId": "YOUR_CHAT_ID"
    }
    ```
 

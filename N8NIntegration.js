@@ -89,7 +89,7 @@ function testN8NConnection() {
 
 function getN8NStatus() {
   return {
-    configured: true,
-    url: N8N_WEBHOOK_URL
+    configured: !!N8N_WEBHOOK_URL,
+    url: N8N_WEBHOOK_URL ? "(configured)" : "(not set)"
   };
 }

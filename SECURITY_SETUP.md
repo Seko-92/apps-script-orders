@@ -11,11 +11,13 @@ Your Apps Script project has been secured for GitHub! Here's what was implemente
 - `Secrets.template.js` - Template for other developers (COMMITTED to git)
 
 **Extracted Secrets:**
-- Telegram Bot Token: `8436983529:AAEq4VQlXg3VY9eO2Jaz3pXOqGu89l0h6J0`
-- Telegram Chat ID: `-5269079865`
-- N8N Webhook URL: `https://zandra-unmumbling-axton.ngrok-free.dev/webhook/a9dd56a5-5765-4a48-9449-9f833257abba`
-- Web App URL: `https://script.google.com/macros/s/AKfycby8qGef6k3b8AOApwpF_-DfbM6aNS6vpYe8N9l9SjUPhqaOVN8t4X-pEBOw42MN-uueSQ/exec`
-- Script ID: `1fEcPq-ioqCGz6g-BNOjzhhi7KvatJMtgZoxrp0lj8Gt__s1dvD5YDLnf`
+- Telegram Bot Token
+- Telegram Chat ID
+- N8N Webhook URL
+- Web App URL
+- Script ID
+
+All values are stored in `Secrets.js` (see `Secrets.template.js` for the format).
 
 ### 2. Updated Code Files
 
