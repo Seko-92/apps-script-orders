@@ -7,7 +7,7 @@
 <style>
 /* ═══════════════════════════════════════════════════════════════════════════════
    HQ COMMAND CENTER v2.3 - PRODUCTION READY
-   Unified Typography + Complete Dark Theme + Card Accents//
+   Unified Typography + Complete Dark Theme + Card Accents
    ═══════════════════════════════════════════════════════════════════════════════ */
 
 :root {
@@ -1192,6 +1192,20 @@ input[type="range"]::-moz-range-thumb:active { cursor: grabbing; transform: scal
         <div class="legend-item"><div class="legend-color first"></div><span>1st occurrence</span></div>
         <div class="legend-item"><div class="legend-color dupe"></div><span>Duplicate</span></div>
       </div>
+    </div>
+  </div>
+
+  <div class="card" data-id="stock-highlight" draggable="true">
+    <div class="card-header" onclick="toggleCollapse(this)">
+      <div class="drag-handle" title="Drag to reorder">☰</div>
+      <div class="card-title"><div class="card-icon">📊</div><h3>Stock Highlight</h3></div>
+      <div class="card-toggle">▼</div>
+    </div>
+    <div class="card-body">
+      <div class="btn-group">
+        <button class="btn-warning" onclick="run('setupHandConditionalFormatting')"><span>🔄</span> Repair Highlight</button>
+      </div>
+      <p style="font-size:11px;color:#888;margin-top:8px;">Re-applies low stock highlight rule on HAND column (values ≤ 20)</p>
     </div>
   </div>
 

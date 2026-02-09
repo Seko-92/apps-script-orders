@@ -1,5 +1,5 @@
 // =======================================================================================
-// HELPERS.gs - Core Utility Functions
+// HELPERS.gs - Core Utility Functions//
 // =======================================================================================
 
 /**
@@ -77,6 +77,67 @@ function getCommittedQuantities() {
   }
 
   return committed;
+}
+
+/**
+ * Sets up conditional formatting on the HAND column (Column G)
+ * so low-stock highlighting is ALWAYS accurate and never stale.
+ * Replaces all manual setBackground calls.
+ */
+function setupHandConditionalFormatting() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName(MAIN_SHEET_NAME);
+  if (!sheet) return;
+
+  // Remove any existing HAND highlight rules to avoid duplicates
+  var rules = sheet.getConditionalFormatRules();
+  var filtered = [];
+  for (var i = 0; i < rules.length; i++) {
+    var ranges = rules[i].getRanges();
+    var isHandRule = false;
+    for (var j = 0; j < ranges.length; j++) {
+      if (ranges[j].getColumn() === HAND_COLUMN && ranges[j].getNumColumns() === 1) {
+        isHandRule = true;
+        break;
+      }
+    }
+    if (!isHandRule) filtered.push(rules[i]);
+  }
+
+  // Clear stale manual backgrounds ONLY on data rows (skip boundary + header)
+  var boundary = getBoundaryRow();
+  var lastRow = Math.max(sheet.getLastRow(), DATA_START_ROW);
+
+  // eBay data rows
+  if (boundary > DATA_START_ROW) {
+    var ebayCount = boundary - 1 - DATA_START_ROW + 1;
+    if (ebayCount > 0) {
+      sheet.getRange(DATA_START_ROW, HAND_COLUMN, ebayCount, 1).setBackground(null);
+    }
+  }
+
+  // DIRECT data rows (skip boundary row and DIRECT header row)
+  if (boundary > 0 && boundary + 2 <= lastRow) {
+    var directStart = boundary + 2;
+    var directCount = lastRow - directStart + 1;
+    if (directCount > 0) {
+      sheet.getRange(directStart, HAND_COLUMN, directCount, 1).setBackground(null);
+    }
+  }
+
+  // Build conditional formatting rule using custom formula
+  // Only triggers on numeric values <= 20, ignores empty cells and text
+  var handRange = sheet.getRange(DATA_START_ROW, HAND_COLUMN, 1000, 1);
+  var formula = "=AND(ISNUMBER(G" + DATA_START_ROW + "), G" + DATA_START_ROW + "<=20)";
+  var rule = SpreadsheetApp.newConditionalFormatRule()
+    .whenFormulaSatisfied(formula)
+    .setBackground("#FF6B6B")
+    .setFontColor("#FFFFFF")
+    .setRanges([handRange])
+    .build();
+
+  filtered.push(rule);
+  sheet.setConditionalFormatRules(filtered);
 }
 
 /**

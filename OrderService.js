@@ -1,5 +1,5 @@
 // =======================================================================================
-// ORDER_SERVICE.gs - COMPLETE with Hidden Sheet Message ID Storage//
+// ORDER_SERVICE.gs - COMPLETE with Hidden Sheet Message ID Storage
 // =======================================================================================
 
 // Note: TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID are now defined in Secrets.js
@@ -76,7 +76,6 @@ function doPost(e) {
 
     var newRows = [];
     var results = [];
-    var lowStockRows = []; // Track indices that need red highlight
 
     // 2. Build location & inventory maps ONCE (not per-item)
     // This reads Master Inventory LIVE - fresh data every doPost call
@@ -138,11 +137,6 @@ function doPost(e) {
       // Update batchStock for next order with same SKU in this batch
       batchStock[skuLower] = handValue;
 
-      // If stock is low, mark this index relative to the new batch
-      if (handValue <= 20) {
-        lowStockRows.push(newRows.length - 1);
-      }
-
       existingSignatures.add(salesOrder + "|" + sku);
       results.push("Added: " + salesOrder);
     });
@@ -162,16 +156,6 @@ function doPost(e) {
       // We copy format from the row *below* the insertion to ensure borders/fonts match
       var templateRow = DATA_START_ROW + newRows.length;
       sheet.getRange(templateRow, 1, 1, 7).copyFormatToRange(sheet, 1, 7, DATA_START_ROW, DATA_START_ROW + newRows.length - 1);
-
-      // E. Apply Highlighting specific to the HAND column (Column 7)
-      // Reset background first to ensure no old colors stick
-      range.offset(0, 6, newRows.length, 1).setBackground(null);
-      
-      // Apply Red to specific low stock cells
-      lowStockRows.forEach(function(rowIndex) {
-        // DATA_START_ROW + rowIndex is the specific row number
-        sheet.getRange(DATA_START_ROW + rowIndex, 7).setBackground("#FF6B6B");
-      });
 
       updateOrderStatsInSheet();
       updateLastSyncTimestamp();
@@ -759,8 +743,6 @@ function addOrderFromN8N(sku, salesOrder, qty) {
   sheet.insertRowBefore(DATA_START_ROW);
   sheet.getRange(DATA_START_ROW, 1, 1, 7).setValues([[sku, qty, location, salesOrder, "", "PENDING", availableQty]]);  // ✅ Changed from 6 to 7
 
-  // ✅ NEW: Apply formatting
-  applyHandFormatting(sheet, DATA_START_ROW, availableQty);
   updateOrderStatsInSheet();
   updateLastSyncTimestamp();
   return "Added: " + salesOrder;
@@ -960,25 +942,6 @@ function getInventoryForSKU(sku) {
   return 0; // SKU not found
 }
 
-/**
- * Apply low stock formatting to HAND column cell
- * Red background if quantity <= 20
- */
-function applyHandFormatting(sheet, row, value) {
-  var cell = sheet.getRange(row, HAND_COLUMN);
-  
-  if (value === "" || value === null || value === undefined) {
-    return; // Don't format empty cells
-  }
-  
-  var numValue = typeof value === 'number' ? value : parseInt(value);
-  
-  if (!isNaN(numValue) && numValue <= 20) {
-    cell.setBackground("#FF6B6B"); // Red for low stock
-  } else {
-    cell.setBackground(null); // Default for good stock
-  }
-}
 
 /**
  * Synchronizes a status change from the sheet to Telegram.

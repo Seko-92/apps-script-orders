@@ -71,30 +71,9 @@ function liveUpdateTrigger(e) {
     // Update LOCATION column (Column C)
     sheet.getRange(startRow, LOCATION_COLUMN, locationResults.length, 1).setValues(locationResults);
     
-    // ✅ UPDATED: Update HAND column (Column G) with SMART color coding
+    // Update HAND column (Column G) - conditional formatting handles highlighting
     var handRange = sheet.getRange(startRow, HAND_COLUMN, quantityResults.length, 1);
     handRange.setValues(quantityResults);
-
-    // ✅ NEW: Apply colors row-by-row to preserve formatting
-    for (var j = 0; j < quantityResults.length; j++) {
-      var qty = quantityResults[j][0];
-      var cellRow = startRow + j;
-      var cell = sheet.getRange(cellRow, HAND_COLUMN);
-      
-      if (qty === "" || qty === null) {
-        // Clear any leftover red highlight when row is emptied
-        cell.setBackground(null);
-        continue;
-      } else if (typeof qty === 'number') {
-        if (qty <= 20) {
-          // Low stock: Red background, keep everything else
-          cell.setBackground("#FF6B6B");
-        } else {
-          // Good stock: Clear any custom background (reverts to sheet default)
-          cell.setBackground(null);
-        }
-      }
-    }
   }
   
   // Only update stats when a data cell is edited (SKU or status column)

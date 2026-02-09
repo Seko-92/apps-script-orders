@@ -1,5 +1,5 @@
 // =======================================================================================
-// ROW_MANAGEMENT.gs - v2.5 SIMPLE (Copies from eBay which works!)//
+// ROW_MANAGEMENT.gs - v2.5 SIMPLE (Copies from eBay which works!)
 // =======================================================================================
 
 /**
@@ -64,9 +64,6 @@ function ensureDirectTableBuffer() {
   var targetRange = sheet.getRange(lastRow + 1, 1, rowsToAdd, 8);
   sourceRange.copyTo(targetRange, SpreadsheetApp.CopyPasteType.PASTE_FORMAT, false);
   sheet.setRowHeights(lastRow + 1, rowsToAdd, 30);
-
-  // Clear any low-stock highlight copied from the source row's HAND column
-  sheet.getRange(lastRow + 1, HAND_COLUMN, rowsToAdd, 1).setBackground(null);
 }
 
 /**
@@ -111,9 +108,6 @@ function addRowsTableTwo(n) {
 
   // Set row heights to match
   sheet.setRowHeights(lastRow + 1, numRows, 30);
-
-  // Clear any low-stock highlight copied from the source row's HAND column
-  sheet.getRange(lastRow + 1, HAND_COLUMN, numRows, 1).setBackground(null);
 
   return "✅ Added " + numRows + " rows (format copied from eBay table).";
 }
@@ -180,117 +174,183 @@ function validateBoundaryIntegrity() {
 }
 
 // =======================================================================================
-// HIGHLIGHT DUPLICATES
+// HIGHLIGHT DUPLICATES (Auto via Conditional Formatting)
 // =======================================================================================
 
+/**
+ * Sets up automatic COUNTIF-based conditional formatting for duplicate SKUs.
+ * Highlights update in real-time as data changes - no triggers needed.
+ * First occurrence: dark red (#dd7e6b), subsequent: light red (#e6b8af).
+ * Called from onOpen() to ensure rules are always active.
+ */
+function setupDuplicateHighlighting() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName(MAIN_SHEET_NAME);
+  if (!sheet) return;
+
+  var COLOR_FIRST = "#dd7e6b";
+  var COLOR_DUPE = "#e6b8af";
+
+  // Remove any existing duplicate highlight rules first
+  removeDuplicateHighlightRules(sheet);
+
+  var rules = sheet.getConditionalFormatRules();
+  var skuRange = sheet.getRange(DATA_START_ROW, SKU_COLUMN, 1000, 1);
+  var ref = "A" + DATA_START_ROW;
+
+  // Rule 1 (higher priority): First occurrence of a duplicate SKU → dark red
+  // COUNTIF(A$1:A4, A4)=1 means this is the first time the value appears (top-down)
+  // COUNTIF(A:A, A4)>1 means the value appears more than once overall
+  var firstFormula = '=AND(' + ref + '<>"", COUNTIF(A$1:' + ref + ',' + ref + ')=1, COUNTIF(A:A,' + ref + ')>1)';
+  var firstRule = SpreadsheetApp.newConditionalFormatRule()
+    .whenFormulaSatisfied(firstFormula)
+    .setBackground(COLOR_FIRST)
+    .setRanges([skuRange])
+    .build();
+
+  // Rule 2 (lower priority): All duplicate SKUs → light red
+  // First occurrences already matched Rule 1 above, so they stay dark red
+  var dupeFormula = '=AND(' + ref + '<>"", COUNTIF(A:A,' + ref + ')>1)';
+  var dupeRule = SpreadsheetApp.newConditionalFormatRule()
+    .whenFormulaSatisfied(dupeFormula)
+    .setBackground(COLOR_DUPE)
+    .setRanges([skuRange])
+    .build();
+
+  rules.push(firstRule);
+  rules.push(dupeRule);
+  sheet.setConditionalFormatRules(rules);
+}
+
+/**
+ * Button handler: enables duplicate highlighting and returns a count.
+ * Sets up the auto CF rules, then scans data to report how many dupes exist.
+ */
 function highlightAllDuplicates() {
+  setupDuplicateHighlighting();
+
+  // Scan data and return count for UI feedback
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var sheet = ss.getSheetByName(MAIN_SHEET_NAME);
   var boundary = getBoundaryRow();
-  
-  var COLOR_FIRST = "#dd7e6b";
-  var COLOR_DUPE = "#e6b8af";
-  var skuLocations = {};
-  
-  var table1Start = DATA_START_ROW;
-  var table1End = boundary - 1;
-  var table1LastData = findLastDataRowInSegment(table1Start, table1End);
-  
-  if (table1LastData >= table1Start) {
-    var table1Data = sheet.getRange(table1Start, 1, table1LastData - table1Start + 1, 1).getValues();
-    for (var i = 0; i < table1Data.length; i++) {
-      var sku = String(table1Data[i][0]).trim().toUpperCase();
-      if (!sku || sku === TABLE_TWO_IDENTIFIER) continue;
-      var actualRow = table1Start + i;
-      if (!skuLocations[sku]) skuLocations[sku] = [];
-      skuLocations[sku].push(actualRow);
-    }
-  }
-  
-  var table2Start = boundary + 2;
-  var table2End = sheet.getLastRow();
-  var table2LastData = findLastDataRowInSegment(table2Start, table2End);
-  
-  if (table2LastData >= table2Start) {
-    var table2Data = sheet.getRange(table2Start, 1, table2LastData - table2Start + 1, 1).getValues();
-    for (var i = 0; i < table2Data.length; i++) {
-      var sku = String(table2Data[i][0]).trim().toUpperCase();
-      if (!sku || sku === TABLE_TWO_IDENTIFIER) continue;
-      var actualRow = table2Start + i;
-      if (!skuLocations[sku]) skuLocations[sku] = [];
-      skuLocations[sku].push(actualRow);
-    }
-  }
-  
-  var duplicateSkus = 0;
-  var totalHighlighted = 0;
-  
-  for (var sku in skuLocations) {
-    var rows = skuLocations[sku];
-    if (rows.length > 1) {
-      duplicateSkus++;
-      for (var j = 0; j < rows.length; j++) {
-        var row = rows[j];
-        var cell = sheet.getRange(row, 1);
-        cell.setBackground(j === 0 ? COLOR_FIRST : COLOR_DUPE);
-        totalHighlighted++;
+  var skuCount = {};
+
+  var table1LastData = findLastDataRowInSegment(DATA_START_ROW, boundary - 1);
+  if (table1LastData >= DATA_START_ROW) {
+    var data = sheet.getRange(DATA_START_ROW, 1, table1LastData - DATA_START_ROW + 1, 1).getValues();
+    for (var i = 0; i < data.length; i++) {
+      var sku = String(data[i][0]).trim().toUpperCase();
+      if (sku && sku !== TABLE_TWO_IDENTIFIER) {
+        skuCount[sku] = (skuCount[sku] || 0) + 1;
       }
     }
   }
-  
-  if (duplicateSkus === 0) {
-    return "✅ No duplicates found. All SKUs are unique!";
+
+  var table2Start = boundary + 2;
+  var table2LastData = findLastDataRowInSegment(table2Start, sheet.getLastRow());
+  if (table2LastData >= table2Start) {
+    var data = sheet.getRange(table2Start, 1, table2LastData - table2Start + 1, 1).getValues();
+    for (var i = 0; i < data.length; i++) {
+      var sku = String(data[i][0]).trim().toUpperCase();
+      if (sku && sku !== TABLE_TWO_IDENTIFIER) {
+        skuCount[sku] = (skuCount[sku] || 0) + 1;
+      }
+    }
   }
-  
-  return "✅ Found " + duplicateSkus + " duplicate SKUs (" + totalHighlighted + " cells highlighted)";
+
+  var duplicateSkus = 0;
+  var totalCells = 0;
+  for (var sku in skuCount) {
+    if (skuCount[sku] > 1) {
+      duplicateSkus++;
+      totalCells += skuCount[sku];
+    }
+  }
+
+  if (duplicateSkus === 0) {
+    return "✅ Auto-highlight enabled. No duplicates found!";
+  }
+
+  return "✅ Auto-highlight enabled. " + duplicateSkus + " duplicate SKUs (" + totalCells + " cells)";
 }
 
+/**
+ * Removes duplicate highlight conditional formatting rules.
+ * Identifies rules by: CUSTOM_FORMULA on SKU column containing COUNTIF,
+ * or old marker formulas (=1=1, =2=2) from previous version.
+ */
+function removeDuplicateHighlightRules(sheet) {
+  var rules = sheet.getConditionalFormatRules();
+  var filtered = [];
+  for (var i = 0; i < rules.length; i++) {
+    var bc = rules[i].getBooleanCondition();
+    if (bc && bc.getCriteriaType() === SpreadsheetApp.BooleanCriteria.CUSTOM_FORMULA) {
+      var values = bc.getCriteriaValues();
+      if (values.length > 0) {
+        var formula = values[0];
+        // Old marker formulas from previous version
+        if (formula === '=1=1' || formula === '=2=2') {
+          continue;
+        }
+        // New COUNTIF-based formulas - check it targets SKU column
+        var ranges = rules[i].getRanges();
+        var isSkuColumn = false;
+        for (var j = 0; j < ranges.length; j++) {
+          if (ranges[j].getColumn() === SKU_COLUMN && ranges[j].getNumColumns() === 1) {
+            isSkuColumn = true;
+            break;
+          }
+        }
+        if (isSkuColumn && formula.indexOf('COUNTIF') !== -1) {
+          continue;
+        }
+      }
+    }
+    filtered.push(rules[i]);
+  }
+  sheet.setConditionalFormatRules(filtered);
+}
+
+/**
+ * Button handler: clears duplicate highlights by removing CF rules.
+ * Since we never touched actual cell backgrounds, removing rules
+ * perfectly restores the original appearance.
+ */
 function clearAllDuplicateHighlights() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var sheet = ss.getSheetByName(MAIN_SHEET_NAME);
-  var boundary = getBoundaryRow();
-  var highlightColors = ["#dd7e6b", "#e6b8af"];
-  var clearedCount = 0;
-  
-  var table1Start = DATA_START_ROW;
-  var table1End = boundary - 1;
-  var table1LastData = findLastDataRowInSegment(table1Start, table1End);
-  
-  if (table1LastData >= table1Start) {
-    var range1 = sheet.getRange(table1Start, 1, table1LastData - table1Start + 1, 1);
-    var backgrounds1 = range1.getBackgrounds();
-    for (var i = 0; i < backgrounds1.length; i++) {
-      var bg = String(backgrounds1[i][0]).toLowerCase();
-      if (highlightColors.indexOf(bg) !== -1) {
-        backgrounds1[i][0] = null;
-        clearedCount++;
+
+  // Check if any duplicate highlight rules exist
+  var rules = sheet.getConditionalFormatRules();
+  var hasDupeRules = false;
+  for (var i = 0; i < rules.length; i++) {
+    var bc = rules[i].getBooleanCondition();
+    if (bc && bc.getCriteriaType() === SpreadsheetApp.BooleanCriteria.CUSTOM_FORMULA) {
+      var values = bc.getCriteriaValues();
+      if (values.length > 0) {
+        var formula = values[0];
+        if (formula === '=1=1' || formula === '=2=2') { hasDupeRules = true; break; }
+        var ranges = rules[i].getRanges();
+        for (var j = 0; j < ranges.length; j++) {
+          if (ranges[j].getColumn() === SKU_COLUMN && formula.indexOf('COUNTIF') !== -1) {
+            hasDupeRules = true; break;
+          }
+        }
+        if (hasDupeRules) break;
       }
     }
-    range1.setBackgrounds(backgrounds1);
   }
-  
-  var table2Start = boundary + 2;
-  var table2End = sheet.getLastRow();
-  var table2LastData = findLastDataRowInSegment(table2Start, table2End);
-  
-  if (table2LastData >= table2Start) {
-    var range2 = sheet.getRange(table2Start, 1, table2LastData - table2Start + 1, 1);
-    var backgrounds2 = range2.getBackgrounds();
-    for (var i = 0; i < backgrounds2.length; i++) {
-      var bg = String(backgrounds2[i][0]).toLowerCase();
-      if (highlightColors.indexOf(bg) !== -1) {
-        backgrounds2[i][0] = null;
-        clearedCount++;
-      }
-    }
-    range2.setBackgrounds(backgrounds2);
-  }
-  
-  if (clearedCount === 0) {
+
+  if (!hasDupeRules) {
     return "ℹ️ No highlights to clear.";
   }
-  
-  return "✅ Cleared " + clearedCount + " highlighted cells.";
+
+  removeDuplicateHighlightRules(sheet);
+
+  // Clean up old PropertiesService data if it exists from previous version
+  PropertiesService.getScriptProperties().deleteProperty('DUPE_ORIGINAL_BGS');
+
+  return "✅ Duplicate highlights cleared.";
 }
 
 // =======================================================================================
