@@ -1,5 +1,5 @@
 // =======================================================================================
-// ROW_MANAGEMENT.gs - v2.5 SIMPLE (Copies from eBay which works!)
+// ROW_MANAGEMENT.gs - v2.5 SIMPLE (Copies from eBay which works!)//
 // =======================================================================================
 
 /**
@@ -64,6 +64,9 @@ function ensureDirectTableBuffer() {
   var targetRange = sheet.getRange(lastRow + 1, 1, rowsToAdd, 8);
   sourceRange.copyTo(targetRange, SpreadsheetApp.CopyPasteType.PASTE_FORMAT, false);
   sheet.setRowHeights(lastRow + 1, rowsToAdd, 30);
+
+  // Clear any low-stock highlight copied from the source row's HAND column
+  sheet.getRange(lastRow + 1, HAND_COLUMN, rowsToAdd, 1).setBackground(null);
 }
 
 /**
@@ -105,10 +108,13 @@ function addRowsTableTwo(n) {
   
   // Copy ONLY the format (not content)
   sourceRange.copyTo(targetRange, SpreadsheetApp.CopyPasteType.PASTE_FORMAT, false);
-  
+
   // Set row heights to match
   sheet.setRowHeights(lastRow + 1, numRows, 30);
-  
+
+  // Clear any low-stock highlight copied from the source row's HAND column
+  sheet.getRange(lastRow + 1, HAND_COLUMN, numRows, 1).setBackground(null);
+
   return "✅ Added " + numRows + " rows (format copied from eBay table).";
 }
 
