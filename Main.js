@@ -27,7 +27,9 @@ function onOpen() {
   // 3. Run your existing background logic
   updateOrderStatsInSheet();
   toggleLiveUpdate('ON');  // Auto-enable live sync
-  
+  setupHandConditionalFormatting();  // Ensure HAND highlight rule is active
+  setupDuplicateHighlighting();     // Ensure duplicate SKU highlight rules are active
+
   // 4. AUTO-LOAD the Control Panel on startup
   showSidebar(); 
 }
