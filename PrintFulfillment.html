@@ -30,6 +30,11 @@
       border-left: 5px solid #1a73e8;
     }
 
+    .empty-row td {
+      height: 28px;
+      border: 1px solid #ddd;
+    }
+
     /* ===== ACTION BAR ===== */
     .no-print {
       display: flex;
@@ -88,6 +93,11 @@
       background: #e3f2fd !important;
       color: #1565c0;
     }
+
+    .col-hand.low-stock {
+      background: #FF6B6B !important;
+      color: #fff;
+    }
     
     .col-left {
       background: #fff3e0 !important;
@@ -111,8 +121,9 @@
       
       th.col-hand { background: #bbdefb !important; -webkit-print-color-adjust: exact; }
       th.col-left { background: #ffe0b2 !important; -webkit-print-color-adjust: exact; }
-      td.col-hand { background: #e3f2fd !important; -webkit-print-color-adjust: exact; }
-      td.col-left { background: #fff3e0 !important; -webkit-print-color-adjust: exact; }
+      td.col-hand { background: #e3f2fd !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      td.col-hand.low-stock { background: #FF6B6B !important; color: #fff; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      td.col-left { background: #fff3e0 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 
       h3 { 
         -webkit-print-color-adjust: exact; 
@@ -160,16 +171,17 @@
 
   <? if (ebayItems.length > 0) { ?>
     <h3>eBay Items (<?= ebayItems.length ?> items)</h3>
-    <table>
+    <table id="ebay-table">
       <thead>
         <tr>
-          <th style="width: 15%">SKU</th>
-          <th style="width: 6%">Qty</th>
-          <th style="width: 10%">Location</th>
-          <th style="width: 25%">Sales Order</th>
-          <th style="width: 12%">Status</th>
-          <th style="width: 8%" class="col-hand">◫ HAND</th>
-          <th style="width: 8%" class="col-left">◩ LEFT</th>
+          <th style="width: 13%">SKU</th>
+          <th style="width: 5%">Qty</th>
+          <th style="width: 9%">Location</th>
+          <th style="width: 20%">Sales Order</th>
+          <th style="width: 15%">Note</th>
+          <th style="width: 10%">Status</th>
+          <th style="width: 7%" class="col-hand">◫ HAND</th>
+          <th style="width: 7%" class="col-left">◩ LEFT</th>
         </tr>
       </thead>
       <tbody>
@@ -180,8 +192,9 @@
             <td style="font-weight: 600; font-family: monospace;"><?= ebayItems[i][2] ?></td>
             <td><?= ebayItems[i][3] ?></td>
             <td><?= ebayItems[i][4] ?></td>
-            <td class="col-hand"><?= ebayItems[i][5] ?></td>
-            <td class="col-left"><?= ebayItems[i][6] ?></td>
+            <td><?= ebayItems[i][5] ?></td>
+            <td class="col-hand<?= (parseFloat(ebayItems[i][6]) <= 20) ? ' low-stock' : '' ?>"><?= ebayItems[i][6] ?></td>
+            <td class="col-left"><?= ebayItems[i][7] ?></td>
           </tr>
         <? } ?>
       </tbody>
@@ -194,16 +207,17 @@
 
   <? if (directItems.length > 0) { ?>
     <h3>DIRECT Items (<?= directItems.length ?> items)</h3>
-    <table>
+    <table id="direct-table">
       <thead>
         <tr>
-          <th style="width: 15%">SKU</th>
-          <th style="width: 6%">Qty</th>
-          <th style="width: 10%">Location</th>
-          <th style="width: 25%">Sales Order</th>
-          <th style="width: 12%">Status</th>
-          <th style="width: 8%" class="col-hand">◫ HAND</th>
-          <th style="width: 8%" class="col-left">◩ LEFT</th>
+          <th style="width: 13%">SKU</th>
+          <th style="width: 5%">Qty</th>
+          <th style="width: 9%">Location</th>
+          <th style="width: 20%">Sales Order</th>
+          <th style="width: 15%">Note</th>
+          <th style="width: 10%">Status</th>
+          <th style="width: 7%" class="col-hand">◫ HAND</th>
+          <th style="width: 7%" class="col-left">◩ LEFT</th>
         </tr>
       </thead>
       <tbody>
@@ -214,8 +228,9 @@
             <td style="font-weight: 600; font-family: monospace;"><?= directItems[i][2] ?></td>
             <td><?= directItems[i][3] ?></td>
             <td><?= directItems[i][4] ?></td>
-            <td class="col-hand"><?= directItems[i][5] ?></td>
-            <td class="col-left"><?= directItems[i][6] ?></td>
+            <td><?= directItems[i][5] ?></td>
+            <td class="col-hand<?= (parseFloat(directItems[i][6]) <= 20) ? ' low-stock' : '' ?>"><?= directItems[i][6] ?></td>
+            <td class="col-left"><?= directItems[i][7] ?></td>
           </tr>
         <? } ?>
       </tbody>
@@ -235,7 +250,57 @@
   </div>
 
   <script>
+    // Fill remaining page space with empty bordered rows
+    // Uses fixed rows-per-page to avoid pixel miscalculation//
+    function fillTableToPage(tableId, isFirstSection) {
+      var table = document.getElementById(tableId);
+      if (!table) return;
+
+      var COL_COUNT = 8;
+
+      // Rows that fit per page (A4, default margins, 11px print font)
+      // First page of eBay table: has document header + h3 + table header = fewer rows
+      // First page of DIRECT table: has h3 + table header (no doc header)
+      // Continuation pages: just table header repeats
+      var FIRST_PAGE_WITH_HEADER = 18;  // eBay first page (doc header + h3 + thead)
+      var FIRST_PAGE_NO_HEADER = 21;    // DIRECT first page (h3 + thead only)
+      var CONTINUATION_PAGE = 24;       // Any overflow pages
+
+      var dataRows = table.querySelectorAll('tbody tr').length;
+      var firstPageRows = isFirstSection ? FIRST_PAGE_WITH_HEADER : FIRST_PAGE_NO_HEADER;
+
+      // Calculate how many rows are on the last page
+      var rowsOnLastPage;
+      if (dataRows <= firstPageRows) {
+        rowsOnLastPage = dataRows;
+        var pageCapacity = firstPageRows;
+      } else {
+        var overflow = dataRows - firstPageRows;
+        rowsOnLastPage = overflow % CONTINUATION_PAGE;
+        if (rowsOnLastPage === 0) rowsOnLastPage = CONTINUATION_PAGE;
+        var pageCapacity = CONTINUATION_PAGE;
+      }
+
+      // Fill remaining space on the last page
+      var emptyRows = pageCapacity - rowsOnLastPage;
+      if (emptyRows <= 0) return;
+
+      var tbody = table.querySelector('tbody');
+      for (var i = 0; i < emptyRows; i++) {
+        var tr = document.createElement('tr');
+        tr.className = 'empty-row';
+        for (var j = 0; j < COL_COUNT; j++) {
+          var td = document.createElement('td');
+          td.innerHTML = '&nbsp;';
+          tr.appendChild(td);
+        }
+        tbody.appendChild(tr);
+      }
+    }
+
     window.onload = function () {
+      fillTableToPage('ebay-table', true);    // First section (has doc header)
+      fillTableToPage('direct-table', false);  // Second section (new page, no doc header)
       setTimeout(function () {
         window.print();
       }, 500);

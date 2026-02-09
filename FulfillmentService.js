@@ -1,5 +1,5 @@
 // =======================================================================================
-// FULFILLMENT_SERVICE.gs - Fulfillment and Printing Functions
+// FULFILLMENT_SERVICE.gs - Fulfillment and Printing Functions//
 // =======================================================================================
 
 /**
@@ -42,9 +42,10 @@ function preparePrintSheet() {
         row[1],                // 1: Qty (Col B)
         row[2],                // 2: Location (Col C)
         row[3],                // 3: Sales Order (Col D)
-        row[STATUS_COL_INDEX], // 4: Status (Col F)
-        row[HAND_COL_INDEX] || "",  // 5: HAND (Col G) - NEW
-        row[LEFT_COL_INDEX] || ""   // 6: LEFT (Col H) - NEW
+        row[4] || "",          // 4: Note (Col E)
+        row[STATUS_COL_INDEX], // 5: Status (Col F)
+        row[HAND_COL_INDEX] || "",  // 6: HAND (Col G)
+        row[LEFT_COL_INDEX] || ""   // 7: LEFT (Col H)
       ];
 
       if (isDirectSection) {
