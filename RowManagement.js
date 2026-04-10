@@ -8,7 +8,7 @@
  * @returns {string} - Status message
  */
 function deleteEmptyRows(t) {
-  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(MAIN_SHEET_NAME);
+  var sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(MAIN_SHEET_NAME);
   var b = getBoundaryRow();
   var start = (t === 1) ? DATA_START_ROW : b + 2;
   var end = (t === 1) ? b - 1 : sheet.getMaxRows();
@@ -34,7 +34,7 @@ function runDeleteEmptyRowsTableTwo() { return deleteEmptyRows(2); }
  * Called automatically via onChange when rows are deleted.
  */
 function ensureDirectTableBuffer() {
-  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(MAIN_SHEET_NAME);
+  var sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(MAIN_SHEET_NAME);
   if (!sheet) return;
 
   var boundary = getBoundaryRow();
@@ -72,7 +72,7 @@ function ensureDirectTableBuffer() {
  * @returns {string} - Status message
  */
 function addRowsTableOne(n) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   var sheet = ss.getSheetByName(MAIN_SHEET_NAME);
   var boundary = getBoundaryRow();
   var lastUsedRow = findLastDataRowInSegment(DATA_START_ROW, boundary - 1);
@@ -91,7 +91,7 @@ function addRowsTableOne(n) {
  * @returns {string} - Status message
  */
 function addRowsTableTwo(n) {
-  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(MAIN_SHEET_NAME);
+  var sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(MAIN_SHEET_NAME);
   var numRows = parseInt(n);
   var lastRow = sheet.getLastRow();
   
@@ -117,7 +117,7 @@ function addRowsTableTwo(n) {
 // =======================================================================================
 
 function protectBoundaryRow() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   var sheet = ss.getSheetByName(MAIN_SHEET_NAME);
   var boundary = getBoundaryRow();
   
@@ -147,14 +147,14 @@ function removeExistingBoundaryProtection(sheet) {
 }
 
 function unprotectBoundaryRow() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   var sheet = ss.getSheetByName(MAIN_SHEET_NAME);
   removeExistingBoundaryProtection(sheet);
   return "✅ Boundary protection removed.";
 }
 
 function validateBoundaryIntegrity() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   var sheet = ss.getSheetByName(MAIN_SHEET_NAME);
   var boundary = getBoundaryRow();
   
@@ -174,111 +174,132 @@ function validateBoundaryIntegrity() {
 }
 
 // =======================================================================================
-// HIGHLIGHT DUPLICATES (Auto via Conditional Formatting)
+// HIGHLIGHT DUPLICATES - Shared Infrastructure
 // =======================================================================================
 
 /**
- * Sets up automatic COUNTIF-based conditional formatting for duplicate SKUs.
- * Highlights update in real-time as data changes - no triggers needed.
- * First occurrence: dark red (#dd7e6b), subsequent: light red (#e6b8af).
- * Called from onOpen() to ensure rules are always active.
+ * Bright color palette for duplicate SKU groups.
+ * Each entry: [background, fontColor] — visually matched pairs.
+ * 20 pairs, cycles if more groups exist.
+ */
+var SKU_DUPE_COLORS = [
+  ["#ff6d6d", "#7a0000"],  // Bright Red / Dark Red
+  ["#4fc3f7", "#01579b"],  // Sky Blue / Navy
+  ["#81c784", "#1b5e20"],  // Bright Green / Forest
+  ["#ffb74d", "#e65100"],  // Bright Orange / Burnt Orange
+  ["#ba68c8", "#4a148c"],  // Bright Purple / Deep Purple
+  ["#4dd0e1", "#006064"],  // Bright Cyan / Dark Cyan
+  ["#e57373", "#b71c1c"],  // Vivid Coral / Crimson
+  ["#fff176", "#f57f17"],  // Bright Yellow / Amber
+  ["#aed581", "#33691e"],  // Lime Green / Olive
+  ["#ff8a65", "#bf360c"],  // Tangerine / Mahogany
+  ["#7986cb", "#1a237e"],  // Bright Indigo / Deep Indigo
+  ["#4db6ac", "#004d40"],  // Bright Teal / Dark Teal
+  ["#f06292", "#880e4f"],  // Hot Pink / Wine
+  ["#dce775", "#827717"],  // Chartreuse / Olive Gold
+  ["#64b5f6", "#0d47a1"],  // Dodger Blue / Royal Blue
+  ["#ffab91", "#bf360c"],  // Salmon / Rust
+  ["#a1887f", "#3e2723"],  // Mocha / Espresso
+  ["#90caf9", "#0d47a1"],  // Cornflower / Dark Blue
+  ["#ce93d8", "#6a1b9a"],  // Orchid / Plum
+  ["#80cbc4", "#00695c"],  // Aquamarine / Emerald
+];
+
+/**
+ * Bold border colors for duplicate Sales Order group indicators.
+ * Each group gets a thick colored LEFT border on column D.
+ * 20 distinctive colors that cycle if more groups exist.
+ */
+var ORDER_BORDER_COLORS = [
+  "#1a73e8",  // Google Blue
+  "#e53935",  // Red
+  "#43a047",  // Green
+  "#fb8c00",  // Orange
+  "#8e24aa",  // Purple
+  "#00acc1",  // Cyan
+  "#d81b60",  // Pink
+  "#6d4c41",  // Brown
+  "#3949ab",  // Indigo
+  "#00897b",  // Teal
+  "#c0ca33",  // Lime
+  "#f4511e",  // Deep Orange
+  "#5e35b1",  // Deep Purple
+  "#039be5",  // Light Blue
+  "#7cb342",  // Light Green
+  "#ffb300",  // Amber
+  "#1e88e5",  // Blue
+  "#e91e63",  // Hot Pink
+  "#26a69a",  // Medium Teal
+  "#546e7a",  // Blue Grey
+];
+
+// =======================================================================================
+// HIGHLIGHT DUPLICATE SKUs (Per-Group, Bright, Auto-Refresh)
+// =======================================================================================
+
+/**
+ * Sets up per-group duplicate SKU highlighting with matched font colors.
+ * Each duplicate SKU group gets its own bright color + dark complementary font.
+ * Skips DIRECT boundary row.
+ * Called from onOpen() and auto-refreshed on edits.
  */
 function setupDuplicateHighlighting() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   var sheet = ss.getSheetByName(MAIN_SHEET_NAME);
-  if (!sheet) return;
+  if (!sheet) return null;
 
-  var COLOR_FIRST = "#dd7e6b";
-  var COLOR_DUPE = "#e6b8af";
-
-  // Remove any existing duplicate highlight rules first
   removeDuplicateHighlightRules(sheet);
+
+  var lastRow = sheet.getLastRow();
+  if (lastRow < DATA_START_ROW) return null;
+
+  var allData = sheet.getRange(DATA_START_ROW, SKU_COLUMN, lastRow - DATA_START_ROW + 1, 1).getValues();
+  var boundary = getBoundaryRow();
+
+  var skuCount = {};
+  for (var i = 0; i < allData.length; i++) {
+    var currentRow = DATA_START_ROW + i;
+    if (boundary > 0 && (currentRow === boundary || currentRow === boundary + 1)) continue;
+    var sku = String(allData[i][0]).trim().toUpperCase();
+    if (sku && sku !== TABLE_TWO_IDENTIFIER) {
+      skuCount[sku] = (skuCount[sku] || 0) + 1;
+    }
+  }
+
+  var duplicateSkus = [];
+  for (var sku in skuCount) {
+    if (skuCount[sku] > 1) duplicateSkus.push(sku);
+  }
+
+  if (duplicateSkus.length === 0) return null;
 
   var rules = sheet.getConditionalFormatRules();
   var skuRange = sheet.getRange(DATA_START_ROW, SKU_COLUMN, 1000, 1);
   var ref = "A" + DATA_START_ROW;
 
-  // Rule 1 (higher priority): First occurrence of a duplicate SKU → dark red
-  // COUNTIF(A$1:A4, A4)=1 means this is the first time the value appears (top-down)
-  // COUNTIF(A:A, A4)>1 means the value appears more than once overall
-  var firstFormula = '=AND(' + ref + '<>"", COUNTIF(A$1:' + ref + ',' + ref + ')=1, COUNTIF(A:A,' + ref + ')>1)';
-  var firstRule = SpreadsheetApp.newConditionalFormatRule()
-    .whenFormulaSatisfied(firstFormula)
-    .setBackground(COLOR_FIRST)
-    .setRanges([skuRange])
-    .build();
+  for (var i = 0; i < duplicateSkus.length; i++) {
+    var escapedSku = duplicateSkus[i].replace(/"/g, '""');
+    var pair = SKU_DUPE_COLORS[i % SKU_DUPE_COLORS.length];
 
-  // Rule 2 (lower priority): All duplicate SKUs → light red
-  // First occurrences already matched Rule 1 above, so they stay dark red
-  var dupeFormula = '=AND(' + ref + '<>"", COUNTIF(A:A,' + ref + ')>1)';
-  var dupeRule = SpreadsheetApp.newConditionalFormatRule()
-    .whenFormulaSatisfied(dupeFormula)
-    .setBackground(COLOR_DUPE)
-    .setRanges([skuRange])
-    .build();
+    var formula = '=UPPER(TRIM(' + ref + '))="' + escapedSku + '"';
+    var rule = SpreadsheetApp.newConditionalFormatRule()
+      .whenFormulaSatisfied(formula)
+      .setBackground(pair[0])
+      .setFontColor(pair[1])
+      .setRanges([skuRange])
+      .build();
 
-  rules.push(firstRule);
-  rules.push(dupeRule);
+    rules.push(rule);
+  }
+
   sheet.setConditionalFormatRules(rules);
 }
 
-/**
- * Button handler: enables duplicate highlighting and returns a count.
- * Sets up the auto CF rules, then scans data to report how many dupes exist.
- */
 function highlightAllDuplicates() {
   setupDuplicateHighlighting();
-
-  // Scan data and return count for UI feedback
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var sheet = ss.getSheetByName(MAIN_SHEET_NAME);
-  var boundary = getBoundaryRow();
-  var skuCount = {};
-
-  var table1LastData = findLastDataRowInSegment(DATA_START_ROW, boundary - 1);
-  if (table1LastData >= DATA_START_ROW) {
-    var data = sheet.getRange(DATA_START_ROW, 1, table1LastData - DATA_START_ROW + 1, 1).getValues();
-    for (var i = 0; i < data.length; i++) {
-      var sku = String(data[i][0]).trim().toUpperCase();
-      if (sku && sku !== TABLE_TWO_IDENTIFIER) {
-        skuCount[sku] = (skuCount[sku] || 0) + 1;
-      }
-    }
-  }
-
-  var table2Start = boundary + 2;
-  var table2LastData = findLastDataRowInSegment(table2Start, sheet.getLastRow());
-  if (table2LastData >= table2Start) {
-    var data = sheet.getRange(table2Start, 1, table2LastData - table2Start + 1, 1).getValues();
-    for (var i = 0; i < data.length; i++) {
-      var sku = String(data[i][0]).trim().toUpperCase();
-      if (sku && sku !== TABLE_TWO_IDENTIFIER) {
-        skuCount[sku] = (skuCount[sku] || 0) + 1;
-      }
-    }
-  }
-
-  var duplicateSkus = 0;
-  var totalCells = 0;
-  for (var sku in skuCount) {
-    if (skuCount[sku] > 1) {
-      duplicateSkus++;
-      totalCells += skuCount[sku];
-    }
-  }
-
-  if (duplicateSkus === 0) {
-    return "✅ Auto-highlight enabled. No duplicates found!";
-  }
-
-  return "✅ Auto-highlight enabled. " + duplicateSkus + " duplicate SKUs (" + totalCells + " cells)";
+  return "✅ Duplicate SKU highlighting enabled.";
 }
 
-/**
- * Removes duplicate highlight conditional formatting rules.
- * Identifies rules by: CUSTOM_FORMULA on SKU column containing COUNTIF,
- * or old marker formulas (=1=1, =2=2) from previous version.
- */
 function removeDuplicateHighlightRules(sheet) {
   var rules = sheet.getConditionalFormatRules();
   var filtered = [];
@@ -288,11 +309,7 @@ function removeDuplicateHighlightRules(sheet) {
       var values = bc.getCriteriaValues();
       if (values.length > 0) {
         var formula = values[0];
-        // Old marker formulas from previous version
-        if (formula === '=1=1' || formula === '=2=2') {
-          continue;
-        }
-        // New COUNTIF-based formulas - check it targets SKU column
+        if (formula === '=1=1' || formula === '=2=2') continue;
         var ranges = rules[i].getRanges();
         var isSkuColumn = false;
         for (var j = 0; j < ranges.length; j++) {
@@ -301,7 +318,7 @@ function removeDuplicateHighlightRules(sheet) {
             break;
           }
         }
-        if (isSkuColumn && formula.indexOf('COUNTIF') !== -1) {
+        if (isSkuColumn && (formula.indexOf('COUNTIF') !== -1 || formula.indexOf('UPPER(TRIM(') !== -1)) {
           continue;
         }
       }
@@ -311,46 +328,145 @@ function removeDuplicateHighlightRules(sheet) {
   sheet.setConditionalFormatRules(filtered);
 }
 
-/**
- * Button handler: clears duplicate highlights by removing CF rules.
- * Since we never touched actual cell backgrounds, removing rules
- * perfectly restores the original appearance.
- */
 function clearAllDuplicateHighlights() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   var sheet = ss.getSheetByName(MAIN_SHEET_NAME);
+  removeDuplicateHighlightRules(sheet);
+  PropertiesService.getScriptProperties().deleteProperty('DUPE_ORIGINAL_BGS');
+  return "✅ Duplicate SKU highlights cleared.";
+}
 
-  // Check if any duplicate highlight rules exist
+// =======================================================================================
+// DUPLICATE SALES ORDER BORDERS (Per-Group, Colored Left Border Tabs)
+// =======================================================================================
+
+/**
+ * Applies colored left border tabs on Column D for duplicate Sales Order groups.
+ * Each group gets a unique thick left border color — no background fill.
+ * Clears all previous borders first, then re-applies for current duplicates.
+ * Skips DIRECT boundary row and its header.
+ * Called from onOpen() and auto-refreshed on edits.
+ */
+function setupDuplicateSalesOrderHighlighting() {
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  var sheet = ss.getSheetByName(MAIN_SHEET_NAME);
+  if (!sheet) return null;
+
+  var lastRow = sheet.getLastRow();
+  if (lastRow < DATA_START_ROW) return null;
+
+  var boundary = getBoundaryRow();
+  var dataRows = lastRow - DATA_START_ROW + 1;
+  var allData = sheet.getRange(DATA_START_ROW, SALES_ORDER_COLUMN, dataRows, 1).getValues();
+
+  // 1. Remove any legacy CF rules on column D (from previous highlight approach)
+  removeLegacySalesOrderCFRules(sheet);
+
+  // 2. Clear all left borders on column D in the data area
+  var fullRange = sheet.getRange(DATA_START_ROW, SALES_ORDER_COLUMN, dataRows, 1);
+  fullRange.setBorder(null, false, null, null, null, null);
+
+  // 2. Count occurrences, skipping boundary rows
+  var orderCount = {};
+  var orderRows = {};  // Map order → [row numbers]
+  for (var i = 0; i < allData.length; i++) {
+    var currentRow = DATA_START_ROW + i;
+    if (boundary > 0 && (currentRow === boundary || currentRow === boundary + 1)) continue;
+    var order = String(allData[i][0]).trim();
+    if (order) {
+      orderCount[order] = (orderCount[order] || 0) + 1;
+      if (!orderRows[order]) orderRows[order] = [];
+      orderRows[order].push(currentRow);
+    }
+  }
+
+  // 3. Identify duplicates and assign border colors
+  var duplicateOrders = [];
+  for (var order in orderCount) {
+    if (orderCount[order] > 1) duplicateOrders.push(order);
+  }
+
+  if (duplicateOrders.length === 0) return null;
+
+  // 4. Apply thick colored left border per group
+  for (var i = 0; i < duplicateOrders.length; i++) {
+    var color = ORDER_BORDER_COLORS[i % ORDER_BORDER_COLORS.length];
+    var rows = orderRows[duplicateOrders[i]];
+
+    for (var j = 0; j < rows.length; j++) {
+      var cell = sheet.getRange(rows[j], SALES_ORDER_COLUMN);
+      cell.setBorder(null, true, null, null, null, null, color, SpreadsheetApp.BorderStyle.SOLID_THICK);
+    }
+  }
+}
+
+function highlightAllDuplicateSalesOrders() {
+  setupDuplicateSalesOrderHighlighting();
+  return "✅ Duplicate Sales Order border tabs applied.";
+}
+
+/**
+ * Removes leftover CF rules from the old background-highlight approach.
+ * Safe to call repeatedly — only strips rules targeting column D with TRIM/COUNTIF formulas.
+ */
+function removeLegacySalesOrderCFRules(sheet) {
   var rules = sheet.getConditionalFormatRules();
-  var hasDupeRules = false;
+  var filtered = [];
   for (var i = 0; i < rules.length; i++) {
     var bc = rules[i].getBooleanCondition();
     if (bc && bc.getCriteriaType() === SpreadsheetApp.BooleanCriteria.CUSTOM_FORMULA) {
       var values = bc.getCriteriaValues();
       if (values.length > 0) {
         var formula = values[0];
-        if (formula === '=1=1' || formula === '=2=2') { hasDupeRules = true; break; }
         var ranges = rules[i].getRanges();
+        var isOrderColumn = false;
         for (var j = 0; j < ranges.length; j++) {
-          if (ranges[j].getColumn() === SKU_COLUMN && formula.indexOf('COUNTIF') !== -1) {
-            hasDupeRules = true; break;
+          if (ranges[j].getColumn() === SALES_ORDER_COLUMN && ranges[j].getNumColumns() === 1) {
+            isOrderColumn = true;
+            break;
           }
         }
-        if (hasDupeRules) break;
+        if (isOrderColumn && (formula.indexOf('COUNTIF') !== -1 || formula.indexOf('TRIM(') !== -1)) {
+          continue;  // Skip (remove) this legacy rule
+        }
       }
     }
+    filtered.push(rules[i]);
   }
-
-  if (!hasDupeRules) {
-    return "ℹ️ No highlights to clear.";
+  if (filtered.length !== rules.length) {
+    sheet.setConditionalFormatRules(filtered);
   }
+}
 
-  removeDuplicateHighlightRules(sheet);
+function clearAllDuplicateSalesOrderHighlights() {
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  var sheet = ss.getSheetByName(MAIN_SHEET_NAME);
+  var lastRow = sheet.getLastRow();
+  if (lastRow < DATA_START_ROW) return "✅ Nothing to clear.";
 
-  // Clean up old PropertiesService data if it exists from previous version
-  PropertiesService.getScriptProperties().deleteProperty('DUPE_ORIGINAL_BGS');
+  var fullRange = sheet.getRange(DATA_START_ROW, SALES_ORDER_COLUMN, lastRow - DATA_START_ROW + 1, 1);
+  fullRange.setBorder(null, false, null, null, null, null);
+  return "✅ Duplicate Sales Order border tabs cleared.";
+}
 
-  return "✅ Duplicate highlights cleared.";
+// =======================================================================================
+// AUTO-REFRESH: Unified handler for both SKU and Sales Order duplicate highlights
+// =======================================================================================
+
+/**
+ * Refreshes both duplicate highlight systems on any edit to the main sheet.
+ * Called from onEditInstallable(e) — triggers on ANY data-area edit,
+ * not just column A or D, so highlights update when you clear/edit any cell.
+ */
+function refreshDuplicateHighlightsOnEdit(e) {
+  try {
+    var range = e.range;
+    var sheet = range.getSheet();
+    if (sheet.getName() !== MAIN_SHEET_NAME) return;
+    if (range.getRow() < DATA_START_ROW) return;
+    // Only auto-refresh Sales Order highlights (SKU is manual-only)
+    setupDuplicateSalesOrderHighlighting();
+  } catch (err) { /* silent */ }
 }
 
 // =======================================================================================
@@ -358,7 +474,7 @@ function clearAllDuplicateHighlights() {
 // =======================================================================================
 
 function consolidateTable(tableNumber) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   var sheet = ss.getSheetByName(MAIN_SHEET_NAME);
   var boundary = getBoundaryRow();
   var startRow = (tableNumber === 1) ? DATA_START_ROW : boundary + 2;

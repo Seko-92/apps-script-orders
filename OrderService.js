@@ -1,5 +1,5 @@
 // =======================================================================================
-// ORDER_SERVICE.gs - COMPLETE with Hidden Sheet Message ID Storage
+// ORDER_SERVICE.gs - COMPLETE with Hidden Sheet Message ID Storage/
 // =======================================================================================
 
 // Note: TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID are now defined in Secrets.js
@@ -20,7 +20,12 @@ function doPost(e) {
     return ContentService.createTextOutput(JSON.stringify({"status": "error", "message": "Server Busy"})).setMimeType(ContentService.MimeType.JSON);
   }
 
+  var MAX_RETRIES = 3;
+  var lastErr = null;
+
   try {
+    for (var attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+      try {
     var payload = JSON.parse(e.postData.contents);
 
     // --- AUTHENTICATION ---
@@ -60,9 +65,9 @@ function doPost(e) {
 
     // --- IMPROVED BATCH ORDER INSERTION ---
     var orders = payload.orders || [];
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
     var sheet = ss.getSheetByName(MAIN_SHEET_NAME);
-    
+
     // 1. Gather Existing Orders to prevent duplicates
     // Scan ALL data rows to avoid duplicate insertions
     var lastRow = sheet.getLastRow();
@@ -143,16 +148,22 @@ function doPost(e) {
 
     // 3. Insert and Format in ONE GO (Much Faster)
     if (newRows.length > 0) {
-      // A. Insert blank rows at the top
+      // A. Save headers before insertion (guards against Google Sheets filter corruption bug)
+      var savedHeaders = sheet.getRange(DATA_START_ROW - 1, 1, 1, 7).getValues()[0];
+
+      // B. Insert blank rows at the top
       sheet.insertRowsBefore(DATA_START_ROW, newRows.length);
-      
-      // B. Get the target range
+
+      // C. Get the target range
       var range = sheet.getRange(DATA_START_ROW, 1, newRows.length, 7);
-      
-      // C. Paste Data
+
+      // D. Paste Data
       range.setValues(newRows);
-      
-      // D. Clean Formatting (Fixes "Format Persistence")
+
+      // E. Restore headers if Google Sheets corrupted them during insertion
+      verifyAndRestoreHeaders(sheet, savedHeaders);
+
+      // F. Clean Formatting (Fixes "Format Persistence")
       // We copy format from the row *below* the insertion to ensure borders/fonts match
       var templateRow = DATA_START_ROW + newRows.length;
       sheet.getRange(templateRow, 1, 1, 7).copyFormatToRange(sheet, 1, 7, DATA_START_ROW, DATA_START_ROW + newRows.length - 1);
@@ -162,13 +173,22 @@ function doPost(e) {
     }
 
     return ContentService.createTextOutput(JSON.stringify({
-      "status": "success", 
-      "added": newRows.length, 
+      "status": "success",
+      "added": newRows.length,
       "details": results
     })).setMimeType(ContentService.MimeType.JSON);
 
-  } catch (err) {
-    return ContentService.createTextOutput(JSON.stringify({"status": "error", "message": err.toString()})).setMimeType(ContentService.MimeType.JSON);
+      } catch (err) {
+        lastErr = err;
+        if (attempt < MAX_RETRIES) {
+          Utilities.sleep(1000 * attempt);
+          continue;
+        }
+      }
+    }
+    // All retries exhausted
+    return ContentService.createTextOutput(JSON.stringify({"status": "error", "message": lastErr.toString()})).setMimeType(ContentService.MimeType.JSON);
+
   } finally {
     lock.releaseLock();
   }
@@ -186,7 +206,7 @@ function doPost(e) {
  * Get or create the hidden sheet for storing message IDs
  */
 function getHiddenSheet() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   var sheet = ss.getSheetByName(HIDDEN_SHEET_NAME);
   
   if (!sheet) {
@@ -505,7 +525,7 @@ function handleTelegramCallback(payload) {
 }
 
 function findAndUpdateOrder(orderId, newStatus) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   var sheet = ss.getSheetByName(MAIN_SHEET_NAME);
   var lastRow = sheet.getLastRow();
   
@@ -662,7 +682,7 @@ if (newStatus === "SHIPPED" || newStatus === "CANCELED") {
 
 function logDebug(message) {
   try {
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
     var logSheet = ss.getSheetByName("Debug Log");
     
     if (!logSheet) {
@@ -685,7 +705,7 @@ function logDebug(message) {
 }
 
 function clearDebugLog() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   var logSheet = ss.getSheetByName("Debug Log");
   if (logSheet) {
     logSheet.clear();
@@ -721,7 +741,7 @@ function getWebhookInfo() {
 
 function addOrderFromN8N(sku, salesOrder, qty) {
   if (!sku || !salesOrder) return "Skipped: Missing data";
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   var sheet = ss.getSheetByName(MAIN_SHEET_NAME);
   var boundary = getBoundaryRow();
   var startRow = DATA_START_ROW;
@@ -740,8 +760,10 @@ function addOrderFromN8N(sku, salesOrder, qty) {
   var committedMap = getCommittedQuantities();
   var committedQty = committedMap.get(String(sku).trim().toLowerCase()) || 0;
   var availableQty = baseQty - committedQty - (parseInt(qty) || 1);
+  var savedHeaders = sheet.getRange(DATA_START_ROW - 1, 1, 1, 7).getValues()[0];
   sheet.insertRowBefore(DATA_START_ROW);
   sheet.getRange(DATA_START_ROW, 1, 1, 7).setValues([[sku, qty, location, salesOrder, "", "PENDING", availableQty]]);  // ✅ Changed from 6 to 7
+  verifyAndRestoreHeaders(sheet, savedHeaders);
 
   updateOrderStatsInSheet();
   updateLastSyncTimestamp();
@@ -749,7 +771,7 @@ function addOrderFromN8N(sku, salesOrder, qty) {
 }
 
 function getOrderStats() {
-  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(MAIN_SHEET_NAME);
+  var sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(MAIN_SHEET_NAME);
   if (!sheet) throw new Error("Main sheet not found");
   var lastRow = sheet.getLastRow();
 if (lastRow < DATA_START_ROW) return { pending: 0, preparing: 0, shipped: 0, canceled: 0 };
@@ -766,7 +788,7 @@ return stats;
 }
 
 function updateOrderStatsInSheet() {
-  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(MAIN_SHEET_NAME);
+  var sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(MAIN_SHEET_NAME);
   if (!sheet) return;
   
   var stats = getOrderStats();
@@ -792,18 +814,38 @@ function updateOrderStatsInSheet() {
     .setWrap(false);
 }
 
+/**
+ * Detects and restores filter header corruption caused by insertRowsBefore().
+ * Google Sheets has a known bug where inserting rows inside a filtered range
+ * replaces header text with "Column 1", "Column 2", etc.
+ * Call this after every insertRowsBefore/insertRowBefore on the main sheet.
+ * @param {Sheet} sheet - The sheet to check
+ * @param {Array} savedHeaders - The correct header values saved before insertion
+ */
+function verifyAndRestoreHeaders(sheet, savedHeaders) {
+  var headerRow = DATA_START_ROW - 1;
+  var current = sheet.getRange(headerRow, 1, 1, savedHeaders.length).getValues()[0];
+  var corrupted = current.some(function(val) {
+    return /^Column\s*\d+$/i.test(String(val).trim());
+  });
+  if (corrupted) {
+    sheet.getRange(headerRow, 1, 1, savedHeaders.length).setValues([savedHeaders]);
+    Logger.log("⚠️ Headers were corrupted by row insertion — restored successfully.");
+  }
+}
+
 function updateLastSyncTimestamp() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   var sheet = ss.getSheetByName(MAIN_SHEET_NAME);
   var now = new Date();
-  var timestamp = Utilities.formatDate(now, ss.getSpreadsheetTimeZone(), "h:mm a");
+  var timestamp = Utilities.formatDate(now, "America/Chicago", "h:mm a");
   sheet.getRange('D1').setValue("⏱ " + timestamp).setFontWeight('bold').setFontSize(11)
     .setHorizontalAlignment('center').setVerticalAlignment('middle')
     .setBackground('#212121').setFontColor('#FFFFFF');
 }
 
 function sortTableByStatusAndLocation(tableNumber) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   var sheet = ss.getSheetByName(MAIN_SHEET_NAME);
   var boundary = getBoundaryRow();
   var startRow = (tableNumber === 1) ? DATA_START_ROW : boundary + 2;
@@ -835,7 +877,7 @@ function refreshProDashboard() {
 }
 
 function updateStatus(rowNumber, status) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   var sheet = ss.getSheetByName(MAIN_SHEET_NAME);
   sheet.getRange(rowNumber, 6).setValue(status);
   updateOrderStatsInSheet();
@@ -852,7 +894,7 @@ function updateStatus(rowNumber, status) {
  * Called by doPost when action === 'storeMessageId'
  */
 function storeMessageId(orderId, messageId, chatId) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   var sheet = ss.getSheetByName(HIDDEN_SHEET_NAME);
   
   if (!sheet) {
@@ -872,7 +914,7 @@ function storeMessageId(orderId, messageId, chatId) {
  * Called by notifyTelegramShipped
  */
 function getMessageId(orderId) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   var sheet = ss.getSheetByName(HIDDEN_SHEET_NAME);
   
   if (!sheet) {
@@ -909,7 +951,7 @@ function getMessageId(orderId) {
  * Used when inserting new orders via n8n
  */
 function getInventoryForSKU(sku) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   var dbSheet = ss.getSheetByName(DB_SHEET_NAME);
   
   if (!dbSheet || !sku) {
@@ -1070,7 +1112,7 @@ function syncStatusToTelegram(orderId, newStatus) {
  * Helper: Gets all items for a specific order ID from the sheet
  */
 function getItemsFromSheet(orderId) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   var sheet = ss.getSheetByName(MAIN_SHEET_NAME);
   var lastRow = sheet.getLastRow();
 
@@ -1176,7 +1218,7 @@ function diagnoseTelegram() {
   }
 
   // 3. Test with the most recent message in Telegram_Messages sheet
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   var msgSheet = ss.getSheetByName(HIDDEN_SHEET_NAME);
   if (!msgSheet || msgSheet.getLastRow() < 2) {
     logDebug("No messages stored in Telegram_Messages sheet");

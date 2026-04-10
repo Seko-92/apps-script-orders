@@ -1,5 +1,5 @@
 // =======================================================================================
-// LIVE_SYNC.gs - Live Update Trigger Functions (Format-Safe Version)
+// LIVE_SYNC.gs - Live Update Trigger Functions (Format-Safe Version)//
 // =======================================================================================
 
 /**
@@ -37,9 +37,20 @@ function liveUpdateTrigger(e) {
     // Build committed orders map to subtract from available stock
     var committedMap = getCommittedQuantities();
 
+    // Get boundary row to protect DIRECT boundary and header from being overwritten
+    var boundary = getBoundaryRow();
+
     for (var i = 0; i < edits.length; i++) {
+      var currentRow = startRow + i;
       var rawSku = String(edits[i][0]).trim();
       var skuLower = rawSku.toLowerCase();
+
+      // Protect boundary row and DIRECT header row - preserve their content
+      if (boundary > 0 && (currentRow === boundary || currentRow === boundary + 1)) {
+        locationResults.push([sheet.getRange(currentRow, LOCATION_COLUMN).getValue()]);
+        quantityResults.push([sheet.getRange(currentRow, HAND_COLUMN).getValue()]);
+        continue;
+      }
 
       if (skuLower === "" || skuLower === TABLE_TWO_IDENTIFIER.toLowerCase()) {
         // Empty row or table separator
@@ -87,7 +98,7 @@ function liveUpdateTrigger(e) {
  * More efficient than building separately
  */
 function buildLocationAndInventoryMaps() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   var dbSheet = ss.getSheetByName(DB_SHEET_NAME);
   
   if (!dbSheet) {
@@ -153,7 +164,7 @@ function buildLocationAndInventoryMaps() {
  * Used for single-cell edits (faster than building full map)
  */
 function getSingleInventory(skuLower) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   var dbSheet = ss.getSheetByName(DB_SHEET_NAME);
   
   if (!dbSheet) {

@@ -1,5 +1,5 @@
 // =======================================================================================
-// MAIN.gs - Entry Points and Triggers
+// MAIN.gs - Entry Points and Triggers/
 // =======================================================================================
 
 /**
@@ -28,7 +28,8 @@ function onOpen() {
   updateOrderStatsInSheet();
   toggleLiveUpdate('ON');  // Auto-enable live sync
   setupHandConditionalFormatting();  // Ensure HAND highlight rule is active
-  setupDuplicateHighlighting();     // Ensure duplicate SKU highlight rules are active
+  // SKU duplicate highlighting: manual only (use sidebar button to avoid visual clutter)
+  setupDuplicateSalesOrderHighlighting(); // Ensure duplicate Sales Order highlight rules are active
 
   // 4. AUTO-LOAD the Control Panel on startup
   showSidebar(); 
@@ -59,13 +60,38 @@ function onChange(e) {
 }
 
 /**
+ * INSTALLABLE onChange trigger - Handles row deletions, paste, structural changes.
+ * NOTE: Do NOT call setupDuplicateHighlighting here — modifying CF rules
+ * triggers another onChange, causing an infinite loop.
+ */
+function onChangeInstallable(e) {
+  // Only run on structural changes (row insert/delete), not on CF rule edits
+  var changeType = e && e.changeType ? e.changeType : "";
+  if (changeType === "REMOVE_ROW" || changeType === "INSERT_ROW") {
+    try {
+      setupDuplicateSalesOrderHighlighting();
+    } catch (err) { /* silent */ }
+  }
+}
+
+/**
  * onEdit trigger (SIMPLE) - Handles local-only operations
  * Simple triggers CANNOT call external APIs (UrlFetchApp).
  * Telegram sync is handled by onEditInstallable() below.
  * @param {Event} e - The edit event
  */
 function onEdit(e) {
-  liveUpdateTrigger(e);
+  // locationUpdateTimestamp uses only e.range (no openById), safe for simple trigger
+  locationUpdateTimestamp(e);
+
+  // liveUpdateTrigger uses openById which can fail in simple triggers;
+  // wrap in try-catch so it doesn't block other handlers.
+  // It also runs via installable trigger, so this is just a fallback.
+  try {
+    liveUpdateTrigger(e);
+  } catch (err) {
+    // Expected in simple trigger context — installable trigger handles it
+  }
   // NOTE: handleManualStatusChange moved to installable trigger
   // because it calls UrlFetchApp (Telegram API) which requires
   // elevated permissions that simple triggers don't have.
@@ -81,6 +107,7 @@ function onEdit(e) {
 function onEditInstallable(e) {
   console.log("onEditInstallable fired: " + (e && e.range ? e.range.getA1Notation() : "unknown"));
   handleManualStatusChange(e);
+  refreshDuplicateHighlightsOnEdit(e);
 }
 
 /**
@@ -88,7 +115,7 @@ function onEditInstallable(e) {
  * @param {string} state - 'ON' to hide, 'OFF' to show
  */
 function toggleFocusMode(state) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   var sheet = ss.getSheetByName(MAIN_SHEET_NAME);
   var boundary = getBoundaryRow();
   var hide = (state === 'ON');
@@ -144,34 +171,39 @@ function toggleFocusMode(state) {
  * (UrlFetchApp, LockService, etc.) - required for Sheet→Telegram sync.
  */
 function setupInstallableEditTrigger() {
-  // Remove any existing installable onEdit triggers to avoid duplicates
   var triggers = ScriptApp.getProjectTriggers();
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+
+  // Remove existing installable onEdit and onChange triggers to avoid duplicates
   for (var i = 0; i < triggers.length; i++) {
-    if (triggers[i].getHandlerFunction() === 'onEditInstallable' &&
-        triggers[i].getEventType() === ScriptApp.EventType.ON_EDIT) {
+    var handler = triggers[i].getHandlerFunction();
+    if (handler === 'onEditInstallable' || handler === 'onChangeInstallable') {
       ScriptApp.deleteTrigger(triggers[i]);
     }
   }
 
-  // Create the installable trigger
+  // Create installable onEdit trigger (Telegram sync + duplicate highlight refresh)
   ScriptApp.newTrigger('onEditInstallable')
-    .forSpreadsheet(SpreadsheetApp.getActiveSpreadsheet())
+    .forSpreadsheet(ss)
     .onEdit()
     .create();
 
-  Logger.log("Installable onEdit trigger created for onEditInstallable()");
+  // Create installable onChange trigger (row deletions, paste, structural changes)
+  ScriptApp.newTrigger('onChangeInstallable')
+    .forSpreadsheet(ss)
+    .onChange()
+    .create();
 
-  // Show UI alert only if called from a UI context (menu click, onOpen, etc.)
-  // When run from Script Editor's Run button, there is no UI context.
+  Logger.log("Installable triggers created: onEditInstallable + onChangeInstallable");
+
   try {
     SpreadsheetApp.getUi().alert(
-      "Trigger Installed",
-      "The installable onEdit trigger has been created. Sheet→Telegram sync is now active.",
+      "Triggers Installed",
+      "Installable onEdit + onChange triggers created. Duplicate highlights will now auto-refresh on edits AND row deletions.",
       SpreadsheetApp.getUi().ButtonSet.OK
     );
   } catch (e) {
-    // Running from Script Editor - no UI available. That's fine.
-    Logger.log("Trigger installed successfully. (No UI context for alert)");
+    Logger.log("Triggers installed successfully. (No UI context for alert)");
   }
 }
 

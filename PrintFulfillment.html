@@ -124,7 +124,6 @@
       td.col-hand { background: #e3f2fd !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
       td.col-hand.low-stock { background: #FF6B6B !important; color: #fff; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
       td.col-left { background: #fff3e0 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-
       h3 { 
         -webkit-print-color-adjust: exact; 
         border-left: 5px solid #000;
@@ -164,8 +163,11 @@
   <div style="text-align: center; border-bottom: 2px solid #202124; margin-bottom: 20px; padding-bottom: 10px;">
     <h2 style="margin: 0; font-size: 24px; text-transform: uppercase;">Pending Fulfillment List</h2>
     <div style="display: flex; justify-content: space-between; margin-top: 10px; font-size: 13px; font-weight: 600;">
-      <span>Date: <?= new Date().toLocaleDateString() ?> | Time: <?= new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) ?></span>
+      <span>Date: <?= printDate ?> | Time: <?= printTime ?> (CST)</span>
       <span>Employee ID: <span style="color: #1a73e8;"><?= employeeId ?></span></span>
+    </div>
+    <div style="display: flex; justify-content: space-between; margin-top: 8px; font-size: 13px;">
+      <span style="font-weight: 600;">ID for Adjustment: <span style="display: inline-block; width: 200px; border-bottom: 1.5px solid #999;">&nbsp;</span></span>
     </div>
   </div>
 
@@ -185,12 +187,19 @@
         </tr>
       </thead>
       <tbody>
-        <? for (var i = 0; i < ebayItems.length; i++) { ?>
+        <? for (var i = 0; i < ebayItems.length; i++) {
+             var eSo = String(ebayItems[i][3]).trim();
+             var eColor = orderColorMap[eSo];
+        ?>
           <tr>
             <td><?= ebayItems[i][0] ?></td>
             <td style="text-align: center; font-weight: 600;"><?= ebayItems[i][1] ?></td>
             <td style="font-weight: 600; font-family: monospace;"><?= ebayItems[i][2] ?></td>
-            <td><?= ebayItems[i][3] ?></td>
+            <? if (eColor) { ?>
+              <td style="border-left: 4px solid <?= eColor ?>; font-weight: 600;"><?= ebayItems[i][3] ?></td>
+            <? } else { ?>
+              <td><?= ebayItems[i][3] ?></td>
+            <? } ?>
             <td><?= ebayItems[i][4] ?></td>
             <td><?= ebayItems[i][5] ?></td>
             <td class="col-hand<?= (parseFloat(ebayItems[i][6]) <= 20) ? ' low-stock' : '' ?>"><?= ebayItems[i][6] ?></td>
@@ -221,12 +230,19 @@
         </tr>
       </thead>
       <tbody>
-        <? for (var i = 0; i < directItems.length; i++) { ?>
+        <? for (var i = 0; i < directItems.length; i++) {
+             var dSo = String(directItems[i][3]).trim();
+             var dColor = orderColorMap[dSo];
+        ?>
           <tr>
             <td><?= directItems[i][0] ?></td>
             <td style="text-align: center; font-weight: 600;"><?= directItems[i][1] ?></td>
             <td style="font-weight: 600; font-family: monospace;"><?= directItems[i][2] ?></td>
-            <td><?= directItems[i][3] ?></td>
+            <? if (dColor) { ?>
+              <td style="border-left: 4px solid <?= dColor ?>; font-weight: 600;"><?= directItems[i][3] ?></td>
+            <? } else { ?>
+              <td><?= directItems[i][3] ?></td>
+            <? } ?>
             <td><?= directItems[i][4] ?></td>
             <td><?= directItems[i][5] ?></td>
             <td class="col-hand<?= (parseFloat(directItems[i][6]) <= 20) ? ' low-stock' : '' ?>"><?= directItems[i][6] ?></td>
@@ -245,7 +261,7 @@
       <span style="margin-left: 20px;"><strong>Direct:</strong> <?= directItems.length ?></span>
     </div>
     <div style="font-size: 11px; color: #666;">
-      Generated: <?= new Date().toLocaleString() ?>
+      Generated: <?= printDate ?> <?= printTime ?> CST
     </div>
   </div>
 

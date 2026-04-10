@@ -15,7 +15,7 @@ function showSidebar() {
  * Best used with a 1-minute time-driven trigger.
  */
 function updateSheetClock() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   var sheet = ss.getSheetByName(MAIN_SHEET_NAME);
   var now = new Date();
   

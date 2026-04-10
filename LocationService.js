@@ -8,7 +8,7 @@
  * @returns {Map} - Map of SKU (lowercase) to Location
  */
 function buildLocationMap() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   var dbSheet = ss.getSheetByName(DB_SHEET_NAME);
   
   if (!dbSheet) {
@@ -74,7 +74,7 @@ function buildLocationMap() {
  * @returns {string} - Location or "NOT FOUND"
  */
 function getSingleLocation(sku) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   var dbSheet = ss.getSheetByName(DB_SHEET_NAME);
   
   if (!dbSheet) return "NOT FOUND";
@@ -121,7 +121,7 @@ function getSingleLocation(sku) {
  * @returns {string} - Status message
  */
 function updateAllExistingRows(tableNumber) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   var sheet = ss.getSheetByName(MAIN_SHEET_NAME);
   var boundary = getBoundaryRow();
   

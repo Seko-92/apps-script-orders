@@ -13,7 +13,7 @@
  * @returns {string} - URL of the new spreadsheet
  */
 function createTemplateFromCurrentSheet() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   var sourceSheet = ss.getSheetByName(MAIN_SHEET_NAME);
   
   // Create a new spreadsheet
@@ -198,7 +198,7 @@ function findBoundaryRowInSheet(sheet) {
  * @returns {Object} - Design configuration
  */
 function exportSheetDesignAsJSON() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   var sheet = ss.getSheetByName(MAIN_SHEET_NAME);
   
   var rows = sheet.getMaxRows();
@@ -300,7 +300,7 @@ function exportDesignToDoc() {
  * Creates an exact copy with all design elements
  */
 function duplicateSheetWithDesign() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   var sourceSheet = ss.getSheetByName(MAIN_SHEET_NAME);
   
   var newSheet = sourceSheet.copyTo(ss);
@@ -314,7 +314,7 @@ function duplicateSheetWithDesign() {
  * @param {string} targetUrl - URL of the target spreadsheet
  */
 function copyDesignToSpreadsheet(targetUrl) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   var sourceSheet = ss.getSheetByName(MAIN_SHEET_NAME);
   
   try {

@@ -1,5 +1,5 @@
 // =======================================================================================
-// FULFILLMENT_SERVICE.gs - Fulfillment and Printing Functions//
+// FULFILLMENT_SERVICE.gs - Fulfillment and Printing Functions/
 // =======================================================================================
 
 /**
@@ -7,12 +7,12 @@
  * Now includes HAND (Col G) and LEFT (Col H) columns
  */
 function preparePrintSheet() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   var sheet = ss.getSheetByName(MAIN_SHEET_NAME);
   var data = sheet.getDataRange().getValues();
   
-  // Get Employee ID from E1
-  var employeeId = sheet.getRange("E1").getValue();
+  // Get Employee ID from F2
+  var employeeId = sheet.getRange("F2").getValue();
 
   var STATUS_COL_INDEX = 5; // Column F is index 5
   var HAND_COL_INDEX = 6;   // Column G is index 6
@@ -61,10 +61,42 @@ function preparePrintSheet() {
     throw new Error("No items found with status 'PREPARING' in Column F.");
   }
 
+  // Build duplicate Sales Order border color map for print highlighting
+  var allOrders = {};
+  var allItems = ebayItems.concat(directItems);
+  for (var j = 0; j < allItems.length; j++) {
+    var so = String(allItems[j][3]).trim();
+    if (so) allOrders[so] = (allOrders[so] || 0) + 1;
+  }
+  // Assign border colors only to duplicates (matches ORDER_BORDER_COLORS in RowManagement)
+  var ORDER_PRINT_BORDER_COLORS = [
+    "#1a73e8", "#e53935", "#43a047", "#fb8c00", "#8e24aa",
+    "#00acc1", "#d81b60", "#6d4c41", "#3949ab", "#00897b",
+    "#c0ca33", "#f4511e", "#5e35b1", "#039be5", "#7cb342",
+    "#ffb300", "#1e88e5", "#e91e63", "#26a69a", "#546e7a"
+  ];
+  var orderColorMap = {};
+  var colorIdx = 0;
+  for (var so in allOrders) {
+    if (allOrders[so] > 1) {
+      orderColorMap[so] = ORDER_PRINT_BORDER_COLORS[colorIdx % ORDER_PRINT_BORDER_COLORS.length];
+      colorIdx++;
+    }
+  }
+
+  // Format print timestamp in Houston timezone
+  var now = new Date();
+  var houstonTZ = "America/Chicago";
+  var printDate = Utilities.formatDate(now, houstonTZ, "M/d/yyyy");
+  var printTime = Utilities.formatDate(now, houstonTZ, "h:mm a");
+
   var htmlTemplate = HtmlService.createTemplateFromFile('PrintFulfillment');
   htmlTemplate.ebayItems = ebayItems;
   htmlTemplate.directItems = directItems;
-  htmlTemplate.employeeId = employeeId; 
+  htmlTemplate.employeeId = employeeId;
+  htmlTemplate.orderColorMap = orderColorMap;
+  htmlTemplate.printDate = printDate;
+  htmlTemplate.printTime = printTime; 
   
   var ui = htmlTemplate.evaluate()
       .setTitle('Print Picking List')
@@ -89,9 +121,9 @@ function markSelectedPreparing() {
   }
 
   try {
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
     var sheet = ss.getSheetByName(MAIN_SHEET_NAME);
-    var range = ss.getActiveRange();
+    var range = SpreadsheetApp.getActiveRange();
     if (!range) return;
 
     var startRow = range.getRow();
