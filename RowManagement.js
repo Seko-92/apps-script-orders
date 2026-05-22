@@ -10,12 +10,12 @@
 function deleteEmptyRows(t) {
   var sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(MAIN_SHEET_NAME);
   var b = getBoundaryRow();
-  var start = (t === 1) ? DATA_START_ROW : b + 2;
-  var end = (t === 1) ? b - 1 : sheet.getMaxRows();
-  var last = findLastDataRowInSegment(start, end);
-  
+  var start = (t === 1) ? Schema.dataStartRow : b + 2;
+  var end   = (t === 1) ? b - 1               : sheet.getMaxRows();
+  var last  = findLastDataRowInSegment(start, end);
+
   var delStart = (t === 1) ? last + 4 : last + MAX_EMPTY_ROWS_TO_KEEP + 1;
-  
+
   if (t === 1 && delStart >= b) return "ℹ️ 3-row buffer already exists.";
 
   if (delStart < end) {
@@ -60,8 +60,8 @@ function ensureDirectTableBuffer() {
   sheet.insertRowsAfter(lastRow, rowsToAdd);
 
   // Copy formatting from eBay data row (which always has correct format)
-  var sourceRange = sheet.getRange(DATA_START_ROW, 1, 1, 8);
-  var targetRange = sheet.getRange(lastRow + 1, 1, rowsToAdd, 8);
+  var sourceRange = sheet.getRange(Schema.dataStartRow, 1, 1, Schema.dataWidth);
+  var targetRange = sheet.getRange(lastRow + 1, 1, rowsToAdd, Schema.dataWidth);
   sourceRange.copyTo(targetRange, SpreadsheetApp.CopyPasteType.PASTE_FORMAT, false);
   sheet.setRowHeights(lastRow + 1, rowsToAdd, 30);
 }
@@ -75,12 +75,12 @@ function addRowsTableOne(n) {
   var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   var sheet = ss.getSheetByName(MAIN_SHEET_NAME);
   var boundary = getBoundaryRow();
-  var lastUsedRow = findLastDataRowInSegment(DATA_START_ROW, boundary - 1);
-  var insertionPoint = (lastUsedRow < DATA_START_ROW) ? DATA_START_ROW : lastUsedRow + 1;
+  var lastUsedRow = findLastDataRowInSegment(Schema.dataStartRow, boundary - 1);
+  var insertionPoint = (lastUsedRow < Schema.dataStartRow) ? Schema.dataStartRow : lastUsedRow + 1;
   var rowsToInsert = parseInt(n);
-  
+
   sheet.insertRowsAfter(insertionPoint, rowsToInsert);
-  
+
   return "✅ Inserted " + rowsToInsert + " rows. DIRECT moved to Row " + (boundary + rowsToInsert) + ".";
 }
 
@@ -94,15 +94,14 @@ function addRowsTableTwo(n) {
   var sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(MAIN_SHEET_NAME);
   var numRows = parseInt(n);
   var lastRow = sheet.getLastRow();
-  
+
   // Insert the rows at the end
   sheet.insertRowsAfter(lastRow, numRows);
-  
-  // Copy format from eBay table's first data row (which works perfectly!)
-  var ebaySourceRow = DATA_START_ROW;
-  var sourceRange = sheet.getRange(ebaySourceRow, 1, 1, 8);
-  var targetRange = sheet.getRange(lastRow + 1, 1, numRows, 8);
-  
+
+  // Copy format from eBay table's first data row (which always has correct format)
+  var sourceRange = sheet.getRange(Schema.dataStartRow, 1, 1, Schema.dataWidth);
+  var targetRange = sheet.getRange(lastRow + 1, 1, numRows, Schema.dataWidth);
+
   // Copy ONLY the format (not content)
   sourceRange.copyTo(targetRange, SpreadsheetApp.CopyPasteType.PASTE_FORMAT, false);
 
@@ -122,13 +121,13 @@ function protectBoundaryRow() {
   var boundary = getBoundaryRow();
   
   removeExistingBoundaryProtection(sheet);
-  
-  var boundaryRange = sheet.getRange(boundary, 1, 1, 8);
+
+  var boundaryRange = sheet.getRange(boundary, 1, 1, Schema.dataWidth);
   var protection = boundaryRange.protect();
   protection.setDescription('DIRECT_BOUNDARY_PROTECTED');
   protection.setWarningOnly(true);
-  
-  var headerRange = sheet.getRange(boundary + 1, 1, 1, 8);
+
+  var headerRange = sheet.getRange(boundary + 1, 1, 1, Schema.dataWidth);
   var headerProtection = headerRange.protect();
   headerProtection.setDescription('DIRECT_HEADER_PROTECTED');
   headerProtection.setWarningOnly(true);
@@ -163,9 +162,9 @@ function validateBoundaryIntegrity() {
     return false;
   }
   
-  var cellValue = sheet.getRange(boundary, 1).getValue();
-  if (String(cellValue).toUpperCase().indexOf("DIRECT") === -1) {
-    Logger.log("⚠️ WARNING: Boundary row " + boundary + " doesn't contain 'DIRECT'. Value: " + cellValue);
+  var cellValue = sheet.getRange(boundary, Schema.cols.SKU).getValue();
+  if (String(cellValue).toUpperCase().indexOf(Schema.boundaryMarker) === -1) {
+    Logger.log("⚠️ WARNING: Boundary row " + boundary + " doesn't contain '" + Schema.boundaryMarker + "'. Value: " + cellValue);
     return false;
   }
   
@@ -251,17 +250,17 @@ function setupDuplicateHighlighting() {
   removeDuplicateHighlightRules(sheet);
 
   var lastRow = sheet.getLastRow();
-  if (lastRow < DATA_START_ROW) return null;
+  if (lastRow < Schema.dataStartRow) return null;
 
-  var allData = sheet.getRange(DATA_START_ROW, SKU_COLUMN, lastRow - DATA_START_ROW + 1, 1).getValues();
+  var allData = sheet.getRange(Schema.dataStartRow, Schema.cols.SKU, lastRow - Schema.dataStartRow + 1, 1).getValues();
   var boundary = getBoundaryRow();
 
   var skuCount = {};
   for (var i = 0; i < allData.length; i++) {
-    var currentRow = DATA_START_ROW + i;
+    var currentRow = Schema.dataStartRow + i;
     if (boundary > 0 && (currentRow === boundary || currentRow === boundary + 1)) continue;
     var sku = String(allData[i][0]).trim().toUpperCase();
-    if (sku && sku !== TABLE_TWO_IDENTIFIER) {
+    if (sku && sku !== Schema.boundaryMarker) {
       skuCount[sku] = (skuCount[sku] || 0) + 1;
     }
   }
@@ -274,8 +273,8 @@ function setupDuplicateHighlighting() {
   if (duplicateSkus.length === 0) return null;
 
   var rules = sheet.getConditionalFormatRules();
-  var skuRange = sheet.getRange(DATA_START_ROW, SKU_COLUMN, 1000, 1);
-  var ref = "A" + DATA_START_ROW;
+  var skuRange = sheet.getRange(Schema.dataStartRow, Schema.cols.SKU, 1000, 1);
+  var ref = "A" + Schema.dataStartRow;
 
   for (var i = 0; i < duplicateSkus.length; i++) {
     var escapedSku = duplicateSkus[i].replace(/"/g, '""');
@@ -313,7 +312,7 @@ function removeDuplicateHighlightRules(sheet) {
         var ranges = rules[i].getRanges();
         var isSkuColumn = false;
         for (var j = 0; j < ranges.length; j++) {
-          if (ranges[j].getColumn() === SKU_COLUMN && ranges[j].getNumColumns() === 1) {
+          if (ranges[j].getColumn() === Schema.cols.SKU && ranges[j].getNumColumns() === 1) {
             isSkuColumn = true;
             break;
           }
@@ -353,24 +352,39 @@ function setupDuplicateSalesOrderHighlighting() {
   if (!sheet) return null;
 
   var lastRow = sheet.getLastRow();
-  if (lastRow < DATA_START_ROW) return null;
+  if (lastRow < Schema.dataStartRow) return null;
 
   var boundary = getBoundaryRow();
-  var dataRows = lastRow - DATA_START_ROW + 1;
-  var allData = sheet.getRange(DATA_START_ROW, SALES_ORDER_COLUMN, dataRows, 1).getValues();
+
+  // Data read is bounded by lastRow (only cells that COULD have a SO value).
+  var dataRows = lastRow - Schema.dataStartRow + 1;
+  var allData = sheet.getRange(Schema.dataStartRow, Schema.cols.SALES_ORDER, dataRows, 1).getValues();
 
   // 1. Remove any legacy CF rules on column D (from previous highlight approach)
   removeLegacySalesOrderCFRules(sheet);
 
-  // 2. Clear all left borders on column D in the data area
-  var fullRange = sheet.getRange(DATA_START_ROW, SALES_ORDER_COLUMN, dataRows, 1);
+  // 2. Clear all left borders on column D — using a WIDER range than lastRow.
+  //
+  //    Why: getLastRow() returns the position of the last row with CONTENT in
+  //    ANY column. When a row's SO is cleared (or n8n removes a shipped order
+  //    and empties the whole row), lastRow shrinks. The previously-bordered
+  //    row falls outside the lastRow-bounded clear range, so its stale left-
+  //    border survives forever. The user sees: "I removed the duplicate but
+  //    the highlight stays on the empty cell."
+  //
+  //    Same class of bug we fixed in _refreshPrepQueueDuplicates 2026-05-06.
+  //    Cheap fix: extend the clear band a generous margin past lastRow
+  //    (capped at sheet.getMaxRows() to stay in bounds).
+  var clearLastRow = Math.min(sheet.getMaxRows(), lastRow + 200);
+  var clearRowCount = clearLastRow - Schema.dataStartRow + 1;
+  var fullRange = sheet.getRange(Schema.dataStartRow, Schema.cols.SALES_ORDER, clearRowCount, 1);
   fullRange.setBorder(null, false, null, null, null, null);
 
   // 2. Count occurrences, skipping boundary rows
   var orderCount = {};
   var orderRows = {};  // Map order → [row numbers]
   for (var i = 0; i < allData.length; i++) {
-    var currentRow = DATA_START_ROW + i;
+    var currentRow = Schema.dataStartRow + i;
     if (boundary > 0 && (currentRow === boundary || currentRow === boundary + 1)) continue;
     var order = String(allData[i][0]).trim();
     if (order) {
@@ -394,10 +408,16 @@ function setupDuplicateSalesOrderHighlighting() {
     var rows = orderRows[duplicateOrders[i]];
 
     for (var j = 0; j < rows.length; j++) {
-      var cell = sheet.getRange(rows[j], SALES_ORDER_COLUMN);
+      var cell = sheet.getRange(rows[j], Schema.cols.SALES_ORDER);
       cell.setBorder(null, true, null, null, null, null, color, SpreadsheetApp.BorderStyle.SOLID_THICK);
     }
   }
+
+  // Force the clear-then-apply sequence to land before any subsequent reads.
+  // Without flush(), Sheets can batch the writes and the clear can lose to
+  // the re-apply in certain races, leaving stale borders on rows whose SO
+  // was just cleared or whose row was just deleted.
+  SpreadsheetApp.flush();
 }
 
 function highlightAllDuplicateSalesOrders() {
@@ -421,7 +441,7 @@ function removeLegacySalesOrderCFRules(sheet) {
         var ranges = rules[i].getRanges();
         var isOrderColumn = false;
         for (var j = 0; j < ranges.length; j++) {
-          if (ranges[j].getColumn() === SALES_ORDER_COLUMN && ranges[j].getNumColumns() === 1) {
+          if (ranges[j].getColumn() === Schema.cols.SALES_ORDER && ranges[j].getNumColumns() === 1) {
             isOrderColumn = true;
             break;
           }
@@ -442,9 +462,9 @@ function clearAllDuplicateSalesOrderHighlights() {
   var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   var sheet = ss.getSheetByName(MAIN_SHEET_NAME);
   var lastRow = sheet.getLastRow();
-  if (lastRow < DATA_START_ROW) return "✅ Nothing to clear.";
+  if (lastRow < Schema.dataStartRow) return "✅ Nothing to clear.";
 
-  var fullRange = sheet.getRange(DATA_START_ROW, SALES_ORDER_COLUMN, lastRow - DATA_START_ROW + 1, 1);
+  var fullRange = sheet.getRange(Schema.dataStartRow, Schema.cols.SALES_ORDER, lastRow - Schema.dataStartRow + 1, 1);
   fullRange.setBorder(null, false, null, null, null, null);
   return "✅ Duplicate Sales Order border tabs cleared.";
 }
@@ -463,54 +483,21 @@ function refreshDuplicateHighlightsOnEdit(e) {
     var range = e.range;
     var sheet = range.getSheet();
     if (sheet.getName() !== MAIN_SHEET_NAME) return;
-    if (range.getRow() < DATA_START_ROW) return;
+    if (range.getRow() < Schema.dataStartRow) return;
     // Only auto-refresh Sales Order highlights (SKU is manual-only)
     setupDuplicateSalesOrderHighlighting();
   } catch (err) { /* silent */ }
 }
 
-// =======================================================================================
-// LEGACY FUNCTIONS
-// =======================================================================================
-
-function consolidateTable(tableNumber) {
-  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
-  var sheet = ss.getSheetByName(MAIN_SHEET_NAME);
-  var boundary = getBoundaryRow();
-  var startRow = (tableNumber === 1) ? DATA_START_ROW : boundary + 2;
-  var endRow = (tableNumber === 1) ? boundary - 2 : sheet.getLastRow();
-  var lastDataRow = findLastDataRowInSegment(startRow, endRow);
-  if (lastDataRow < startRow) return "No data found.";
-
-  var range = sheet.getRange(startRow, 1, lastDataRow - startRow + 1, DATA_WIDTH);
-  var data = range.getValues();
-  var map = new Map();
-
-  data.forEach(row => {
-    var sku = String(row[0]).trim().toUpperCase();
-    if (!sku || sku === TABLE_TWO_IDENTIFIER) return;
-
-    if (map.has(sku)) {
-      var exist = map.get(sku);
-      exist[1] = (parseFloat(exist[1]) || 0) + (parseFloat(row[1]) || 0);
-      var newOrder = String(row[3]).trim();
-      if (newOrder && exist[3].indexOf(newOrder) === -1) {
-        exist[3] = exist[3] + " / " + newOrder;
-      }
-    } else {
-      map.set(sku, [...row]);
-    }
-  });
-
-  var out = Array.from(map.values());
-  range.clearContent();
-  
-  if (out.length > 0) {
-    sheet.getRange(startRow, 1, out.length, DATA_WIDTH).setValues(out);
-  }
-  
-  return "⚠️ Merged SKUs (Warning: May affect n8n duplicate detection)";
-}
-
-function runMergeEbayDuplicates() { return consolidateTable(1); }
-function runMergeDirectDuplicates() { return consolidateTable(2); }
+// consolidateTable, runMergeEbayDuplicates, runMergeDirectDuplicates —
+// REMOVED 2026-04-29.
+//
+// These were the old "merge duplicate SKU rows" feature. Verified zero callers
+// in Apps Script, HTML sidebars, and n8n workflows. The function itself
+// carried a self-warning ("May affect n8n duplicate detection") because
+// merging rows breaks the SKU+SalesOrder dedup contract that doPost relies on.
+//
+// Modern duplicate handling lives in:
+//   - setupDuplicateSalesOrderHighlighting() above (visual color tabs)
+//   - setupDuplicateHighlighting() above (SKU group colors)
+// These VISUALIZE duplicates rather than destroying data.

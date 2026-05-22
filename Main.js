@@ -81,9 +81,6 @@ function onChangeInstallable(e) {
  * @param {Event} e - The edit event
  */
 function onEdit(e) {
-  // locationUpdateTimestamp uses only e.range (no openById), safe for simple trigger
-  locationUpdateTimestamp(e);
-
   // liveUpdateTrigger uses openById which can fail in simple triggers;
   // wrap in try-catch so it doesn't block other handlers.
   // It also runs via installable trigger, so this is just a fallback.
@@ -92,9 +89,13 @@ function onEdit(e) {
   } catch (err) {
     // Expected in simple trigger context — installable trigger handles it
   }
-  // NOTE: handleManualStatusChange moved to installable trigger
-  // because it calls UrlFetchApp (Telegram API) which requires
-  // elevated permissions that simple triggers don't have.
+
+  // NOTE: handleManualStatusChange, prepQueueOnEdit, outOfStockOnEdit,
+  // locationUpdateOnEdit, manualReceiveOnEdit, and noteEditOnEdit all run
+  // in the INSTALLABLE trigger because they need full permissions (openById,
+  // UrlFetchApp). Simple triggers can fail silently for those calls — which
+  // was the root cause of the "Location Update sometimes fails to fill"
+  // issue (the old simple-trigger locationUpdateTimestamp is now orphaned).
 }
 
 /**
@@ -106,8 +107,75 @@ function onEdit(e) {
  */
 function onEditInstallable(e) {
   console.log("onEditInstallable fired: " + (e && e.range ? e.range.getA1Notation() : "unknown"));
-  handleManualStatusChange(e);
-  refreshDuplicateHighlightsOnEdit(e);
+
+  // EVERY handler is wrapped — an exception in one must NEVER block the
+  // others. Bug history: handleManualStatusChange / refreshDuplicateHighlightsOnEdit
+  // were unprotected, and a throw inside refreshDuplicateHighlightsOnEdit on a
+  // SALES_ORDER edit silently killed manualReceiveOnEdit so direct manual orders
+  // weren't being logged. Defense-in-depth: each handler is its own try block.
+  try { handleManualStatusChange(e); }
+  catch (err) { Logger.log("handleManualStatusChange (installable) error: " + err); }
+
+  try { refreshDuplicateHighlightsOnEdit(e); }
+  catch (err) { Logger.log("refreshDuplicateHighlightsOnEdit (installable) error: " + err); }
+
+  // Prep Queue SKU lookup (auto-fill LOCATION + HAND + DATE ADDED) needs
+  // full permissions because it calls openById through getSingleLocation /
+  // getSingleInventory / getCommittedQuantities. Defensive try/catch so any
+  // error stays contained and doesn't block the other handlers above.
+  try {
+    prepQueueOnEdit(e);
+  } catch (err) {
+    Logger.log("prepQueueOnEdit (installable) error: " + err);
+  }
+
+  // Out of Stock SKU lookup (auto-fill LOCATION + QTY + SOLD + AVAILABLE +
+  // FIRST SEEN + LAST CHECKED). Same Master-Inventory-via-openById pattern,
+  // same containment.
+  try {
+    outOfStockOnEdit(e);
+  } catch (err) {
+    Logger.log("outOfStockOnEdit (installable) error: " + err);
+  }
+
+  // Location Update SKU lookup (auto-fill COUNTER + LOCATION + TIMESTAMP).
+  // Same pattern as Prep Queue / Out of Stock — runs in INSTALLABLE because
+  // location lookup goes through openById. Replaces the orphaned simple-trigger
+  // locationUpdateTimestamp in Timestampfeature.js (which was the root cause
+  // of "sometimes location/timestamp fails to appear").
+  try {
+    locationUpdateOnEdit(e);
+  } catch (err) {
+    Logger.log("locationUpdateOnEdit (installable) error: " + err);
+  }
+
+  // Manual sales-order entry (eBay or DIRECT) → log a RECEIVED event so the
+  // Activity Log captures manual orders (not just n8n-pushed eBay ones).
+  try {
+    manualReceiveOnEdit(e);
+  } catch (err) {
+    Logger.log("manualReceiveOnEdit (installable) error: " + err);
+  }
+
+  // Note-column edit → log a NOTE event so the audit trail captures every
+  // supervisor/picker remark added or changed mid-prep, not just the original
+  // buyer note that arrived with the order.
+  try {
+    noteEditOnEdit(e);
+  } catch (err) {
+    Logger.log("noteEditOnEdit (installable) error: " + err);
+  }
+
+  // Kit SKU marker (▣ glyph prefix) — applies/clears the per-cell number-format
+  // marker when a SKU is typed into col A of the All Orders sheet. Covers
+  // manual-entry cases (picker types a kit SKU directly into a row); n8n /
+  // Zoho insert paths call refreshKitSkuMarkers() explicitly since programmatic
+  // setValues doesn't fire onEdit.
+  try {
+    kitSkuOnEdit(e);
+  } catch (err) {
+    Logger.log("kitSkuOnEdit (installable) error: " + err);
+  }
 }
 
 /**
@@ -122,14 +190,14 @@ function toggleFocusMode(state) {
   
   // Define the segments for both tables
   var segments = [
-    { start: DATA_START_ROW, end: boundary - 2 },      // eBay Table
+    { start: Schema.dataStartRow, end: boundary - 2 },      // eBay Table
     { start: boundary + 2, end: sheet.getLastRow() }    // Direct Table
   ];
 
   segments.forEach(function(seg) {
     if (seg.end < seg.start) return;
 
-    var range = sheet.getRange(seg.start, STATUS_COLUMN, seg.end - seg.start + 1, 1);
+    var range = sheet.getRange(seg.start, Schema.cols.STATUS, seg.end - seg.start + 1, 1);
     var values = range.getValues();
 
     // Batch consecutive rows for hide/show to minimize API calls
@@ -137,7 +205,7 @@ function toggleFocusMode(state) {
     var batchIsShipped = false;
 
     for (var i = 0; i <= values.length; i++) {
-      var isShipped = (i < values.length) && String(values[i][0]).trim().toUpperCase() === "SHIPPED";
+      var isShipped = (i < values.length) && String(values[i][0]).trim().toUpperCase() === Schema.status.SHIPPED;
 
       if (i === values.length || isShipped !== batchIsShipped) {
         // Flush previous batch

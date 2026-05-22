@@ -126,11 +126,11 @@ function updateAllExistingRows(tableNumber) {
   var boundary = getBoundaryRow();
   
   // startRow: Table 1 starts at row 4. Table 2 starts 2 rows after the "Direct" title.
-  var startRow = (tableNumber === 2) ? boundary + 2 : DATA_START_ROW;
+  var startRow = (tableNumber === 2) ? boundary + 2 : Schema.dataStartRow;
   var endRow = (tableNumber === 1) ? boundary - 2 : sheet.getLastRow();
-  
+
   var lastDataRow = findLastDataRowInSegment(startRow, endRow);
-  
+
   // Validation: If lastDataRow points to the header or above, the table is empty
   if (lastDataRow < startRow) return "Table is empty.";
 
@@ -139,28 +139,28 @@ function updateAllExistingRows(tableNumber) {
     return "⚠️ Could not build location map. Check Master Inventory headers.";
   }
 
-  var range = sheet.getRange(startRow, 1, lastDataRow - startRow + 1, DATA_WIDTH);
+  var range = sheet.getRange(startRow, 1, lastDataRow - startRow + 1, Schema.dataWidth);
   var data = range.getValues();
   var updates = 0;
 
   for (var i = 0; i < data.length; i++) {
-    var rawSku = String(data[i][SKU_COLUMN-1]).trim();
+    var rawSku = String(data[i][Schema.idx("SKU")]).trim();
     var sku = rawSku.toLowerCase();
-    var oldLoc = String(data[i][LOCATION_COLUMN-1]).trim();
-    
+    var oldLoc = String(data[i][Schema.idx("LOCATION")]).trim();
+
     // --- THE HEADER SHIELD ---
     // Skip row if: Empty, is the Table Title, OR contains the word "SKU"
-    if (sku === "" || 
-        sku === TABLE_TWO_IDENTIFIER.toLowerCase() || 
-        rawSku.includes("SKU")) { 
-      continue; 
+    if (sku === "" ||
+        sku === Schema.boundaryMarker.toLowerCase() ||
+        rawSku.includes("SKU")) {
+      continue;
     }
-    
+
     var found = skuMap.get(sku) || "NOT FOUND";
-    
-    if (oldLoc !== String(found)) { 
-      data[i][LOCATION_COLUMN-1] = found; 
-      updates++; 
+
+    if (oldLoc !== String(found)) {
+      data[i][Schema.idx("LOCATION")] = found;
+      updates++;
     }
   }
 

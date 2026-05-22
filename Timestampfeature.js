@@ -3,8 +3,12 @@
 // =======================================================================================
 
 /**
- * ONE-TIME SETUP: Initialize the timestamp cell (F2)
- * Run this ONCE to create the formatted cell
+ * ⚠️ DEPRECATED 2026-05-19 — DO NOT RUN.
+ * F2 is now the Pick ID for Shipping dropdown anchor (validated cell).
+ * Running this function would (a) overwrite the picker's current selection,
+ * (b) attempt to setBackground on a validated cell, and (c) blow up the
+ * dropdown's selectable list. See deprecation note on updateLastOrderTimestamp
+ * below for the full story.
  */
 function setupTimestampCell() {
   var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
@@ -33,9 +37,28 @@ function setupTimestampCell() {
 }
 
 /**
- * Updates the timestamp in cell F2
- * Called automatically by triggerN8NWebhook() after sync
- * 
+ * ⚠️ DEPRECATED 2026-05-19 — DO NOT RE-WIRE INTO triggerN8NWebhook() OR ANY
+ * RUNTIME PATH WITHOUT FIRST CHECKING THE CALLER CELL FOR DATA VALIDATION.
+ *
+ * Original purpose: write "📦 Last Order: M/d/yyyy h:mm AM/PM" to F2 after
+ * every n8n sync, as a "you have new orders" cue in the banner.
+ *
+ * Why deprecated:
+ *   - The Service Bay v6 System Pulse in E1 already shows live sync time
+ *     ("Last sync · 5:20 PM 🟢 ALIVE") driven by the Activity Log. The F2
+ *     stamp was a cruder version of the same idea.
+ *   - 2026-05-19 layout compaction moved the Pick ID for Shipping dropdown
+ *     to F2, putting a data-validation rule on the cell. Writing a timestamp
+ *     string into a validation-protected cell throws — see Gotcha #2 about
+ *     cells with data validation being read-only for our code.
+ *
+ * If you ever need this functionality again, pick a different target cell
+ * that is NOT validation-protected (E1 is already taken; A1 is the HQ chip;
+ * pick something in the unused banner area or add a dedicated row).
+ *
+ * `setupTimestampCell()` (above) and `testTimestampUpdate()` (below) also
+ * target F2 — same deprecation applies.
+ *
  * @param {string} cellAddress - Cell address (default: "F2")
  */
 function updateLastOrderTimestamp(cellAddress) {
@@ -88,7 +111,10 @@ function getFormattedTimestamp() {
 }
 
 /**
- * Test function - Updates timestamp immediately
+ * ⚠️ DEPRECATED 2026-05-19 — DO NOT RUN.
+ * Calls updateLastOrderTimestamp("F2") which will fail with a data-validation
+ * error since F2 is now the Pick ID for Shipping dropdown. See deprecation
+ * note on updateLastOrderTimestamp above.
  */
 function testTimestampUpdate() {
   updateLastOrderTimestamp("F2");
@@ -100,9 +126,18 @@ function testTimestampUpdate() {
 // =======================================================================================
 
 /**
+ * ⚠️ ORPHANED (2026-05-13) — superseded by locationUpdateOnEdit() in
+ * LocationUpdate.js. This simple-trigger version was the root cause of the
+ * "location/timestamp sometimes fails to appear" issue: simple triggers fail
+ * silently when openById is needed, so the location lookup never ran. The
+ * new handler runs in onEditInstallable (full permissions) and does the
+ * complete COUNTER + LOCATION + TIMESTAMP fill in one pass.
+ *
+ * This function is kept here for manual debugging only — it is no longer
+ * called from any trigger. Safe to delete in a future cleanup pass.
+ *
  * Stamps column D with Houston time when SKU (column B) is added/edited.
  * Clears column D when SKU is removed.
- * Called from onEdit(e) in Main.gs.
  * @param {Event} e - The edit event
  */
 function locationUpdateTimestamp(e) {

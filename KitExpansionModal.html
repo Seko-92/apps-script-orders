@@ -1,0 +1,1018 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <style>
+    /* ==================================================================
+       KIT EXPANSION MODAL (shipped 2026-05-19)
+       Two-column layout: components checklist (left, actionable) +
+       Sales Description (right, reference). Brand palette inherited
+       from the sheet — brand-yellow on dark for header/banners.
+       ================================================================== */
+
+    :root {
+      --brand-yellow: #ffd400;
+      --brand-yellow-soft: #fff4b0;
+      --brand-yellow-rim: #ffd966;
+      --ink: #1d1d1b;
+      --ink-soft: #434343;
+      --ink-mute: #5f5f5f;
+      --paper: #ffffff;
+      --paper-warm: #fff8e7;
+      --rule: #e0e0e0;
+      --rule-soft: #f0f0f0;
+      --missing: #b71c1c;
+      --missing-bg: #ffebee;
+      --green-ink: #1b5e20;
+      --green-bg: #e8f5e9;
+    }
+
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      padding: 0;
+      font-family: 'Roboto', -apple-system, BlinkMacSystemFont, sans-serif;
+      font-size: 13px;
+      color: var(--ink);
+      background: var(--paper);
+      height: 100%;
+      overflow: hidden;
+    }
+
+    .modal {
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+    }
+
+    /* --- HEADER --- */
+    .hdr {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 16px;
+      background: var(--ink);
+      color: var(--brand-yellow);
+      border-bottom: 3px solid var(--brand-yellow);
+      flex-shrink: 0;
+    }
+    .hdr-title {
+      font-family: 'Oswald', sans-serif;
+      font-weight: 700;
+      font-size: 16px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+    .hdr-counter {
+      font-family: 'Roboto Mono', monospace;
+      font-size: 12px;
+      color: var(--brand-yellow-rim);
+      padding: 3px 10px;
+      border: 1px solid var(--brand-yellow-rim);
+      border-radius: 4px;
+    }
+
+    /* --- KIT META BANNER --- */
+    .kit-meta {
+      padding: 10px 16px;
+      background: var(--paper-warm);
+      border-bottom: 1px solid var(--rule);
+      flex-shrink: 0;
+    }
+    .kit-sku-row {
+      display: flex;
+      align-items: baseline;
+      gap: 10px;
+      margin-bottom: 4px;
+    }
+    .kit-sku {
+      font-family: 'Roboto Mono', monospace;
+      font-weight: 700;
+      font-size: 15px;
+      color: var(--ink);
+    }
+    .kit-name {
+      font-family: 'Roboto', sans-serif;
+      font-size: 13px;
+      color: var(--ink-soft);
+      flex: 1;
+    }
+    .kit-pill {
+      font-family: 'Oswald', sans-serif;
+      font-size: 10px;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: 3px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    .kit-pill.MANUAL { background: var(--brand-yellow-soft); color: var(--ink); border: 1px solid var(--brand-yellow-rim); }
+    .kit-pill.READY  { background: #ffe8b3; color: #6b4500; border: 1px solid #ffb84d; }
+
+    /* READY-mode kit-meta gets an amber accent stripe + tinted bg so the
+       page reads as visually distinct from MANUAL pages at a glance. */
+    .kit-meta.ready-mode {
+      background: #fff4e0;
+      border-top: 3px solid #ffb84d;
+      padding-top: 7px;
+    }
+
+    /* READY warning banner — slots between kit-meta and components.
+       Amber palette, not red — this is a legitimate alternative path,
+       not destructive. */
+    .ready-banner {
+      background: #fff4e0;
+      border: 1px solid #ffb84d;
+      border-left: 4px solid #f57c00;
+      padding: 10px 14px;
+      margin: 10px 16px 0;
+      border-radius: 4px;
+      font-size: 12.5px;
+      color: #5d3700;
+      line-height: 1.5;
+    }
+    .ready-banner-title {
+      font-family: 'Oswald', sans-serif;
+      font-weight: 700;
+      font-size: 12px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: #6b4500;
+      margin-bottom: 4px;
+    }
+    .ready-banner-title .loc-pill {
+      display: inline-block;
+      margin-left: 6px;
+      padding: 1px 7px;
+      background: #ffb84d;
+      color: var(--ink);
+      border-radius: 3px;
+      font-family: 'Roboto Mono', monospace;
+      font-size: 11px;
+      letter-spacing: 0.03em;
+      text-transform: none;
+    }
+
+    .kit-source-meta {
+      font-family: 'Roboto Mono', monospace;
+      font-size: 11px;
+      color: var(--ink-mute);
+    }
+
+    /* --- PER-KIT DEPLOY MULTIPLIER --- */
+    .deploy-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-top: 8px;
+      padding: 6px 10px;
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      border-radius: 4px;
+    }
+    .deploy-label {
+      font-family: 'Oswald', sans-serif;
+      font-weight: 700;
+      font-size: 11px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--ink-soft);
+    }
+    .deploy-input {
+      width: 60px;
+      font-family: 'Roboto Mono', monospace;
+      font-size: 14px;
+      font-weight: 700;
+      text-align: center;
+      padding: 4px 6px;
+      border: 1px solid var(--rule);
+      border-radius: 3px;
+      background: var(--paper);
+      color: var(--ink);
+    }
+    .deploy-input:focus {
+      outline: none;
+      border-color: var(--brand-yellow);
+      box-shadow: 0 0 0 2px rgba(255, 217, 102, 0.3);
+    }
+    .deploy-hint {
+      font-family: 'Roboto', sans-serif;
+      font-size: 11px;
+      color: var(--ink-mute);
+      flex: 1;
+    }
+    .deploy-hint strong {
+      color: var(--ink);
+      font-weight: 700;
+    }
+    .deploy-row.active {
+      background: rgba(255, 217, 102, 0.18);
+      border-color: var(--brand-yellow);
+    }
+
+    /* --- BODY: two columns --- */
+    .body {
+      display: flex;
+      flex: 1;
+      min-height: 0;
+      overflow: hidden;
+    }
+    .col-left, .col-right {
+      flex: 1;
+      overflow-y: auto;
+      padding: 12px 16px;
+    }
+    .col-left {
+      border-right: 1px solid var(--rule);
+    }
+    .col-right {
+      background: var(--paper-warm);
+    }
+    .col-label {
+      font-family: 'Oswald', sans-serif;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--ink-soft);
+      margin-bottom: 8px;
+      padding-bottom: 5px;
+      border-bottom: 2px solid var(--brand-yellow);
+    }
+    .col-label-hint {
+      font-family: 'Roboto', sans-serif;
+      font-size: 10px;
+      font-weight: 400;
+      letter-spacing: 0;
+      text-transform: none;
+      color: var(--ink-mute);
+      margin-left: 6px;
+    }
+
+    /* --- COMPONENTS CHECKLIST --- */
+    .comp {
+      display: grid;
+      grid-template-columns: 22px 36px 1fr;
+      grid-template-rows: auto auto;
+      gap: 2px 8px;
+      padding: 8px 4px;
+      border-bottom: 1px solid var(--rule-soft);
+      align-items: start;
+      cursor: pointer;
+      transition: background 100ms;
+    }
+    .comp:hover { background: rgba(255, 217, 102, 0.08); }
+    .comp.excluded {
+      opacity: 0.45;
+      background: rgba(0,0,0,0.02);
+    }
+    .comp-cb {
+      grid-row: 1 / 3;
+      grid-column: 1;
+      width: 18px;
+      height: 18px;
+      margin: 2px 0 0 0;
+      accent-color: var(--brand-yellow);
+      cursor: pointer;
+    }
+    .comp-qty {
+      grid-row: 1;
+      grid-column: 2;
+      font-family: 'Oswald', sans-serif;
+      font-weight: 700;
+      font-size: 14px;
+      color: var(--ink);
+      text-align: right;
+    }
+    .comp-main {
+      grid-row: 1;
+      grid-column: 3;
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+    }
+    .comp-sku {
+      font-family: 'Roboto Mono', monospace;
+      font-weight: 700;
+      font-size: 12px;
+      color: var(--ink);
+    }
+    .comp-name {
+      font-family: 'Roboto', sans-serif;
+      font-size: 12px;
+      color: var(--ink-soft);
+    }
+    .comp-meta {
+      grid-row: 2;
+      grid-column: 3;
+      font-family: 'Roboto Mono', monospace;
+      font-size: 11px;
+      color: var(--ink-mute);
+    }
+    .comp-meta .loc { font-weight: 600; }
+    .comp.missing .comp-meta .loc {
+      color: var(--missing);
+      background: var(--missing-bg);
+      padding: 0 4px;
+      border-radius: 2px;
+    }
+    .comp.excluded .comp-meta::after {
+      content: " · excluded by picker";
+      color: var(--ink-mute);
+      font-style: italic;
+    }
+
+    /* --- SALES DESCRIPTION PANEL --- */
+    .sd-block {
+      font-family: 'Roboto Mono', monospace;
+      font-size: 12px;
+      line-height: 1.55;
+      color: var(--ink-soft);
+      white-space: pre-wrap;
+      word-break: break-word;
+      padding: 8px 10px;
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      border-radius: 4px;
+      min-height: 200px;
+    }
+    .sd-empty {
+      font-family: 'Roboto', sans-serif;
+      font-style: italic;
+      color: var(--ink-mute);
+      padding: 24px 8px;
+      text-align: center;
+    }
+    .sd-hint {
+      font-family: 'Roboto', sans-serif;
+      font-size: 11px;
+      color: var(--ink-mute);
+      margin-top: 10px;
+      padding: 8px 10px;
+      background: rgba(255, 217, 102, 0.10);
+      border-left: 3px solid var(--brand-yellow);
+      border-radius: 2px;
+    }
+    .sd-hint strong { color: var(--ink); }
+
+    /* --- FOOTER --- */
+    .ftr {
+      flex-shrink: 0;
+      padding: 10px 16px;
+      background: var(--paper);
+      border-top: 1px solid var(--rule);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    .ftr-summary {
+      font-family: 'Roboto', sans-serif;
+      font-size: 12px;
+      color: var(--ink-soft);
+      flex: 1;
+    }
+    .ftr-summary strong { color: var(--ink); font-weight: 700; }
+    .ftr-summary.warn { color: var(--missing); }
+    .ftr-btns {
+      display: flex;
+      gap: 8px;
+    }
+    button {
+      font-family: 'Oswald', sans-serif;
+      font-weight: 700;
+      font-size: 13px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      padding: 8px 16px;
+      border-radius: 4px;
+      border: none;
+      cursor: pointer;
+      transition: all 120ms;
+    }
+    button:disabled { opacity: 0.4; cursor: not-allowed; }
+    .btn-skip {
+      background: transparent;
+      color: var(--ink-soft);
+      border: 1px solid var(--rule);
+    }
+    .btn-skip:hover:not(:disabled) { background: var(--rule-soft); color: var(--ink); }
+    .btn-expand {
+      background: var(--brand-yellow);
+      color: var(--ink);
+      box-shadow: 0 2px 6px rgba(255, 212, 0, 0.4);
+    }
+    .btn-expand:hover:not(:disabled) {
+      background: var(--brand-yellow-rim);
+      box-shadow: 0 3px 10px rgba(255, 212, 0, 0.6);
+    }
+
+    /* Force Expand — only shown on READY pages. Amber tonal so it reads as
+       a secondary path next to the primary "Skip · ship as box" action. */
+    .btn-force {
+      background: #ffe8b3;
+      color: #5d3700;
+      border: 1px solid #f57c00;
+      box-shadow: 0 1px 3px rgba(245, 124, 0, 0.25);
+    }
+    .btn-force:hover:not(:disabled) {
+      background: #ffd699;
+      box-shadow: 0 2px 6px rgba(245, 124, 0, 0.4);
+    }
+
+    /* READY-page Skip button promoted to primary look (yellow, weighty) so
+       the default action stands out and Force becomes the deliberate choice. */
+    .btn-skip-primary {
+      background: var(--brand-yellow);
+      color: var(--ink);
+      box-shadow: 0 2px 6px rgba(255, 212, 0, 0.4);
+      font-weight: 700;
+    }
+    .btn-skip-primary:hover:not(:disabled) {
+      background: var(--brand-yellow-rim);
+      box-shadow: 0 3px 10px rgba(255, 212, 0, 0.6);
+    }
+
+    /* Done-screen outcome chips — distinguishes 4 outcomes visually. */
+    .done-result-line.committed.forced {
+      background: #fff4e0;
+      border-left: 3px solid #f57c00;
+    }
+    .done-result-line.skipped.ready-box {
+      background: #f5f5f5;
+      border-left: 3px solid #9e9e9e;
+      color: #5f5f5f;
+    }
+    .outcome-chip {
+      display: inline-block;
+      padding: 1px 6px;
+      margin-left: 6px;
+      border-radius: 3px;
+      font-family: 'Oswald', sans-serif;
+      font-size: 9.5px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      vertical-align: 1px;
+    }
+    .outcome-chip.forced  { background: #ffe8b3; color: #6b4500; border: 1px solid #ffb84d; }
+    .outcome-chip.ready-box { background: #e0e0e0; color: #5f5f5f; border: 1px solid #bdbdbd; }
+    .outcome-chip.manual   { background: var(--brand-yellow-soft); color: var(--ink); border: 1px solid var(--brand-yellow-rim); }
+    .btn-cancel {
+      background: transparent;
+      color: var(--ink-mute);
+      border: 1px solid var(--rule);
+      font-size: 11px;
+      padding: 6px 12px;
+    }
+    .btn-cancel:hover { color: var(--missing); border-color: var(--missing); }
+
+    /* --- STATUS BAR (transient messages) --- */
+    .status {
+      position: fixed;
+      bottom: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--ink);
+      color: var(--brand-yellow);
+      font-family: 'Roboto Mono', monospace;
+      font-size: 12px;
+      padding: 8px 16px;
+      border-radius: 4px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 200ms;
+      z-index: 100;
+    }
+    .status.shown { opacity: 1; }
+    .status.error { color: var(--missing); background: #2a1a1a; }
+
+    /* --- DONE SCREEN --- */
+    .done-screen {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 30px;
+      text-align: center;
+      gap: 12px;
+    }
+    .done-icon {
+      font-size: 40px;
+      color: var(--green-ink);
+    }
+    .done-title {
+      font-family: 'Oswald', sans-serif;
+      font-size: 22px;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      color: var(--ink);
+    }
+    .done-subtitle {
+      font-family: 'Roboto', sans-serif;
+      font-size: 13px;
+      color: var(--ink-soft);
+    }
+    .done-results {
+      max-width: 540px;
+      width: 100%;
+      margin-top: 12px;
+      text-align: left;
+    }
+    .done-result-line {
+      padding: 6px 10px;
+      font-family: 'Roboto Mono', monospace;
+      font-size: 12px;
+      border-bottom: 1px solid var(--rule-soft);
+    }
+    .done-result-line.committed { color: var(--green-ink); background: var(--green-bg); }
+    .done-result-line.skipped { color: var(--ink-mute); font-style: italic; }
+    .done-result-line.failed { color: var(--missing); background: var(--missing-bg); }
+  </style>
+</head>
+<body>
+  <div class="modal" id="modal">
+    <div class="hdr">
+      <span class="hdr-title">Kit Expansion</span>
+      <span class="hdr-counter" id="counter">Kit 1 of <?= queueLength ?></span>
+    </div>
+
+    <!-- KIT META BANNER (replaced per-kit) -->
+    <div class="kit-meta" id="kitMeta"></div>
+
+    <!-- READY WARNING BANNER (hidden for MANUAL kits) -->
+    <div class="ready-banner" id="readyBanner" style="display:none"></div>
+
+    <!-- BODY: two columns -->
+    <div class="body" id="bodyEl">
+      <div class="col-left">
+        <div class="col-label">
+          Components
+          <span class="col-label-hint">uncheck to skip — bundled-with-another-SKU items</span>
+        </div>
+        <div id="compsEl"></div>
+      </div>
+      <div class="col-right">
+        <div class="col-label">
+          Sales Description
+          <span class="col-label-hint">reference · physical packaging view</span>
+        </div>
+        <div id="sdEl"></div>
+        <div class="sd-hint">
+          <strong>Tip:</strong> when Sales Description shows<br>
+          "Full Gasket Set ABC + Head Gasket" — the Head Gasket is packed inside
+          ABC's box. Uncheck its row on the left.
+        </div>
+      </div>
+    </div>
+
+    <!-- FOOTER -->
+    <!-- ftr-btns content is rebuilt by renderFooterButtons() on every kit
+         render — layout differs MANUAL vs READY (READY swaps Skip to
+         primary and adds Force Expand as secondary). -->
+    <div class="ftr" id="ftrEl">
+      <span class="ftr-summary" id="summary"></span>
+      <div class="ftr-btns" id="ftrBtns"></div>
+    </div>
+  </div>
+
+  <div class="status" id="statusBar"></div>
+
+  <script>
+    // ----- SESSION STATE (server-passed bootstrap) -----
+    // Apps Script force-print scriptlets (NOT the HTML-escaping kind) inject
+    // the JSON literals so they parse as JS. Server pre-JSON-stringified
+    // sessionId and pre-escaped any back-to-back angle-slash sequences in
+    // kitJson, so injection-safe.
+    var SESSION_ID   = <?!= sessionId ?>;
+    var QUEUE_LENGTH = <?= queueLength ?>;
+    var currentKit   = <?!= kitJson ?>;
+    var currentIndex = <?= kitIndex ?>;
+    var excludedSkus = {};   // sku -> true (per-kit, reset on advance)
+    var currentExtras = 0;   // spares-for-us count (additive, default 0 per kit)
+    var busy = false;
+
+    // ----- INITIAL RENDER -----
+    renderKit(currentKit, currentIndex);
+
+    function renderKit(kit, index) {
+      excludedSkus = {};
+      currentExtras = 0;   // always reset per kit
+      busy = false;
+
+      var isReady = (kit.kitType === 'READY');
+
+      // Counter
+      document.getElementById('counter').textContent =
+        'Kit ' + (index + 1) + ' of ' + QUEUE_LENGTH;
+
+      // Kit meta banner — includes per-kit Deploy× input.
+      // READY pages get the amber accent stripe via .ready-mode class.
+      var pillClass = isReady ? 'READY' : 'MANUAL';
+      var metaHtml = ''
+        + '<div class="kit-sku-row">'
+        +   '<span class="kit-sku">' + esc(kit.kitSku) + '</span>'
+        +   '<span class="kit-name">' + esc(kit.kitName) + '</span>'
+        +   '<span class="kit-pill ' + pillClass + '">' + esc(kit.kitType) + '</span>'
+        + '</div>'
+        + '<div class="kit-source-meta">'
+        +   'Row ' + kit.originalRow
+        +   ' · ' + esc(kit.table)
+        +   ' · SO ' + esc(kit.sourceSalesOrder || '—')
+        +   ' · Qty ' + kit.sourceQty
+        +   (kit.kitEngine ? ' · ' + esc(kit.kitEngine) : '')
+        + '</div>'
+        + '<div class="deploy-row" id="deployRow">'
+        +   '<span class="deploy-label">Spares for us</span>'
+        +   '<input type="number" min="0" max="99" value="0" class="deploy-input" '
+        +     'id="deployInput" onchange="onExtrasChange()" oninput="onExtrasChange()">'
+        +   '<span class="deploy-hint" id="deployHint">'
+        +     '<strong>0 spares</strong> — ship exactly ' + kit.sourceQty + ' kit'
+        +     (kit.sourceQty > 1 ? 's' : '') + ' to customer. Type N to add N extra for us.'
+        +   '</span>'
+        + '</div>';
+      var metaEl = document.getElementById('kitMeta');
+      metaEl.innerHTML = metaHtml;
+      metaEl.classList.toggle('ready-mode', isReady);
+
+      // READY warning banner — slots above components when applicable.
+      var bannerEl = document.getElementById('readyBanner');
+      if (isReady) {
+        var loc = kit.kitLocation || 'K-*';
+        bannerEl.innerHTML = ''
+          + '<div class="ready-banner-title">⚠ READY KIT — Pre-assembled '
+          +   '<span class="loc-pill">' + esc(loc) + '</span>'
+          + '</div>'
+          + 'Normally ships as one box from ' + esc(loc) + '. '
+          + 'Skip to ship as-is (default). Force Expand to pick components '
+          + 'individually — useful for DIRECT orders when keeping the '
+          + esc(loc) + ' box reserved for eBay matters more than picker time.';
+        bannerEl.style.display = 'block';
+      } else {
+        bannerEl.style.display = 'none';
+        bannerEl.innerHTML = '';
+      }
+
+      // Footer button layout differs by kit type:
+      //   MANUAL: [Cancel] [Skip] [Expand & Continue]   (primary = Expand)
+      //   READY:  [Cancel] [⚠ Force Expand] [Skip · ship as box]  (primary = Skip)
+      renderFooterButtons(isReady);
+
+      // Components checklist (qty = base × currentMultiplier)
+      renderComponents();
+
+      // Sales Description
+      var sdHtml = kit.salesDescription
+        ? '<div class="sd-block">' + esc(kit.salesDescription) + '</div>'
+        : '<div class="sd-empty">(No Sales Description available for this kit)</div>';
+      document.getElementById('sdEl').innerHTML = sdHtml;
+
+      updateSummary();
+    }
+
+    function renderFooterButtons(isReady) {
+      var ftr = document.getElementById('ftrBtns');
+      if (!ftr) return;
+      if (isReady) {
+        // READY: Skip is the safe default (primary, yellow), Force Expand
+        // is the deliberate override (secondary, amber tonal).
+        ftr.innerHTML = ''
+          + '<button class="btn-cancel" id="btnCancel" onclick="onCancel()">✕ Cancel</button>'
+          + '<button class="btn-force"  id="btnExpand" onclick="onForceExpand()">⚠ Force Expand</button>'
+          + '<button class="btn-skip-primary" id="btnSkip" onclick="onSkip()">Skip · ship as box →</button>';
+      } else {
+        // MANUAL: Expand is the primary path, Skip is the override.
+        ftr.innerHTML = ''
+          + '<button class="btn-cancel" id="btnCancel" onclick="onCancel()">✕ Cancel</button>'
+          + '<button class="btn-skip"   id="btnSkip"   onclick="onSkip()">Skip This Kit</button>'
+          + '<button class="btn-expand" id="btnExpand" onclick="onExpand()">Expand &amp; Continue →</button>';
+      }
+    }
+
+    function renderComponents() {
+      var kit = currentKit;
+      var compsHtml = '';
+      // Components in the queue carry BASE qty (one kit's worth, multiplied
+      // by rowQty already since previewSelectedKits(1) was called server-side
+      // when building the queue). Wait — actually previewSelectedKits(1) means
+      // `effectiveDeploy = 1 * rowQty = rowQty`, so the qty IS rowQty's worth.
+      // We need to scale to (rowQty + extras) / rowQty for display = (totalKits/rowQty).
+      var rowQty = parseInt(kit.sourceQty) || 1;
+      var totalKits = rowQty + currentExtras;
+      // Display qty for each component = baseInQueue × (totalKits / rowQty)
+      // Equivalent: baseInQueue / rowQty × totalKits — but simpler to compute
+      // base-per-kit = baseInQueue / rowQty and multiply by totalKits.
+      for (var i = 0; i < kit.components.length; i++) {
+        var c = kit.components[i];
+        var missing = (c.missing || c.location === 'NOT FOUND') ? ' missing' : '';
+        var isExcluded = excludedSkus[c.sku] ? ' excluded' : '';
+        var checkedAttr = excludedSkus[c.sku] ? '' : 'checked';
+        var basePerKit = (parseInt(c.qty) || 1) / rowQty;
+        var displayQty = Math.round(basePerKit * totalKits);
+        // Show breakdown when extras > 0: "12 (4 × 3 kits)"
+        var qtyDisplay = currentExtras > 0
+          ? displayQty + '× <span style="font-size:10px;color:#5f5f5f;">(' + Math.round(basePerKit) + ' × ' + totalKits + ' kits)</span>'
+          : displayQty + '×';
+        compsHtml += ''
+          + '<label class="comp' + missing + isExcluded + '" data-sku="' + esc(c.sku) + '">'
+          +   '<input type="checkbox" class="comp-cb" ' + checkedAttr + ' '
+          +     'data-sku="' + esc(c.sku) + '" '
+          +     'onchange="onToggle(this)">'
+          +   '<span class="comp-qty">' + qtyDisplay + '</span>'
+          +   '<span class="comp-main">'
+          +     '<span class="comp-sku">' + esc(c.sku) + '</span>'
+          +     '<span class="comp-name">' + esc(c.name) + '</span>'
+          +   '</span>'
+          +   '<span class="comp-meta">'
+          +     '<span class="loc">' + esc(c.location || '—') + '</span>'
+          +     (c.available != null ? ' · HAND ' + c.available : '')
+          +   '</span>'
+          + '</label>';
+      }
+      document.getElementById('compsEl').innerHTML = compsHtml;
+    }
+
+    function onExtrasChange() {
+      var input = document.getElementById('deployInput');
+      var val = parseInt(input.value);
+      if (isNaN(val) || val < 0) val = 0;
+      if (val > 99) val = 99;
+      input.value = val;
+      currentExtras = val;
+
+      // Visual cue: deploy-row turns yellow when extras > 0
+      var row = document.getElementById('deployRow');
+      var hint = document.getElementById('deployHint');
+      var rowQty = parseInt(currentKit.sourceQty) || 1;
+      if (currentExtras > 0) {
+        row.classList.add('active');
+        var totalKits = rowQty + currentExtras;
+        hint.innerHTML = '<strong>' + totalKits + ' total</strong> — '
+                       + rowQty + ' for customer + ' + currentExtras + ' for us';
+      } else {
+        row.classList.remove('active');
+        hint.innerHTML = '<strong>0 spares</strong> — ship exactly ' + rowQty
+                       + ' kit' + (rowQty > 1 ? 's' : '')
+                       + ' to customer. Type N to add N extra for us.';
+      }
+
+      renderComponents();
+      updateSummary();
+    }
+
+    function onToggle(cb) {
+      var sku = cb.getAttribute('data-sku');
+      var label = cb.closest('.comp');
+      if (cb.checked) {
+        delete excludedSkus[sku];
+        label.classList.remove('excluded');
+      } else {
+        excludedSkus[sku] = true;
+        label.classList.add('excluded');
+      }
+      updateSummary();
+    }
+
+    function updateSummary() {
+      var totalComps = currentKit.components.length;
+      var excluded = Object.keys(excludedSkus).length;
+      var willInsert = totalComps - excluded;
+      var isReady = (currentKit.kitType === 'READY');
+
+      var bits = ['Will insert <strong>' + willInsert + ' of ' + totalComps + '</strong> components'];
+      if (excluded > 0) bits.push(excluded + ' excluded');
+
+      var msg = bits.join(' · ');
+      var warn = (willInsert === 0);
+      if (warn) {
+        msg += isReady
+          ? ' — nothing to insert; Force Expand disabled. Skip will still ship the box.'
+          : ' — nothing to insert; clicking Expand will fail.';
+      }
+
+      var el = document.getElementById('summary');
+      el.innerHTML = msg;
+      el.className = warn ? 'ftr-summary warn' : 'ftr-summary';
+
+      // btnExpand exists in both layouts (= Force Expand on READY, Expand on MANUAL).
+      // Skip is never disabled by willInsert on READY (Skip ships the kit as-is,
+      // doesn't need components); on MANUAL, current behavior preserved.
+      var btnExpand = document.getElementById('btnExpand');
+      var btnSkip   = document.getElementById('btnSkip');
+      var btnCancel = document.getElementById('btnCancel');
+      if (btnExpand) btnExpand.disabled = (willInsert === 0 || busy);
+      if (btnSkip)   btnSkip.disabled   = busy;
+      if (btnCancel) btnCancel.disabled = busy;
+    }
+
+    // ----- ACTION HANDLERS -----
+    function onExpand() { _expand(false); }
+    function onForceExpand() {
+      // Tiny confirm step on Force — small friction protects against
+      // accidental clicks since this is the override path.
+      if (busy) return;
+      if (!confirm('Force expand this READY kit?\n\n' + currentKit.kitSku + ' would normally ship as one pre-assembled box. Continue with component-level expansion?')) return;
+      _expand(true);
+    }
+    function _expand(force) {
+      if (busy) return;
+      busy = true;
+      updateSummary();
+      var extrasSuffix = currentExtras > 0 ? ' (+ ' + currentExtras + ' for us)' : '';
+      var verb = force ? 'Force expanding ' : 'Expanding ';
+      showStatus(verb + currentKit.kitSku + extrasSuffix + '…');
+
+      var excluded = Object.keys(excludedSkus);
+      google.script.run
+        .withSuccessHandler(onCommitOk)
+        .withFailureHandler(onCommitFail)
+        .commitKitFromModal(SESSION_ID, excluded, currentExtras, !!force);
+    }
+
+    function onSkip() {
+      if (busy) return;
+      busy = true;
+      updateSummary();
+      showStatus('Skipping ' + currentKit.kitSku + '…');
+
+      google.script.run
+        .withSuccessHandler(onCommitOk)   // same shape — just no committed entry
+        .withFailureHandler(onCommitFail)
+        .skipKitFromModal(SESSION_ID);
+    }
+
+    function onCancel() {
+      if (busy) return;
+      if (!confirm('Cancel kit expansion? Anything already committed stays — remaining queued kits will be abandoned.')) return;
+      google.script.run
+        .withSuccessHandler(function() { google.script.host.close(); })
+        .withFailureHandler(function() { google.script.host.close(); })
+        .closeKitExpansionSession(SESSION_ID);
+    }
+
+    function onCommitOk(res) {
+      busy = false;
+
+      if (!res.ok && res.reason) {
+        showStatus('⚠️ ' + res.reason, true);
+        updateSummary();
+        return;
+      }
+
+      // success path — committed or skipped, advance to next or done
+      if (res.committed) {
+        var verb = res.committed.forced ? ' force-expanded' : ' expanded';
+        var msg = '✓ ' + res.committed.kitSku + verb
+                + ' · ' + res.committed.componentsAdded + ' components';
+        if (res.committed.extras && res.committed.extras > 0) {
+          msg += ' · ' + res.committed.totalKits + ' total ('
+              + res.committed.rowQty + '+' + res.committed.extras + ')';
+        }
+        if (res.committed.excludedSkus && res.committed.excludedSkus.length) {
+          msg += ' · ' + res.committed.excludedSkus.length + ' excluded';
+        }
+        showStatus(msg);
+      } else {
+        showStatus('Kit skipped');
+      }
+
+      if (res.done) {
+        setTimeout(function() { renderDoneScreen(res.sessionResults); }, 400);
+      } else {
+        currentKit = res.next;
+        currentIndex = res.nextIndex;
+        setTimeout(function() { renderKit(currentKit, currentIndex); }, 400);
+      }
+    }
+
+    function onCommitFail(err) {
+      busy = false;
+      updateSummary();
+      showStatus('❌ Server error: ' + (err && err.message ? err.message : err), true);
+    }
+
+    // ----- DONE SCREEN (after queue exhausted) -----
+    function renderDoneScreen(results) {
+      results = results || { committed: [], skipped: [], failed: [] };
+
+      // Break committed into normal-expanded vs READY-forced for the summary.
+      var expandedNormal = 0;
+      var expandedForced = 0;
+      for (var ci = 0; ci < results.committed.length; ci++) {
+        if (results.committed[ci].forced) expandedForced++;
+        else expandedNormal++;
+      }
+
+      // Break skipped into shipped-as-box (READY) vs picker-skipped (other).
+      var readyShipBox = 0;
+      var pickerSkipped = 0;
+      for (var si = 0; si < results.skipped.length; si++) {
+        if (results.skipped[si].kitType === 'READY') readyShipBox++;
+        else pickerSkipped++;
+      }
+
+      var f = results.failed.length;
+
+      // Subtitle is a compact 4-category breakdown — only shows non-zero
+      // categories so it stays readable when only some outcomes occurred.
+      var subBits = [];
+      if (expandedNormal > 0) subBits.push(expandedNormal + ' expanded');
+      if (expandedForced > 0) subBits.push(expandedForced + ' READY forced');
+      if (readyShipBox > 0)   subBits.push(readyShipBox + ' READY shipped as box');
+      if (pickerSkipped > 0)  subBits.push(pickerSkipped + ' skipped');
+      if (f > 0)              subBits.push(f + ' failed');
+      var subtitle = subBits.length > 0 ? subBits.join(' · ') : 'No actions taken';
+
+      var html = ''
+        + '<div class="done-screen">'
+        +   '<div class="done-icon">✓</div>'
+        +   '<div class="done-title">Done</div>'
+        +   '<div class="done-subtitle">' + esc(subtitle) + '</div>'
+        +   '<div class="done-results">';
+
+      // Committed lines — chip distinguishes normal vs READY-forced.
+      for (var i = 0; i < results.committed.length; i++) {
+        var r = results.committed[i];
+        var line = r.kitSku + ' — ' + r.componentsAdded + ' components';
+        if (r.extras && r.extras > 0) {
+          line += ' · ' + r.totalKits + ' total (' + r.rowQty + ' customer + ' + r.extras + ' for us)';
+        }
+        if (r.excludedSkus && r.excludedSkus.length) {
+          line += ' (excluded ' + r.excludedSkus.length + ': ' + r.excludedSkus.join(', ') + ')';
+        }
+        var chip = r.forced
+          ? '<span class="outcome-chip forced">READY · FORCED</span>'
+          : '';
+        var cls = r.forced ? 'committed forced' : 'committed';
+        html += '<div class="done-result-line ' + cls + '">✓ ' + esc(line) + ' ' + chip + '</div>';
+      }
+
+      // Skipped lines — chip distinguishes READY-shipped-as-box vs picker-skipped.
+      for (var j = 0; j < results.skipped.length; j++) {
+        var sk = results.skipped[j];
+        var isReadyBox = (sk.kitType === 'READY');
+        var sChip = isReadyBox
+          ? '<span class="outcome-chip ready-box">SHIPPED AS BOX</span>'
+          : '';
+        var sCls  = isReadyBox ? 'skipped ready-box' : 'skipped';
+        var sLine = sk.kitSku + (isReadyBox ? ' — ships pre-assembled from K-*' : ' (skipped)');
+        html += '<div class="done-result-line ' + sCls + '">— ' + esc(sLine) + ' ' + sChip + '</div>';
+      }
+
+      // Failed lines — unchanged.
+      for (var k = 0; k < results.failed.length; k++) {
+        var fr = results.failed[k];
+        html += '<div class="done-result-line failed">✗ ' + esc(fr.kitSku + ' — ' + (fr.reason || 'failed')) + '</div>';
+      }
+
+      html += ''
+        +   '</div>'
+        + '</div>';
+
+      document.getElementById('bodyEl').innerHTML = html;
+      document.getElementById('kitMeta').style.display = 'none';
+      var rb = document.getElementById('readyBanner');
+      if (rb) rb.style.display = 'none';
+      document.getElementById('counter').textContent = 'Complete';
+
+      // Replace footer with single Close button + chip-based summary.
+      document.getElementById('ftrEl').innerHTML = ''
+        + '<span class="ftr-summary">' + esc(subtitle) + '</span>'
+        + '<div class="ftr-btns">'
+        +   '<button class="btn-expand" onclick="onClose()">Close</button>'
+        + '</div>';
+    }
+
+    function onClose() {
+      google.script.run
+        .withSuccessHandler(function() { google.script.host.close(); })
+        .withFailureHandler(function() { google.script.host.close(); })
+        .closeKitExpansionSession(SESSION_ID);
+    }
+
+    // ----- STATUS BAR (transient) -----
+    var _statusT;
+    function showStatus(msg, isError) {
+      var el = document.getElementById('statusBar');
+      el.textContent = msg;
+      el.className = 'status shown' + (isError ? ' error' : '');
+      clearTimeout(_statusT);
+      _statusT = setTimeout(function() { el.classList.remove('shown'); }, isError ? 5000 : 2500);
+    }
+
+    // ----- ESCAPE HELPER -----
+    function esc(s) {
+      if (s == null) return '';
+      return String(s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+  </script>
+</body>
+</html>

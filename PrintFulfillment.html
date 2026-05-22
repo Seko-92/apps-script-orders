@@ -2,310 +2,1262 @@
 <html>
 <head>
   <base target="_top">
-
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Roboto+Mono:wght@400;500;700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
   <style>
-    /* ===== BASE ===== */
+    /* ============================================================
+       FULFILLMENT PICKING LIST
+       Brand-inherited from the All Orders sheet (BrandTheme.js):
+         ink #1a1a1a · yellow #ffd400 · paperWarm #fff8e7 · cream paper
+         Oswald (display) · Roboto Mono (codes) · Roboto (data)
+       Print-first design with rich documentation framing.
+       ============================================================ */
+
+    :root {
+      --ink:        #1a1a1a;
+      --ink-soft:   #434343;
+      --paper:      #fdfcf6;        /* warm paper, matches sheet's cream-leaning whites */
+      --paper-cool: #ffffff;
+      --paper-warm: #fff8e7;        /* matches BRAND.paperWarm (banding) */
+      --rule:       #d8d4c4;
+      --mute:       #6a6a64;
+      --yellow:     #ffd400;        /* matches BRAND.yellow */
+      --yellow-soft:#fff4b0;
+      --yellow-deep:#b88a00;
+      --green-bg:   #e8f5e9;
+      --green-fg:   #1b5e20;
+      --gray-bg:    #f0f0f0;
+      --gray-fg:    #5f5f5f;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
     body {
-      font-family: 'Segoe UI', system-ui, sans-serif;
-      padding: 24px;
-      color: #202124;
-      background: #fff;
-      counter-reset: page;
+      font-family: 'Roboto', 'Segoe UI', system-ui, -apple-system, sans-serif;
+      color: var(--ink);
+      background: var(--paper);
+      font-size: 12px;
+      line-height: 1.4;
+      padding: 0;
     }
 
-    h2 {
-      text-align: center;
-      margin: 0;
-      font-size: 20px;
-      font-weight: 700;
-    }
+    .doc { padding: 0 22px 22px; }
 
-    h3 {
-      background: #eee;
-      padding: 8px;
-      margin-top: 20px;
-      margin-bottom: 5px;
-      font-size: 16px;
-      border-radius: 4px;
-      border-left: 5px solid #1a73e8;
-    }
-
-    .empty-row td {
-      height: 28px;
-      border: 1px solid #ddd;
-    }
-
-    /* ===== ACTION BAR ===== */
+    /* ===== SCREEN BUTTONS ===== */
     .no-print {
-      display: flex;
-      justify-content: flex-end;
-      gap: 10px;
-      margin-bottom: 14px;
+      display: flex; justify-content: flex-end;
+      gap: 10px; padding: 14px 22px 0;
     }
-
     .print-btn {
-      background: #1a73e8;
-      color: #fff;
-      padding: 10px 18px;
-      border: none;
-      border-radius: 6px;
-      cursor: pointer;
-      font-weight: 600;
-      font-size: 13px;
+      padding: 10px 22px; border: none; cursor: pointer;
+      font-family: 'Oswald', sans-serif;
+      font-weight: 700; font-size: 11px;
+      letter-spacing: 0.14em; text-transform: uppercase;
     }
-
     .print-btn.secondary {
-      background: #f1f3f4;
-      color: #202124;
+      background: var(--paper); color: var(--ink);
+      border: 1.5px solid var(--ink);
+    }
+    .print-btn.primary {
+      background: var(--yellow); color: var(--ink);
+      box-shadow: 3px 3px 0 var(--ink);
+    }
+    .print-btn.primary:hover {
+      transform: translate(-1px, -1px);
+      box-shadow: 4px 4px 0 var(--ink);
     }
 
-    /* ===== TABLE ===== */
+    /* ===== RUNNING HEADER (screen banner + fixed at top of every print page) ===== */
+    .run-header {
+      background: var(--paper);
+      border-bottom: 3px solid var(--yellow);   /* the brand's yellow rule */
+      position: relative;
+    }
+    .run-header::after {
+      content: '';
+      position: absolute;
+      bottom: -3px; left: 0; right: 0;
+      height: 1px;
+      background: var(--ink);
+    }
+
+    .run-header-inner {
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      align-items: center;
+      gap: 18px;
+      padding: 10px 18px 12px;
+    }
+
+    /* LEFT — HQ mark + wordmark */
+    .rh-brand {
+      display: flex; align-items: center; gap: 12px;
+    }
+
+    /* CSS-only HQ mark (SVG approximation of the real logo).
+       Replace this <svg> block with <img src="..."> if you want the actual PNG. */
+    .hq-mark {
+      flex-shrink: 0;
+      width: 42px; height: 42px;
+      display: block;
+    }
+
+    .rh-wordmark {
+      display: flex; flex-direction: column; gap: 1px;
+    }
+    .rh-title {
+      font-family: 'Oswald', sans-serif;
+      font-weight: 700; font-size: 16px;
+      letter-spacing: 0.20em;
+      text-transform: uppercase;
+      line-height: 1; color: var(--ink);
+    }
+    .rh-sub {
+      font-family: 'Roboto Mono', monospace;
+      font-size: 8px; font-weight: 500;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--mute);
+    }
+
+    /* CENTER — empty space (keeps grid balance) */
+    .rh-spacer {}
+
+    /* RIGHT — doc identifiers + page indicator */
+    .rh-meta {
+      display: flex; align-items: center; gap: 10px;
+      font-family: 'Roboto Mono', monospace;
+    }
+    .rh-meta-cell {
+      padding: 4px 9px;
+      border: 1px solid var(--ink);
+      background: var(--paper-cool);
+      line-height: 1.1;
+    }
+    .rh-meta-cell .lbl {
+      display: block;
+      font-size: 7px; font-weight: 700;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--mute);
+      margin-bottom: 2px;
+    }
+    .rh-meta-cell .val {
+      font-size: 10px; font-weight: 700;
+      color: var(--ink);
+    }
+    .rh-meta-cell.is-doc .val { letter-spacing: 0.04em; }
+    .rh-meta-cell.is-page {
+      background: var(--ink);
+      border-color: var(--ink);
+    }
+    .rh-meta-cell.is-page .lbl { color: var(--yellow); }
+    .rh-meta-cell.is-page .val {
+      color: var(--yellow);
+      font-family: 'Oswald', sans-serif;
+      letter-spacing: 0.12em;
+      font-size: 11px;
+    }
+
+    /* ===== OPERATIONS BAR (page 1 only) =====
+       Single cell now — today's shipping employee. The ID FOR ADJUSTMENT
+       writable line moved to @page top margin (renders on every page). */
+    .ops-bar {
+      display: block;
+      margin: 18px 0 22px;
+      border: 1.5px solid var(--ink);
+      background: var(--paper);
+    }
+
+    .ops-cell {
+      padding: 10px 14px;
+      border-right: 1.5px solid var(--ink);
+    }
+    .ops-cell:last-child { border-right: none; }
+
+    .ops-cell.is-pick {
+      background: var(--ink);
+      color: var(--yellow);
+    }
+    .ops-cell.is-adj-field {
+      background: var(--yellow-soft);
+      position: relative;
+    }
+    .ops-cell.is-adj-field::after {
+      content: '';
+      position: absolute;
+      bottom: 14px; left: 14px; right: 14px;
+      border-bottom: 1.5px solid var(--ink);
+    }
+
+    .ops-lbl {
+      font-family: 'Oswald', sans-serif;
+      font-size: 8.5px; font-weight: 700;
+      letter-spacing: 0.18em; text-transform: uppercase;
+      color: var(--mute);
+      margin-bottom: 6px;
+    }
+    .ops-cell.is-pick .ops-lbl { color: var(--yellow); }
+    .ops-cell.is-adj-field .ops-lbl { color: var(--yellow-deep); }
+
+    .ops-val {
+      font-family: 'Roboto Mono', monospace;
+      font-size: 13px; font-weight: 700;
+      color: var(--ink);
+      letter-spacing: 0.02em;
+    }
+    .ops-cell.is-pick .ops-val { color: var(--yellow); }
+    .ops-cell.is-adj-field .ops-val {
+      color: transparent;            /* writable line — keep the cell empty */
+      min-height: 18px;
+    }
+
+    /* ===== STATS STRIP (screen only) ===== */
+    .stats-strip {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+      margin: 0 0 22px;
+    }
+    .stat-block {
+      background: var(--paper);
+      border: 1.5px solid var(--ink);
+      padding: 12px 14px;
+      position: relative;
+    }
+    .stat-block::before {
+      content: '';
+      position: absolute; top: 0; left: 0;
+      width: 30px; height: 4px; background: var(--yellow);
+    }
+    .stat-block.is-total::before { width: 100%; }
+    .stat-num {
+      font-family: 'Oswald', sans-serif;
+      font-size: 28px; font-weight: 700;
+      letter-spacing: -0.02em; line-height: 1;
+      color: var(--ink);
+    }
+    .stat-lbl {
+      font-family: 'Roboto Mono', monospace;
+      font-size: 8px; font-weight: 500;
+      letter-spacing: 0.18em; text-transform: uppercase;
+      color: var(--mute);
+      margin-top: 5px;
+    }
+
+    /* ===== SECTION HEADERS ===== */
+    .section-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: 18px;
+      background: var(--ink);
+      color: #fff;
+      padding: 9px 14px 9px 18px;
+      position: relative;
+    }
+    .section-head::before {
+      content: '';
+      position: absolute;
+      left: 0; top: 0; bottom: 0;
+      width: 6px;
+      background: var(--yellow);
+    }
+    .section-head-title {
+      font-family: 'Oswald', sans-serif;
+      font-size: 13px; font-weight: 700;
+      letter-spacing: 0.22em; text-transform: uppercase;
+      color: #fff;
+    }
+    .section-head-count {
+      font-family: 'Roboto Mono', monospace;
+      font-size: 9px; font-weight: 500;
+      letter-spacing: 0.14em; text-transform: uppercase;
+      color: var(--yellow);
+    }
+
+    /* ===== TABLES ===== */
     table {
       width: 100%;
       border-collapse: collapse;
-      font-size: 12px;
-      margin-bottom: 20px;
+      font-size: 11px;
+      table-layout: auto;
+      background: var(--paper);
+      border: 1.5px solid var(--ink);
+      border-top: none;
     }
 
-    th, td {
-      border: 1px solid #ddd;
-      padding: 10px;
+    thead tr { background: var(--ink); }
+    th {
+      padding: 8px 8px;
       text-align: left;
-      vertical-align: top;
+      border-right: 1px solid #2a2a2a;
+      font-family: 'Oswald', sans-serif;
+      font-size: 9px; font-weight: 600;
+      letter-spacing: 0.18em; text-transform: uppercase;
+      color: var(--yellow);
+      white-space: nowrap;
+    }
+    th:last-child { border-right: none; }
+
+    td {
+      padding: 9px 8px;
+      border-bottom: 1px solid var(--rule);
+      border-right: 1px dotted var(--rule);
+      vertical-align: middle;
+      color: var(--ink);
       word-break: break-word;
     }
+    td:last-child { border-right: none; }
 
-    th {
-      background: #f2f2f2;
-      font-weight: 600;
-    }
-
-    tr:nth-child(even) { background: #fafafa; }
+    tr:not(.alert-row):nth-child(odd) td { background: var(--paper-cool); }
+    tr:not(.alert-row):nth-child(even) td { background: var(--paper-warm); }
     tr { page-break-inside: avoid; }
 
-    /* ===== INVENTORY COLUMNS ===== */
-    .col-hand, .col-left {
+    /* ===== COLUMN CLASSES =====
+       SCOPED TO td ONLY. Without the `td` prefix, these would override the
+       dark thead's yellow text color, rendering most column headers in
+       black-on-black (invisible). The <th> elements rely solely on the
+       generic `th` rule above for their yellow Oswald styling. */
+    td.c-sku {
+      font-family: 'Roboto Mono', monospace;
+      font-weight: 700; font-size: 11px;
+      min-width: 70px; color: var(--ink);
+      letter-spacing: 0.02em;
+    }
+    td.c-qty {
+      width: 36px; text-align: center;
+      font-family: 'Oswald', sans-serif;
+      font-size: 16px; font-weight: 700;
+      color: var(--ink); letter-spacing: -0.02em; line-height: 1;
+    }
+    td.c-loc {
+      font-family: 'Roboto Mono', monospace;
+      font-weight: 700; font-size: 11px;
+      min-width: 55px; color: var(--ink);
+      white-space: nowrap;
+    }
+    td.c-order {
+      min-width: 90px;
+      word-break: break-all;
+      font-family: 'Roboto Mono', monospace;
+      font-size: 9.5px;
+      color: var(--ink-soft);
+      letter-spacing: 0.02em;
+    }
+    td.c-note {
+      min-width: 70px;
+      font-size: 10px;
+      color: var(--mute);
+      font-style: italic;
+    }
+    td.c-hand {
+      width: 50px; text-align: center;
+      font-family: 'Oswald', sans-serif;
+      font-size: 14px; font-weight: 700;
+      color: var(--ink);
+    }
+    td.c-left {
+      width: 50px; text-align: center;
+      font-family: 'Oswald', sans-serif;
+      font-size: 13px; font-weight: 600;
+      color: var(--mute);
+    }
+    td.c-paid {
+      width: 80px; text-align: center;
+      font-family: 'Roboto Mono', monospace;
+      font-size: 11px; font-weight: 700;
+      color: var(--ink);
+    }
+    /* Width hints for the column headers (so <th> sizing matches data cells) */
+    th.c-qty  { width: 36px; text-align: center; }
+    th.c-hand { width: 50px; text-align: center; }
+    th.c-left { width: 50px; text-align: center; }
+    th.c-paid { width: 80px; text-align: center; }
+
+    /* Force thead to repeat on every printed page (default behavior, set
+       explicitly for engines that lose it under position:fixed running headers) */
+    thead { display: table-header-group; }
+    tbody { display: table-row-group; }
+    table { page-break-inside: auto; }
+
+    /* ===== ALERT-LEVEL CELL STATES (color + structural redundancy) ===== */
+    td.c-hand.low-stock {
+      background: var(--yellow) !important;
+      color: var(--ink) !important;
+      font-weight: 700;
+      border-left: 4px solid var(--ink);
+      position: relative;
+    }
+    td.c-hand.low-stock::after {
+      content: '!';
+      position: absolute; top: 2px; right: 5px;
+      font-size: 8px; font-weight: 900; color: var(--ink);
+    }
+
+    td.c-paid.paid {
+      background: var(--yellow) !important;
+      color: var(--ink) !important;
+      font-weight: 800;
+      font-size: 12px;
+      border-left: 4px solid var(--ink);
+    }
+    td.c-paid.free {
+      color: #b8b5a8;
+      font-weight: 400;
+      font-size: 14px;
+    }
+
+    /* ===== ALERT ROWS (CAD-style callout) ===== */
+    tr.alert-row td {
+      padding: 6px 10px 6px 14px;
+      border-top: none;
+      border-bottom: 1px solid var(--rule);
+      font-size: 10px;
+      background: var(--paper-cool) !important;
+    }
+    tr.alert-dom td { border-left: 4px solid var(--yellow); }
+    tr.alert-intl td {
+      border-left: 4px solid var(--ink);
+      background: linear-gradient(135deg, var(--yellow) 0 6px, var(--paper-cool) 6px) !important;
+      padding-left: 18px;
+    }
+
+    .alert-tag {
+      display: inline-block;
+      font-family: 'Oswald', sans-serif;
+      font-size: 8.5px; font-weight: 700;
+      padding: 3px 8px;
+      letter-spacing: 0.16em; text-transform: uppercase;
+      margin-right: 10px;
+      vertical-align: middle;
+    }
+    .alert-dom  .alert-tag { background: var(--yellow); color: var(--ink); border: 1.5px solid var(--ink); }
+    .alert-intl .alert-tag { background: var(--ink); color: var(--yellow); border: 1.5px solid var(--ink); }
+
+    .alert-body {
+      font-size: 10px; color: var(--ink-soft);
+      vertical-align: middle;
+      font-family: 'Roboto Mono', monospace;
+    }
+    .alert-callout { display: inline-flex; align-items: center; gap: 4px; margin-right: 14px; }
+    .alert-key {
+      font-family: 'Oswald', sans-serif;
+      font-size: 8.5px; font-weight: 700;
+      letter-spacing: 0.12em; text-transform: uppercase;
+      color: var(--mute);
+    }
+    .alert-leader {
+      display: inline-block; width: 14px;
+      border-top: 1px solid var(--ink);
+      margin: 0 2px;
+    }
+    .alert-val { font-weight: 700; color: var(--ink); }
+    .alert-amt {
+      font-weight: 800; color: var(--ink); font-size: 11px;
+      background: var(--yellow);
+      padding: 1px 5px; border: 1px solid var(--ink);
+    }
+    .alert-note {
+      display: inline-block;
+      padding-left: 10px; border-left: 1px solid var(--rule);
+      margin-left: 4px;
+      color: var(--mute); font-size: 9.5px; font-style: italic;
+    }
+
+    /* ===== EMPTY FILL ROWS (writable space at end of last page) =====
+       Applied programmatically by fillTableToPage() in the script below.
+       Each row is taller than a data row + has soft pen-ready ruling. */
+    .empty-row td {
+      height: 30px !important;
+      padding: 4px 8px !important;
+      background: var(--paper-warm) !important;
+      border-bottom: 1px solid var(--rule) !important;
+      border-right: 1px dotted var(--rule) !important;
+      color: transparent;
+    }
+    .empty-row td:last-child { border-right: none !important; }
+
+    /* ===== TITLE BLOCK (architectural drawing convention, end of doc) ===== */
+    .title-block-wrap {
+      display: flex; justify-content: flex-end;
+      margin-top: 24px;
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+    .title-block {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      width: 460px;
+      border: 1.5px solid var(--ink);
+      background: var(--paper);
+    }
+    .title-block.tb-3col {
+      grid-template-columns: repeat(3, 1fr);
+      width: 420px;
+    }
+    .tb-cell {
+      padding: 7px 10px;
+      border-right: 1px solid var(--ink);
+      border-bottom: 1px solid var(--ink);
+      min-height: 42px;
+    }
+    .tb-cell:nth-child(4) { border-right: none; }
+    .title-block.tb-3col .tb-cell:nth-child(3) { border-right: none; }
+    .tb-cell.tb-doc {
+      grid-column: 1 / -1;
+      border-right: none; border-bottom: none;
+      background: var(--ink);
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 8px 12px;
+    }
+
+    .tb-lbl {
+      font-family: 'Oswald', sans-serif;
+      font-size: 7.5px; font-weight: 700;
+      letter-spacing: 0.18em; text-transform: uppercase;
+      color: var(--mute);
+      line-height: 1;
+    }
+    .tb-val {
+      font-family: 'Roboto Mono', monospace;
+      font-size: 11px; font-weight: 700;
+      color: var(--ink);
+      margin-top: 5px;
+      line-height: 1;
+    }
+    .tb-doc-lbl {
+      font-family: 'Oswald', sans-serif;
+      font-size: 9px; font-weight: 700;
+      letter-spacing: 0.20em; text-transform: uppercase;
+      color: var(--yellow);
+    }
+    .tb-doc-val {
+      font-family: 'Roboto Mono', monospace;
+      font-size: 12px; font-weight: 700;
+      letter-spacing: 0.06em;
+      color: var(--yellow);
+    }
+
+    /* ===== CLOSING SUMMARY PAGE (alerts box + title block) =====
+       Forced onto its own dedicated final page via CSS named-page
+       mechanism. Keeps the audit close-out clean and never splits. */
+    .summary-page {
+      page: summary;
+      break-before: page;
+      page-break-before: always;
+    }
+
+    .summary-page-title {
+      font-family: 'Oswald', sans-serif;
+      font-size: 22px; font-weight: 700;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      color: var(--ink);
+      padding: 6px 0 14px;
+      border-bottom: 3px solid var(--yellow);
+      margin-bottom: 28px;
+      position: relative;
+    }
+    .summary-page-title::after {
+      content: 'Audit · Sign-off · End of Run';
+      display: block;
+      font-family: 'Roboto Mono', monospace;
+      font-size: 9px;
+      font-weight: 500;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--mute);
+      margin-top: 4px;
+    }
+
+    /* Section subtitle — sits above each block on the summary page */
+    .sec-title {
+      font-family: 'Oswald', sans-serif;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.20em;
+      text-transform: uppercase;
+      color: var(--ink);
+      margin: 0 0 10px;
+      padding-bottom: 5px;
+      border-bottom: 1px solid var(--rule);
+    }
+
+    .sec {
+      margin-bottom: 22px;
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+
+    /* ===== BATCH METRICS — 7 KPI cards ===== */
+    .batch-metrics {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      gap: 6px;
+    }
+    .metric {
+      border: 1.5px solid var(--ink);
+      background: var(--paper);
+      padding: 14px 6px 10px;
       text-align: center;
+      position: relative;
+      break-inside: avoid;
+    }
+    .metric::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 3px;
+      background: var(--yellow);
+    }
+    .metric.is-warn::before { background: var(--ink); }
+    .metric.is-warn { background: var(--yellow); }
+
+    .metric-num {
+      font-family: 'Oswald', sans-serif;
+      font-size: 24px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      line-height: 1;
+      color: var(--ink);
+    }
+    .metric-num.is-money {
+      font-family: 'Roboto Mono', monospace;
+      font-size: 17px;
+      font-weight: 700;
+    }
+    .metric-num .currency {
+      font-size: 11px;
+      vertical-align: top;
+      margin-right: 1px;
+      color: var(--mute);
+    }
+    .metric-lbl {
+      font-family: 'Roboto Mono', monospace;
+      font-size: 7.5px;
       font-weight: 600;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--mute);
+      margin-top: 6px;
+      line-height: 1.2;
     }
-    
-    .col-hand {
-      background: #e3f2fd !important;
-      color: #1565c0;
+    .metric.is-warn .metric-lbl { color: var(--ink); font-weight: 700; }
+
+    /* ===== SIGN-OFF BLOCK ===== */
+    .signoff-block {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 0;
+      border: 1.5px solid var(--ink);
+      background: var(--paper);
+    }
+    .signoff-cell {
+      padding: 12px 14px 10px;
+      border-right: 1px solid var(--ink);
+    }
+    .signoff-cell:last-child { border-right: none; }
+
+    .signoff-lbl {
+      font-family: 'Oswald', sans-serif;
+      font-size: 9.5px;
+      font-weight: 700;
+      letter-spacing: 0.20em;
+      text-transform: uppercase;
+      color: var(--ink);
+    }
+    .signoff-line {
+      height: 22px;
+      border-bottom: 1.5px solid var(--ink);
+      margin: 18px 0 5px;
+    }
+    .signoff-sub {
+      font-family: 'Roboto Mono', monospace;
+      font-size: 7.5px;
+      font-weight: 500;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--mute);
     }
 
-    .col-hand.low-stock {
-      background: #FF6B6B !important;
-      color: #fff;
-    }
-    
-    .col-left {
-      background: #fff3e0 !important;
-      color: #e65100;
-    }
-    
-    th.col-hand {
-      background: #bbdefb !important;
-    }
-    
-    th.col-left {
-      background: #ffe0b2 !important;
+    /* ===== NOTES / EXCEPTIONS ===== */
+    .notes-area {
+      border: 1.5px solid var(--ink);
+      background: var(--paper);
+      height: 88px;
+      /* Faint horizontal ruling — three writable lines */
+      background-image:
+        linear-gradient(to bottom, transparent 28px, var(--rule) 28px, var(--rule) 29px, transparent 29px),
+        linear-gradient(to bottom, transparent 56px, var(--rule) 56px, var(--rule) 57px, transparent 57px);
+      background-repeat: no-repeat;
+      background-position: 0 0, 0 0;
     }
 
-    /* ===== PRINT STYLES ===== */
+    /* ===== SUMMARY ALERTS BOX (paid shipping summary) ===== */
+    .summary-alerts {
+      margin-top: 0;
+      padding: 12px 16px;
+      border: 1.5px solid var(--ink);
+      border-left-width: 6px; border-left-color: var(--yellow);
+      font-family: 'Roboto Mono', monospace;
+      font-size: 10px; font-weight: 500;
+      color: var(--ink); line-height: 1.7;
+      display: none;
+      background: var(--paper);
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+    .summary-alerts.has-alerts { display: block; }
+    .summary-alerts strong {
+      font-family: 'Oswald', sans-serif;
+      letter-spacing: 0.14em; text-transform: uppercase;
+      font-size: 9.5px;
+      display: block; margin-bottom: 4px;
+      color: var(--ink);
+    }
+
+    /* ===== REGISTRATION MARKS (screen-only — technical-doc framing) ===== */
+    .reg-mark {
+      position: absolute;
+      width: 14px; height: 14px;
+      pointer-events: none;
+    }
+    .reg-mark::before, .reg-mark::after {
+      content: ''; position: absolute; background: var(--ink);
+    }
+    .reg-mark::before {
+      left: 50%; top: 0; bottom: 0;
+      width: 1px; transform: translateX(-50%);
+    }
+    .reg-mark::after {
+      top: 50%; left: 0; right: 0;
+      height: 1px; transform: translateY(-50%);
+    }
+    .reg-tl { top: 6px;    left: 6px; }
+    .reg-tr { top: 6px;    right: 6px; }
+    .reg-bl { bottom: 6px; left: 6px; }
+    .reg-br { bottom: 6px; right: 6px; }
+
+    /* ===== PRINT =====
+       Architecture note: we DO NOT use position:fixed for the running header
+       in print, because Chrome's pagination engine sometimes drops the
+       repeating <thead> on continuation pages when a fixed-position element
+       is in play. Instead:
+         · Page 1 → the rich .run-header block prints once in normal flow.
+         · Pages 2+ → minimal text-only running info via @page margin boxes
+                      (@top-left / @top-center / @top-right). Hidden on page 1
+                      via @page :first to avoid duplication. */
+    @page {
+      /* Top margin: brand-left, ID FOR ADJUSTMENT-center, doc-right —
+         all three @top-* boxes share one horizontal line in the margin. */
+      margin: 0.65in 0.4in 0.55in 0.4in;
+
+      @top-left {
+        content: "FULFILLMENT  ·  HQ MS";
+        font-family: 'Oswald', sans-serif;
+        font-size: 8.5px;
+        font-weight: 700;
+        letter-spacing: 0.18em;
+        color: #6a6a64;
+        vertical-align: middle;
+      }
+      @top-right {
+        content: "DOC <?= docNumber ?>";
+        font-family: 'Roboto Mono', monospace;
+        font-size: 8.5px;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+        color: #6a6a64;
+        vertical-align: middle;
+      }
+
+      /* The CENTER box is the per-page tracking field — the warehouse picker
+         fills it in by hand on each printed page. Underscored line gives a
+         clean baseline to write on. Slightly larger + black so it's the
+         visual focus of the top margin. */
+      @top-center {
+        content: "ID FOR ADJUSTMENT  ____________________________";
+        font-family: 'Roboto Mono', monospace;
+        font-size: 10.5px;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        color: #1a1a1a;
+        vertical-align: middle;
+      }
+
+      @bottom-center {
+        content: "PAGE " counter(page) " / " counter(pages);
+        font-family: 'Oswald', sans-serif;
+        font-size: 9px;
+        font-weight: 700;
+        letter-spacing: 0.18em;
+        color: #1a1a1a;
+      }
+      @bottom-right {
+        content: "HQ  ·  CONFIDENTIAL  ·  INTERNAL USE";
+        font-family: 'Roboto Mono', monospace;
+        font-size: 7.5px;
+        letter-spacing: 0.14em;
+        color: #6a6a64;
+      }
+    }
+
+    /* @top-center (the ID FOR ADJUSTMENT line) prints on EVERY page,
+       including page 1 — it's the per-page tracking field the picker
+       fills in. We hide only the small brand/doc rows on page 1 to avoid
+       duplicating the rich in-flow .run-header below. */
+    @page :first {
+      @top-left   { content: ""; }
+      @top-right  { content: ""; }
+    }
+
+    /* Named page for the closing summary (alerts + title block).
+       Keeps brand/doc identifiers in the margins, but DROPS the writable
+       ID FOR ADJUSTMENT line — this is a sign-off/audit page, not a
+       working picking page. */
+    @page summary {
+      @top-center { content: ""; }
+    }
+
     @media print {
       .no-print { display: none !important; }
-      body { padding: 0; margin-bottom: 1cm; }
-      table { font-size: 11px; }
-      th { background: #eee !important; -webkit-print-color-adjust: exact; }
-      
-      th.col-hand { background: #bbdefb !important; -webkit-print-color-adjust: exact; }
-      th.col-left { background: #ffe0b2 !important; -webkit-print-color-adjust: exact; }
-      td.col-hand { background: #e3f2fd !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-      td.col-hand.low-stock { background: #FF6B6B !important; color: #fff; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-      td.col-left { background: #fff3e0 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-      h3 { 
-        -webkit-print-color-adjust: exact; 
-        border-left: 5px solid #000;
-      }
+      .stats-strip { display: none !important; }
+      .reg-mark { display: none; }
 
-      .print-footer-fixed {
-        position: fixed;
-        bottom: 0;
-        right: 0;
-        width: 100%;
-        text-align: right;
-        font-size: 10px;
-        font-weight: bold;
-        background: white;
-        padding: 5px 0;
-      }
+      body { padding: 0; font-size: 10px; }
+      .doc { padding: 0 12px 8px; }
 
-      .page-number::after {
-        counter-increment: page;
-        content: "Page " counter(page);
+      table { font-size: 10px; }
+
+      /* Running header is now a NORMAL FLOW block — only renders on page 1.
+         Pages 2+ get their identity from the @page margin boxes above. */
+      .run-header-fixed {
+        position: static !important;
+        background: var(--paper) !important;
       }
+      .run-header-inner { padding: 9px 16px 11px; gap: 14px; }
+      .rh-title { font-size: 18px; letter-spacing: 0.20em; }
+      .rh-sub   { font-size: 8.5px; }
+      .hq-mark  { width: 46px; height: 46px; }
+      .rh-meta  { gap: 7px; }
+      .rh-meta-cell { padding: 4px 8px; }
+      .rh-meta-cell .lbl { font-size: 7px; }
+      .rh-meta-cell .val { font-size: 10px; }
+      .rh-meta-cell.is-page .val { font-size: 11px; }
+
+      /* THEAD COLOR FOR B&W RESILIENCE
+         Yellow text on black collapses to light-gray-on-black when printed
+         in B&W. White on black stays high-contrast in BOTH modes. We trade a
+         small amount of brand expressiveness for guaranteed legibility. */
+      thead tr { background: #1a1a1a !important; }
+      th        { color: #ffffff !important; }
+
+      /* The operations bar should only print on page 1 */
+      .ops-bar { page-break-after: avoid; }
+
+      * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+
+      td.c-hand.low-stock { background: var(--yellow) !important; color: var(--ink) !important; }
+      td.c-paid.paid { background: var(--yellow) !important; }
+      tr.alert-intl td {
+        background: linear-gradient(135deg, var(--yellow) 0 6px, var(--paper-cool) 6px) !important;
+      }
+      .empty-row td { background: var(--paper-warm) !important; }
+      .summary-alerts.has-alerts { background: var(--paper) !important; }
+      .title-block { width: 100%; }
     }
   </style>
 </head>
-
 <body>
 
+  <!-- Registration marks (screen-only — technical-doc framing) -->
+  <div class="reg-mark reg-tl"></div>
+  <div class="reg-mark reg-tr"></div>
+  <div class="reg-mark reg-bl"></div>
+  <div class="reg-mark reg-br"></div>
+
   <div class="no-print">
-    <button class="print-btn secondary" onclick="window.close()">✖ Close</button>
-    <button class="print-btn" onclick="window.print()">🖨 Confirm Print</button>
+    <button class="print-btn secondary" onclick="window.close()">✕ Close</button>
+    <button class="print-btn primary" onclick="window.print()">Print</button>
   </div>
 
-  <div class="print-footer-fixed no-print-screen">
-    Documentation - <span class="page-number"></span>
-  </div>
+  <!-- ===== RUNNING HEADER (fixed in print, repeats at top of every page) ===== -->
+  <div class="run-header-fixed">
+    <div class="run-header">
+      <div class="run-header-inner">
+        <!-- LEFT: HQ mark + wordmark.
+             Embedded SVG = the actual brand logo (no image hosting needed). -->
+        <div class="rh-brand">
+          <svg class="hq-mark" viewBox="0 0 400 400" xmlns="http://www.w3.org/2000/svg">
+            <path d="M187.927 0.402 C 139.908 3.423,96.688 22.383,61.045 56.063 L 57.091 59.800 66.335 67.900 C 71.419 72.355,75.682 76.000,75.807 76.000 C 75.932 76.000,78.052 74.166,80.517 71.924 C 143.466 14.691,236.950 10.047,304.600 60.794 C 390.450 125.194,398.748 250.581,322.129 325.640 C 250.403 395.906,135.350 391.981,68.840 317.000 C 21.403 263.522,11.151 189.240,42.298 124.686 C 44.930 119.232,45.266 118.297,44.772 117.816 C 41.231 114.367,26.141 103.699,25.669 104.311 C 21.079 110.265,10.511 136.788,6.584 152.209 C -27.414 285.707,81.211 412.016,218.800 398.974 C 340.597 387.429,423.554 269.406,393.379 150.600 C 369.862 58.005,282.894 -5.574,187.927 0.402 M105.600 200.400 L 105.600 294.800 118.400 294.800 L 131.200 294.800 131.200 254.800 L 131.200 214.800 143.600 214.800 L 156.000 214.800 156.000 254.800 L 156.000 294.800 168.400 294.800 L 180.800 294.800 180.800 200.400 L 180.800 106.000 168.400 106.000 L 156.000 106.000 156.000 146.000 L 156.000 186.000 143.600 186.000 L 131.200 186.000 131.200 146.000 L 131.200 106.000 118.400 106.000 L 105.600 106.000 105.600 200.400 M246.980 106.585 C 229.580 109.745,220.504 119.735,218.795 137.604 C 217.869 147.286,218.492 264.708,219.493 269.200 C 223.415 286.798,235.374 295.415,255.800 295.360 C 269.300 295.325,277.754 292.002,285.400 283.729 L 287.400 281.564 293.166 286.194 C 299.751 291.481,299.226 291.365,301.269 287.988 C 307.968 276.907,304.839 261.044,294.557 253.971 L 292.800 252.762 292.797 196.481 C 292.793 131.985,292.797 132.069,289.183 124.098 C 283.098 110.679,265.239 103.268,246.980 106.585 M261.011 128.005 C 263.339 129.132,265.643 131.360,266.883 133.683 L 267.800 135.400 267.906 184.471 L 268.012 233.542 266.817 235.313 C 261.987 242.470,261.536 252.159,265.635 260.695 C 267.453 264.480,267.428 264.955,265.264 267.819 C 259.638 275.262,246.486 272.919,243.838 264.002 C 242.865 260.727,242.865 138.473,243.838 135.198 C 245.804 128.577,254.591 124.897,261.011 128.005" fill="#1c1c1c" fill-rule="evenodd"/>
+            <path d="M188.600 48.670 C 76.921 58.102,13.669 180.440,70.783 276.545 C 119.204 358.021,231.578 375.069,300.533 311.400 L 303.999 308.200 299.312 304.336 L 294.625 300.471 293.212 301.640 C 277.244 314.847,264.430 322.682,248.600 328.916 C 159.007 364.200,61.203 296.917,61.203 200.000 C 61.203 104.442,156.651 37.272,246.400 69.670 C 322.343 97.084,359.257 184.598,325.603 257.441 L 324.103 260.688 329.491 263.772 C 332.454 265.467,334.930 266.797,334.992 266.727 C 335.391 266.279,337.844 261.013,339.610 256.814 C 353.327 224.203,354.959 186.652,344.122 153.000 C 322.793 86.772,257.342 42.864,188.600 48.670 M193.200 200.800 L 193.200 295.600 199.600 295.600 L 206.000 295.600 206.000 200.800 L 206.000 106.000 199.600 106.000 L 193.200 106.000 193.200 200.800" fill="#fcdc05" fill-rule="evenodd"/>
+          </svg>
+          <div class="rh-wordmark">
+            <div class="rh-title">Fulfillment</div>
+            <div class="rh-sub">High Quality Motor Service · Picking List</div>
+          </div>
+        </div>
 
-  <div style="text-align: center; border-bottom: 2px solid #202124; margin-bottom: 20px; padding-bottom: 10px;">
-    <h2 style="margin: 0; font-size: 24px; text-transform: uppercase;">Pending Fulfillment List</h2>
-    <div style="display: flex; justify-content: space-between; margin-top: 10px; font-size: 13px; font-weight: 600;">
-      <span>Date: <?= printDate ?> | Time: <?= printTime ?> (CST)</span>
-      <span>Employee ID: <span style="color: #1a73e8;"><?= employeeId ?></span></span>
+        <div class="rh-spacer"></div>
+
+        <!-- RIGHT: doc identifiers + page indicator -->
+        <div class="rh-meta">
+          <div class="rh-meta-cell is-doc">
+            <span class="lbl">Doc №</span>
+            <span class="val"><?= docNumber ?></span>
+          </div>
+          <div class="rh-meta-cell">
+            <span class="lbl">Date</span>
+            <span class="val"><?= printDate ?></span>
+          </div>
+          <div class="rh-meta-cell">
+            <span class="lbl">Time</span>
+            <span class="val"><?= printTime ?></span>
+          </div>
+          <div class="rh-meta-cell is-page">
+            <span class="lbl">Total</span>
+            <span class="val"><?= ebayItems.length + directItems.length ?> items</span>
+          </div>
+        </div>
+      </div>
     </div>
-    <div style="display: flex; justify-content: space-between; margin-top: 8px; font-size: 13px;">
-      <span style="font-weight: 600;">ID for Adjustment: <span style="display: inline-block; width: 200px; border-bottom: 1.5px solid #999;">&nbsp;</span></span>
-    </div>
   </div>
 
-  <? if (ebayItems.length > 0) { ?>
-    <h3>eBay Items (<?= ebayItems.length ?> items)</h3>
-    <table id="ebay-table">
-      <thead>
-        <tr>
-          <th style="width: 13%">SKU</th>
-          <th style="width: 5%">Qty</th>
-          <th style="width: 9%">Location</th>
-          <th style="width: 20%">Sales Order</th>
-          <th style="width: 15%">Note</th>
-          <th style="width: 10%">Status</th>
-          <th style="width: 7%" class="col-hand">◫ HAND</th>
-          <th style="width: 7%" class="col-left">◩ LEFT</th>
-        </tr>
-      </thead>
-      <tbody>
-        <? for (var i = 0; i < ebayItems.length; i++) {
-             var eSo = String(ebayItems[i][3]).trim();
-             var eColor = orderColorMap[eSo];
-        ?>
+  <div class="doc">
+
+    <!-- ===== OPERATIONS BAR (page 1 only) =====
+         One cell: today's shipping employee. The ID FOR ADJUSTMENT field
+         no longer lives here — it's now printed in the @page top margin so
+         it appears at the start of EVERY page (per-page tracking). -->
+    <div class="ops-bar">
+      <div class="ops-cell is-pick">
+        <div class="ops-lbl">Shipping Employee  ·  Today</div>
+        <div class="ops-val"><?= pickIdShipping ?></div>
+      </div>
+    </div>
+
+    <!-- ===== STATS STRIP (screen only) ===== -->
+    <div class="stats-strip">
+      <div class="stat-block is-total">
+        <div class="stat-num"><?= ebayItems.length + directItems.length ?></div>
+        <div class="stat-lbl">Total Items</div>
+      </div>
+      <div class="stat-block">
+        <div class="stat-num"><?= ebayItems.length ?></div>
+        <div class="stat-lbl">eBay</div>
+      </div>
+      <div class="stat-block">
+        <div class="stat-num"><?= directItems.length ?></div>
+        <div class="stat-lbl">Direct</div>
+      </div>
+    </div>
+
+    <!-- ===== EBAY TABLE ===== -->
+    <? if (ebayItems.length > 0) { ?>
+      <div class="section-head">
+        <span class="section-head-title">eBay Orders</span>
+        <span class="section-head-count"><?= ebayItems.length ?> Items · Pick</span>
+      </div>
+      <table id="ebay-table">
+        <thead>
           <tr>
-            <td><?= ebayItems[i][0] ?></td>
-            <td style="text-align: center; font-weight: 600;"><?= ebayItems[i][1] ?></td>
-            <td style="font-weight: 600; font-family: monospace;"><?= ebayItems[i][2] ?></td>
-            <? if (eColor) { ?>
-              <td style="border-left: 4px solid <?= eColor ?>; font-weight: 600;"><?= ebayItems[i][3] ?></td>
-            <? } else { ?>
-              <td><?= ebayItems[i][3] ?></td>
-            <? } ?>
-            <td><?= ebayItems[i][4] ?></td>
-            <td><?= ebayItems[i][5] ?></td>
-            <td class="col-hand<?= (parseFloat(ebayItems[i][6]) <= 20) ? ' low-stock' : '' ?>"><?= ebayItems[i][6] ?></td>
-            <td class="col-left"><?= ebayItems[i][7] ?></td>
+            <th class="c-sku">SKU</th>
+            <th class="c-qty">Qty</th>
+            <th class="c-loc">Location</th>
+            <th class="c-order">Order #</th>
+            <th class="c-note">Note</th>
+            <th class="c-hand">Hand</th>
+            <th class="c-left">Left</th>
+            <? if (showPaidShippingAlerts) { ?><th class="c-paid">Buyer Paid</th><? } ?>
           </tr>
-        <? } ?>
-      </tbody>
-    </table>
-    
+        </thead>
+        <tbody>
+          <? for (var i = 0; i < ebayItems.length; i++) {
+               var eSo      = String(ebayItems[i][3]).trim();
+               var eColor   = orderColorMap[eSo];
+               var eShip    = String(ebayItems[i][7] || '').trim();
+               var eCost    = String(ebayItems[i][8] || '').trim();
+               var eIsIntl  = eShip.indexOf('[INTL]') !== -1;
+               var eShipClean = eShip.replace('[INTL] ', '');
+               var eHasCost = eCost !== '' && eCost !== 'FREE' && eCost !== '0' && eCost !== '$0.00';
+               var ePaidCls = eHasCost ? 'paid' : 'free';
+               var ePaidTxt = eHasCost ? eCost : '—';
+               var eHand    = ebayItems[i][5];
+               var eHandLow = (String(eHand) !== '' && parseFloat(eHand) <= 20) ? ' low-stock' : '';
+          ?>
+            <tr>
+              <td class="c-sku"><?= ebayItems[i][0] ?></td>
+              <td class="c-qty"><?= ebayItems[i][1] ?></td>
+              <td class="c-loc"><?= ebayItems[i][2] ?></td>
+              <? if (eColor) { ?>
+                <td class="c-order" style="border-left:3px solid <?= eColor ?>;"><?= ebayItems[i][3] ?></td>
+              <? } else { ?>
+                <td class="c-order"><?= ebayItems[i][3] ?></td>
+              <? } ?>
+              <td class="c-note"><?= ebayItems[i][4] ?></td>
+              <td class="c-hand<?= eHandLow ?>"><?= eHand ?></td>
+              <td class="c-left"><?= ebayItems[i][6] ?></td>
+              <? if (showPaidShippingAlerts) { ?><td class="c-paid <?= ePaidCls ?>"><?= ePaidTxt ?></td><? } ?>
+            </tr>
+
+            <? if (showPaidShippingAlerts) { ?>
+              <? if (eHasCost && eIsIntl) { ?>
+                <tr class="alert-row alert-intl">
+                  <td colspan="8">
+                    <span class="alert-tag">⚠ Intl + Paid</span>
+                    <span class="alert-body">
+                      <span class="alert-callout">
+                        <span class="alert-key">Service</span>
+                        <span class="alert-leader"></span>
+                        <span class="alert-val"><?= eShipClean ?></span>
+                      </span>
+                      <span class="alert-callout">
+                        <span class="alert-key">Buyer Paid</span>
+                        <span class="alert-leader"></span>
+                        <span class="alert-amt"><?= eCost ?></span>
+                      </span>
+                      <span class="alert-note">Match service level &amp; prepare customs documentation</span>
+                    </span>
+                  </td>
+                </tr>
+              <? } else if (eHasCost) { ?>
+                <tr class="alert-row alert-dom">
+                  <td colspan="8">
+                    <span class="alert-tag">⚠ Paid Shipping</span>
+                    <span class="alert-body">
+                      <span class="alert-callout">
+                        <span class="alert-key">Service</span>
+                        <span class="alert-leader"></span>
+                        <span class="alert-val"><?= eShipClean ?></span>
+                      </span>
+                      <span class="alert-callout">
+                        <span class="alert-key">Buyer Paid</span>
+                        <span class="alert-leader"></span>
+                        <span class="alert-amt"><?= eCost ?></span>
+                      </span>
+                      <span class="alert-note">Print label at this exact service level</span>
+                    </span>
+                  </td>
+                </tr>
+              <? } ?>
+            <? } ?>
+          <? } ?>
+        </tbody>
+      </table>
+      <? if (directItems.length > 0) { ?>
+        <div style="page-break-after:always;"></div>
+      <? } ?>
+    <? } ?>
+
+    <!-- ===== DIRECT TABLE ===== -->
     <? if (directItems.length > 0) { ?>
-      <div style="page-break-after: always;"></div>
-    <? } ?>
-    <? } ?>
-
-  <? if (directItems.length > 0) { ?>
-    <h3>DIRECT Items (<?= directItems.length ?> items)</h3>
-    <table id="direct-table">
-      <thead>
-        <tr>
-          <th style="width: 13%">SKU</th>
-          <th style="width: 5%">Qty</th>
-          <th style="width: 9%">Location</th>
-          <th style="width: 20%">Sales Order</th>
-          <th style="width: 15%">Note</th>
-          <th style="width: 10%">Status</th>
-          <th style="width: 7%" class="col-hand">◫ HAND</th>
-          <th style="width: 7%" class="col-left">◩ LEFT</th>
-        </tr>
-      </thead>
-      <tbody>
-        <? for (var i = 0; i < directItems.length; i++) {
-             var dSo = String(directItems[i][3]).trim();
-             var dColor = orderColorMap[dSo];
-        ?>
+      <div class="section-head">
+        <span class="section-head-title">Direct Orders</span>
+        <span class="section-head-count"><?= directItems.length ?> Items · Pick</span>
+      </div>
+      <table id="direct-table">
+        <thead>
           <tr>
-            <td><?= directItems[i][0] ?></td>
-            <td style="text-align: center; font-weight: 600;"><?= directItems[i][1] ?></td>
-            <td style="font-weight: 600; font-family: monospace;"><?= directItems[i][2] ?></td>
-            <? if (dColor) { ?>
-              <td style="border-left: 4px solid <?= dColor ?>; font-weight: 600;"><?= directItems[i][3] ?></td>
-            <? } else { ?>
-              <td><?= directItems[i][3] ?></td>
-            <? } ?>
-            <td><?= directItems[i][4] ?></td>
-            <td><?= directItems[i][5] ?></td>
-            <td class="col-hand<?= (parseFloat(directItems[i][6]) <= 20) ? ' low-stock' : '' ?>"><?= directItems[i][6] ?></td>
-            <td class="col-left"><?= directItems[i][7] ?></td>
+            <th class="c-sku">SKU</th>
+            <th class="c-qty">Qty</th>
+            <th class="c-loc">Location</th>
+            <th class="c-order">Order #</th>
+            <th class="c-note">Note</th>
+            <th class="c-hand">Hand</th>
+            <th class="c-left">Left</th>
           </tr>
-        <? } ?>
-      </tbody>
-    </table>
-  <? } ?>
+        </thead>
+        <tbody>
+          <? for (var i = 0; i < directItems.length; i++) {
+               var dSo    = String(directItems[i][3]).trim();
+               var dColor = orderColorMap[dSo];
+               var dHand  = directItems[i][5];
+               var dHandLow = (String(dHand) !== '' && parseFloat(dHand) <= 20) ? ' low-stock' : '';
+          ?>
+            <tr>
+              <td class="c-sku"><?= directItems[i][0] ?></td>
+              <td class="c-qty"><?= directItems[i][1] ?></td>
+              <td class="c-loc"><?= directItems[i][2] ?></td>
+              <? if (dColor) { ?>
+                <td class="c-order" style="border-left:3px solid <?= dColor ?>;"><?= directItems[i][3] ?></td>
+              <? } else { ?>
+                <td class="c-order"><?= directItems[i][3] ?></td>
+              <? } ?>
+              <td class="c-note"><?= directItems[i][4] ?></td>
+              <td class="c-hand<?= dHandLow ?>"><?= dHand ?></td>
+              <td class="c-left"><?= directItems[i][6] ?></td>
+            </tr>
+          <? } ?>
+        </tbody>
+      </table>
+    <? } ?>
 
-  <!-- Summary Footer -->
-  <div style="margin-top: 30px; padding: 15px; background: #f5f5f5; border-radius: 8px; display: flex; justify-content: space-between; align-items: center;">
-    <div>
-      <strong>Total Items:</strong> <?= ebayItems.length + directItems.length ?>
-      <span style="margin-left: 20px;"><strong>eBay:</strong> <?= ebayItems.length ?></span>
-      <span style="margin-left: 20px;"><strong>Direct:</strong> <?= directItems.length ?></span>
+    <!-- ===== CLOSING SUMMARY PAGE =====
+         Wrapped in .summary-page → forces onto dedicated final page via
+         CSS named-page system, AND drops the @top-center "ID FOR ADJUSTMENT"
+         line because this is a close-out / sign-off page, not a working
+         picking page. -->
+    <div class="summary-page">
+      <div class="summary-page-title">Closing Summary</div>
+
+      <!-- BLOCK 1: BATCH METRICS — 7 KPI cards -->
+      <div class="sec">
+        <div class="sec-title">Batch Metrics</div>
+        <div class="batch-metrics">
+          <div class="metric">
+            <div class="metric-num"><?= metrics.totalItems ?></div>
+            <div class="metric-lbl">Total Items</div>
+          </div>
+          <div class="metric">
+            <div class="metric-num"><?= metrics.totalQty ?></div>
+            <div class="metric-lbl">Total Qty</div>
+          </div>
+          <div class="metric">
+            <div class="metric-num"><?= metrics.ebayCount ?></div>
+            <div class="metric-lbl">eBay</div>
+          </div>
+          <div class="metric">
+            <div class="metric-num"><?= metrics.directCount ?></div>
+            <div class="metric-lbl">Direct</div>
+          </div>
+          <div class="metric">
+            <div class="metric-num"><?= metrics.distinctSkus ?></div>
+            <div class="metric-lbl">Distinct SKUs</div>
+          </div>
+          <div class="metric <?= metrics.lowStock > 0 ? 'is-warn' : '' ?>">
+            <div class="metric-num"><?= metrics.lowStock ?></div>
+            <div class="metric-lbl">Low Stock</div>
+          </div>
+          <? if (showPaidShippingAlerts) { ?>
+          <div class="metric">
+            <div class="metric-num is-money">
+              <span class="currency">$</span><?= metrics.paidShippingTotal ?>
+            </div>
+            <div class="metric-lbl">Paid Shipping</div>
+          </div>
+          <? } ?>
+        </div>
+      </div>
+
+      <!-- BLOCK 2: SHIPPING ALERTS (computed from paid orders, may be empty).
+           Soft-deleted 2026-05-19 — only renders when showPaidShippingAlerts is ON.
+           The inline JS at the bottom counts .alert-intl + .alert-dom rows; when
+           the toggle is OFF those rows don't exist, so the JS naturally does nothing
+           and the block would render empty anyway. Wrap explicitly for cleanliness. -->
+      <? if (showPaidShippingAlerts) { ?>
+      <div class="sec">
+        <div class="summary-alerts" id="alerts-summary"></div>
+      </div>
+      <? } ?>
+
+      <!-- BLOCK 3: SIGN-OFF -->
+      <div class="sec">
+        <div class="sec-title">Sign-off</div>
+        <div class="signoff-block">
+          <div class="signoff-cell">
+            <div class="signoff-lbl">Picker</div>
+            <div class="signoff-line">&nbsp;</div>
+            <div class="signoff-sub">Signature  ·  Time</div>
+          </div>
+          <div class="signoff-cell">
+            <div class="signoff-lbl">Verifier</div>
+            <div class="signoff-line">&nbsp;</div>
+            <div class="signoff-sub">Signature  ·  Time</div>
+          </div>
+          <div class="signoff-cell">
+            <div class="signoff-lbl">Manager <span style="font-weight:400;color:#999;">(if escalation)</span></div>
+            <div class="signoff-line">&nbsp;</div>
+            <div class="signoff-sub">Signature  ·  Time</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- BLOCK 4: NOTES / EXCEPTIONS -->
+      <div class="sec">
+        <div class="sec-title">Notes  ·  Exceptions</div>
+        <div class="notes-area">&nbsp;</div>
+      </div>
+
+      <!-- BLOCK 5: TITLE BLOCK -->
+      <div class="title-block-wrap">
+        <div class="title-block tb-3col">
+          <div class="tb-cell">
+            <div class="tb-lbl">Date</div>
+            <div class="tb-val"><?= printDay ?>, <?= printDate ?></div>
+          </div>
+          <div class="tb-cell">
+            <div class="tb-lbl">Time</div>
+            <div class="tb-val"><?= printTime ?> CST</div>
+          </div>
+          <div class="tb-cell">
+            <div class="tb-lbl">Shipping Employee</div>
+            <div class="tb-val"><?= pickIdShipping ?></div>
+          </div>
+          <div class="tb-cell tb-doc">
+            <span class="tb-doc-lbl">Document №</span>
+            <span class="tb-doc-val"><?= docNumber ?></span>
+          </div>
+        </div>
+      </div>
     </div>
-    <div style="font-size: 11px; color: #666;">
-      Generated: <?= printDate ?> <?= printTime ?> CST
-    </div>
+
   </div>
 
   <script>
-    // Fill remaining page space with empty bordered rows
-    // Uses fixed rows-per-page to avoid pixel miscalculation//
-    function fillTableToPage(tableId, isFirstSection) {
+    // ===== Summary alerts (paid-shipping aggregate) =====
+    (function() {
+      var intlPaid = document.querySelectorAll('tr.alert-intl').length;
+      var domPaid  = document.querySelectorAll('tr.alert-dom').length;
+      if (intlPaid + domPaid === 0) return;
+      var box = document.getElementById('alerts-summary');
+      box.classList.add('has-alerts');
+      var parts = [];
+      if (intlPaid > 0) parts.push('▸ ' + intlPaid + ' international order(s) with paid shipping — match service level + customs docs');
+      if (domPaid  > 0) parts.push('▸ ' + domPaid  + ' domestic order(s) with paid shipping — print label at exact service level');
+      box.innerHTML = '<strong>Shipping Alerts · This Batch</strong>' + parts.join('<br>');
+    })();
+
+    /**
+     * Fills the table with empty rows so the LAST page is fully ruled —
+     * employees can hand-write additional entries.
+     *
+     * Capacity values are deliberately CONSERVATIVE: Chrome's actual fit is
+     * ~22-23 rows per continuation page, so we target slightly less to make
+     * sure we never overflow into a phantom "thead-only" page.
+     */
+    function fillTableToPage(tableId, colCount, isFirstSection) {
       var table = document.getElementById(tableId);
       if (!table) return;
 
-      var COL_COUNT = 8;
+      var FIRST = isFirstSection ? 17 : 22;
+      var CONT  = 22;
 
-      // Rows that fit per page (A4, default margins, 11px print font)
-      // First page of eBay table: has document header + h3 + table header = fewer rows
-      // First page of DIRECT table: has h3 + table header (no doc header)
-      // Continuation pages: just table header repeats
-      var FIRST_PAGE_WITH_HEADER = 18;  // eBay first page (doc header + h3 + thead)
-      var FIRST_PAGE_NO_HEADER = 21;    // DIRECT first page (h3 + thead only)
-      var CONTINUATION_PAGE = 24;       // Any overflow pages
+      var data   = table.querySelectorAll('tbody tr:not(.alert-row):not(.empty-row)').length;
+      var alerts = table.querySelectorAll('tbody tr.alert-row').length;
+      var total  = data + alerts;
 
-      var dataRows = table.querySelectorAll('tbody tr').length;
-      var firstPageRows = isFirstSection ? FIRST_PAGE_WITH_HEADER : FIRST_PAGE_NO_HEADER;
-
-      // Calculate how many rows are on the last page
-      var rowsOnLastPage;
-      if (dataRows <= firstPageRows) {
-        rowsOnLastPage = dataRows;
-        var pageCapacity = firstPageRows;
+      // How many rows of capacity remain on the LAST page this section uses?
+      var capUsed, lastCap;
+      if (total <= FIRST) {
+        capUsed = total;
+        lastCap = FIRST;
       } else {
-        var overflow = dataRows - firstPageRows;
-        rowsOnLastPage = overflow % CONTINUATION_PAGE;
-        if (rowsOnLastPage === 0) rowsOnLastPage = CONTINUATION_PAGE;
-        var pageCapacity = CONTINUATION_PAGE;
+        var overflow = total - FIRST;
+        capUsed = overflow % CONT;
+        if (capUsed === 0) capUsed = CONT;  // exact fit means no fill needed
+        lastCap = CONT;
       }
 
-      // Fill remaining space on the last page
-      var emptyRows = pageCapacity - rowsOnLastPage;
-      if (emptyRows <= 0) return;
+      var emptyRowsToAdd = lastCap - capUsed;
+      if (emptyRowsToAdd <= 0) return;
 
       var tbody = table.querySelector('tbody');
-      for (var i = 0; i < emptyRows; i++) {
+      for (var i = 0; i < emptyRowsToAdd; i++) {
         var tr = document.createElement('tr');
         tr.className = 'empty-row';
-        for (var j = 0; j < COL_COUNT; j++) {
+        for (var j = 0; j < colCount; j++) {
           var td = document.createElement('td');
           td.innerHTML = '&nbsp;';
           tr.appendChild(td);
@@ -314,14 +1266,17 @@
       }
     }
 
-    window.onload = function () {
-      fillTableToPage('ebay-table', true);    // First section (has doc header)
-      fillTableToPage('direct-table', false);  // Second section (new page, no doc header)
-      setTimeout(function () {
-        window.print();
-      }, 500);
+    window.onload = function() {
+      // eBay table is the "first section" only if it exists; if not, the Direct
+      // table inherits that role and gets the smaller first-page capacity.
+      var hasEbay   = !!document.getElementById('ebay-table');
+      var hasDirect = !!document.getElementById('direct-table');
+
+      if (hasEbay)   fillTableToPage('ebay-table',   8, true);
+      if (hasDirect) fillTableToPage('direct-table', 7, !hasEbay);
+
+      setTimeout(function() { window.print(); }, 700);
     };
   </script>
-
 </body>
 </html>

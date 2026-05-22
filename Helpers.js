@@ -19,18 +19,18 @@ function getColumnIndexByHeader(sheet, headerName) {
 }
 
 /**
- * Finds the boundary row (where TABLE_TWO_IDENTIFIER is located)
+ * Finds the boundary row (the divider whose column A value is Schema.boundaryMarker)
  * @returns {number} - Row number of the boundary, or -1 if not found
  */
 function getBoundaryRow() {
   var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   var sheet = ss.getSheetByName(MAIN_SHEET_NAME);
   if (!sheet) return -1;
-  var values = sheet.getRange(1, SKU_COLUMN, sheet.getLastRow(), 1).getValues();
+  var values = sheet.getRange(1, Schema.cols.SKU, sheet.getLastRow(), 1).getValues();
   for (var i = 0; i < values.length; i++) {
-    if (String(values[i][0]).trim().toUpperCase() === TABLE_TWO_IDENTIFIER) return i + 1;
+    if (String(values[i][0]).trim().toUpperCase() === Schema.boundaryMarker) return i + 1;
   }
-  return -1; 
+  return -1;
 }
 
 /**
@@ -42,7 +42,7 @@ function getBoundaryRow() {
 function findLastDataRowInSegment(startRow, endRow) {
   if (endRow < startRow) return startRow - 1;
   var sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(MAIN_SHEET_NAME);
-  var values = sheet.getRange(startRow, SKU_COLUMN, endRow - startRow + 1, 1).getValues();
+  var values = sheet.getRange(startRow, Schema.cols.SKU, endRow - startRow + 1, 1).getValues();
   for (var i = values.length - 1; i >= 0; i--) {
     if (String(values[i][0]).trim().length > 0) return startRow + i;
   }
@@ -50,8 +50,8 @@ function findLastDataRowInSegment(startRow, endRow) {
 }
 
 /**
- * Builds a map of SKU → total committed quantity (PENDING + PREPARING orders)
- * Used to subtract from Master Inventory available for accurate HAND values
+ * Builds a map of SKU → total committed quantity (PENDING + PREPARING orders).
+ * Used to subtract from Master Inventory available stock for accurate HAND values.
  * @returns {Map} - Map of SKU (lowercase) → total committed qty
  */
 function getCommittedQuantities() {
@@ -59,25 +59,172 @@ function getCommittedQuantities() {
   var sheet = ss.getSheetByName(MAIN_SHEET_NAME);
   var lastRow = sheet.getLastRow();
 
-  if (lastRow < DATA_START_ROW) return new Map();
+  if (lastRow < Schema.dataStartRow) return new Map();
 
-  // Read SKU (A), QTY (B), STATUS (F)
-  var data = sheet.getRange(DATA_START_ROW, 1, lastRow - DATA_START_ROW + 1, 6).getValues();
+  // Read SKU, QTY, ..., STATUS — first 6 columns cover everything we need
+  var data = sheet.getRange(
+    Schema.dataStartRow, 1,
+    lastRow - Schema.dataStartRow + 1,
+    Schema.cols.STATUS
+  ).getValues();
   var committed = new Map();
 
   for (var i = 0; i < data.length; i++) {
-    var sku = String(data[i][0]).trim().toLowerCase();
-    var qty = parseInt(data[i][1]) || 0;
-    var status = String(data[i][5]).trim().toUpperCase();
+    var sku    = String(data[i][Schema.idx("SKU")]).trim().toLowerCase();
+    var qty    = parseInt(data[i][Schema.idx("QTY")]) || 0;
+    var status = String(data[i][Schema.idx("STATUS")]).trim().toUpperCase();
 
-    if (!sku || sku === TABLE_TWO_IDENTIFIER.toLowerCase()) continue;
-    if (status !== 'PENDING' && status !== 'PREPARING') continue;
+    if (!sku || sku === Schema.boundaryMarker.toLowerCase()) continue;
+    if (status !== Schema.status.PENDING && status !== Schema.status.PREPARING) continue;
 
     committed.set(sku, (committed.get(sku) || 0) + qty);
   }
 
   return committed;
 }
+
+/**
+ * Recomputes the HAND column for every active (non-terminal) order row.
+ *
+ * HAND = MI.available for the SKU. Same value for every non-terminal row
+ * of the same SKU. Tells the picker "what eBay's listing shows as available
+ * for new buyers right now."
+ *
+ * Why no per-row decrement: with the per-order GetItem refresh wired into
+ * n8n's eBay-orders workflow, MI is fresh at the moment each order arrives.
+ * eBay's QuantitySold already counts every PENDING / PREPARING qty (the sale
+ * was registered when the buyer clicked Buy). Decrementing per-row would
+ * re-subtract the same units, producing values lower than reality —
+ * exactly the symptom that surfaced 2026-05-09 for SKU 165447 (HAND=158
+ * when MI.available was 162; the 4-unit gap matched the SKU's pre-existing
+ * PENDING qty).
+ *
+ * Idempotent. Run from sidebar, or schedule via setupHandRecomputeTrigger()
+ * for automatic refresh after each MI sync.
+ */
+function recomputeHand() {
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  var sheet = ss.getSheetByName(MAIN_SHEET_NAME);
+  if (!sheet) return "❌ Main sheet not found.";
+
+  var lastRow = sheet.getLastRow();
+  if (lastRow < Schema.dataStartRow) return "ℹ️ No data to recompute.";
+
+  // Live snapshot of Master Inventory
+  var maps = buildLocationAndInventoryMaps();
+  var inventoryMap = maps.inventoryMap;
+  if (inventoryMap.size === 0) {
+    return "⚠️ Master Inventory empty or headers missing.";
+  }
+
+  // Read SKU/QTY/STATUS for every data row
+  var nRows = lastRow - Schema.dataStartRow + 1;
+  var data = sheet.getRange(Schema.dataStartRow, 1, nRows, Schema.cols.HAND).getValues();
+
+  var boundary = getBoundaryRow();
+  var runningStock = {};       // skuLower → remaining stock as we iterate
+  var newHandValues = [];      // 2D array (one cell per row) for batched setValues
+  var updatedCount = 0;
+
+  for (var i = 0; i < nRows; i++) {
+    var rowNum = Schema.dataStartRow + i;
+    var rawSku = String(data[i][Schema.idx("SKU")] || "").trim();
+
+    // Skip boundary divider + DIRECT header row + empty rows
+    var skipRow = false;
+    if (boundary > 0 && (rowNum === boundary || rowNum === boundary + 1)) skipRow = true;
+    if (!rawSku) skipRow = true;
+    if (rawSku.toUpperCase() === Schema.boundaryMarker) skipRow = true;
+    if (rawSku.toUpperCase().indexOf('SKU') === 0) skipRow = true;  // header leak guard
+
+    if (skipRow) {
+      newHandValues.push([data[i][Schema.idx("HAND")]]);   // preserve as-is
+      continue;
+    }
+
+    var skuLower = rawSku.toLowerCase();
+    var status = String(data[i][Schema.idx("STATUS")] || "").trim().toUpperCase();
+    var qty = parseInt(data[i][Schema.idx("QTY")]) || 0;
+
+    // Terminal-state rows don't reduce running stock — Master Inventory's
+    // quantitySold has already accounted for them. Their HAND value is
+    // historical and we leave it alone.
+    if (Schema.isTerminal(status)) {
+      newHandValues.push([data[i][Schema.idx("HAND")]]);
+      continue;
+    }
+
+    // Initialize MI.available cache for this SKU on first sighting
+    if (!(skuLower in runningStock)) {
+      var inv = inventoryMap.get(skuLower);
+      runningStock[skuLower] = inv ? inv.available : 0;
+    }
+
+    // HAND = MI.available, no decrement. Every non-terminal row for this SKU
+    // gets the same value. eBay's QuantitySold already accounts for every
+    // committed qty; per-row decrement would double-count.
+    newHandValues.push([runningStock[skuLower]]);
+    updatedCount++;
+  }
+
+  // Single batched write to col G (HAND)
+  sheet.getRange(Schema.dataStartRow, Schema.cols.HAND, nRows, 1).setValues(newHandValues);
+
+  return "✅ HAND recomputed for " + updatedCount + " active row(s).";
+}
+
+
+/**
+ * Run ONCE from the Apps Script Editor (or sidebar) to install a 15-minute
+ * trigger that auto-runs recomputeHand(). Pairs naturally with the n8n
+ * Master Inventory full-sync workflow that runs every 15 min — this picks
+ * up the fresh quantitySold data and rewrites HAND across the sheet without
+ * manual clicks.
+ *
+ * Idempotent — removes any existing recomputeHand trigger before creating
+ * the new one, so re-running won't pile up duplicates.
+ *
+ * Quota cost: ~96 invocations/day × ~2s avg = 3 min/day execution time.
+ * Well within Apps Script's 90 min/day allowance.
+ */
+function setupHandRecomputeTrigger() {
+  var triggers = ScriptApp.getProjectTriggers();
+  for (var i = 0; i < triggers.length; i++) {
+    if (triggers[i].getHandlerFunction() === 'recomputeHand') {
+      ScriptApp.deleteTrigger(triggers[i]);
+    }
+  }
+
+  ScriptApp.newTrigger('recomputeHand')
+    .timeBased()
+    .everyMinutes(15)
+    .create();
+
+  Logger.log("HAND recompute trigger installed: every 15 minutes");
+  try {
+    SpreadsheetApp.getUi().alert(
+      "Trigger Installed",
+      "HAND will auto-recompute every 15 minutes — pairs with the 15-min " +
+      "Master Inventory sync.",
+      SpreadsheetApp.getUi().ButtonSet.OK
+    );
+  } catch (e) { /* no UI context */ }
+}
+
+/** Removes the auto-recompute trigger. Manual cleanup helper. */
+function removeHandRecomputeTrigger() {
+  var triggers = ScriptApp.getProjectTriggers();
+  var removed = 0;
+  for (var i = 0; i < triggers.length; i++) {
+    if (triggers[i].getHandlerFunction() === 'recomputeHand') {
+      ScriptApp.deleteTrigger(triggers[i]);
+      removed++;
+    }
+  }
+  Logger.log("Removed " + removed + " recomputeHand trigger(s).");
+  return "Removed " + removed + " trigger(s).";
+}
+
 
 /**
  * Sets up conditional formatting on the HAND column (Column G)
@@ -96,7 +243,7 @@ function setupHandConditionalFormatting() {
     var ranges = rules[i].getRanges();
     var isHandRule = false;
     for (var j = 0; j < ranges.length; j++) {
-      if (ranges[j].getColumn() === HAND_COLUMN && ranges[j].getNumColumns() === 1) {
+      if (ranges[j].getColumn() === Schema.cols.HAND && ranges[j].getNumColumns() === 1) {
         isHandRule = true;
         break;
       }
@@ -106,13 +253,13 @@ function setupHandConditionalFormatting() {
 
   // Clear stale manual backgrounds ONLY on data rows (skip boundary + header)
   var boundary = getBoundaryRow();
-  var lastRow = Math.max(sheet.getLastRow(), DATA_START_ROW);
+  var lastRow = Math.max(sheet.getLastRow(), Schema.dataStartRow);
 
   // eBay data rows
-  if (boundary > DATA_START_ROW) {
-    var ebayCount = boundary - 1 - DATA_START_ROW + 1;
+  if (boundary > Schema.dataStartRow) {
+    var ebayCount = boundary - 1 - Schema.dataStartRow + 1;
     if (ebayCount > 0) {
-      sheet.getRange(DATA_START_ROW, HAND_COLUMN, ebayCount, 1).setBackground(null);
+      sheet.getRange(Schema.dataStartRow, Schema.cols.HAND, ebayCount, 1).setBackground(null);
     }
   }
 
@@ -121,14 +268,14 @@ function setupHandConditionalFormatting() {
     var directStart = boundary + 2;
     var directCount = lastRow - directStart + 1;
     if (directCount > 0) {
-      sheet.getRange(directStart, HAND_COLUMN, directCount, 1).setBackground(null);
+      sheet.getRange(directStart, Schema.cols.HAND, directCount, 1).setBackground(null);
     }
   }
 
   // Build conditional formatting rule using custom formula
   // Only triggers on numeric values <= 20, ignores empty cells and text
-  var handRange = sheet.getRange(DATA_START_ROW, HAND_COLUMN, 1000, 1);
-  var formula = "=AND(ISNUMBER(G" + DATA_START_ROW + "), G" + DATA_START_ROW + "<=20)";
+  var handRange = sheet.getRange(Schema.dataStartRow, Schema.cols.HAND, 1000, 1);
+  var formula = "=AND(ISNUMBER(G" + Schema.dataStartRow + "), G" + Schema.dataStartRow + "<=20)";
   var rule = SpreadsheetApp.newConditionalFormatRule()
     .whenFormulaSatisfied(formula)
     .setBackground("#FF6B6B")
@@ -147,6 +294,8 @@ function setupHandConditionalFormatting() {
 function getLiveUpdateState() {
   var s = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(LIVE_UPDATE_SHEET);
   return s ? s.getRange(LIVE_UPDATE_TOGGLE_CELL).getValue() : "OFF";
+  // (Note: LIVE_UPDATE_TOGGLE_CELL is "B1" in the Settings sheet —
+  //  not in Schema because Schema is for the All Orders sheet's structure)
 }
 
 /**
@@ -159,4 +308,90 @@ function toggleLiveUpdate(st) {
   var s = ss.getSheetByName(LIVE_UPDATE_SHEET) || ss.insertSheet(LIVE_UPDATE_SHEET).hideSheet();
   s.getRange(LIVE_UPDATE_TOGGLE_CELL).setValue(st);
   return st;
+}
+
+/**
+ * Updates Master Inventory rows by itemId with fresh qty/quantitySold/qtyLastSync.
+ * Called by doPost when n8n sends action=updateMiRows. Skips itemIds not found
+ * in MI (defensive — never inserts new rows; appendOrUpdate could pollute the
+ * 174-column structure with mostly-empty rows).
+ *
+ * Input: rows = [{ itemId, sku?, quantity, quantitySold }]
+ * Returns: { updated, notFound }
+ *
+ * Use case: n8n's eBay-orders workflow calls this per batch BEFORE doPost
+ * inserts the order. Net effect: by the time doPost reads MI for HAND, the
+ * affected SKUs are already current. No more "ordered N units, sheet still
+ * shows pre-sale qty" gap.
+ */
+function updateMiRows(rows) {
+  if (!Array.isArray(rows) || rows.length === 0) {
+    return { updated: 0, notFound: 0 };
+  }
+
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  var miSheet = ss.getSheetByName(DB_SHEET_NAME);
+  if (!miSheet) {
+    throw new Error(DB_SHEET_NAME + " sheet not found");
+  }
+
+  var lastRow = miSheet.getLastRow();
+  var lastCol = miSheet.getLastColumn();
+  if (lastRow < 2 || lastCol < 1) {
+    return { updated: 0, notFound: rows.length };
+  }
+
+  var headers = miSheet.getRange(1, 1, 1, lastCol).getValues()[0];
+
+  // Find columns by header name (case-insensitive trim).
+  function findCol(name) {
+    var target = String(name).trim().toLowerCase();
+    for (var i = 0; i < headers.length; i++) {
+      if (String(headers[i]).trim().toLowerCase() === target) return i + 1;
+    }
+    return -1;
+  }
+
+  var itemIdCol   = findCol('itemId');
+  var qtyCol      = findCol(DB_QUANTITY_HEADER);       // "quantity"
+  var qtySoldCol  = findCol(DB_QUANTITY_SOLD_HEADER);  // "quantitySold"
+  var lastSyncCol = findCol('qtyLastSync');             // optional — only stamped if present
+
+  if (itemIdCol < 0 || qtyCol < 0 || qtySoldCol < 0) {
+    throw new Error("Required MI columns not found (need: itemId, " +
+      DB_QUANTITY_HEADER + ", " + DB_QUANTITY_SOLD_HEADER + ")");
+  }
+
+  // Build itemId → row map (one read of the itemId column).
+  var itemIdValues = miSheet.getRange(2, itemIdCol, lastRow - 1, 1).getValues();
+  var rowByItemId = {};
+  for (var r = 0; r < itemIdValues.length; r++) {
+    var id = String(itemIdValues[r][0] || '').trim();
+    if (id) rowByItemId[id] = r + 2;  // sheet row number, accounting for header
+  }
+
+  var nowIso = new Date().toISOString();
+  var updated = 0, notFound = 0;
+
+  for (var k = 0; k < rows.length; k++) {
+    var input = rows[k] || {};
+    var targetId = String(input.itemId || '').trim();
+    if (!targetId) { notFound++; continue; }
+
+    var rowNum = rowByItemId[targetId];
+    if (!rowNum) { notFound++; continue; }
+
+    miSheet.getRange(rowNum, qtyCol).setValue(parseInt(input.quantity, 10) || 0);
+    miSheet.getRange(rowNum, qtySoldCol).setValue(parseInt(input.quantitySold, 10) || 0);
+    if (lastSyncCol > 0) {
+      miSheet.getRange(rowNum, lastSyncCol).setValue(nowIso);
+    }
+    updated++;
+  }
+
+  // Force the writes to land before subsequent reads (the doPost insert that
+  // triggered this call is going to read MI in its next step).
+  SpreadsheetApp.flush();
+
+  return { updated: updated, notFound: notFound };
 }

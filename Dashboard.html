@@ -1,0 +1,662 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>HQ Motor Service · Warehouse Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;700&family=Roboto+Mono:wght@400;700&family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
+  <style>
+    /* ==================================================================
+       HQ MOTOR SERVICE — WAREHOUSE DASHBOARD (sample, shipped 2026-05-22)
+       TV-friendly fullscreen view. Auto-refreshes every 30s via getSidebarTick.
+       Brand: dark ink + brand yellow accent. Same palette as the sheet
+       header + sidebar header.
+       ================================================================== */
+    :root {
+      --ink:           #0e0e0d;
+      --ink-soft:      #1d1d1b;
+      --ink-mute:      #2a2a28;
+      --paper-warm:    #fff8e7;
+      --brand-yellow:  #ffd400;
+      --brand-rim:     #ffd966;
+      --brand-soft:    #fff4b0;
+      --green-go:      #4caf50;
+      --green-bg:      rgba(76,175,80,0.18);
+      --amber-warn:    #ffb84d;
+      --amber-bg:      rgba(255,184,77,0.20);
+      --red-alert:     #ff6b6b;
+      --red-bg:        rgba(255,107,107,0.20);
+      --rule:          rgba(255,212,0,0.18);
+      --mute:          rgba(255,255,255,0.55);
+      --mute-soft:     rgba(255,255,255,0.30);
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+      height: 100%;
+      background: var(--ink);
+      color: #f5f5f5;
+      font-family: 'Roboto', -apple-system, BlinkMacSystemFont, sans-serif;
+      overflow: hidden;
+    }
+
+    .dash {
+      height: 100vh;
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      padding: 18px 28px;
+      gap: 18px;
+    }
+
+    /* ------ HEADER ------ */
+    .hdr {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--rule);
+    }
+    .hdr-brand {
+      display: flex;
+      align-items: baseline;
+      gap: 14px;
+    }
+    .hdr-monogram {
+      font-family: 'Oswald', sans-serif;
+      font-size: 36px;
+      font-weight: 700;
+      color: var(--brand-yellow);
+      letter-spacing: 0.04em;
+      line-height: 1;
+    }
+    .hdr-wordmark {
+      font-family: 'Oswald', sans-serif;
+      font-size: 14px;
+      font-weight: 500;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      color: var(--mute);
+    }
+    .hdr-clock {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 2px;
+    }
+    .hdr-clock-time {
+      font-family: 'Roboto Mono', monospace;
+      font-size: 32px;
+      font-weight: 700;
+      color: var(--brand-yellow);
+      letter-spacing: 0.04em;
+      line-height: 1;
+    }
+    .hdr-clock-date {
+      font-family: 'Oswald', sans-serif;
+      font-size: 12px;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--mute);
+    }
+
+    /* ------ MAIN GRID ------ */
+    .main {
+      display: grid;
+      grid-template-rows: minmax(180px, 30%) auto 1fr;
+      gap: 18px;
+    }
+
+    /* --- Today's stats (3 big numbers) --- */
+    .today {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 18px;
+    }
+    .stat {
+      background: var(--ink-soft);
+      border-radius: 8px;
+      padding: 18px 24px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      border: 1px solid var(--rule);
+      position: relative;
+      overflow: hidden;
+    }
+    .stat::before {
+      content: "";
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 4px;
+      background: var(--brand-yellow);
+      opacity: 0.6;
+    }
+    .stat-value {
+      font-family: 'Oswald', sans-serif;
+      font-weight: 700;
+      font-size: 96px;
+      line-height: 1;
+      color: var(--brand-yellow);
+      letter-spacing: -0.02em;
+      transition: transform 220ms ease, color 220ms ease;
+    }
+    .stat-value.urgent {
+      color: var(--red-alert);
+      animation: pulse 1.4s ease-in-out infinite;
+    }
+    .stat-value.warning {
+      color: var(--amber-warn);
+    }
+    .stat-value.long {
+      font-size: 68px;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50%      { opacity: 0.55; }
+    }
+    .stat-label {
+      margin-top: 8px;
+      font-family: 'Oswald', sans-serif;
+      font-size: 14px;
+      font-weight: 500;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      color: var(--mute);
+    }
+    .stat-pop {
+      animation: statPop 720ms ease-out;
+    }
+    @keyframes statPop {
+      0%   { transform: scale(1); text-shadow: 0 0 0 transparent; }
+      20%  { transform: scale(1.18); text-shadow: 0 0 22px var(--brand-yellow); }
+      100% { transform: scale(1); text-shadow: 0 0 0 transparent; }
+    }
+
+    /* --- Queue + pulse strip --- */
+    .strip {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 18px;
+      align-items: stretch;
+    }
+    .queue {
+      background: var(--ink-soft);
+      border: 1px solid var(--rule);
+      border-radius: 8px;
+      padding: 14px 22px;
+      display: flex;
+      align-items: center;
+      gap: 28px;
+    }
+    .queue-item {
+      display: flex;
+      align-items: baseline;
+      gap: 10px;
+    }
+    .queue-icon {
+      font-size: 22px;
+    }
+    .queue-label {
+      font-family: 'Oswald', sans-serif;
+      font-size: 13px;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--mute);
+    }
+    .queue-count {
+      font-family: 'Roboto Mono', monospace;
+      font-size: 28px;
+      font-weight: 700;
+      color: #f5f5f5;
+    }
+    .queue-count.zero { color: var(--mute-soft); }
+    .queue-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--brand-yellow);
+      margin-left: 6px;
+      animation: pulse 1.6s ease-in-out infinite;
+      align-self: center;
+    }
+    .queue-dot.hidden { display: none; }
+
+    .pulse {
+      background: var(--ink-soft);
+      border: 1px solid var(--rule);
+      border-radius: 8px;
+      padding: 14px 22px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+      min-width: 220px;
+    }
+    .pulse-state {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .pulse-dot {
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      animation: pulseBeat 1.6s ease-in-out infinite;
+    }
+    .pulse-dot.alive { background: var(--green-go); box-shadow: 0 0 12px var(--green-go); }
+    .pulse-dot.idle  { background: var(--amber-warn); box-shadow: 0 0 10px var(--amber-warn); }
+    .pulse-dot.stale { background: var(--red-alert);  box-shadow: 0 0 14px var(--red-alert); animation-duration: 0.8s; }
+    .pulse-dot.gone  { background: var(--mute-soft); animation: none; }
+    @keyframes pulseBeat {
+      0%, 100% { transform: scale(1);    opacity: 1;   }
+      50%      { transform: scale(1.18); opacity: 0.7; }
+    }
+    .pulse-label {
+      font-family: 'Oswald', sans-serif;
+      font-size: 13px;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--brand-yellow);
+      font-weight: 500;
+    }
+    .pulse-sub {
+      font-family: 'Roboto Mono', monospace;
+      font-size: 11px;
+      color: var(--mute);
+      letter-spacing: 0.04em;
+    }
+
+    /* --- Alerts panel --- */
+    .alerts {
+      background: var(--ink-soft);
+      border: 1px solid var(--rule);
+      border-radius: 8px;
+      padding: 16px 22px;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .alerts-title {
+      font-family: 'Oswald', sans-serif;
+      font-size: 14px;
+      font-weight: 700;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      color: var(--mute);
+      margin-bottom: 12px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--rule);
+    }
+    .alerts-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 14px;
+      flex: 1;
+    }
+    .alert-card {
+      background: var(--ink-mute);
+      border-radius: 6px;
+      padding: 14px 18px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      border-left: 4px solid var(--mute-soft);
+      transition: border-color 200ms;
+      min-height: 78px;
+    }
+    .alert-card.active   { border-left-color: var(--amber-warn); background: rgba(255,184,77,0.07); }
+    .alert-card.critical { border-left-color: var(--red-alert);  background: rgba(255,107,107,0.10); }
+    .alert-card.clear    { border-left-color: var(--green-go);   background: rgba(76,175,80,0.06); }
+    .alert-count {
+      font-family: 'Oswald', sans-serif;
+      font-size: 36px;
+      font-weight: 700;
+      line-height: 1;
+      color: #f5f5f5;
+    }
+    .alert-card.active   .alert-count { color: var(--amber-warn); }
+    .alert-card.critical .alert-count { color: var(--red-alert);  }
+    .alert-card.clear    .alert-count { color: var(--green-go);   }
+    .alert-label {
+      margin-top: 6px;
+      font-family: 'Oswald', sans-serif;
+      font-size: 11px;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--mute);
+    }
+
+    /* --- Footer --- */
+    .ftr {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding-top: 10px;
+      border-top: 1px solid var(--rule);
+      font-family: 'Roboto Mono', monospace;
+      font-size: 11px;
+      color: var(--mute);
+      letter-spacing: 0.06em;
+    }
+    .ftr-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .ftr-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--green-go);
+      animation: pulse 2s ease-in-out infinite;
+    }
+    .ftr-version {
+      color: var(--mute-soft);
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+    }
+
+    /* --- Loading state --- */
+    .loading .stat-value,
+    .loading .alert-count,
+    .loading .queue-count {
+      opacity: 0.3;
+    }
+  </style>
+</head>
+<body>
+  <div class="dash loading" id="dash">
+
+    <!-- HEADER -->
+    <div class="hdr">
+      <div class="hdr-brand">
+        <div class="hdr-monogram">HQ</div>
+        <div class="hdr-wordmark">Motor Service · Warehouse Dashboard</div>
+      </div>
+      <div class="hdr-clock">
+        <div class="hdr-clock-time" id="clockTime">—:—</div>
+        <div class="hdr-clock-date" id="clockDate">loading…</div>
+      </div>
+    </div>
+
+    <!-- MAIN -->
+    <div class="main">
+
+      <!-- TODAY'S STATS -->
+      <div class="today">
+        <div class="stat">
+          <div class="stat-value" id="shippedToday">—</div>
+          <div class="stat-label">Shipped Today</div>
+        </div>
+        <div class="stat">
+          <div class="stat-value" id="receivedToday">—</div>
+          <div class="stat-label">Received Today</div>
+        </div>
+        <div class="stat">
+          <div class="stat-value" id="oldestPending">—</div>
+          <div class="stat-label">Oldest Pending</div>
+        </div>
+      </div>
+
+      <!-- QUEUE + PULSE STRIP -->
+      <div class="strip">
+        <div class="queue">
+          <div class="queue-item">
+            <span class="queue-icon">📦</span>
+            <span class="queue-label">eBay</span>
+            <span class="queue-count" id="ebayQueue">—</span>
+          </div>
+          <div class="queue-item">
+            <span class="queue-icon">📋</span>
+            <span class="queue-label">Direct</span>
+            <span class="queue-count" id="directQueue">—</span>
+            <span class="queue-dot hidden" id="zohoDot" title="Includes new Zoho SOs"></span>
+          </div>
+          <div class="queue-item">
+            <span class="queue-icon">🛠</span>
+            <span class="queue-label">Prep</span>
+            <span class="queue-count" id="prepQueue">—</span>
+          </div>
+        </div>
+        <div class="pulse">
+          <div class="pulse-state">
+            <div class="pulse-dot gone" id="pulseDot"></div>
+            <div class="pulse-label" id="pulseLabel">—</div>
+          </div>
+          <div class="pulse-sub" id="pulseSub">awaiting first tick</div>
+        </div>
+      </div>
+
+      <!-- ALERTS -->
+      <div class="alerts">
+        <div class="alerts-title">Attention</div>
+        <div class="alerts-grid" id="alertsGrid">
+          <!-- populated by JS -->
+        </div>
+      </div>
+
+    </div>
+
+    <!-- FOOTER -->
+    <div class="ftr">
+      <div class="ftr-tag">
+        <div class="ftr-dot"></div>
+        <span>Live · refreshes every 30s</span>
+      </div>
+      <div class="ftr-tag">
+        <span>Last update: <span id="lastUpdate">—</span></span>
+      </div>
+      <div class="ftr-version">DASHBOARD · v0.1 · SAMPLE</div>
+    </div>
+
+  </div>
+
+  <script>
+    // =====================================================================
+    // DASHBOARD CLIENT (sample, v0.1)
+    // Polls getSidebarTick() every 30s and paints the layout.
+    // Reuses the same server function the sidebar heartbeat uses — single
+    // source of truth for dashboard + sidebar data.
+    // =====================================================================
+    var POLL_MS = 30000;
+    var dashEl = document.getElementById('dash');
+    var prevValues = {};
+
+    // --- CLOCK (own tick, not server-dependent) ---
+    function tickClock() {
+      var d = new Date();
+      var h = d.getHours();
+      var m = d.getMinutes();
+      var ampm = h >= 12 ? 'PM' : 'AM';
+      h = h % 12 || 12;
+      var mm = m < 10 ? ('0' + m) : m;
+      document.getElementById('clockTime').textContent = h + ':' + mm + ' ' + ampm;
+
+      var days = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+      var months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+      document.getElementById('clockDate').textContent =
+        days[d.getDay()] + ' · ' + months[d.getMonth()] + ' ' + d.getDate();
+    }
+    setInterval(tickClock, 30000);
+    tickClock();
+
+    // --- POP ANIMATION when a number increases ---
+    function paintNumber(elId, newVal, formatter) {
+      var el = document.getElementById(elId);
+      if (!el) return;
+      var formatted = formatter ? formatter(newVal) : String(newVal);
+      el.textContent = formatted;
+
+      // long-string scaling (for time durations like "16h 40m")
+      el.classList.toggle('long', formatted.length >= 6);
+
+      // pop animation when value increased
+      var prev = prevValues[elId];
+      if (typeof prev === 'number' && typeof newVal === 'number' && newVal > prev) {
+        el.classList.remove('stat-pop');
+        void el.offsetWidth;
+        el.classList.add('stat-pop');
+      }
+      prevValues[elId] = newVal;
+    }
+
+    function formatOldest(minutes) {
+      if (minutes == null || minutes < 0) return '—';
+      if (minutes < 60)      return minutes + 'm';
+      if (minutes < 60 * 24) {
+        var h = Math.floor(minutes / 60);
+        var m = minutes % 60;
+        return h + 'h ' + (m < 10 ? '0' + m : m) + 'm';
+      }
+      var d = Math.floor(minutes / (60 * 24));
+      var rh = Math.floor((minutes % (60 * 24)) / 60);
+      return d + 'd ' + rh + 'h';
+    }
+
+    function formatSync(minutes) {
+      if (minutes == null || minutes < 0) return 'no sync detected';
+      if (minutes < 1)  return 'just now';
+      if (minutes < 60) return minutes + ' min ago';
+      var h = Math.floor(minutes / 60);
+      var m = minutes % 60;
+      return h + 'h ' + (m < 10 ? '0' + m : m) + 'm ago';
+    }
+
+    // --- PAINT helpers ---
+    function paintCockpit(c) {
+      if (!c) return;
+      paintNumber('shippedToday',   c.shippedToday   || 0);
+      paintNumber('receivedToday',  c.receivedToday  || 0);
+
+      // Oldest pending — tier-colored based on minutes
+      var op = c.oldestPendingMinutes;
+      var opEl = document.getElementById('oldestPending');
+      opEl.classList.remove('urgent', 'warning');
+      if (op == null || op < 0) {
+        opEl.textContent = '—';
+        opEl.classList.add('long');
+      } else {
+        var formatted = formatOldest(op);
+        opEl.textContent = formatted;
+        opEl.classList.toggle('long', formatted.length >= 6);
+        if (op >= 180) opEl.classList.add('urgent');
+        else if (op >= 60) opEl.classList.add('warning');
+      }
+      prevValues['oldestPending'] = op;
+
+      // Queue strip
+      paintNumber('ebayQueue',   c.ebayPending     || 0);
+      paintNumber('directQueue', c.directPending   || 0);
+      paintNumber('prepQueue',   c.prepQueueCount  || 0);
+
+      // Zoho sub-indicator dot on Direct
+      var zohoDot = document.getElementById('zohoDot');
+      if (zohoDot) {
+        zohoDot.classList.toggle('hidden', !c.zohoPending || c.zohoPending === 0);
+      }
+      ['ebayQueue', 'directQueue', 'prepQueue'].forEach(function(id) {
+        var el = document.getElementById(id);
+        if (el) el.classList.toggle('zero', el.textContent === '0');
+      });
+
+      // System Pulse
+      var pulseDot   = document.getElementById('pulseDot');
+      var pulseLabel = document.getElementById('pulseLabel');
+      var pulseSub   = document.getElementById('pulseSub');
+      pulseDot.classList.remove('alive', 'idle', 'stale', 'gone');
+      var lsm = c.lastSyncMinutes;
+      if (lsm == null || lsm < 0) {
+        pulseDot.classList.add('gone');
+        pulseLabel.textContent = 'OFFLINE';
+        pulseSub.textContent = 'no sync detected';
+      } else if (lsm < 15) {
+        pulseDot.classList.add('alive');
+        pulseLabel.textContent = 'ALIVE';
+        pulseSub.textContent = formatSync(lsm);
+      } else if (lsm < 60) {
+        pulseDot.classList.add('idle');
+        pulseLabel.textContent = 'IDLE';
+        pulseSub.textContent = formatSync(lsm);
+      } else {
+        pulseDot.classList.add('stale');
+        pulseLabel.textContent = 'STALE';
+        pulseSub.textContent = formatSync(lsm);
+      }
+    }
+
+    function paintAlerts(a) {
+      // Card definitions — order matters (priority of attention)
+      // [key, label, criticalThreshold] — critical when value >= threshold
+      var defs = [
+        ['paidShipping', 'Paid Shipping', 1],
+        ['intl',         'International', 1],
+        ['lowStock',     'Low Stock',     1],
+        ['notFound',     'NOT FOUND',     1],
+        ['outOfStock',   'Out of Stock',  1],
+        ['newFromZoho',  'New Zoho SO',   1]
+      ];
+      var grid = document.getElementById('alertsGrid');
+      grid.innerHTML = '';
+      var anyActive = false;
+      defs.forEach(function(def) {
+        var key = def[0], label = def[1];
+        var count = (a && typeof a[key] === 'number') ? a[key] : 0;
+        var cls = 'alert-card';
+        if (count >= 5)      { cls += ' critical'; anyActive = true; }
+        else if (count >= 1) { cls += ' active';   anyActive = true; }
+        var card = document.createElement('div');
+        card.className = cls;
+        card.innerHTML =
+          '<div class="alert-count">' + count + '</div>'
+          + '<div class="alert-label">' + label + '</div>';
+        grid.appendChild(card);
+      });
+
+      // If nothing's active, soft-paint the cards as "all clear"
+      if (!anyActive) {
+        Array.prototype.forEach.call(grid.children, function(card) {
+          if (card.classList.contains('alert-card') && !card.classList.contains('active') && !card.classList.contains('critical')) {
+            card.classList.add('clear');
+          }
+        });
+      }
+    }
+
+    function paintLastUpdate() {
+      var d = new Date();
+      var h = d.getHours();
+      var m = d.getMinutes();
+      var s = d.getSeconds();
+      var pad = function(n) { return n < 10 ? '0' + n : '' + n; };
+      document.getElementById('lastUpdate').textContent =
+        pad(h) + ':' + pad(m) + ':' + pad(s);
+    }
+
+    // --- POLL ---
+    function refresh() {
+      if (typeof google === 'undefined' || !google.script) return;
+      google.script.run
+        .withSuccessHandler(function(tick) {
+          dashEl.classList.remove('loading');
+          if (!tick) return;
+          paintCockpit(tick.cockpit);
+          paintAlerts(tick.alerts);
+          paintLastUpdate();
+        })
+        .withFailureHandler(function(err) {
+          // Silent — keep last-known values painted; footer dot will keep pulsing
+          console.error('Tick failed:', err);
+        })
+        .getSidebarTick();
+    }
+
+    refresh();
+    setInterval(refresh, POLL_MS);
+  </script>
+</body>
+</html>

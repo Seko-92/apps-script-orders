@@ -15,9 +15,9 @@ function liveUpdateTrigger(e) {
   var sheet = range.getSheet();
   
   if (sheet.getName() !== MAIN_SHEET_NAME) return;
-  
-  // Only trigger when SKU column (Column A) is edited
-  if (range.getColumn() === SKU_COLUMN) {
+
+  // Only trigger when SKU column is edited
+  if (range.getColumn() === Schema.cols.SKU) {
     var edits = range.getValues();
     var startRow = range.getRow();
     var locationResults = [];
@@ -47,12 +47,12 @@ function liveUpdateTrigger(e) {
 
       // Protect boundary row and DIRECT header row - preserve their content
       if (boundary > 0 && (currentRow === boundary || currentRow === boundary + 1)) {
-        locationResults.push([sheet.getRange(currentRow, LOCATION_COLUMN).getValue()]);
-        quantityResults.push([sheet.getRange(currentRow, HAND_COLUMN).getValue()]);
+        locationResults.push([sheet.getRange(currentRow, Schema.cols.LOCATION).getValue()]);
+        quantityResults.push([sheet.getRange(currentRow, Schema.cols.HAND).getValue()]);
         continue;
       }
 
-      if (skuLower === "" || skuLower === TABLE_TWO_IDENTIFIER.toLowerCase()) {
+      if (skuLower === "" || skuLower === Schema.boundaryMarker.toLowerCase()) {
         // Empty row or table separator
         locationResults.push([""]);
         quantityResults.push([""]);
@@ -78,17 +78,17 @@ function liveUpdateTrigger(e) {
         }
       }
     }
-    
-    // Update LOCATION column (Column C)
-    sheet.getRange(startRow, LOCATION_COLUMN, locationResults.length, 1).setValues(locationResults);
-    
-    // Update HAND column (Column G) - conditional formatting handles highlighting
-    var handRange = sheet.getRange(startRow, HAND_COLUMN, quantityResults.length, 1);
+
+    // Update LOCATION column
+    sheet.getRange(startRow, Schema.cols.LOCATION, locationResults.length, 1).setValues(locationResults);
+
+    // Update HAND column — conditional formatting handles highlighting
+    var handRange = sheet.getRange(startRow, Schema.cols.HAND, quantityResults.length, 1);
     handRange.setValues(quantityResults);
   }
-  
+
   // Only update stats when a data cell is edited (SKU or status column)
-  if (range.getColumn() === SKU_COLUMN || range.getColumn() === STATUS_COLUMN) {
+  if (range.getColumn() === Schema.cols.SKU || range.getColumn() === Schema.cols.STATUS) {
     updateOrderStatsInSheet();
   }
 }
