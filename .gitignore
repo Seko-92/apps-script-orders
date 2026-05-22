@@ -6,6 +6,15 @@
 Secrets.js
 Config.local.js
 
+# Personal / internal documentation (not for public repo)
+CLAUDE.md
+CONTRACTS.md
+TESTING_SETUP.md
+SECURITY_SETUP.md
+
+# Claude Code per-user configuration
+.claude/
+
 # CLASP Configuration (contains Google Apps Script Project ID)
 .clasp.json
 .clasprc.json
