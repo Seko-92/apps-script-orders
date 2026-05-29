@@ -6,6 +6,12 @@
 Secrets.js
 Config.local.js
 
+# Data exports / screenshots — may contain real customer PII (names, addresses, order IDs)
+Screenshots/
+*.xlsx
+*.xls
+*.csv
+
 # Personal / internal documentation (not for public repo)
 CLAUDE.md
 CONTRACTS.md

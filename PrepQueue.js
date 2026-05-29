@@ -159,35 +159,89 @@ function setupPrepQueueSheet() {
 
 
 /**
- * Quick lookup for the sidebar's live preview as the user types a SKU.
- * Returns { sku, location, hand, found } — `found` is false when the SKU
- * isn't in Master Inventory (sidebar uses this to flag NOT FOUND visually).
+ * Shared LOCATION + HAND resolution for the three Prep Queue entry paths
+ * (sidebar preview, quick-add, on-sheet edit). HAND prefers Zoho's
+ * available_stock — Prep items are restock/personal, so Zoho is the unified
+ * stock truth and covers items not listed on eBay — with MI as fallback. No
+ * committed subtraction: HAND = available, matching the All Orders HAND
+ * semantics (2026-05-09) so the Prep number equals the All Orders number.
  *
- * HAND value matches the All Orders sheet's HAND column: it's the available
- * stock AFTER subtracting any PENDING/PREPARING quantities already committed
- * by other orders. Type the same SKU on the All Orders sheet — same number.
+ * Pass pre-built maps for batch callers; omit them (null) for single lookups.
+ * Returns { location, hand, found }. `found` is true when the SKU is known to
+ * either MI (eBay shelf) or Zoho.
+ */
+function _prepResolveStock(skuLower, locationMap, inventoryMap, zohoMap) {
+  var location = locationMap ? (locationMap.get(skuLower) || "NOT FOUND")
+                             : getSingleLocation(skuLower);
+  var inMi = (location !== "NOT FOUND");
+
+  var zo = zohoMap ? zohoMap.get(skuLower) : getSingleZohoStock(skuLower);
+  var hand = "";
+  if (zo) {
+    hand = zo.available;
+  } else if (inMi) {
+    var inv = inventoryMap ? inventoryMap.get(skuLower) : getSingleInventory(skuLower);
+    hand = inv ? inv.available : "";
+  }
+
+  return { location: location, hand: hand, found: (inMi || zo != null) };
+}
+
+
+/**
+ * Quick lookup for the sidebar's live preview as the user types a SKU.
+ * Returns { sku, location, hand, found } — `found` is false when the SKU is
+ * unknown to both MI and Zoho (sidebar uses this to flag NOT FOUND visually).
+ *
+ * HAND matches the All Orders sheet's HAND column (Zoho-first for direct/non-
+ * eBay items, MI for eBay items; no committed subtraction).
  */
 function lookupSkuForPrepQueue(sku) {
   var skuLower = String(sku || "").trim().toLowerCase();
   if (!skuLower) return { sku: "", location: "", hand: "", found: false };
 
-  var location = getSingleLocation(skuLower);
-  var inv = getSingleInventory(skuLower);
-  var found = (location !== "NOT FOUND");
+  var r = _prepResolveStock(skuLower, null, null, null);
+  return { sku: skuLower, location: r.location, hand: r.hand, found: r.found };
+}
 
-  var hand = "";
-  if (inv && found) {
-    var committedMap = getCommittedQuantities();
-    var committed = committedMap.get(skuLower) || 0;
-    hand = inv.available - committed;
+
+/**
+ * Rewrite HAND for EVERY existing Prep Queue row from the current MI + Zoho
+ * maps. This is the Prep-Queue counterpart to recomputeHand (which only walks
+ * the All Orders sheet) — without it, Prep rows stayed frozen at their entry
+ * value unless the picker re-typed the SKU. Zoho-first, MI fallback, no
+ * committed subtraction. Only HAND is rewritten; LOCATION/QTY/NOTE/DATE are
+ * left untouched. Returns a status string.
+ */
+function refreshPrepQueueHand() {
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  var sheet = ss.getSheetByName(PREP_QUEUE.sheetName);
+  if (!sheet) return "ℹ️ Prep Queue sheet not found.";
+
+  var lastRow = sheet.getLastRow();
+  if (lastRow < PREP_QUEUE.dataStartRow) return "ℹ️ Prep Queue empty.";
+
+  var nRows = lastRow - PREP_QUEUE.dataStartRow + 1;
+  var skuVals  = sheet.getRange(PREP_QUEUE.dataStartRow, PREP_QUEUE.cols.SKU,  nRows, 1).getValues();
+  var handVals = sheet.getRange(PREP_QUEUE.dataStartRow, PREP_QUEUE.cols.HAND, nRows, 1).getValues();
+
+  var maps = buildLocationAndInventoryMaps();
+  var locationMap  = maps.locationMap;
+  var inventoryMap = maps.inventoryMap;
+  var zohoMap      = buildZohoStockMap();
+
+  var out = [];
+  var updated = 0;
+  for (var i = 0; i < nRows; i++) {
+    var sku = String(skuVals[i][0] || "").trim();
+    if (!sku) { out.push([handVals[i][0]]); continue; }   // preserve blank rows as-is
+    var r = _prepResolveStock(sku.toLowerCase(), locationMap, inventoryMap, zohoMap);
+    out.push([r.hand]);
+    updated++;
   }
 
-  return {
-    sku: skuLower,
-    location: location,
-    hand: hand,
-    found: found
-  };
+  sheet.getRange(PREP_QUEUE.dataStartRow, PREP_QUEUE.cols.HAND, nRows, 1).setValues(out);
+  return "✅ Prep Queue HAND refreshed for " + updated + " row(s).";
 }
 
 
@@ -214,17 +268,12 @@ function addPrepQueueItem(sku, qty, note) {
   note = String(note || "").trim();
 
   // Inline lookup (programmatic writes don't trigger prepQueueOnEdit).
-  // HAND matches All Orders' HAND math: available - committed.
+  // HAND is Zoho-first (matches All Orders' HAND semantics, no committed sub).
   var skuLower = sku.toLowerCase();
-  var location = getSingleLocation(skuLower);
-  var inv = getSingleInventory(skuLower);
-  var found = (location !== "NOT FOUND");
-  var hand = "";
-  if (inv && found) {
-    var committedMap = getCommittedQuantities();
-    var committed = committedMap.get(skuLower) || 0;
-    hand = inv.available - committed;
-  }
+  var r = _prepResolveStock(skuLower, null, null, null);
+  var location = r.location;
+  var hand = r.hand;
+  var found = r.found;
 
   var nowStr = Utilities.formatDate(new Date(), "America/Chicago", "M/d/yy h:mm a");
 
@@ -391,18 +440,19 @@ function prepQueueOnEdit(e) {
     var edits = e.range.getValues();
     var startRow = e.range.getRow();
 
-    // Pre-build lookup maps once for the whole batch (cheaper than per-row).
-    // Also build the committed-quantities map ONCE so HAND math matches the
-    // All Orders sheet (HAND = inventory.available - committed PENDING/PREPARING).
+    // Pre-build lookup maps once for the whole batch (cheaper than per-row):
+    // MI (location + eBay stock) + Zoho (direct/non-eBay stock). HAND is
+    // Zoho-first, matching the All Orders HAND semantics.
     var useMap = edits.length > 3;
     var locationMap = null;
     var inventoryMap = null;
-    var committedMap = getCommittedQuantities();
+    var zohoMap = null;
 
     if (useMap) {
       var maps = buildLocationAndInventoryMaps();
       locationMap = maps.locationMap;
       inventoryMap = maps.inventoryMap;
+      zohoMap = buildZohoStockMap();
     }
 
     var nowStr = Utilities.formatDate(new Date(), "America/Chicago", "M/d/yy h:mm a");
@@ -420,30 +470,10 @@ function prepQueueOnEdit(e) {
         continue;
       }
 
-      // --- Resolve LOCATION ---
-      var location;
-      if (useMap) {
-        location = locationMap.get(skuLower) || "NOT FOUND";
-      } else {
-        location = getSingleLocation(skuLower);
-      }
-
-      // --- Resolve HAND (matches All Orders HAND math: available - committed) ---
-      var hand;
-      var found = (location !== "NOT FOUND");
-      if (!found) {
-        hand = "";   // SKU not in Master Inventory — leave HAND blank
-      } else {
-        var inv;
-        if (useMap) inv = inventoryMap.get(skuLower);
-        else        inv = getSingleInventory(skuLower);
-        var available = inv ? inv.available : 0;
-        var committed = committedMap.get(skuLower) || 0;
-        hand = available - committed;
-      }
-
-      sheet.getRange(row, PREP_QUEUE.cols.LOCATION).setValue(location);
-      sheet.getRange(row, PREP_QUEUE.cols.HAND).setValue(hand);
+      // Resolve LOCATION + HAND (Zoho-first HAND, MI fallback; no committed sub).
+      var r = _prepResolveStock(skuLower, locationMap, inventoryMap, zohoMap);
+      sheet.getRange(row, PREP_QUEUE.cols.LOCATION).setValue(r.location);
+      sheet.getRange(row, PREP_QUEUE.cols.HAND).setValue(r.hand);
 
       // Stamp DATE ADDED. Re-stamp on EVERY SKU edit (the row's "added" date
       // is when this SKU landed, not when the row was first created — if you

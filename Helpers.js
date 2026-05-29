@@ -122,9 +122,12 @@ function recomputeHand() {
   var data = sheet.getRange(Schema.dataStartRow, 1, nRows, Schema.cols.HAND).getValues();
 
   var boundary = getBoundaryRow();
-  var runningStock = {};       // skuLower → remaining stock as we iterate
+  // Zoho stock mirror (SKU → {available}). Empty map if the sheet doesn't exist
+  // yet → every row falls back to MI, i.e. identical to pre-Zoho behavior.
+  var zohoMap = buildZohoStockMap();
   var newHandValues = [];      // 2D array (one cell per row) for batched setValues
   var updatedCount = 0;
+  var zohoSourced = 0;         // how many rows took their HAND from Zoho (debug signal)
 
   for (var i = 0; i < nRows; i++) {
     var rowNum = Schema.dataStartRow + i;
@@ -144,33 +147,40 @@ function recomputeHand() {
 
     var skuLower = rawSku.toLowerCase();
     var status = String(data[i][Schema.idx("STATUS")] || "").trim().toUpperCase();
-    var qty = parseInt(data[i][Schema.idx("QTY")]) || 0;
 
-    // Terminal-state rows don't reduce running stock — Master Inventory's
-    // quantitySold has already accounted for them. Their HAND value is
-    // historical and we leave it alone.
+    // Terminal-state rows keep their historical HAND — Master Inventory's
+    // quantitySold (and Zoho's committed netting) already account for them.
     if (Schema.isTerminal(status)) {
       newHandValues.push([data[i][Schema.idx("HAND")]]);
       continue;
     }
 
-    // Initialize MI.available cache for this SKU on first sighting
-    if (!(skuLower in runningStock)) {
-      var inv = inventoryMap.get(skuLower);
-      runningStock[skuLower] = inv ? inv.available : 0;
-    }
+    // Source routing (see resolveHandValue in ZohoStock.js):
+    //   DIRECT-table row (below the boundary header) → Zoho first.
+    //   Manually-typed eBay row (SALES ORDER isn't a clean eBay order id, e.g.
+    //     a "Replacement #: …" row)                  → Zoho first.
+    //   Automated eBay-order row (clean order id)    → MI first (eBay truth).
+    // No decrement either way: MI.available and Zoho.available_stock both
+    // already net committed qty (per the 2026-05-09 HAND semantics).
+    var isDirect = (boundary > 0 && rowNum > boundary + 1);
+    var preferZoho = isDirect || _isManualSalesOrder(data[i][Schema.idx("SALES_ORDER")]);
+    var miInv  = inventoryMap.get(skuLower);
+    var miAvail = miInv ? miInv.available : null;
+    var zo     = zohoMap.get(skuLower);
+    var zoAvail = zo ? zo.available : null;
 
-    // HAND = MI.available, no decrement. Every non-terminal row for this SKU
-    // gets the same value. eBay's QuantitySold already accounts for every
-    // committed qty; per-row decrement would double-count.
-    newHandValues.push([runningStock[skuLower]]);
+    var hand = resolveHandValue(miAvail, zoAvail, preferZoho);
+    if (preferZoho ? (zoAvail != null) : (miAvail == null && zoAvail != null)) zohoSourced++;
+
+    newHandValues.push([hand]);
     updatedCount++;
   }
 
   // Single batched write to col G (HAND)
   sheet.getRange(Schema.dataStartRow, Schema.cols.HAND, nRows, 1).setValues(newHandValues);
 
-  return "✅ HAND recomputed for " + updatedCount + " active row(s).";
+  return "✅ HAND recomputed for " + updatedCount + " active row(s)" +
+         (zohoSourced ? " (" + zohoSourced + " from Zoho)" : "") + ".";
 }
 
 
@@ -251,7 +261,11 @@ function setupHandConditionalFormatting() {
     if (!isHandRule) filtered.push(rules[i]);
   }
 
-  // Clear stale manual backgrounds ONLY on data rows (skip boundary + header)
+  // Clear stale manual backgrounds ONLY on data rows (skip boundary + header).
+  // Important after the v6 cutover: the OLD rule painted a red bg, so any cell
+  // that ever tripped low-stock under the old rule kept that bg even after the
+  // CF rule was swapped to font-only. Strip those legacy bgs here so the new
+  // font-only treatment isn't visually drowned out by leftover red fills.
   var boundary = getBoundaryRow();
   var lastRow = Math.max(sheet.getLastRow(), Schema.dataStartRow);
 
@@ -272,14 +286,17 @@ function setupHandConditionalFormatting() {
     }
   }
 
-  // Build conditional formatting rule using custom formula
-  // Only triggers on numeric values <= 20, ignores empty cells and text
+  // Build conditional formatting rule — Service Bay v6 font-only treatment.
+  // Mirrors _buildHandLowStockRule in BrandTheme.js: dark red `#b71c1c` + bold,
+  // NO background. Cell backgrounds are reserved for the highest-priority
+  // alerts (STATUS + paid SHIP COST). HAND stays a "noted but not screaming"
+  // secondary signal — bold font compensates for the lost bg.
   var handRange = sheet.getRange(Schema.dataStartRow, Schema.cols.HAND, 1000, 1);
   var formula = "=AND(ISNUMBER(G" + Schema.dataStartRow + "), G" + Schema.dataStartRow + "<=20)";
   var rule = SpreadsheetApp.newConditionalFormatRule()
     .whenFormulaSatisfied(formula)
-    .setBackground("#FF6B6B")
-    .setFontColor("#FFFFFF")
+    .setFontColor("#b71c1c")
+    .setBold(true)
     .setRanges([handRange])
     .build();
 

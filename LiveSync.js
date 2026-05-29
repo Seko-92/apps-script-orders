@@ -23,22 +23,21 @@ function liveUpdateTrigger(e) {
     var locationResults = [];
     var quantityResults = [];
 
-    var useMap = edits.length > 5;
-    var locationMap = null;
-    var inventoryMap = null;
+    // Build maps once (MI for location + eBay stock, Zoho for direct/non-eBay
+    // stock). This is cheaper than the old per-row single lookups, which each
+    // did a full MI read anyway. The Zoho map is empty if the Zoho Stock sheet
+    // doesn't exist → HAND falls back to MI exactly as before this feature.
+    var maps = buildLocationAndInventoryMaps();
+    var locationMap = maps.locationMap;
+    var inventoryMap = maps.inventoryMap;
+    var zohoMap = buildZohoStockMap();
 
-    if (useMap) {
-      // Build both maps for bulk operations
-      var maps = buildLocationAndInventoryMaps();
-      locationMap = maps.locationMap;
-      inventoryMap = maps.inventoryMap;
-    }
-
-    // Build committed orders map to subtract from available stock
-    var committedMap = getCommittedQuantities();
-
-    // Get boundary row to protect DIRECT boundary and header from being overwritten
+    // Get boundary row to (a) protect divider/header and (b) route HAND source.
     var boundary = getBoundaryRow();
+
+    // SALES ORDER values for the edited rows — used to tell a manually-typed
+    // eBay row (Zoho-first) from an automated eBay-order row (MI-first).
+    var soVals = sheet.getRange(startRow, Schema.cols.SALES_ORDER, edits.length, 1).getValues();
 
     for (var i = 0; i < edits.length; i++) {
       var currentRow = startRow + i;
@@ -56,27 +55,23 @@ function liveUpdateTrigger(e) {
         // Empty row or table separator
         locationResults.push([""]);
         quantityResults.push([""]);
-      } else {
-        var committedQty = committedMap.get(skuLower) || 0;
-
-        if (useMap) {
-          // Use pre-built maps (fast for bulk)
-          locationResults.push([locationMap.get(skuLower) || "NOT FOUND"]);
-
-          var inventory = inventoryMap.get(skuLower);
-          if (inventory) {
-            quantityResults.push([inventory.available - committedQty]);
-          } else {
-            quantityResults.push([0 - committedQty]);
-          }
-        } else {
-          // Direct lookup (fast for single edits)
-          locationResults.push([getSingleLocation(skuLower)]);
-
-          var stockInfo = getSingleInventory(skuLower);
-          quantityResults.push([stockInfo.available - committedQty]);
-        }
+        continue;
       }
+
+      // LOCATION from MI (the eBay shelf map).
+      locationResults.push([locationMap.get(skuLower) || "NOT FOUND"]);
+
+      // HAND source routing — DIRECT rows and manually-typed eBay rows prefer
+      // Zoho; automated eBay-order rows (clean order id) prefer MI (eBay truth).
+      // No committed subtraction: HAND = available, matching recomputeHand /
+      // the 2026-05-09 HAND semantics, so entry-time == the recompute.
+      var isDirect = (boundary > 0 && currentRow > boundary + 1);
+      var preferZoho = isDirect || _isManualSalesOrder(soVals[i][0]);
+      var miInv  = inventoryMap.get(skuLower);
+      var miAvail = miInv ? miInv.available : null;
+      var zo     = zohoMap.get(skuLower);
+      var zoAvail = zo ? zo.available : null;
+      quantityResults.push([resolveHandValue(miAvail, zoAvail, preferZoho)]);
     }
 
     // Update LOCATION column
