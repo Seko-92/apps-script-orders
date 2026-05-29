@@ -1909,10 +1909,31 @@ body.dark-theme .zp-price-strip.nf   { background: rgba(255,255,255,0.06); color
 .zp-msg-success { background: #e8f5e9; color: #1b5e20; border-left: 3px solid #2e7d32; }
 .zp-msg-error   { background: #ffe5e5; color: #8b1d1d; border-left: 3px solid #c0392b; }
 .zp-msg-warn    { background: #fff4b0; color: #5a4500; border-left: 3px solid #f4b400; }
+.zp-msg-loading {
+  background: rgba(255, 217, 102, 0.12);
+  color: #5a4500;
+  border-left: 3px solid #f4b400;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+.zp-msg-loading .zp-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(244, 180, 0, 0.25);
+  border-top-color: #f4b400;
+  border-radius: 50%;
+  animation: zp-spin 0.8s linear infinite;
+  flex: 0 0 14px;
+}
+@keyframes zp-spin {
+  to { transform: rotate(360deg); }
+}
 
 body.dark-theme .zp-msg-success { background: rgba(46,125,50,0.18); color: #a5d6a7; }
 body.dark-theme .zp-msg-error   { background: rgba(192,57,43,0.20); color: #ffb4a8; }
 body.dark-theme .zp-msg-warn    { background: rgba(244,180,0,0.20); color: #ffd966; }
+body.dark-theme .zp-msg-loading { background: rgba(244,180,0,0.16); color: #ffd966; }
 
 .zp-confirm-row {
   display: flex;
@@ -3280,22 +3301,24 @@ body.dark-theme .footer-version { border-color: #2c2c2c; }
       <div class="card-toggle">▼</div>
     </div>
     <div class="card-body">
-      <!-- Sync Inventory Now — fires the Inventory Lite Sync n8n workflow on demand.
-           Pulls fresh qty/price from eBay (LMS feed, no Trading API), diffs against MI,
-           upserts changed rows, and pings Apps Script to recompute HAND immediately.
-           Use when you've just edited a listing on eBay and want the change reflected
-           in MI without waiting for the next 10-min schedule cycle. -->
-      <button class="btn-primary" id="inventorySyncBtn" onclick="triggerInventoryLiteSyncNow()" title="Fetch latest qty/price from eBay and update Master Inventory + HAND">
-        <span class="inventory-sync-icon">📡</span><span id="inventorySyncText">Sync Inventory Now</span>
+      <!-- Recompute HAND from Zoho Stock — re-derives HAND on All Orders + Prep
+           Queue from the Zoho Stock sheet AS-IS (no Zoho pull). The scheduled n8n
+           workflow keeps the sheet fresh every 2 min during work hours; this button
+           forces an immediate HAND realignment without waiting for the next tick.
+           Does NOT pull from Zoho — the old pull used a proxy that lacks stock
+           fields and would have zeroed AVAILABLE/ON_HAND (see ZohoStock.js). -->
+      <button class="btn-primary" id="zohoStockBtn" onclick="recomputeHandFromZohoStockNow()" title="Re-derive HAND on All Orders + Prep Queue from the Zoho Stock sheet (no Zoho pull)">
+        <span>🔄</span><span>Recompute HAND from Zoho Stock</span>
       </button>
-      <button class="btn-secondary" onclick="run('recomputeHand')">Recompute HAND</button>
-      <div class="empty-hint"><strong>Sync Inventory</strong> pulls fresh eBay qty (~70s end-to-end). <strong>Recompute HAND</strong> rewrites HAND from current MI.</div>
+      <div class="empty-hint">Rewrites HAND on <strong>All Orders + Prep Queue</strong> from the Zoho Stock mirror + MI. The scheduled n8n sync keeps the mirror fresh every 2 min (9–5), so this is just a force-now. For a live Zoho pull, run the scheduled workflow manually in n8n.</div>
       <details class="card-more">
         <summary>More tools</summary>
         <div class="card-more-content">
           <button class="btn-info" onclick="run('setupHandRecomputeTrigger')">Auto-Refresh Every 15m</button>
           <button class="btn-info" onclick="run('setupHandConditionalFormatting')">Repair Highlight Rule</button>
           <button class="btn-info" onclick="run('setupBuyerNoteHighlighting')">Apply Buyer Note Highlight</button>
+          <button class="btn-info" onclick="run('setupZohoStockSheet')">Setup Zoho Stock Sheet</button>
+          <button class="btn-info" onclick="run('openZohoStock')">Open Zoho Stock</button>
           <div class="empty-hint" style="margin:0;"><strong>Auto-Refresh</strong> installs a 15-min safety net trigger that re-runs Recompute HAND automatically. <strong>Apply Buyer Note Highlight</strong> paints cells starting with <em>Buyer Note:</em> in italic + muted gold so they stand out from supervisor annotations.</div>
         </div>
       </details>
@@ -3448,11 +3471,15 @@ body.dark-theme .footer-version { border-color: #2c2c2c; }
     <div class="card-body">
       <button class="btn-primary" id="paRunBtn" onclick="runPriceAuditNow()">🔍 Run Audit</button>
       <button class="btn-secondary" onclick="run('openPriceAudit')">Open Sheet</button>
+      <button class="btn-secondary" onclick="openPricePushFromSidebar()">💲 Push Highlighted → Zoho</button>
       <div id="paResult" class="empty-hint">Compares Zoho <strong>selling_price</strong> vs eBay <strong>currentPrice</strong> (MI) across all items. Surfaces drifts so admin can fix Zoho before quotes.</div>
+      <div class="empty-hint" style="margin-top:0;">To fix: highlight drift rows on the sheet → <strong>Push Highlighted</strong> → review/uncheck in the modal → passphrase → applies eBay price to Zoho (selling + cost). Re-run the audit to confirm.</div>
       <details class="card-more">
         <summary>More tools</summary>
         <div class="card-more-content">
+          <button class="btn-info" onclick="run('openPricePushLog')">Open Push Log</button>
           <button class="btn-info" onclick="run('setupPriceAuditSheet')">Re-style Sheet</button>
+          <button class="btn-info" onclick="run('setupPricePushLogSheet')">Setup Push Log</button>
           <div class="empty-hint" style="margin:0;">First run needs MI's <code>currentPrice</code> populated. OOS items (eBay returns null Price) classify as <strong>NO REF</strong> and are skipped — reported in summary, not written as drifts.</div>
         </div>
       </details>
@@ -3632,6 +3659,43 @@ function run(fn, param) {
       })
       [fn](param);
   }
+}
+
+// Recompute HAND on All Orders + Prep Queue from the Zoho Stock sheet (no Zoho
+// pull — the scheduled n8n workflow owns sheet freshness). recomputeHandFromZohoStock
+// returns an object (not a string), so it can't use the generic run() helper.
+function recomputeHandFromZohoStockNow() {
+  if (typeof google === 'undefined' || !google.script) return;
+  var btn = document.getElementById('zohoStockBtn');
+  if (btn) btn.disabled = true;
+  status.className = 'running';
+  status.textContent = 'Recomputing HAND…';
+
+  google.script.run
+    .withSuccessHandler(function(result) {
+      if (result && result.ok) {
+        status.className = 'success';
+        status.textContent = result.message || 'HAND recomputed';
+        updateLastActivity();
+        refreshStats();
+        setTimeout(function() {
+          if (status.className === 'success') {
+            status.className = '';
+            status.textContent = statusMessages[Math.floor(Math.random() * statusMessages.length)];
+          }
+        }, 3000);
+      } else {
+        status.className = 'error';
+        status.textContent = (result && result.message) ? result.message : 'HAND recompute failed';
+      }
+      if (btn) btn.disabled = false;
+    })
+    .withFailureHandler(function(err) {
+      status.className = 'error';
+      status.textContent = 'Error: ' + err.message;
+      if (btn) btn.disabled = false;
+    })
+    .recomputeHandFromZohoStock();
 }
 
 function updateLastActivity() {
@@ -4482,10 +4546,8 @@ function triggerN8NSync() {
 
 var isApiRefreshing = false;
 var isStatusChecking = false;
-var isInventoryLiteSyncing = false;
 var isVerifyingShipped = false;
 var STATUS_CHECK_COOLDOWN = 10 * 1000; // 10s — protects Trading API quota from double-fires
-var INVENTORY_SYNC_COOLDOWN = 8 * 1000; // 8s — light cooldown (sell.feed quota is 100K/day, no protection needed beyond UX double-click guard)
 var VERIFY_SHIPPED_COOLDOWN = 60 * 1000; // 60s — heavier than forward status check (queries every SHIPPED row, not just open ones); longer cooldown to avoid burning sell.fulfillment quota during testing
 
 /* refreshApiUsageNow() — fires the API Usage Monitor webhook. Wires up the
@@ -4661,6 +4723,31 @@ function triggerVerifyShippedNow() {
     .triggerVerifyShipped();
 }
 
+/* openPricePushFromSidebar() — reads the highlighted rows on the Price Audit
+   sheet and opens the Price Push modal (PriceWriteback.js → openPricePushModal).
+   The modal does the review + passphrase + apply; this just kicks it off and
+   surfaces the "nothing pushable / wrong sheet" cases inline. */
+function openPricePushFromSidebar() {
+  if (typeof google === 'undefined' || !google.script) return;
+  status.className = 'syncing';
+  status.textContent = 'Opening price push (reading selection)…';
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (res && res.modalOpened) {
+        status.className = 'success';
+        status.textContent = '✓ Review ' + res.pushable + ' price(s) in the modal';
+      } else {
+        status.className = 'error';
+        status.textContent = '⚠ ' + (res && res.reason ? res.reason : 'Nothing to push');
+      }
+    })
+    .withFailureHandler(function(err) {
+      status.className = 'error';
+      status.textContent = '✗ ' + (err && err.message ? err.message : err);
+    })
+    .openPricePushModal();
+}
+
 /* runPriceAuditNow() — fires the Price Audit (PriceAudit.js → runPriceAudit).
    Foreground call with spinner. End-to-end ~15-20s (Zoho bulk fetch ~10s +
    MI read ~1s + diff/sort/write ~2s). No cooldown — admin clicks it once,
@@ -4706,17 +4793,30 @@ function runPriceAuditNow() {
           var netStr = sign + '$' + Math.abs(result.totalDelta).toFixed(2);
           if (result.totalDelta < 0) netStr = '-$' + Math.abs(result.totalDelta).toFixed(2);
           var oosCount = result.oosRowCount || 0;
+          var inactiveCount = result.inactiveCandidates || 0;
+          // Zoho data freshness: the audit reads the Zoho Stock sheet (mirrored
+          // every 2 min by the scheduled n8n push). Show how old the data is so
+          // the picker knows whether to trust it / re-sync first.
+          var syncedAgo = '—';
+          if (result.zohoStockSyncedAt) {
+            var ageMin = Math.max(0, Math.round((Date.now() - result.zohoStockSyncedAt) / 60000));
+            syncedAgo = ageMin < 1 ? 'just now'
+                      : ageMin < 60 ? (ageMin + ' min ago')
+                      : (Math.floor(ageMin / 60) + 'h ' + (ageMin % 60) + 'm ago');
+          }
           var lines = [
             '<div style="font-weight:700;font-size:1.05em;margin-bottom:2px;">'
               + result.mismatches + ' drift(s) · net ' + netStr + '</div>',
             '<div>· Zoho HIGH: <strong>' + result.zohoHigh + '</strong>  '
               + '· Zoho LOW: <strong>' + result.zohoLow + '</strong></div>',
+            '<div style="color:#37474f;background:#cfd8dc;padding:3px 6px;border-radius:3px;margin-top:3px;font-weight:600;">'
+              + '⚠ ' + inactiveCount + ' INACTIVE CANDIDATE(s) · active in Zoho but ended on eBay</div>',
             '<div style="color:var(--text-muted);font-size:0.92em;">'
-              + result.totalAudited + ' compared · <strong>' + oosCount + ' OOS rows</strong> appended at bottom</div>',
+              + result.totalAudited + ' price-compared · <strong>' + oosCount + ' OOS</strong> appended at bottom</div>',
             '<div style="color:var(--text-muted);font-size:0.92em;">'
-              + result.onlyInZoho + ' only-Zoho · ' + result.onlyInMi + ' only-MI</div>',
+              + 'Zoho stock synced ' + syncedAgo + ' · ' + result.onlyInMi + ' only-MI</div>',
             '<div style="color:var(--text-muted);font-size:0.85em;">'
-              + 'Took ' + result.durationSec + 's · drifts on top sorted by |delta| DESC</div>'
+              + 'Took ' + result.durationSec + 's · sheet order: drifts → INACTIVE → OOS</div>'
           ];
           slot.className = '';
           slot.innerHTML = lines.join('');
@@ -4747,77 +4847,6 @@ function runPriceAuditNow() {
       if (typeof playSound === 'function') { try { playSound('error'); } catch (e) {} }
     })
     .runPriceAudit();
-}
-
-/* triggerInventoryLiteSyncNow() — fires the Inventory Lite Sync workflow.
-   The n8n workflow itself takes ~70s end-to-end (LMS report generation +
-   download + diff + upsert + HAND recompute callback). We don't poll for
-   completion — just confirm the kickoff and let the sheet refresh on its own.
-
-   After ~75s, MI's quantity column will be updated for any changed SKUs,
-   and HAND in All Orders will reflect via the n8n→Apps Script callback.
-
-   The 8s cooldown is just a UX double-click guard — sell.feed quota is
-   100K/day so back-to-back fires don't hurt the API.
-
-   No card-data refresh needed in the sidebar — inventory data isn't shown
-   here. Out of Stock alert count COULD shift (SKUs going in/out of OOS),
-   but the regular 30s alert poll catches that within a tick. */
-function triggerInventoryLiteSyncNow() {
-  if (isInventoryLiteSyncing) {
-    status.className = 'error';
-    status.textContent = 'Inventory sync already running…';
-    return;
-  }
-  if (typeof google === 'undefined' || !google.script) return;
-
-  var btn = document.getElementById('inventorySyncBtn');
-  var txt = document.getElementById('inventorySyncText');
-
-  isInventoryLiteSyncing = true;
-  if (btn) { btn.classList.add('spinning'); btn.disabled = true; }
-  if (txt) txt.textContent = 'Syncing…';
-  status.className = 'syncing';
-  status.textContent = 'Pulling fresh qty/price from eBay…';
-
-  google.script.run
-    .withSuccessHandler(function(result) {
-      var clearBtn = function() {
-        if (btn) { btn.classList.remove('spinning'); btn.disabled = false; }
-        if (txt) txt.textContent = 'Sync Inventory Now';
-        isInventoryLiteSyncing = false;
-      };
-
-      if (result && result.ok) {
-        status.className = 'success';
-        status.textContent = '✓ ' + result.message + ' (~70s for MI to update)';
-        playSound('syncDone');
-        // Refresh alerts after ~75s so any SKUs that flipped in/out of
-        // OOS state surface in the Alerts card (qty going to 0 or coming back).
-        setTimeout(function() {
-          try { refreshAlerts(); } catch (e) {}
-        }, 75000);
-        setTimeout(function() {
-          clearBtn();
-          status.className = '';
-          status.textContent = 'Ready';
-        }, INVENTORY_SYNC_COOLDOWN);
-      } else {
-        clearBtn();
-        status.className = 'error';
-        status.textContent = (result && result.message) || 'Inventory sync failed';
-        playSound('error');
-      }
-    })
-    .withFailureHandler(function(err) {
-      if (btn) { btn.classList.remove('spinning'); btn.disabled = false; }
-      if (txt) txt.textContent = 'Sync Inventory Now';
-      isInventoryLiteSyncing = false;
-      status.className = 'error';
-      status.textContent = 'Inventory sync error: ' + (err && err.message ? err.message : err);
-      playSound('error');
-    })
-    .triggerInventoryLiteSync();
 }
 
 /**
@@ -5494,6 +5523,14 @@ function previewZoho() {
 }
 
 function pullZoho(force) {
+  // The `force` parameter is retained for back-compat with the existing
+  // Re-Pull (Force) buttons in the result panel (rendered by other code
+  // paths). With the new Pull modal architecture (Option C, 2026-05-23),
+  // "force" is no longer a destructive delete-and-replace path — every
+  // Pull opens the review modal which lets the picker selectively apply
+  // changes per-line. The old Force-Pull semantics are obsolete; those
+  // buttons will be cleaned up in step 8 of the Option C build (after the
+  // old _propagateToDirectRows is deleted).
   var input = document.getElementById('zpQuery');
   var panel = document.getElementById('zpResult');
   if (!input || !panel) return;
@@ -5501,40 +5538,68 @@ function pullZoho(force) {
   if (!so) { input.focus(); return; }
 
   panel.classList.add('shown');
-  panel.innerHTML = '<div class="ol-empty">Pulling ' + _olEsc(so) + '…</div>';
+  // Visible loading state — spinner + text — so the picker knows the
+  // server is computing the diff (can take ~1-2 sec on a complex SO).
+  panel.innerHTML =
+      '<div class="zp-msg zp-msg-loading">'
+    +   '<span class="zp-spinner"></span>'
+    +   '<span>Opening Pull modal for <strong>' + _olEsc(so) + '</strong>… '
+    +     '<span style="opacity:0.75;font-size:0.9em;">(computing diff)</span>'
+    +   '</span>'
+    + '</div>';
   status.className = 'running';
-  status.textContent = 'Pulling ' + so + '…';
+  status.textContent = 'Opening Pull modal for ' + so + '…';
 
   if (typeof google === 'undefined' || !google.script) return;
   google.script.run
     .withSuccessHandler(function(result) {
-      _renderZohoPullResult(result, so);
-
-      if (result && result.status === 'success') {
-        status.className = 'success';
-        status.textContent = '✅ ' + result.rowsInserted + ' row(s) added to DIRECT';
-        if (typeof playSound === 'function') { try { playSound('syncDone'); } catch (e) {} }
-        // Refresh alerts (newFromZoho count drops by 1) + cockpit (PENDING up)
-        try { refreshAlerts(); } catch (e) {}
-        try { if (typeof refreshOpsCockpit === 'function') refreshOpsCockpit(); } catch (e) {}
-        // Clear input for next pull
-        input.value = '';
-      } else if (result && result.status === 'already_pulled') {
-        status.className = '';
-        status.textContent = 'Already pulled';
-      } else {
+      if (!result || !result.ok) {
+        var failReason = (result && result.reason) || 'Failed to open Pull modal';
+        panel.innerHTML = '<div class="zp-msg zp-msg-error">' + _olEsc(failReason) + '</div>';
         status.className = 'error';
-        status.textContent = (result && result.reason) || 'Pull failed';
+        status.textContent = failReason;
+        setTimeout(function() { status.className = ''; status.textContent = 'Ready'; }, 4000);
+        return;
       }
 
-      setTimeout(function() { status.className = ''; status.textContent = 'Ready'; }, 3000);
+      if (result.modalOpened) {
+        // Modal is open — picker drives the rest from the popup. Sidebar
+        // just confirms the handoff. We clear the input so the picker can
+        // queue the next SO# without retyping over the previous value.
+        panel.innerHTML = '<div class="zp-msg zp-msg-success">'
+                        + 'Modal opened for <strong>' + _olEsc(result.soNumber) + '</strong> '
+                        + '— review and apply in the popup.'
+                        + '</div>';
+        status.className = 'success';
+        status.textContent = 'Modal opened for ' + result.soNumber;
+        if (typeof playSound === 'function') { try { playSound('syncDone'); } catch (e) {} }
+        input.value = '';
+        // Refresh alerts/cockpit after a short delay so any picker actions
+        // in the modal have a chance to land before we read state. (Modal's
+        // own server calls update Activity Log + DIRECT directly — the
+        // sidebar's refresh just brings the side panels up to date.)
+        setTimeout(function() {
+          try { refreshAlerts(); } catch (e) {}
+          try { if (typeof refreshOpsCockpit === 'function') refreshOpsCockpit(); } catch (e) {}
+        }, 4000);
+      } else {
+        // Empty-diff case — modal didn't open per the design lock. Show
+        // the reason inline so the picker knows there's nothing to apply.
+        panel.innerHTML = '<div class="zp-msg zp-msg-success">'
+                        + _olEsc(result.reason || 'No changes to apply.')
+                        + '</div>';
+        status.className = 'success';
+        status.textContent = 'No changes for ' + result.soNumber;
+      }
+
+      setTimeout(function() { status.className = ''; status.textContent = 'Ready'; }, 3500);
     })
     .withFailureHandler(function(err) {
-      panel.innerHTML = '<div class="zp-msg zp-msg-error">Pull failed: ' + _olEsc(err.message || String(err)) + '</div>';
+      panel.innerHTML = '<div class="zp-msg zp-msg-error">Open failed: ' + _olEsc(err.message || String(err)) + '</div>';
       status.className = 'error';
-      status.textContent = 'Pull failed';
+      status.textContent = 'Open failed';
     })
-    .pullSalesOrderToDirect(so, { force: !!force });
+    .openZohoPullModal(so);
 }
 
 /**
@@ -5696,7 +5761,7 @@ function _renderZohoPreview(result, so) {
   if (result.alreadyPulled) {
     html += '<div class="zp-msg zp-msg-warn">⚠️ Already pulled to DIRECT. Re-pull would create duplicate rows.</div>';
     html += '<div class="zp-confirm-row">';
-    html += '<button class="btn-danger" onclick="pullZoho(true)">Re-Pull (Force)</button>';
+    html += '<button class="btn-primary" onclick="pullZoho(false)">⬇ Open Pull Modal</button>';
     html += '<button class="btn-secondary" onclick="fetchFromZoho()">🔄 Refresh from Zoho</button>';
     html += '</div>';
   } else {
@@ -5751,59 +5816,9 @@ function _renderZohoPriceStrip(it) {
     + '</div>';
 }
 
-function _renderZohoPullResult(result, so) {
-  var panel = document.getElementById('zpResult');
-  if (!panel) return;
-
-  if (!result) {
-    panel.innerHTML = '<div class="zp-msg zp-msg-error">No response from server.</div>';
-    return;
-  }
-
-  if (result.status === 'success') {
-    var msg = '<div class="zp-msg zp-msg-success">';
-    msg += '✅ <strong>' + _olEsc(result.soNumber) + '</strong> · ';
-    msg += result.rowsInserted + ' row' + (result.rowsInserted === 1 ? '' : 's') + ' added to DIRECT';
-    if (result.rowsReplaced) {
-      msg += ' (replaced ' + result.rowsReplaced + ' existing row' + (result.rowsReplaced === 1 ? '' : 's') + ')';
-    }
-    if (result.customer) msg += '<br/>Customer: <strong>' + _olEsc(result.customer) + '</strong>';
-    if (result.total)    msg += ' · ' + _olEsc(result.total);
-    msg += '</div>';
-    panel.innerHTML = msg;
-    return;
-  }
-
-  if (result.status === 'already_pulled') {
-    panel.innerHTML =
-      '<div class="zp-msg zp-msg-warn">'
-      + '<strong>' + _olEsc(result.soNumber) + '</strong> was already pulled. '
-      + (result.reason || '')
-      + '</div>'
-      + '<div class="zp-confirm-row">'
-      + '<button class="btn-danger" onclick="pullZoho(true)">Re-Pull (Force)</button>'
-      + '</div>';
-    return;
-  }
-
-  if (result.status === 'not_found') {
-    panel.innerHTML =
-      '<div class="zp-msg zp-msg-warn">'
-      + '<strong>' + _olEsc(so) + '</strong> not in Pending sheet.<br/>'
-      + 'May be a missed webhook, historical SO, or a non-direct channel.'
-      + '</div>'
-      + '<div class="zp-confirm-row">'
-      + '<button class="btn-primary" onclick="fetchFromZoho()">📥 Fetch from Zoho</button>'
-      + '</div>';
-    return;
-  }
-
-  // no_items / error
-  panel.innerHTML =
-    '<div class="zp-msg zp-msg-error">'
-    + (result.reason || ('Status: ' + result.status))
-    + '</div>';
-}
+// _renderZohoPullResult was the old direct-pull result renderer. Deleted
+// 2026-05-23 as part of the Option C cleanup — the Pull modal now handles
+// its own UI (success/error rendering happens inside ZohoPullModal.html).
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // KIT EXPANSION (preview only — commit ships next)

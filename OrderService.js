@@ -149,6 +149,59 @@ function doPost(e) {
       }
     }
 
+    // --- ZOHO STOCK PUSH (called by the n8n "Zoho Stock Sync (Scheduled)" workflow) ---
+    // n8n owns the schedule AND the ~60-90s Zoho pagination, then PUSHES the items
+    // array here. Apps Script only writes the Zoho Stock sheet + rewrites HAND on
+    // All Orders + Prep Queue (~5s) — so this can fire every 2 min without burning
+    // the Apps Script daily-runtime quota the way an Apps-Script-side pull would.
+    if (payload.action === 'writeZohoStock') {
+      try {
+        var zsItems = Array.isArray(payload.items) ? payload.items : [];
+        var zsWrite = _writeZohoStockRows(zsItems);
+        var zsHand = "", zsPrep = "";
+        try { zsHand = recomputeHand(); }        catch (e1) { zsHand = "HAND error: " + e1; }
+        try { zsPrep = refreshPrepQueueHand(); } catch (e2) { zsPrep = "Prep error: " + e2; }
+        return ContentService.createTextOutput(JSON.stringify({
+          status:      "success",
+          written:     zsWrite.count,
+          skipped:     zsWrite.skipped,
+          handMessage: zsHand,
+          prepMessage: zsPrep
+        })).setMimeType(ContentService.MimeType.JSON);
+      } catch (zsErr) {
+        Logger.log("writeZohoStock action error: " + zsErr.toString());
+        return ContentService.createTextOutput(JSON.stringify({
+          status:  "error",
+          message: "writeZohoStock failed: " + zsErr.toString()
+        })).setMimeType(ContentService.MimeType.JSON);
+      }
+    }
+
+    // --- PRICE AUDIT (scheduled run by n8n cron) ---
+    // Fires from an n8n Schedule Trigger (twice daily). Same orchestration as
+    // the sidebar's "Run Audit" button — internally calls n8n's Zoho bulk-items
+    // proxy to fetch active Zoho items, joins to MI's active SKUs via the
+    // listingStatus filter, writes the Price Audit sheet with three-bucket
+    // direction (drift / INACTIVE CANDIDATE / OOS).
+    //
+    // Returns the full runPriceAudit() result object so n8n can branch on
+    // `ok === false` to fire a Telegram alert via the Global Error Handler.
+    // Also lets n8n surface the daily INACTIVE CANDIDATE count to admin if
+    // wanted (e.g., "audit ran clean — 3 drifts, 7 INACTIVE CANDIDATES today").
+    if (payload.action === 'runPriceAudit') {
+      try {
+        var auditResult = runPriceAudit();
+        return ContentService.createTextOutput(JSON.stringify(auditResult))
+          .setMimeType(ContentService.MimeType.JSON);
+      } catch (auditErr) {
+        Logger.log("runPriceAudit action error: " + auditErr.toString());
+        return ContentService.createTextOutput(JSON.stringify({
+          ok: false,
+          message: "runPriceAudit failed: " + auditErr.toString()
+        })).setMimeType(ContentService.MimeType.JSON);
+      }
+    }
+
     // --- ZOHO ITEM WEBHOOK: KIT REGISTRY REFRESH ---
     // Fired by Zoho Workflow Rule when an Item's Purchase Description is updated.
     // Zoho sends its "Default Payload" shape:
@@ -1154,6 +1207,28 @@ function noteEditOnEdit(e) {
       // Multi-cell: oldNote stays empty; we'll log a "Note added" or "Note set"
       // event without the old → new diff. Liberal logging accepted.
 
+      // Auto-clear Zoho-flag highlight (soft-red bg + strikethrough) when the
+      // picker removes the warning prefix from a flagged row. Without this,
+      // clearing the NOTE cell content leaves the bg behind — Sheets keeps
+      // background separate from content. Single-cell only (we need e.oldValue
+      // to confidently detect the prefix was removed; multi-cell pastes lose
+      // that signal, picker can use Format → Clear formatting if needed).
+      // Shipped 2026-05-23 alongside the format-bleed fix in _insertAddedItemsToDirect.
+      if (isSingleCell) {
+        var FLAG_PREFIX_RE = /^⚠️\s+(ZOHO QTY|REMOVED IN ZOHO)/;
+        var oldHadFlag = FLAG_PREFIX_RE.test(oldNote);
+        var newHasFlag = FLAG_PREFIX_RE.test(newNote);
+        if (oldHadFlag && !newHasFlag) {
+          try {
+            var rowRange = sheet.getRange(startRow + i, 1, 1, Schema.dataWidth);
+            rowRange.setBackground(null);
+            rowRange.setFontLine('none');
+          } catch (clearErr) {
+            try { Logger.log("noteEditOnEdit clear-flag error: " + clearErr); } catch (_) {}
+          }
+        }
+      }
+
       var rowCtx = contextValues[i];
       var sku     = String(rowCtx[Schema.idx("SKU")] || "").trim();
       var qty     = parseInt(rowCtx[Schema.idx("QTY")]) || 0;
@@ -1393,6 +1468,13 @@ function sortTableByStatusAndLocation(tableNumber) {
   // between sorts (e.g. a SKU got changed but its row format never updated).
   try { refreshKitSkuMarkers(); }
   catch (e) { console.log("sortTableByStatusAndLocation: kit marker refresh error: " + e); }
+
+  // Same class of bug as ▣ markers: per-cell left borders on duplicate SOs
+  // don't travel with setValues — they stay glued to the original row position.
+  // Without this refresh, post-sort borders point at whoever LANDED on the
+  // old duplicate row, not the actual duplicate group.
+  try { setupDuplicateSalesOrderHighlighting(); }
+  catch (e) { console.log("sortTableByStatusAndLocation: dup-SO refresh error: " + e); }
 
   return "✅ Sorted";
 }

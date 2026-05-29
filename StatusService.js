@@ -190,10 +190,18 @@ function updateOrderStatus(target, newStatus, options) {
       console.log("updateOrderStatus: stats refresh error: " + e);
     }
 
-    // 8. Optional sort
+    // 8. Optional sort — BOTH tables. A status change can land in the eBay
+    // table, the DIRECT table, or both (an SO with rows in each). Previously
+    // this only sorted table 1 (eBay), so DIRECT-table rows flipped to SHIPPED
+    // (Telegram callback, n8n verify, sidebar bulk) wrote correctly but the
+    // DIRECT segment never re-sorted — statuses stayed interleaved while eBay
+    // stayed clean. Sort is idempotent and cheap, so sort both unconditionally.
     if (sortAfter) {
       try { sortTableByStatusAndLocation(1); } catch (e) {
-        console.log("updateOrderStatus: sort error: " + e);
+        console.log("updateOrderStatus: eBay sort error: " + e);
+      }
+      try { sortTableByStatusAndLocation(2); } catch (e) {
+        console.log("updateOrderStatus: DIRECT sort error: " + e);
       }
     }
 

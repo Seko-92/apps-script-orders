@@ -1134,12 +1134,24 @@ function kitSkuOnEdit(e) {
   // Skip banner rows entirely
   if (e.range.getRow() < Schema.dataStartRow) return;
 
-  // Build kit-SKU set (cheap — Kit Registry is typically a few hundred rows)
+  // Build kit-SKU set. Cache for 60s in CacheService — a paste of N rows
+  // fires this handler once with a multi-row range, but rapid successive
+  // edits (typing several SKUs in a row) would otherwise re-read the whole
+  // Kit Registry sheet each time. Trade-off: for up to 60s after a Zoho
+  // webhook adds a new kit, that brand-new SKU may briefly miss the ▣ —
+  // acceptable since registry changes are rare relative to All Orders edits.
   var kitSkus = new Set();
   try {
-    buildKitMap().forEach(function(_v, sku) {
-      kitSkus.add(String(sku).toUpperCase().trim());
-    });
+    var cache = CacheService.getScriptCache();
+    var cached = cache.get("kit_skus_v1");
+    if (cached) {
+      JSON.parse(cached).forEach(function(s) { kitSkus.add(s); });
+    } else {
+      buildKitMap().forEach(function(_v, sku) {
+        kitSkus.add(String(sku).toUpperCase().trim());
+      });
+      cache.put("kit_skus_v1", JSON.stringify(Array.from(kitSkus)), 60);
+    }
   } catch (err) {
     return;   // Kit Registry unavailable — silent skip, no marker applied
   }
