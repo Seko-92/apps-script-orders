@@ -333,6 +333,160 @@ function triggerZohoBulkItemsFetch() {
 
 
 /**
+ * Write ONE item's selling price (rate) back to Zoho via the Zoho Item Price
+ * Write Proxy. This is the only path in the codebase that WRITES to Zoho —
+ * every other Zoho integration is read-only. See PriceWriteback.js for the
+ * SKU-resolving caller and Zoho Item Price Write Proxy_v1.json for the n8n side.
+ *
+ * The proxy validates + sanity-gates the price, GETs the item first (captures
+ * the before-rate), PUTs only the `rate` field, and returns before/after — so
+ * we get a real confirmation of what Zoho actually stored, not just "200 OK".
+ *
+ * @param {string} itemId  Zoho internal item_id (from the Zoho Stock sheet)
+ * @param {string} sku     SKU — passed through for the response message only
+ * @param {number} price   new selling price (eBay's authoritative price)
+ * @returns {{ok: boolean, message: string, data?: object, code?: number}}
+ *          data = { item_id, sku, name, before_rate, after_rate, requested_rate, message }
+ */
+function triggerZohoPriceWrite(itemId, sku, price) {
+  var url = N8N_ZOHO_PRICE_WRITE_WEBHOOK_URL;
+  if (!url) {
+    return { ok: false, message: "Price-write webhook URL not configured (check Secrets.js)" };
+  }
+  itemId = String(itemId || "").trim();
+  if (!itemId) {
+    return { ok: false, message: "item_id is empty — can't write" };
+  }
+  var p = parseFloat(price);
+  if (!isFinite(p) || p <= 0) {
+    return { ok: false, message: "price must be a positive number (got " + price + ")" };
+  }
+
+  try {
+    var options = {
+      method:             'post',
+      muteHttpExceptions: true,
+      followRedirects:    true,
+      headers: {
+        'X-API-Token':                APP_SECRET_TOKEN,
+        'ngrok-skip-browser-warning': 'true',
+        'User-Agent':                 'GoogleAppsScript'
+      },
+      contentType: 'application/json',
+      payload:     JSON.stringify({ item_id: itemId, sku: String(sku || ""), price: p })
+    };
+
+    var response = UrlFetchApp.fetch(url, options);
+    var code     = response.getResponseCode();
+    var body     = response.getContentText();
+
+    if (code !== 200 && code !== 204) {
+      if (code === 401 || code === 403) {
+        return { ok: false, code: code, message: "Auth rejected by n8n (X-API-Token mismatch)" };
+      }
+      if (code === 404) {
+        return { ok: false, code: code, message: "Workflow not active in n8n — toggle it on" };
+      }
+      if (code === 500) {
+        // n8n returns 500 on a thrown node error (sanity-gate reject, bad
+        // item_id, Zoho auth/scope failure). Surface the underlying message.
+        var errMsg = body;
+        try {
+          var parsed = JSON.parse(body);
+          errMsg = parsed.message || parsed.error || body;
+        } catch (_) {}
+        return { ok: false, code: code, message: errMsg };
+      }
+      return { ok: false, code: code, message: "n8n returned HTTP " + code + ": " + body.substring(0, 200) };
+    }
+
+    var parsedBody;
+    try { parsedBody = JSON.parse(body); }
+    catch (parseErr) {
+      return { ok: false, code: code, message: "n8n returned malformed JSON: " + body.substring(0, 200) };
+    }
+
+    return {
+      ok:      true,
+      code:    code,
+      message: "Price written to Zoho",
+      data:    parsedBody
+    };
+  } catch (err) {
+    return { ok: false, message: "Price-write request failed: " + (err.message || err) };
+  }
+}
+
+
+/**
+ * Write a BATCH of item prices back to Zoho via the bulk write proxy, and
+ * wait for the per-SKU result (synchronous — the modal renders it instantly).
+ * The proxy writes rate + purchase_rate (= eBay price) for each item, throttled.
+ *
+ * Keep batches small (~25-30) — Apps Script's request window bounds how long
+ * we can wait. The caller (applyPricePush) enforces the cap before calling.
+ *
+ * @param {Array<{item_id:string, sku:string, before:(number|null), price:number}>} items
+ * @returns {{ok:boolean, message:string, code?:number, data?:{
+ *            ok:boolean, total:number, pushed:number, failed:number,
+ *            results:Array<{sku, item_id, ok, before, after, error}>}}}
+ */
+function triggerZohoPriceBulkWrite(items) {
+  var url = N8N_ZOHO_PRICE_BULK_WRITE_WEBHOOK_URL;
+  if (!url) {
+    return { ok: false, message: "Bulk price-write webhook URL not configured (check Secrets.js)" };
+  }
+  if (!Array.isArray(items) || items.length === 0) {
+    return { ok: false, message: "No items to write" };
+  }
+
+  try {
+    var options = {
+      method:             'post',
+      muteHttpExceptions: true,
+      followRedirects:    true,
+      headers: {
+        'X-API-Token':                APP_SECRET_TOKEN,
+        'ngrok-skip-browser-warning': 'true',
+        'User-Agent':                 'GoogleAppsScript'
+      },
+      contentType: 'application/json',
+      payload:     JSON.stringify({ items: items })
+    };
+
+    var response = UrlFetchApp.fetch(url, options);
+    var code     = response.getResponseCode();
+    var body     = response.getContentText();
+
+    if (code !== 200 && code !== 204) {
+      if (code === 401 || code === 403) {
+        return { ok: false, code: code, message: "Auth rejected by n8n (X-API-Token mismatch)" };
+      }
+      if (code === 404) {
+        return { ok: false, code: code, message: "Workflow not active in n8n — toggle it on" };
+      }
+      if (code === 500) {
+        var errMsg = body;
+        try { var parsed = JSON.parse(body); errMsg = parsed.message || parsed.error || body; } catch (_) {}
+        return { ok: false, code: code, message: errMsg };
+      }
+      return { ok: false, code: code, message: "n8n returned HTTP " + code + ": " + body.substring(0, 200) };
+    }
+
+    var parsedBody;
+    try { parsedBody = JSON.parse(body); }
+    catch (parseErr) {
+      return { ok: false, code: code, message: "n8n returned malformed JSON: " + body.substring(0, 200) };
+    }
+
+    return { ok: true, code: code, message: "Bulk price write complete", data: parsedBody };
+  } catch (err) {
+    return { ok: false, message: "Bulk price-write request failed: " + (err.message || err) };
+  }
+}
+
+
+/**
  * Internal: fire a Header-Auth-protected webhook and translate the response
  * into the {ok, message, code} shape the sidebar expects.
  *

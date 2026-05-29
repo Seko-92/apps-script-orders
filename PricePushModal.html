@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <style>
+    /* =====================================================================
+     * PricePushModal.html — review/confirm bulk eBay→Zoho price writes
+     *
+     * Picker highlights drift rows on the Price Audit sheet, reviews each
+     * here (Zoho before → eBay after, big swings flagged amber), unchecks
+     * anything, types the passphrase, Applies. n8n writes synchronously and
+     * the done screen shows a per-SKU report.
+     *
+     * Brand palette mirrors ZohoPullModal / KitExpansionModal.
+     * ===================================================================== */
+
+    :root {
+      --ink:           #1a1a1a;
+      --ink-mute:      #5f5f5f;
+      --paper:         #ffffff;
+      --paper-warm:    #fff8e7;
+      --paper-tint:    #fffbf0;
+      --brand-yellow:        #ffd400;
+      --brand-yellow-soft:   #fff4b0;
+      --brand-yellow-rim:    #ffb800;
+      --green-ink:     #1b5e20;
+      --green-bg:      #e8f5e9;
+      --green-rim:     #66bb6a;
+      --amber-ink:     #6b4500;
+      --amber-bg:      #fff4e0;
+      --amber-rim:     #f57c00;
+      --red-ink:       #b71c1c;
+      --red-bg:        #ffe5e5;
+      --red-rim:       #e57373;
+      --slate-ink:     #455a64;
+      --slate-bg:      #eceff1;
+      --slate-rim:     #90a4ae;
+    }
+
+    * { box-sizing: border-box; }
+    html, body {
+      height: 100%; margin: 0; padding: 0;
+      font-family: 'Roboto', Arial, sans-serif;
+      font-size: 13px; color: var(--ink);
+      background: var(--paper-warm); overflow: hidden;
+    }
+    .wrap { display: flex; flex-direction: column; height: 100vh; width: 100%; }
+
+    /* ----- HEADER ----- */
+    .hdr {
+      flex: 0 0 auto; padding: 12px 16px 8px;
+      background: var(--ink); color: var(--paper);
+      border-bottom: 3px solid var(--brand-yellow);
+    }
+    .hdr-row1 { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+    .hdr-title {
+      font-family: 'Oswald', sans-serif; font-weight: 700; font-size: 18px;
+      letter-spacing: 0.04em; text-transform: uppercase;
+    }
+    .hdr-sub { color: #d4d4d4; font-size: 13px; }
+    .hdr-row2 { margin-top: 6px; font-size: 12px; color: #c0c0c0; letter-spacing: 0.02em; }
+    .chip-summary {
+      display: inline-block; padding: 1px 6px; margin: 0 4px; border-radius: 3px;
+      background: rgba(255, 212, 0, 0.15); border: 1px solid rgba(255, 212, 0, 0.4);
+      color: var(--brand-yellow); font-family: 'Oswald', sans-serif; font-weight: 600;
+      font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase;
+    }
+    .hdr-warn {
+      margin-top: 6px; padding: 5px 8px; border-radius: 3px;
+      background: rgba(229, 57, 53, 0.18); border: 1px solid var(--red-rim);
+      color: #ffd1d1; font-size: 11.5px;
+    }
+
+    /* ----- BODY ----- */
+    .body { flex: 1 1 auto; overflow-y: auto; padding: 12px 14px; }
+
+    /* ----- LINE CARD ----- */
+    .line {
+      display: grid; grid-template-columns: 28px 1fr auto; gap: 10px;
+      align-items: center; padding: 9px 12px; margin-bottom: 7px;
+      background: var(--paper); border-radius: 4px;
+      border-left: 3px solid var(--slate-rim);
+      box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+      transition: opacity 160ms ease, background 160ms ease;
+    }
+    .line.high   { border-left-color: var(--brand-yellow-rim); background: #fffbf0; }
+    .line.low    { border-left-color: var(--amber-rim);  background: var(--amber-bg); }
+    .line.swing  { border-left-color: var(--amber-rim); background: #fff1d6; }
+    .line.skip   { border-left-color: var(--slate-rim); background: var(--slate-bg); opacity: 0.72; }
+    .line.unchecked { opacity: 0.5; }
+
+    .line-cb { display: flex; align-items: center; justify-content: center; }
+    .line-cb input[type=checkbox] {
+      width: 18px; height: 18px; cursor: pointer; accent-color: var(--brand-yellow-rim);
+    }
+    .line-cb .locked {
+      font-size: 10px; color: var(--ink-mute); font-family: 'Oswald', sans-serif;
+      letter-spacing: 0.04em; transform: rotate(-90deg); white-space: nowrap;
+    }
+
+    .line-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+    .line-row1 { display: flex; gap: 9px; align-items: baseline; flex-wrap: wrap; }
+    .line-sku { font-family: 'Roboto Mono', monospace; font-weight: 700; font-size: 13.5px; }
+    .line-name { color: var(--ink-mute); font-size: 12.5px; }
+    .line-row2 { font-family: 'Roboto Mono', monospace; font-size: 12px; color: var(--ink-mute); }
+    .price-before { color: var(--ink-mute); }
+    .price-arrow  { color: var(--amber-rim); font-weight: 700; padding: 0 4px; }
+    .price-after  { color: var(--ink); font-weight: 700; }
+    .price-delta  { color: var(--amber-ink); font-weight: 700; margin-left: 6px; }
+    .skip-reason  { color: var(--ink-mute); font-style: italic; font-family: 'Roboto', sans-serif; }
+
+    .line-chips { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+    .chip {
+      padding: 1px 7px; border-radius: 3px; font-family: 'Oswald', sans-serif;
+      font-weight: 700; font-size: 10px; letter-spacing: 0.1em;
+      text-transform: uppercase; white-space: nowrap;
+    }
+    .chip.high   { background: var(--brand-yellow-soft); color: var(--amber-ink); border: 1px solid var(--brand-yellow-rim); }
+    .chip.low    { background: #ffd699; color: #7a3d00; border: 1px solid var(--amber-rim); }
+    .chip.swing  { background: #ffe0b2; color: #7a3d00; border: 1px solid var(--amber-rim); }
+    .chip.skip   { background: var(--slate-bg); color: var(--slate-ink); border: 1px solid var(--slate-rim); }
+
+    /* ----- FOOTER ----- */
+    .ftr {
+      flex: 0 0 auto; padding: 10px 14px; border-top: 2px solid var(--brand-yellow);
+      background: var(--paper-tint); display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    }
+    .ftr-pass {
+      display: flex; align-items: center; gap: 6px;
+      font-family: 'Oswald', sans-serif; font-size: 11px; letter-spacing: 0.04em;
+      text-transform: uppercase; color: var(--ink-mute);
+    }
+    .ftr-pass input {
+      font-family: 'Roboto Mono', monospace; font-size: 12px;
+      padding: 5px 8px; border: 1px solid #c0c0c0; border-radius: 4px; width: 130px;
+    }
+    .ftr-summary { flex: 1; font-family: 'Roboto Mono', monospace; font-size: 12px; color: var(--ink); }
+    .ftr-summary.warn { color: var(--amber-ink); font-weight: 600; }
+    .ftr-btns { display: flex; gap: 8px; }
+    .btn-cancel {
+      background: transparent; color: var(--ink-mute); border: 1px solid #c0c0c0;
+      padding: 7px 14px; font-family: 'Oswald', sans-serif; font-size: 12px;
+      letter-spacing: 0.06em; text-transform: uppercase; border-radius: 4px; cursor: pointer;
+      transition: all 130ms ease;
+    }
+    .btn-cancel:hover:not(:disabled) { background: rgba(0,0,0,0.05); color: var(--ink); }
+    .btn-apply {
+      background: var(--brand-yellow); color: var(--ink); border: 1px solid var(--brand-yellow-rim);
+      padding: 7px 16px; font-family: 'Oswald', sans-serif; font-size: 12.5px; font-weight: 700;
+      letter-spacing: 0.06em; text-transform: uppercase; border-radius: 4px; cursor: pointer;
+      transition: all 130ms ease;
+    }
+    .btn-apply:hover:not(:disabled) { background: var(--brand-yellow-rim); box-shadow: 0 3px 10px rgba(255, 212, 0, 0.5); }
+    .btn-apply:disabled, .btn-cancel:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    /* ----- STATUS / DONE ----- */
+    .status {
+      position: fixed; left: 50%; bottom: 70px; transform: translateX(-50%) translateY(20px);
+      background: var(--ink); color: var(--brand-yellow); padding: 8px 16px; border-radius: 4px;
+      font-family: 'Roboto Mono', monospace; font-size: 12px; opacity: 0; pointer-events: none;
+      transition: opacity 200ms ease, transform 200ms ease; z-index: 100; box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+    }
+    .status.shown { opacity: 1; transform: translateX(-50%) translateY(0); }
+    .status.error { background: var(--red-ink); color: #fff; }
+
+    .done { padding: 22px 24px; }
+    .done-head { text-align: center; margin-bottom: 14px; }
+    .done-icon { font-size: 34px; }
+    .done-title {
+      font-family: 'Oswald', sans-serif; font-size: 20px; font-weight: 700;
+      letter-spacing: 0.05em; text-transform: uppercase; margin-top: 4px;
+    }
+    .done-sub { color: var(--ink-mute); font-size: 13px; margin-top: 2px; }
+    .report-row {
+      display: flex; gap: 8px; align-items: baseline; padding: 4px 10px; margin-bottom: 4px;
+      background: var(--paper); border-radius: 3px; border-left: 3px solid var(--green-rim);
+      font-family: 'Roboto Mono', monospace; font-size: 12px;
+    }
+    .report-row.fail { border-left-color: var(--red-rim); background: var(--red-bg); }
+    .report-sku { font-weight: 700; min-width: 90px; }
+    .report-detail { color: var(--ink-mute); }
+    .report-detail.err { color: var(--red-ink); }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="hdr" id="hdrEl"></div>
+    <div class="body" id="bodyEl"></div>
+    <div class="ftr" id="ftrEl">
+      <label class="ftr-pass">Passphrase
+        <input type="password" id="passEl" autocomplete="off" oninput="updateSummary()" onkeydown="if(event.key==='Enter')onApply()">
+      </label>
+      <span class="ftr-summary" id="summaryEl">Loading…</span>
+      <div class="ftr-btns">
+        <button class="btn-cancel" id="btnCancel" onclick="onCancel()">Cancel</button>
+        <button class="btn-apply"  id="btnApply"  onclick="onApply()">Push to Zoho</button>
+      </div>
+    </div>
+    <div class="status" id="statusBar"></div>
+  </div>
+
+  <script>
+    // Server-injected payload (force-unescaped — it's a JSON string; HTML
+    // escaping would corrupt the quotes; </ was pre-escaped server-side).
+    var DATA = <?!= dataJson ?>;
+
+    var state = {};   // keyed by sku for pushable rows: { checked: bool }
+
+    initState();
+    renderHeader();
+    renderLines();
+    updateSummary();
+
+    function initState() {
+      DATA.candidates.forEach(function(c) {
+        if (c.pushable) state[c.sku] = { checked: true };
+      });
+    }
+
+    function renderHeader() {
+      var m = DATA.meta || {};
+      var bits = [];
+      bits.push('<span class="chip-summary">' + m.pushable + ' ready</span>');
+      if (m.skipped > 0) bits.push('<span class="chip-summary">' + m.skipped + ' skipped</span>');
+      var synced = m.zohoSyncedAt ? 'Zoho synced ' + agoStr(m.zohoSyncedAt) : '';
+
+      var warn = '';
+      if (!m.hasPassphrase) {
+        warn = '<div class="hdr-warn">⚠ No passphrase configured on the server — run <b>setPricePushPassphrase</b> from the editor before pushing.</div>';
+      }
+
+      document.getElementById('hdrEl').innerHTML =
+          '<div class="hdr-row1">'
+        +   '<span class="hdr-title">Push Prices → Zoho</span>'
+        +   '<span class="hdr-sub">writes selling + cost = eBay price</span>'
+        + '</div>'
+        + '<div class="hdr-row2">' + bits.join(' ')
+        + (synced ? '  <span style="color:#888;">· ' + esc(synced) + '</span>' : '') + '</div>'
+        + warn;
+    }
+
+    function renderLines() {
+      var html = '';
+      DATA.candidates.forEach(function(c) { html += renderLine(c); });
+      document.getElementById('bodyEl').innerHTML = html;
+    }
+
+    function renderLine(c) {
+      if (!c.pushable) {
+        return ''
+          + '<div class="line skip">'
+          +   '<div class="line-cb"><span class="locked">SKIP</span></div>'
+          +   '<div class="line-main">'
+          +     '<div class="line-row1"><span class="line-sku">' + esc(c.sku) + '</span>'
+          +       '<span class="line-name">' + esc(c.name || '') + '</span></div>'
+          +     '<div class="line-row2"><span class="skip-reason">' + esc(c.skipReason || 'skipped') + '</span></div>'
+          +   '</div>'
+          +   '<div class="line-chips"><span class="chip skip">SKIP</span></div>'
+          + '</div>';
+      }
+
+      var s = state[c.sku];
+      var cls = ['line', c.direction === 'ZOHO HIGH' ? 'high' : 'low'];
+      if (c.bigSwing) cls.push('swing');
+      if (s && !s.checked) cls.push('unchecked');
+
+      var checkedAttr = (s && s.checked) ? 'checked' : '';
+      var cb = '<input type="checkbox" ' + checkedAttr + ' onchange="onToggle(\'' + escAttr(c.sku) + '\')">';
+
+      var deltaStr = '';
+      if (c.delta != null) {
+        deltaStr = '<span class="price-delta">(' + (c.delta > 0 ? '+' : '') + fmt(c.delta) + ')</span>';
+      }
+      var prices =
+          '<span class="price-before">Zoho ' + fmt(c.zohoBefore) + '</span>'
+        + '<span class="price-arrow">→</span>'
+        + '<span class="price-after">eBay ' + fmt(c.ebayTarget) + '</span>'
+        + deltaStr;
+
+      var chips = '<span class="chip ' + (c.direction === 'ZOHO HIGH' ? 'high' : 'low') + '">'
+                + esc(c.direction) + '</span>';
+      if (c.bigSwing) chips += '<span class="chip swing">BIG CHANGE</span>';
+
+      return ''
+        + '<div class="line ' + cls.join(' ') + '" id="line-' + escAttr(c.sku) + '">'
+        +   '<div class="line-cb">' + cb + '</div>'
+        +   '<div class="line-main">'
+        +     '<div class="line-row1"><span class="line-sku">' + esc(c.sku) + '</span>'
+        +       '<span class="line-name">' + esc(c.name || '') + '</span></div>'
+        +     '<div class="line-row2">' + prices + '</div>'
+        +   '</div>'
+        +   '<div class="line-chips">' + chips + '</div>'
+        + '</div>';
+    }
+
+    function onToggle(sku) {
+      if (!state[sku]) return;
+      state[sku].checked = !state[sku].checked;
+      var el = document.getElementById('line-' + sku);
+      if (el) { state[sku].checked ? el.classList.remove('unchecked') : el.classList.add('unchecked'); }
+      updateSummary();
+    }
+
+    function checkedCount() {
+      var n = 0;
+      Object.keys(state).forEach(function(sku) { if (state[sku].checked) n++; });
+      return n;
+    }
+
+    function updateSummary() {
+      var n = checkedCount();
+      var total = DATA.meta.pushable;
+      var pass = document.getElementById('passEl').value;
+      document.getElementById('summaryEl').textContent = n + ' of ' + total + ' selected to push';
+      document.getElementById('summaryEl').className = (n === 0) ? 'ftr-summary warn' : 'ftr-summary';
+      document.getElementById('btnApply').disabled = (n === 0 || !pass);
+    }
+
+    var busy = false;
+    function onApply() {
+      if (busy) return;
+      var pass = document.getElementById('passEl').value;
+      if (!pass) { showStatus('Enter the passphrase', true); return; }
+
+      var checked = [];
+      Object.keys(state).forEach(function(sku) { if (state[sku].checked) checked.push(sku); });
+      if (checked.length === 0) { showStatus('Nothing selected', true); return; }
+
+      if (!confirm('Push ' + checked.length + ' price(s) to Zoho?\nSets selling + cost = eBay price. This writes to Zoho.')) return;
+
+      busy = true;
+      document.getElementById('btnApply').disabled = true;
+      document.getElementById('btnCancel').disabled = true;
+      showStatus('Writing ' + checked.length + ' price(s) to Zoho…');
+
+      google.script.run
+        .withSuccessHandler(onApplyOk)
+        .withFailureHandler(onApplyFail)
+        .applyPricePush(DATA.sessionId, checked, pass);
+    }
+
+    function onApplyOk(res) {
+      busy = false;
+      if (!res || !res.ok) {
+        document.getElementById('btnApply').disabled = false;
+        document.getElementById('btnCancel').disabled = false;
+        showStatus('✗ ' + (res && res.reason ? res.reason : 'Push failed'), true);
+        return;
+      }
+      renderDone(res);
+    }
+
+    function onApplyFail(err) {
+      busy = false;
+      document.getElementById('btnApply').disabled = false;
+      document.getElementById('btnCancel').disabled = false;
+      showStatus('✗ Server error: ' + (err && err.message ? err.message : err), true);
+    }
+
+    function onCancel() { if (!busy) google.script.host.close(); }
+
+    function renderDone(res) {
+      var results = res.results || [];
+      var rowsHtml = results.map(function(r) {
+        if (r.ok) {
+          return '<div class="report-row">'
+               + '<span class="report-sku">' + esc(r.sku) + '</span>'
+               + '<span>✅ ' + fmt(r.before) + ' → ' + fmt(r.after) + '</span></div>';
+        }
+        return '<div class="report-row fail">'
+             + '<span class="report-sku">' + esc(r.sku) + '</span>'
+             + '<span class="report-detail err">❌ ' + esc(r.error || 'failed') + '</span></div>';
+      }).join('');
+
+      var icon = (res.failed > 0) ? '⚠️' : '✅';
+      document.getElementById('bodyEl').innerHTML =
+          '<div class="done">'
+        +   '<div class="done-head">'
+        +     '<div class="done-icon">' + icon + '</div>'
+        +     '<div class="done-title">Push Complete</div>'
+        +     '<div class="done-sub">' + res.pushed + ' pushed · ' + res.failed + ' failed</div>'
+        +   '</div>'
+        +   rowsHtml
+        + '</div>';
+
+      document.getElementById('ftrEl').innerHTML =
+          '<span class="ftr-summary">Re-run the audit to confirm — pushed rows drop off the list.</span>'
+        + '<div class="ftr-btns"><button class="btn-apply" onclick="google.script.host.close()">Close</button></div>';
+    }
+
+    var _statusT;
+    function showStatus(msg, isError) {
+      var el = document.getElementById('statusBar');
+      el.textContent = msg;
+      el.className = 'status shown' + (isError ? ' error' : '');
+      clearTimeout(_statusT);
+      _statusT = setTimeout(function() { el.classList.remove('shown'); }, isError ? 4500 : 2200);
+    }
+
+    function fmt(n) {
+      if (n == null || n === '' || isNaN(Number(n))) return '—';
+      return '$' + Number(n).toFixed(2);
+    }
+    function agoStr(ms) {
+      var mins = Math.round((Date.now() - ms) / 60000);
+      if (mins < 1) return 'just now';
+      if (mins < 60) return mins + ' min ago';
+      var h = Math.floor(mins / 60); var mm = mins % 60;
+      return h + 'h ' + mm + 'm ago';
+    }
+    function esc(s) {
+      if (s == null) return '';
+      return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+    function escAttr(s) { return esc(s).replace(/'/g, '&#39;'); }
+  </script>
+</body>
+</html>
