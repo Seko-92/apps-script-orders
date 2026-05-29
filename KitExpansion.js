@@ -168,6 +168,10 @@ function previewSelectedKits(deployQty) {
   // --- Build the location + inventory maps ONCE so component enrichment is
   // O(1) per lookup. These are the same maps used by doPost / LiveSync. ---
   var locInvMaps = buildLocationAndInventoryMaps();   // { locationMap, inventoryMap }
+  // Kit components are DIRECT-side items — many aren't listed on eBay, so MI
+  // reads null/stale. Zoho is the authoritative stock source for them (same
+  // routing as recomputeHand's DIRECT rows). Enrich availability Zoho-first.
+  var zohoMap = buildZohoStockMap();
 
   var kitRows = [];
   var nonKitRows = [];
@@ -221,12 +225,16 @@ function previewSelectedKits(deployQty) {
       continue;
     }
 
-    // Enrich each component with current LOCATION + AVAILABLE from MI
+    // Enrich each component with current LOCATION (MI) + AVAILABLE (Zoho-first,
+    // MI fallback). null if neither source has the SKU → UI shows "unknown".
     var enriched = plan.components.map(function(c) {
       var skuLower = c.sku.toLowerCase();
       var loc = locInvMaps.locationMap.get(skuLower) || "NOT FOUND";
       var inv = locInvMaps.inventoryMap.get(skuLower);
-      var available = inv && inv.available != null ? inv.available : null;
+      var zo  = zohoMap.get(skuLower);
+      var miAvail = (inv && inv.available != null) ? inv.available : null;
+      var zoAvail = zo ? zo.available : null;
+      var available = (zoAvail != null) ? zoAvail : miAvail;
       return {
         sku:       c.sku,
         qty:       c.qty,
@@ -356,6 +364,7 @@ function expandSelectedKits(extrasQty, exclusionMap) {
 
     var boundaryRow = getBoundaryRow();
     var locInvMaps = buildLocationAndInventoryMaps();
+    var zohoMap = buildZohoStockMap();   // DIRECT-side HAND source (Zoho-first)
 
     // Save headers ONCE upfront — verifyAndRestoreHeaders defends against the
     // Sheets bug where inserting rows inside a filtered area replaces headers
@@ -497,7 +506,11 @@ function expandSelectedKits(extrasQty, exclusionMap) {
         var skuLower = comp.sku.toLowerCase();
         var loc = locInvMaps.locationMap.get(skuLower) || "NOT FOUND";
         var inv = locInvMaps.inventoryMap.get(skuLower);
-        var hand = (inv && inv.available != null) ? inv.available : "";
+        var zo  = zohoMap.get(skuLower);
+        // DIRECT-side rows take HAND Zoho-first, MI fallback (matches recomputeHand).
+        // "" when neither source has it — the next recompute resolves it.
+        var hand = zo ? zo.available
+                 : (inv && inv.available != null) ? inv.available : "";
 
         var row = new Array(Schema.dataWidth);
         row[Schema.idx("SKU")]         = comp.sku;
@@ -580,6 +593,12 @@ function expandSelectedKits(extrasQty, exclusionMap) {
     if (expanded > 0) {
       try { refreshKitSkuMarkers(); }
       catch (kitErr) { console.log("expandSelectedKits: kit marker refresh failed: " + kitErr); }
+      // New component rows share the kit row's SO# — re-paint duplicate-SO
+      // borders so the group is surfaced immediately instead of waiting for
+      // the next onEdit (which only fires on user typing, not programmatic
+      // insertRowsAfter / setValues).
+      try { setupDuplicateSalesOrderHighlighting(); }
+      catch (dupErr) { console.log("expandSelectedKits: dup-SO refresh failed: " + dupErr); }
     }
 
     return {
@@ -1091,6 +1110,7 @@ function _commitOneKitForModal(queueItem, excludedSkus, multiplier, force) {
 
   var savedHeaders = sheet.getRange(Schema.headerRow, 1, 1, Schema.dataWidth).getValues()[0];
   var locInvMaps   = buildLocationAndInventoryMaps();
+  var zohoMap      = buildZohoStockMap();   // DIRECT-side HAND source (Zoho-first)
 
   var SKU_I      = Schema.idx("SKU");
   var QTY_I      = Schema.idx("QTY");
@@ -1192,7 +1212,11 @@ function _commitOneKitForModal(queueItem, excludedSkus, multiplier, force) {
     var skuLower = comp.sku.toLowerCase();
     var loc = locInvMaps.locationMap.get(skuLower) || "NOT FOUND";
     var inv = locInvMaps.inventoryMap.get(skuLower);
-    var hand = (inv && inv.available != null) ? inv.available : "";
+    var zo  = zohoMap.get(skuLower);
+    // DIRECT-side rows take HAND Zoho-first, MI fallback (matches recomputeHand).
+    // "" when neither source has it — the next recompute resolves it.
+    var hand = zo ? zo.available
+             : (inv && inv.available != null) ? inv.available : "";
 
     var row = new Array(Schema.dataWidth);
     row[Schema.idx("SKU")]         = comp.sku;
@@ -1240,6 +1264,11 @@ function _commitOneKitForModal(queueItem, excludedSkus, multiplier, force) {
   // to re-run for any sub-assembly component rows)
   try { refreshKitSkuMarkers(); }
   catch (kitErr) { try { console.log("modal commit: kit marker refresh failed: " + kitErr); } catch (_) {} }
+
+  // Repaint duplicate-SO borders — newly-inserted component rows share the
+  // kit row's SO# so the group needs to be surfaced immediately.
+  try { setupDuplicateSalesOrderHighlighting(); }
+  catch (dupErr) { try { console.log("modal commit: dup-SO refresh failed: " + dupErr); } catch (_) {} }
 
   return {
     ok: true,

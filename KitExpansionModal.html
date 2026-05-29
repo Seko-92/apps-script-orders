@@ -444,6 +444,28 @@
       border-left: 3px solid #9e9e9e;
       color: #5f5f5f;
     }
+    .done-result-line.committed.excluded {
+      background: #fffbe6;
+      border-left: 3px solid #ffd400;
+    }
+    .done-excluded-detail {
+      display: block;
+      margin-top: 4px;
+      padding-left: 14px;
+      font-family: 'Roboto Mono', monospace;
+      font-size: 11px;
+      color: #6b4500;
+      letter-spacing: 0.02em;
+    }
+    .done-excluded-detail .label {
+      color: #8a6d00;
+      text-transform: uppercase;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      margin-right: 6px;
+      font-family: 'Oswald', sans-serif;
+      font-size: 10px;
+    }
     .outcome-chip {
       display: inline-block;
       padding: 1px 6px;
@@ -456,9 +478,10 @@
       text-transform: uppercase;
       vertical-align: 1px;
     }
-    .outcome-chip.forced  { background: #ffe8b3; color: #6b4500; border: 1px solid #ffb84d; }
+    .outcome-chip.forced   { background: #ffe8b3; color: #6b4500; border: 1px solid #ffb84d; }
     .outcome-chip.ready-box { background: #e0e0e0; color: #5f5f5f; border: 1px solid #bdbdbd; }
-    .outcome-chip.manual   { background: var(--brand-yellow-soft); color: var(--ink); border: 1px solid var(--brand-yellow-rim); }
+    .outcome-chip.manual    { background: var(--brand-yellow-soft); color: var(--ink); border: 1px solid var(--brand-yellow-rim); }
+    .outcome-chip.excluded  { background: #fff4b0; color: #6b4500; border: 1px solid #ffd400; }
     .btn-cancel {
       background: transparent;
       color: var(--ink-mute);
@@ -914,10 +937,20 @@
         else pickerSkipped++;
       }
 
+      // Count committed kits that had any picker exclusions — surfaces
+      // accidental-uncheck mistakes at the natural audit moment (Done screen)
+      // instead of leaving them buried in the Activity Log.
+      var withExclusions = 0;
+      for (var ei = 0; ei < results.committed.length; ei++) {
+        var ec = results.committed[ei];
+        if (ec.excludedSkus && ec.excludedSkus.length > 0) withExclusions++;
+      }
+
       var f = results.failed.length;
 
-      // Subtitle is a compact 4-category breakdown — only shows non-zero
-      // categories so it stays readable when only some outcomes occurred.
+      // Subtitle is a compact breakdown — only shows non-zero categories so
+      // it stays readable when only some outcomes occurred. "with exclusions"
+      // is appended in amber when any kit had unchecked components.
       var subBits = [];
       if (expandedNormal > 0) subBits.push(expandedNormal + ' expanded');
       if (expandedForced > 0) subBits.push(expandedForced + ' READY forced');
@@ -925,6 +958,9 @@
       if (pickerSkipped > 0)  subBits.push(pickerSkipped + ' skipped');
       if (f > 0)              subBits.push(f + ' failed');
       var subtitle = subBits.length > 0 ? subBits.join(' · ') : 'No actions taken';
+      if (withExclusions > 0) {
+        subtitle += '  ⚠  ' + withExclusions + ' with exclusions — review below';
+      }
 
       var html = ''
         + '<div class="done-screen">'
@@ -933,21 +969,43 @@
         +   '<div class="done-subtitle">' + esc(subtitle) + '</div>'
         +   '<div class="done-results">';
 
-      // Committed lines — chip distinguishes normal vs READY-forced.
+      // Committed lines — chips distinguish normal / READY-forced / exclusions.
+      // Exclusions get a prominent EXCLUDED N chip + a sub-line listing each
+      // excluded SKU so accidental unchecks are visible AT END OF SESSION,
+      // not days later in the Activity Log.
       for (var i = 0; i < results.committed.length; i++) {
         var r = results.committed[i];
+        var hasExclusions = r.excludedSkus && r.excludedSkus.length > 0;
+
         var line = r.kitSku + ' — ' + r.componentsAdded + ' components';
         if (r.extras && r.extras > 0) {
           line += ' · ' + r.totalKits + ' total (' + r.rowQty + ' customer + ' + r.extras + ' for us)';
         }
-        if (r.excludedSkus && r.excludedSkus.length) {
-          line += ' (excluded ' + r.excludedSkus.length + ': ' + r.excludedSkus.join(', ') + ')';
+
+        var chips = '';
+        if (r.forced) {
+          chips += '<span class="outcome-chip forced">READY · FORCED</span>';
         }
-        var chip = r.forced
-          ? '<span class="outcome-chip forced">READY · FORCED</span>'
-          : '';
-        var cls = r.forced ? 'committed forced' : 'committed';
-        html += '<div class="done-result-line ' + cls + '">✓ ' + esc(line) + ' ' + chip + '</div>';
+        if (hasExclusions) {
+          chips += '<span class="outcome-chip excluded">EXCLUDED ' + r.excludedSkus.length + '</span>';
+        }
+
+        var cls = 'committed';
+        if (r.forced)        cls += ' forced';
+        if (hasExclusions)   cls += ' excluded';
+
+        var detailHtml = '';
+        if (hasExclusions) {
+          detailHtml = '<span class="done-excluded-detail">'
+                     +   '<span class="label">unchecked:</span>'
+                     +   esc(r.excludedSkus.join('  ·  '))
+                     + '</span>';
+        }
+
+        html += '<div class="done-result-line ' + cls + '">'
+              +   '✓ ' + esc(line) + ' ' + chips
+              +   detailHtml
+              + '</div>';
       }
 
       // Skipped lines — chip distinguishes READY-shipped-as-box vs picker-skipped.
