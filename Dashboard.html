@@ -7,56 +7,159 @@
   <title>HQ Motor Service · Warehouse Dashboard</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;700&family=Roboto+Mono:wght@400;700&family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Roboto+Mono:wght@400;500;700&family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
   <style>
-    /* ==================================================================
-       HQ MOTOR SERVICE — WAREHOUSE DASHBOARD (sample, shipped 2026-05-22)
-       TV-friendly fullscreen view. Auto-refreshes every 30s via getSidebarTick.
-       Brand: dark ink + brand yellow accent. Same palette as the sheet
-       header + sidebar header.
-       ================================================================== */
+    /* ====================================================================
+       HQ MOTOR SERVICE — WAREHOUSE DASHBOARD v1.0
+       Production wall display. Mixes:
+         · Service Bay tachometer aesthetic        · Color temperature by hour
+         · Scene rotation (dawn/calm/push/dusk)    · Alert takeover
+         · Sun arc with today's events             · Comic-strip hourly panels
+         · Pace Car projection                     · Queue fuel gauges
+         · Vital Signs strip (floor-friendly)      · Doc Echo rail
+         · Phantom Echo on alert resolution        · Service Bay Radio
+         · Anthem ticker (lore from CLAUDE.md)     · Memory of self (uptime)
+         · Workshop ambient sound (mute default)   · Konami easter egg
+         · Polling jitter + exponential backoff    · Connection-lost banner
+       ==================================================================== */
+
     :root {
+      /* Brand foundation — matches sheet + sidebar + print template */
       --ink:           #0e0e0d;
       --ink-soft:      #1d1d1b;
       --ink-mute:      #2a2a28;
+      --ink-deep:      #060605;
+      --paper:         #ffffff;
       --paper-warm:    #fff8e7;
       --brand-yellow:  #ffd400;
       --brand-rim:     #ffd966;
       --brand-soft:    #fff4b0;
+      --brand-deep:    #c9a700;
       --green-go:      #4caf50;
-      --green-bg:      rgba(76,175,80,0.18);
+      --green-glow:    rgba(76,175,80,0.45);
       --amber-warn:    #ffb84d;
-      --amber-bg:      rgba(255,184,77,0.20);
+      --amber-glow:    rgba(255,184,77,0.45);
       --red-alert:     #ff6b6b;
-      --red-bg:        rgba(255,107,107,0.20);
+      --red-glow:      rgba(255,107,107,0.45);
       --rule:          rgba(255,212,0,0.18);
+      --rule-strong:   rgba(255,212,0,0.42);
       --mute:          rgba(255,255,255,0.55);
       --mute-soft:     rgba(255,255,255,0.30);
+      --mute-faint:    rgba(255,255,255,0.14);
+
+      /* Service Bay metallic — tachometer + gauges */
+      --bay-metal:     #15181b;
+      --bay-rim:       #2c3137;
+      --bay-glass:     radial-gradient(circle at 50% 30%, #25292e 0%, #0c0d0f 100%);
+      --bay-needle:    #ffd400;
+
+      /* Color temperature — shifted by time-of-day JS.
+         Default = noon neutral. Dawn/dusk warm. Night cool. */
+      --warmth-tint:   rgba(255, 215, 130, 0);
+      --warmth-bg:     #0e0e0d;
     }
 
     * { box-sizing: border-box; margin: 0; padding: 0; }
+
     html, body {
       height: 100%;
-      background: var(--ink);
+      background: var(--warmth-bg);
       color: #f5f5f5;
       font-family: 'Roboto', -apple-system, BlinkMacSystemFont, sans-serif;
       overflow: hidden;
+      transition: background 8s ease;
+      -webkit-font-smoothing: antialiased;
     }
 
+    /* Warmth tint overlay — sits above body, below content. Pure ambient. */
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      background: var(--warmth-tint);
+      pointer-events: none;
+      z-index: 1;
+      transition: background 8s ease;
+    }
+
+    /* ─────────── ROOT GRID ─────────── */
     .dash {
+      position: relative;
       height: 100vh;
+      width: 100vw;
       display: grid;
-      grid-template-rows: auto 1fr auto;
-      padding: 18px 28px;
-      gap: 18px;
+      grid-template-rows: auto auto 1fr auto auto;
+      gap: 14px;
+      padding: 14px 22px 8px;
+      z-index: 2;
     }
 
-    /* ------ HEADER ------ */
+    /* ─────────── SUN ARC (top edge) ─────────── */
+    .sun-arc-wrap {
+      position: relative;
+      height: 38px;
+      overflow: hidden;
+    }
+    .sun-arc {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+    }
+    .sun-arc-line {
+      stroke: var(--rule);
+      stroke-width: 1;
+      fill: none;
+    }
+    .sun-arc-glow {
+      stroke: var(--brand-yellow);
+      stroke-width: 2.2;
+      fill: none;
+      filter: drop-shadow(0 0 4px rgba(255,212,0,0.45));
+    }
+    .sun-arc-dot {
+      transition: transform 240ms ease;
+      transform-box: fill-box;
+      transform-origin: center;
+    }
+    .sun-arc-dot.received { fill: var(--paper-warm); }
+    .sun-arc-dot.preparing { fill: var(--brand-yellow); }
+    .sun-arc-dot.shipped   { fill: var(--green-go); }
+    .sun-arc-dot.canceled  { fill: var(--mute-soft); }
+    .sun-arc-dot.printed   { fill: #6fb1ff; }
+    .sun-arc-now {
+      stroke: var(--brand-yellow);
+      stroke-width: 1.5;
+      filter: drop-shadow(0 0 3px var(--brand-yellow));
+    }
+    .sun-arc-tick {
+      stroke: var(--mute-faint);
+      stroke-width: 1;
+    }
+    .sun-arc-label {
+      fill: var(--mute);
+      font-family: 'Roboto Mono', monospace;
+      font-size: 9px;
+      letter-spacing: 0.08em;
+    }
+    .sun-arc-sun {
+      fill: var(--brand-yellow);
+      filter: drop-shadow(0 0 6px var(--brand-yellow));
+      transform-box: fill-box;
+      transform-origin: center;
+      animation: sunPulse 3.6s ease-in-out infinite;
+    }
+    @keyframes sunPulse {
+      0%, 100% { transform: scale(1);    opacity: 1; }
+      50%      { transform: scale(1.12); opacity: 0.85; }
+    }
+
+    /* ─────────── HEADER ─────────── */
     .hdr {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      padding-bottom: 12px;
+      padding-bottom: 8px;
       border-bottom: 1px solid var(--rule);
     }
     .hdr-brand {
@@ -64,22 +167,42 @@
       align-items: baseline;
       gap: 14px;
     }
-    .hdr-monogram {
+    .hdr-mono {
       font-family: 'Oswald', sans-serif;
-      font-size: 36px;
+      font-size: 32px;
       font-weight: 700;
       color: var(--brand-yellow);
       letter-spacing: 0.04em;
       line-height: 1;
     }
-    .hdr-wordmark {
+    .hdr-words {
       font-family: 'Oswald', sans-serif;
-      font-size: 14px;
+      font-size: 12px;
       font-weight: 500;
-      letter-spacing: 0.22em;
+      letter-spacing: 0.24em;
       text-transform: uppercase;
       color: var(--mute);
     }
+    .hdr-right {
+      display: flex;
+      align-items: center;
+      gap: 18px;
+    }
+    .wx-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 5px 12px;
+      border: 1px solid var(--rule);
+      border-radius: 18px;
+      font-family: 'Roboto Mono', monospace;
+      font-size: 11px;
+      color: var(--mute);
+      letter-spacing: 0.06em;
+      transition: opacity 400ms;
+    }
+    .wx-chip.empty { opacity: 0.3; }
+    .wx-icon { font-size: 13px; }
     .hdr-clock {
       display: flex;
       flex-direction: column;
@@ -88,575 +211,2069 @@
     }
     .hdr-clock-time {
       font-family: 'Roboto Mono', monospace;
-      font-size: 32px;
+      font-size: 30px;
       font-weight: 700;
       color: var(--brand-yellow);
-      letter-spacing: 0.04em;
+      letter-spacing: 0.03em;
       line-height: 1;
     }
     .hdr-clock-date {
       font-family: 'Oswald', sans-serif;
-      font-size: 12px;
-      letter-spacing: 0.14em;
+      font-size: 11px;
+      letter-spacing: 0.18em;
       text-transform: uppercase;
       color: var(--mute);
     }
 
-    /* ------ MAIN GRID ------ */
-    .main {
+    /* ─────────── MAIN STAGE (scene container) ─────────── */
+    .stage {
+      position: relative;
       display: grid;
-      grid-template-rows: minmax(180px, 30%) auto 1fr;
-      gap: 18px;
+      grid-template-columns: 1fr;
+      min-height: 0;
+    }
+    .scene {
+      grid-area: 1 / 1;
+      opacity: 0;
+      visibility: hidden;
+      transition: opacity 700ms ease, visibility 700ms;
+      min-height: 0;
+    }
+    .scene.active { opacity: 1; visibility: visible; }
+
+    /* ── CALM / PUSH scene layout (shared) ── */
+    .scene-calm, .scene-push {
+      display: grid;
+      grid-template-columns: 1.05fr 1.5fr 1.15fr;
+      grid-template-rows: 1fr auto;
+      gap: 14px;
+    }
+    .scene-push .tacho-card,
+    .dash.push-mode .tacho-card {
+      box-shadow: 0 0 0 1px rgba(255,212,0,0.35), 0 0 28px rgba(255,212,0,0.18);
+      border-color: var(--brand-deep);
+    }
+    .dash.push-mode .pace {
+      background: linear-gradient(180deg, var(--ink-mute), rgba(255,212,0,0.04));
+      border-color: var(--rule-strong);
+    }
+    .dash.push-mode .pace-tag::after {
+      content: " · PUSH";
+      color: var(--brand-yellow);
+      font-weight: 700;
     }
 
-    /* --- Today's stats (3 big numbers) --- */
-    .today {
+    /* ── Stat stack (left column) ── */
+    .stat-stack {
       display: grid;
-      grid-template-columns: 1fr 1fr 1fr;
-      gap: 18px;
+      grid-template-rows: 1fr 1fr;
+      gap: 14px;
     }
-    .stat {
+    .stat-card {
       background: var(--ink-soft);
+      border: 1px solid var(--rule);
       border-radius: 8px;
-      padding: 18px 24px;
+      padding: 18px 20px;
       display: flex;
       flex-direction: column;
       justify-content: center;
       align-items: center;
-      border: 1px solid var(--rule);
       position: relative;
       overflow: hidden;
     }
-    .stat::before {
+    .stat-card::before {
       content: "";
       position: absolute;
       top: 0; left: 0; right: 0;
       height: 4px;
       background: var(--brand-yellow);
-      opacity: 0.6;
+      opacity: 0.5;
     }
+    .stat-card.shipped::before { background: var(--green-go); }
     .stat-value {
       font-family: 'Oswald', sans-serif;
       font-weight: 700;
-      font-size: 96px;
+      font-size: 88px;
       line-height: 1;
       color: var(--brand-yellow);
       letter-spacing: -0.02em;
       transition: transform 220ms ease, color 220ms ease;
     }
-    .stat-value.urgent {
-      color: var(--red-alert);
-      animation: pulse 1.4s ease-in-out infinite;
-    }
-    .stat-value.warning {
-      color: var(--amber-warn);
-    }
-    .stat-value.long {
-      font-size: 68px;
-    }
-    @keyframes pulse {
-      0%, 100% { opacity: 1; }
-      50%      { opacity: 0.55; }
-    }
+    .stat-card.shipped .stat-value { color: var(--green-go); }
     .stat-label {
-      margin-top: 8px;
+      margin-top: 10px;
       font-family: 'Oswald', sans-serif;
-      font-size: 14px;
+      font-size: 12px;
       font-weight: 500;
-      letter-spacing: 0.22em;
+      letter-spacing: 0.26em;
       text-transform: uppercase;
       color: var(--mute);
     }
-    .stat-pop {
-      animation: statPop 720ms ease-out;
+    .stat-sub {
+      margin-top: 6px;
+      font-family: 'Roboto Mono', monospace;
+      font-size: 11px;
+      letter-spacing: 0.08em;
+      color: var(--mute-soft);
     }
+    .stat-pop { animation: statPop 720ms ease-out; }
     @keyframes statPop {
-      0%   { transform: scale(1); text-shadow: 0 0 0 transparent; }
-      20%  { transform: scale(1.18); text-shadow: 0 0 22px var(--brand-yellow); }
-      100% { transform: scale(1); text-shadow: 0 0 0 transparent; }
+      0%   { transform: scale(1);    text-shadow: 0 0 0 transparent; }
+      20%  { transform: scale(1.18); text-shadow: 0 0 24px var(--brand-yellow); }
+      100% { transform: scale(1);    text-shadow: 0 0 0 transparent; }
     }
 
-    /* --- Queue + pulse strip --- */
-    .strip {
+    /* ── Center column: comic strip + pace car ── */
+    .center-col {
       display: grid;
-      grid-template-columns: 1fr auto;
-      gap: 18px;
-      align-items: stretch;
+      grid-template-rows: 1fr auto;
+      gap: 14px;
     }
-    .queue {
+    .comic {
       background: var(--ink-soft);
       border: 1px solid var(--rule);
       border-radius: 8px;
-      padding: 14px 22px;
+      padding: 14px 18px 10px;
       display: flex;
-      align-items: center;
-      gap: 28px;
+      flex-direction: column;
+      min-height: 0;
     }
-    .queue-item {
+    .comic-title {
       display: flex;
+      justify-content: space-between;
       align-items: baseline;
-      gap: 10px;
+      margin-bottom: 10px;
     }
-    .queue-icon {
-      font-size: 22px;
-    }
-    .queue-label {
+    .comic-title h4 {
       font-family: 'Oswald', sans-serif;
-      font-size: 13px;
-      letter-spacing: 0.16em;
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.24em;
       text-transform: uppercase;
       color: var(--mute);
     }
-    .queue-count {
+    .comic-title .picker-chip {
       font-family: 'Roboto Mono', monospace;
-      font-size: 28px;
+      font-size: 10px;
+      color: var(--mute-soft);
+      letter-spacing: 0.05em;
+    }
+    .comic-grid {
+      flex: 1;
+      display: grid;
+      grid-template-columns: repeat(11, 1fr);
+      gap: 4px;
+      align-items: end;
+    }
+    .comic-panel {
+      position: relative;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-end;
+      align-items: center;
+      padding: 6px 2px 4px;
+      border-radius: 4px;
+      background: rgba(255,255,255,0.02);
+      border-bottom: 1px solid var(--mute-faint);
+      transition: background 400ms;
+    }
+    .comic-panel.now {
+      background: rgba(255,212,0,0.06);
+      border-bottom-color: var(--brand-yellow);
+    }
+    .comic-bars {
+      display: flex;
+      gap: 1px;
+      align-items: flex-end;
+      width: 100%;
+      flex: 1;
+      justify-content: center;
+    }
+    .comic-bar {
+      width: 14px;
+      min-height: 1px;
+      border-radius: 1.5px 1.5px 0 0;
+      transition: height 480ms ease, opacity 240ms;
+    }
+    .comic-bar.received  { background: var(--paper-warm); opacity: 0.85; }
+    .comic-bar.shipped   { background: var(--green-go);   opacity: 0.9; }
+    .comic-hour {
+      margin-top: 4px;
+      font-family: 'Roboto Mono', monospace;
+      font-size: 9px;
+      color: var(--mute-soft);
+      letter-spacing: 0.04em;
+    }
+    .comic-panel.now .comic-hour { color: var(--brand-yellow); font-weight: 700; }
+
+    .pace {
+      background: var(--ink-mute);
+      border: 1px solid var(--rule);
+      border-radius: 8px;
+      padding: 14px 20px;
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      gap: 18px;
+      align-items: center;
+    }
+    .pace-tag {
+      font-family: 'Oswald', sans-serif;
+      font-size: 11px;
+      letter-spacing: 0.24em;
+      text-transform: uppercase;
+      color: var(--mute);
+    }
+    .pace-track {
+      position: relative;
+      height: 8px;
+      background: rgba(255,255,255,0.06);
+      border-radius: 4px;
+      overflow: hidden;
+    }
+    .pace-fill {
+      position: absolute;
+      inset: 0 auto 0 0;
+      width: 0%;
+      background: linear-gradient(90deg, var(--brand-deep), var(--brand-yellow));
+      border-radius: 4px;
+      transition: width 600ms ease;
+    }
+    .pace-stat {
+      font-family: 'Oswald', sans-serif;
+      font-size: 22px;
+      font-weight: 700;
+      color: var(--brand-yellow);
+      letter-spacing: 0.02em;
+    }
+    .pace-stat .pace-detail {
+      font-family: 'Roboto Mono', monospace;
+      font-size: 10px;
+      color: var(--mute);
+      letter-spacing: 0.05em;
+      font-weight: 400;
+      display: block;
+      text-align: right;
+      margin-top: 2px;
+    }
+
+    /* ── Right column: tachometer + doc echo ── */
+    .right-col {
+      display: grid;
+      grid-template-rows: 1fr auto;
+      gap: 14px;
+      min-height: 0;
+    }
+    .tacho-card {
+      background: var(--bay-metal);
+      border: 1px solid var(--bay-rim);
+      border-radius: 10px;
+      padding: 16px 18px 12px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      transition: box-shadow 600ms;
+    }
+    .tacho-label {
+      font-family: 'Oswald', sans-serif;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.30em;
+      text-transform: uppercase;
+      color: var(--mute);
+    }
+    .tacho-wrap {
+      position: relative;
+      width: 100%;
+      max-width: 240px;
+      aspect-ratio: 1;
+    }
+    .tacho-svg { width: 100%; height: 100%; display: block; }
+    .tacho-readout {
+      font-family: 'Oswald', sans-serif;
+      font-size: 30px;
+      font-weight: 700;
+      color: var(--brand-yellow);
+      letter-spacing: 0.02em;
+      transition: color 240ms;
+    }
+    .tacho-readout.warning { color: var(--amber-warn); }
+    .tacho-readout.urgent  { color: var(--red-alert); animation: redblink 1.2s ease-in-out infinite; }
+    @keyframes redblink {
+      0%, 100% { opacity: 1; }
+      50%      { opacity: 0.55; }
+    }
+    .tacho-tag {
+      font-family: 'Roboto Mono', monospace;
+      font-size: 10px;
+      letter-spacing: 0.06em;
+      color: var(--mute-soft);
+    }
+
+    /* ── DOC ECHO rail (under tachometer) ── */
+    .doc-echo {
+      background: var(--ink-soft);
+      border: 1px solid var(--rule);
+      border-radius: 8px;
+      padding: 12px 14px;
+      max-height: 180px;
+      overflow: hidden;
+    }
+    .doc-echo h4 {
+      font-family: 'Oswald', sans-serif;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.24em;
+      text-transform: uppercase;
+      color: var(--mute);
+      margin-bottom: 8px;
+    }
+    .doc-list {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+    .doc-chip {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 5px 10px;
+      background: var(--ink-mute);
+      border-left: 3px solid #6fb1ff;
+      border-radius: 4px;
+      font-family: 'Roboto Mono', monospace;
+      font-size: 11px;
+      animation: docFadeIn 600ms ease-out;
+    }
+    .doc-chip.fresh { border-left-color: var(--brand-yellow); background: rgba(255,212,0,0.07); }
+    .doc-num { color: #d8e8ff; letter-spacing: 0.04em; }
+    .doc-meta { color: var(--mute-soft); font-size: 10px; }
+    .doc-empty {
+      padding: 14px 8px;
+      text-align: center;
+      font-family: 'Roboto Mono', monospace;
+      font-size: 10px;
+      color: var(--mute-soft);
+      letter-spacing: 0.06em;
+    }
+    @keyframes docFadeIn {
+      from { opacity: 0; transform: translateX(8px); }
+      to   { opacity: 1; transform: translateX(0); }
+    }
+
+    /* ─────────── ROW 4: Queue gauges + Vital signs ─────────── */
+    .row-stripe {
+      grid-column: 1 / -1;
+      display: grid;
+      grid-template-columns: 1.6fr 1fr;
+      gap: 14px;
+    }
+    .queues, .vitals {
+      background: var(--ink-soft);
+      border: 1px solid var(--rule);
+      border-radius: 8px;
+      padding: 12px 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .queues h4, .vitals h4 {
+      font-family: 'Oswald', sans-serif;
+      font-size: 11px;
+      letter-spacing: 0.24em;
+      text-transform: uppercase;
+      color: var(--mute);
+    }
+    .queue-row {
+      display: grid;
+      grid-template-columns: 60px 50px 1fr auto;
+      align-items: center;
+      gap: 14px;
+    }
+    .queue-name {
+      font-family: 'Oswald', sans-serif;
+      font-size: 13px;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--mute);
+    }
+    .queue-num {
+      font-family: 'Roboto Mono', monospace;
+      font-size: 22px;
       font-weight: 700;
       color: #f5f5f5;
+      text-align: right;
     }
-    .queue-count.zero { color: var(--mute-soft); }
+    .queue-num.zero { color: var(--mute-soft); }
+    .gauge {
+      height: 10px;
+      background: rgba(255,255,255,0.05);
+      border-radius: 5px;
+      overflow: hidden;
+      position: relative;
+    }
+    .gauge-fill {
+      position: absolute;
+      inset: 0 auto 0 0;
+      width: 0%;
+      background: linear-gradient(90deg, var(--brand-deep), var(--brand-yellow));
+      border-radius: 5px;
+      transition: width 600ms ease, background 240ms;
+    }
+    .gauge-fill.warning { background: linear-gradient(90deg, var(--amber-warn), #ffcb74); }
+    .gauge-fill.urgent  { background: linear-gradient(90deg, var(--red-alert), #ff8e8e); }
+    .queue-side {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
     .queue-dot {
       width: 8px;
       height: 8px;
       border-radius: 50%;
       background: var(--brand-yellow);
-      margin-left: 6px;
-      animation: pulse 1.6s ease-in-out infinite;
-      align-self: center;
+      animation: sunPulse 1.6s ease-in-out infinite;
     }
     .queue-dot.hidden { display: none; }
+    .queue-dot-label {
+      font-family: 'Roboto Mono', monospace;
+      font-size: 9px;
+      color: var(--mute);
+      letter-spacing: 0.05em;
+    }
 
-    .pulse {
-      background: var(--ink-soft);
-      border: 1px solid var(--rule);
-      border-radius: 8px;
-      padding: 14px 22px;
-      display: flex;
-      flex-direction: column;
+    /* Vital Signs — waveform-style sparklines */
+    .vital-row {
+      display: grid;
+      grid-template-columns: 70px 1fr 60px;
       align-items: center;
-      justify-content: center;
-      gap: 4px;
-      min-width: 220px;
+      gap: 12px;
+      padding: 4px 0;
     }
-    .pulse-state {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-    }
-    .pulse-dot {
-      width: 14px;
-      height: 14px;
-      border-radius: 50%;
-      animation: pulseBeat 1.6s ease-in-out infinite;
-    }
-    .pulse-dot.alive { background: var(--green-go); box-shadow: 0 0 12px var(--green-go); }
-    .pulse-dot.idle  { background: var(--amber-warn); box-shadow: 0 0 10px var(--amber-warn); }
-    .pulse-dot.stale { background: var(--red-alert);  box-shadow: 0 0 14px var(--red-alert); animation-duration: 0.8s; }
-    .pulse-dot.gone  { background: var(--mute-soft); animation: none; }
-    @keyframes pulseBeat {
-      0%, 100% { transform: scale(1);    opacity: 1;   }
-      50%      { transform: scale(1.18); opacity: 0.7; }
-    }
-    .pulse-label {
-      font-family: 'Oswald', sans-serif;
-      font-size: 13px;
-      letter-spacing: 0.18em;
+    .vital-name {
+      font-family: 'Roboto Mono', monospace;
+      font-size: 10px;
+      letter-spacing: 0.06em;
+      color: var(--mute);
       text-transform: uppercase;
-      color: var(--brand-yellow);
-      font-weight: 500;
     }
-    .pulse-sub {
+    .vital-wave {
+      height: 22px;
+      width: 100%;
+    }
+    .vital-num {
       font-family: 'Roboto Mono', monospace;
       font-size: 11px;
-      color: var(--mute);
+      font-weight: 700;
       letter-spacing: 0.04em;
+      text-align: right;
+      color: #f5f5f5;
     }
+    .vital-num.warn { color: var(--amber-warn); }
+    .vital-num.crit { color: var(--red-alert); animation: redblink 1.2s ease-in-out infinite; }
 
-    /* --- Alerts panel --- */
-    .alerts {
+    /* ─────────── ATTENTION (alerts grid) ─────────── */
+    .attention {
+      grid-column: 1 / -1;
       background: var(--ink-soft);
       border: 1px solid var(--rule);
       border-radius: 8px;
-      padding: 16px 22px;
-      display: flex;
-      flex-direction: column;
-      overflow: hidden;
+      padding: 12px 18px;
     }
-    .alerts-title {
+    .attention-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      margin-bottom: 8px;
+    }
+    .attention-head h4 {
       font-family: 'Oswald', sans-serif;
-      font-size: 14px;
-      font-weight: 700;
-      letter-spacing: 0.22em;
+      font-size: 12px;
+      letter-spacing: 0.26em;
       text-transform: uppercase;
       color: var(--mute);
-      margin-bottom: 12px;
-      padding-bottom: 8px;
-      border-bottom: 1px solid var(--rule);
     }
+    .attention-status {
+      font-family: 'Roboto Mono', monospace;
+      font-size: 10px;
+      color: var(--mute-soft);
+      letter-spacing: 0.06em;
+    }
+    .attention-status.allclear { color: var(--green-go); }
     .alerts-grid {
       display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 14px;
-      flex: 1;
+      grid-template-columns: repeat(6, 1fr);
+      gap: 10px;
     }
     .alert-card {
       background: var(--ink-mute);
       border-radius: 6px;
-      padding: 14px 18px;
+      padding: 10px 14px;
+      border-left: 3px solid var(--mute-soft);
+      transition: border-color 200ms, background 240ms;
       display: flex;
       flex-direction: column;
-      justify-content: space-between;
-      border-left: 4px solid var(--mute-soft);
-      transition: border-color 200ms;
-      min-height: 78px;
+      gap: 4px;
+      min-height: 56px;
+      justify-content: center;
     }
-    .alert-card.active   { border-left-color: var(--amber-warn); background: rgba(255,184,77,0.07); }
-    .alert-card.critical { border-left-color: var(--red-alert);  background: rgba(255,107,107,0.10); }
-    .alert-card.clear    { border-left-color: var(--green-go);   background: rgba(76,175,80,0.06); }
+    .alert-card.active   { border-left-color: var(--amber-warn); background: rgba(255,184,77,0.08); }
+    .alert-card.critical { border-left-color: var(--red-alert);  background: rgba(255,107,107,0.12); }
+    .alert-card.clear    { border-left-color: var(--green-go);   background: rgba(76,175,80,0.05); opacity: 0.78; }
     .alert-count {
       font-family: 'Oswald', sans-serif;
-      font-size: 36px;
+      font-size: 26px;
       font-weight: 700;
       line-height: 1;
       color: #f5f5f5;
     }
     .alert-card.active   .alert-count { color: var(--amber-warn); }
     .alert-card.critical .alert-count { color: var(--red-alert);  }
-    .alert-card.clear    .alert-count { color: var(--green-go);   }
+    .alert-card.clear    .alert-count { color: var(--green-go);   opacity: 0.7; }
     .alert-label {
-      margin-top: 6px;
       font-family: 'Oswald', sans-serif;
-      font-size: 11px;
+      font-size: 10px;
       letter-spacing: 0.14em;
       text-transform: uppercase;
       color: var(--mute);
     }
 
-    /* --- Footer --- */
+    /* ─────────── FOOTER ─────────── */
     .ftr {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      padding-top: 10px;
+      grid-column: 1 / -1;
+      display: grid;
+      grid-template-columns: 1.6fr 1fr 0.6fr;
+      gap: 14px;
+      padding: 8px 0 0;
       border-top: 1px solid var(--rule);
+      align-items: center;
       font-family: 'Roboto Mono', monospace;
-      font-size: 11px;
+      font-size: 10px;
       color: var(--mute);
       letter-spacing: 0.06em;
     }
-    .ftr-tag {
+    .anthem {
+      position: relative;
+      height: 18px;
+      overflow: hidden;
+    }
+    .anthem-line {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      opacity: 0;
+      transition: opacity 700ms;
+    }
+    .anthem-line.show { opacity: 1; }
+    .anthem-pre {
+      color: var(--brand-yellow);
+      font-weight: 700;
+      letter-spacing: 0.12em;
+    }
+    .anthem-text {
+      color: var(--mute);
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    /* Service Bay Radio (FM-dial) */
+    .radio {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      justify-content: center;
+    }
+    .radio-icon {
+      font-size: 14px;
+      filter: grayscale(0.4);
+    }
+    .radio-dial {
       display: inline-flex;
       align-items: center;
-      gap: 6px;
+      gap: 8px;
+      padding: 4px 12px;
+      background: linear-gradient(180deg, #15181b, #0c0d0f);
+      border: 1px solid var(--bay-rim);
+      border-radius: 12px;
     }
-    .ftr-dot {
-      width: 8px;
-      height: 8px;
+    .radio-label {
+      font-family: 'Oswald', sans-serif;
+      font-size: 9px;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      color: var(--brand-yellow);
+    }
+    .radio-readout {
+      font-family: 'Roboto Mono', monospace;
+      font-size: 10px;
+      color: #f5f5f5;
+      letter-spacing: 0.04em;
+    }
+    .radio-static {
+      width: 6px;
+      height: 6px;
       border-radius: 50%;
       background: var(--green-go);
-      animation: pulse 2s ease-in-out infinite;
+      box-shadow: 0 0 8px var(--green-glow);
+      animation: sunPulse 1.4s ease-in-out infinite;
+    }
+
+    .ftr-meta {
+      display: flex;
+      justify-content: flex-end;
+      align-items: center;
+      gap: 12px;
+    }
+    .ftr-uptime {
+      letter-spacing: 0.10em;
     }
     .ftr-version {
       color: var(--mute-soft);
       letter-spacing: 0.18em;
       text-transform: uppercase;
     }
+    .ftr-sound {
+      cursor: pointer;
+      padding: 3px 8px;
+      border: 1px solid var(--rule);
+      border-radius: 10px;
+      font-size: 10px;
+      color: var(--mute);
+      transition: all 200ms;
+    }
+    .ftr-sound:hover {
+      border-color: var(--brand-yellow);
+      color: var(--brand-yellow);
+    }
+    .ftr-sound.on {
+      border-color: var(--green-go);
+      color: var(--green-go);
+    }
 
-    /* --- Loading state --- */
+    /* ─────────── CONNECTION-LOST BAR ─────────── */
+    .connlost {
+      position: fixed;
+      left: 0; right: 0; bottom: 0;
+      height: 0;
+      background: linear-gradient(90deg, var(--red-alert), #ff8e8e, var(--red-alert));
+      background-size: 200% 100%;
+      animation: connLostSlide 2s linear infinite;
+      z-index: 50;
+      transition: height 600ms ease;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      pointer-events: none;
+    }
+    .connlost.live { height: 28px; }
+    .connlost-text {
+      font-family: 'Oswald', sans-serif;
+      font-size: 11px;
+      letter-spacing: 0.30em;
+      text-transform: uppercase;
+      color: var(--ink);
+      font-weight: 700;
+    }
+    @keyframes connLostSlide {
+      0%   { background-position: 0% 50%; }
+      100% { background-position: 200% 50%; }
+    }
+    .dash.lost { filter: grayscale(0.6) brightness(0.85); transition: filter 800ms; }
+
+    /* ─────────── DAWN scene ─────────── */
+    .scene-dawn {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      gap: 22px;
+      text-align: center;
+    }
+    .dawn-greet {
+      font-family: 'Oswald', sans-serif;
+      font-size: 84px;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      color: var(--brand-yellow);
+      line-height: 1;
+      animation: fadeUp 1200ms ease-out;
+    }
+    .dawn-sub {
+      font-family: 'Oswald', sans-serif;
+      font-size: 22px;
+      letter-spacing: 0.30em;
+      text-transform: uppercase;
+      color: var(--mute);
+      animation: fadeUp 1200ms ease-out 300ms backwards;
+    }
+    .dawn-close {
+      font-family: 'Roboto Mono', monospace;
+      font-size: 14px;
+      color: var(--mute-soft);
+      margin-top: 14px;
+      animation: fadeUp 1200ms ease-out 600ms backwards;
+    }
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(20px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    /* ─────────── DUSK scene ─────────── */
+    .scene-dusk {
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      gap: 18px;
+    }
+    .dusk-message {
+      font-family: 'Oswald', sans-serif;
+      font-size: 64px;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      color: var(--brand-yellow);
+      opacity: 0.78;
+    }
+    .dusk-sub {
+      font-family: 'Roboto Mono', monospace;
+      font-size: 13px;
+      letter-spacing: 0.18em;
+      color: var(--mute);
+      text-transform: uppercase;
+    }
+    .dusk-stars {
+      position: absolute;
+      inset: 0;
+      overflow: hidden;
+      pointer-events: none;
+    }
+    .dusk-star {
+      position: absolute;
+      width: 3px;
+      height: 3px;
+      border-radius: 50%;
+      background: var(--brand-yellow);
+      opacity: 0;
+      animation: starTwinkle 4s ease-in-out infinite;
+    }
+    @keyframes starTwinkle {
+      0%, 100% { opacity: 0; }
+      30%, 70% { opacity: 0.8; }
+    }
+
+    /* ─────────── ALERT TAKEOVER ─────────── */
+    .scene-alert {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      gap: 18px;
+      text-align: center;
+    }
+    .takeover-tag {
+      font-family: 'Oswald', sans-serif;
+      font-size: 16px;
+      letter-spacing: 0.40em;
+      text-transform: uppercase;
+      color: var(--red-alert);
+      animation: redblink 1.4s ease-in-out infinite;
+    }
+    .takeover-headline {
+      font-family: 'Oswald', sans-serif;
+      font-size: 120px;
+      font-weight: 700;
+      line-height: 1;
+      color: var(--red-alert);
+      letter-spacing: -0.01em;
+    }
+    .takeover-subtitle {
+      font-family: 'Oswald', sans-serif;
+      font-size: 26px;
+      letter-spacing: 0.10em;
+      text-transform: uppercase;
+      color: #f5f5f5;
+    }
+    .takeover-meta {
+      font-family: 'Roboto Mono', monospace;
+      font-size: 14px;
+      color: var(--mute);
+      letter-spacing: 0.10em;
+      margin-top: 8px;
+    }
+    .takeover-pulse {
+      width: 80px;
+      height: 80px;
+      border-radius: 50%;
+      background: var(--red-alert);
+      box-shadow: 0 0 30px var(--red-glow);
+      animation: takeoverBeat 1.0s ease-in-out infinite;
+      margin-top: 12px;
+    }
+    @keyframes takeoverBeat {
+      0%, 100% { transform: scale(1);   opacity: 1;   box-shadow: 0 0 30px var(--red-glow); }
+      50%      { transform: scale(1.25); opacity: 0.75; box-shadow: 0 0 50px var(--red-glow); }
+    }
+
+    /* ─────────── PHANTOM ECHO toasts ─────────── */
+    .phantom {
+      position: fixed;
+      bottom: 60px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      z-index: 40;
+      pointer-events: none;
+    }
+    .phantom-toast {
+      background: rgba(76,175,80,0.18);
+      border: 1px solid var(--green-go);
+      border-radius: 18px;
+      padding: 8px 18px;
+      font-family: 'Oswald', sans-serif;
+      font-size: 12px;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--green-go);
+      backdrop-filter: blur(4px);
+      animation: phantomFloat 4.4s ease-out forwards;
+    }
+    @keyframes phantomFloat {
+      0%   { opacity: 0; transform: translateY(20px); }
+      12%  { opacity: 1; transform: translateY(0); }
+      78%  { opacity: 1; transform: translateY(0); }
+      100% { opacity: 0; transform: translateY(-30px); }
+    }
+
+    /* ─────────── KONAMI overlay ─────────── */
+    .konami {
+      position: fixed;
+      inset: 0;
+      background: radial-gradient(circle at 50% 30%, #2a1e08 0%, #0a0805 100%);
+      z-index: 100;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      gap: 24px;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 600ms ease;
+    }
+    .konami.show { opacity: 1; pointer-events: auto; }
+    .konami-vintage {
+      font-family: 'Oswald', sans-serif;
+      font-size: 96px;
+      font-weight: 700;
+      color: #ffe89c;
+      text-shadow: 0 0 24px rgba(255,212,0,0.6), 0 0 60px rgba(255,212,0,0.3);
+      letter-spacing: 0.12em;
+      filter: sepia(0.3);
+    }
+    .konami-caption {
+      font-family: 'Roboto Mono', monospace;
+      font-size: 14px;
+      color: #c9a86b;
+      letter-spacing: 0.30em;
+      text-transform: uppercase;
+    }
+    .konami-parts {
+      font-family: 'Roboto Mono', monospace;
+      font-size: 11px;
+      color: #8a7434;
+      letter-spacing: 0.10em;
+      max-width: 500px;
+      text-align: center;
+      line-height: 1.7;
+    }
+    .konami-exit {
+      font-family: 'Roboto Mono', monospace;
+      font-size: 10px;
+      color: rgba(255,232,156,0.4);
+      letter-spacing: 0.20em;
+      margin-top: 12px;
+    }
+
+    /* ─────────── LOADING state ─────────── */
     .loading .stat-value,
     .loading .alert-count,
-    .loading .queue-count {
+    .loading .queue-num,
+    .loading .tacho-readout {
       opacity: 0.3;
+    }
+
+    /* ─────────── ANTI-BURN-IN micro-drift (very subtle, 5-min cycle) ─────────── */
+    .dash {
+      animation: burnInDrift 600s linear infinite;
+    }
+    @keyframes burnInDrift {
+      0%   { transform: translate(0, 0); }
+      25%  { transform: translate(1px, 1px); }
+      50%  { transform: translate(0, 2px); }
+      75%  { transform: translate(-1px, 1px); }
+      100% { transform: translate(0, 0); }
     }
   </style>
 </head>
 <body>
   <div class="dash loading" id="dash">
 
+    <!-- SUN ARC -->
+    <div class="sun-arc-wrap">
+      <svg class="sun-arc" id="sunArc" preserveAspectRatio="none" viewBox="0 0 1000 38">
+        <path class="sun-arc-line" id="sunArcLine"></path>
+        <path class="sun-arc-glow" id="sunArcGlow"></path>
+        <g id="sunArcTicks"></g>
+        <g id="sunArcDots"></g>
+        <line class="sun-arc-now" id="sunArcNow" x1="0" y1="2" x2="0" y2="36"></line>
+        <circle class="sun-arc-sun" id="sunArcSun" r="6" cx="0" cy="20"></circle>
+      </svg>
+    </div>
+
     <!-- HEADER -->
     <div class="hdr">
       <div class="hdr-brand">
-        <div class="hdr-monogram">HQ</div>
-        <div class="hdr-wordmark">Motor Service · Warehouse Dashboard</div>
+        <div class="hdr-mono">HQ</div>
+        <div class="hdr-words">Motor Service · Warehouse Floor</div>
       </div>
-      <div class="hdr-clock">
-        <div class="hdr-clock-time" id="clockTime">—:—</div>
-        <div class="hdr-clock-date" id="clockDate">loading…</div>
+      <div class="hdr-right">
+        <div class="wx-chip empty" id="wxChip">
+          <span class="wx-icon">○</span>
+          <span id="wxText">reading sky</span>
+        </div>
+        <div class="hdr-clock">
+          <div class="hdr-clock-time" id="clockTime">—:—</div>
+          <div class="hdr-clock-date" id="clockDate">loading</div>
+        </div>
       </div>
     </div>
 
-    <!-- MAIN -->
-    <div class="main">
+    <!-- STAGE -->
+    <div class="stage" id="stage">
 
-      <!-- TODAY'S STATS -->
-      <div class="today">
-        <div class="stat">
-          <div class="stat-value" id="shippedToday">—</div>
-          <div class="stat-label">Shipped Today</div>
+      <!-- ───── DAWN scene ───── -->
+      <div class="scene scene-dawn" data-scene="dawn">
+        <div class="dawn-greet" id="dawnGreet">Good morning.</div>
+        <div class="dawn-sub" id="dawnSub">Tuesday · May 26</div>
+        <div class="dawn-close" id="dawnClose">Yesterday closed clean.</div>
+      </div>
+
+      <!-- ───── CALM scene ───── -->
+      <div class="scene scene-calm active" data-scene="calm">
+        <!-- LEFT: shipped / received -->
+        <div class="stat-stack">
+          <div class="stat-card shipped">
+            <div class="stat-value" id="shippedToday">—</div>
+            <div class="stat-label">Shipped today</div>
+            <div class="stat-sub" id="shippedSub">awaiting first</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value" id="receivedToday">—</div>
+            <div class="stat-label">Received today</div>
+            <div class="stat-sub" id="receivedSub">awaiting first</div>
+          </div>
         </div>
-        <div class="stat">
-          <div class="stat-value" id="receivedToday">—</div>
-          <div class="stat-label">Received Today</div>
+
+        <!-- CENTER: comic strip + pace car -->
+        <div class="center-col">
+          <div class="comic">
+            <div class="comic-title">
+              <h4>Today · hour by hour</h4>
+              <span class="picker-chip" id="pickerChip">picker not set</span>
+            </div>
+            <div class="comic-grid" id="comicGrid"></div>
+          </div>
+          <div class="pace">
+            <div class="pace-tag">Pace</div>
+            <div class="pace-track"><div class="pace-fill" id="paceFill"></div></div>
+            <div class="pace-stat" id="paceStat">—
+              <span class="pace-detail" id="paceDetail">reading the floor</span>
+            </div>
+          </div>
         </div>
-        <div class="stat">
-          <div class="stat-value" id="oldestPending">—</div>
-          <div class="stat-label">Oldest Pending</div>
+
+        <!-- RIGHT: tachometer + doc echo -->
+        <div class="right-col">
+          <div class="tacho-card">
+            <div class="tacho-label">Oldest pending</div>
+            <div class="tacho-wrap">
+              <svg class="tacho-svg" id="tachoSvg" viewBox="0 0 200 200"></svg>
+            </div>
+            <div class="tacho-readout" id="tachoReadout">—</div>
+            <div class="tacho-tag" id="tachoTag">redline at 180 min</div>
+          </div>
+          <div class="doc-echo">
+            <h4>Printed today</h4>
+            <div class="doc-list" id="docList">
+              <div class="doc-empty">no prints yet</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ROW 4 (full width): queues + vitals -->
+        <div class="row-stripe">
+          <div class="queues">
+            <h4>Queue depth</h4>
+            <div class="queue-row">
+              <div class="queue-name">eBay</div>
+              <div class="queue-num" id="ebayQNum">—</div>
+              <div class="gauge"><div class="gauge-fill" id="ebayQGauge"></div></div>
+              <div class="queue-side"></div>
+            </div>
+            <div class="queue-row">
+              <div class="queue-name">Direct</div>
+              <div class="queue-num" id="directQNum">—</div>
+              <div class="gauge"><div class="gauge-fill" id="directQGauge"></div></div>
+              <div class="queue-side">
+                <span class="queue-dot hidden" id="zohoDot"></span>
+                <span class="queue-dot-label hidden" id="zohoDotLabel"></span>
+              </div>
+            </div>
+            <div class="queue-row">
+              <div class="queue-name">Prep</div>
+              <div class="queue-num" id="prepQNum">—</div>
+              <div class="gauge"><div class="gauge-fill" id="prepQGauge"></div></div>
+              <div class="queue-side"></div>
+            </div>
+          </div>
+          <div class="vitals">
+            <h4>Vital signs</h4>
+            <div class="vital-row">
+              <div class="vital-name">eBay Trading</div>
+              <svg class="vital-wave" id="waveTrading" viewBox="0 0 200 22" preserveAspectRatio="none"></svg>
+              <div class="vital-num" id="numTrading">—</div>
+            </div>
+            <div class="vital-row">
+              <div class="vital-name">Fulfillment</div>
+              <svg class="vital-wave" id="waveFulfill" viewBox="0 0 200 22" preserveAspectRatio="none"></svg>
+              <div class="vital-num" id="numFulfill">—</div>
+            </div>
+            <div class="vital-row">
+              <div class="vital-name">Last sync</div>
+              <svg class="vital-wave" id="waveSync" viewBox="0 0 200 22" preserveAspectRatio="none"></svg>
+              <div class="vital-num" id="numSync">—</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ROW 5 (full width): attention -->
+        <div class="attention">
+          <div class="attention-head">
+            <h4>Attention</h4>
+            <div class="attention-status" id="attnStatus">awaiting first read</div>
+          </div>
+          <div class="alerts-grid" id="alertsGrid"></div>
         </div>
       </div>
 
-      <!-- QUEUE + PULSE STRIP -->
-      <div class="strip">
-        <div class="queue">
-          <div class="queue-item">
-            <span class="queue-icon">📦</span>
-            <span class="queue-label">eBay</span>
-            <span class="queue-count" id="ebayQueue">—</span>
-          </div>
-          <div class="queue-item">
-            <span class="queue-icon">📋</span>
-            <span class="queue-label">Direct</span>
-            <span class="queue-count" id="directQueue">—</span>
-            <span class="queue-dot hidden" id="zohoDot" title="Includes new Zoho SOs"></span>
-          </div>
-          <div class="queue-item">
-            <span class="queue-icon">🛠</span>
-            <span class="queue-label">Prep</span>
-            <span class="queue-count" id="prepQueue">—</span>
-          </div>
-        </div>
-        <div class="pulse">
-          <div class="pulse-state">
-            <div class="pulse-dot gone" id="pulseDot"></div>
-            <div class="pulse-label" id="pulseLabel">—</div>
-          </div>
-          <div class="pulse-sub" id="pulseSub">awaiting first tick</div>
-        </div>
+      <!-- ───── PUSH scene (same shell as calm; render swap is just a class) ───── -->
+      <!-- (we reuse the calm shell — the difference is the tacho glow handled by .scene-push CSS, and JS bumps comic + pace prominence) -->
+
+      <!-- ───── ALERT TAKEOVER ───── -->
+      <div class="scene scene-alert" data-scene="alert">
+        <div class="takeover-tag">⚠ Floor attention</div>
+        <div class="takeover-headline" id="takeoverHeadline">—</div>
+        <div class="takeover-subtitle" id="takeoverSubtitle">—</div>
+        <div class="takeover-meta" id="takeoverMeta">—</div>
+        <div class="takeover-pulse"></div>
       </div>
 
-      <!-- ALERTS -->
-      <div class="alerts">
-        <div class="alerts-title">Attention</div>
-        <div class="alerts-grid" id="alertsGrid">
-          <!-- populated by JS -->
-        </div>
+      <!-- ───── DUSK scene ───── -->
+      <div class="scene scene-dusk" data-scene="dusk">
+        <div class="dusk-stars" id="duskStars"></div>
+        <div class="dusk-message">Good night.</div>
+        <div class="dusk-sub" id="duskSub">today we shipped — orders</div>
       </div>
 
     </div>
 
     <!-- FOOTER -->
     <div class="ftr">
-      <div class="ftr-tag">
-        <div class="ftr-dot"></div>
-        <span>Live · refreshes every 30s</span>
+      <div class="anthem" id="anthem">
+        <div class="anthem-line show">
+          <span class="anthem-pre">CREDO</span>
+          <span class="anthem-text">measure twice · cut once</span>
+        </div>
       </div>
-      <div class="ftr-tag">
-        <span>Last update: <span id="lastUpdate">—</span></span>
+      <div class="radio">
+        <span class="radio-icon">📻</span>
+        <div class="radio-dial">
+          <div class="radio-static"></div>
+          <span class="radio-label">tuned</span>
+          <span class="radio-readout" id="radioReadout">— ships/hr</span>
+        </div>
       </div>
-      <div class="ftr-version">DASHBOARD · v0.1 · SAMPLE</div>
+      <div class="ftr-meta">
+        <div class="ftr-sound" id="soundToggle" title="Toggle ambient sound">♪ off</div>
+        <span class="ftr-uptime" id="uptimeChip">uptime —</span>
+        <span class="ftr-version">DASH · v1.0</span>
+      </div>
+    </div>
+
+    <!-- Connection-lost overlay -->
+    <div class="connlost" id="connLost"><span class="connlost-text">lost the line · trying again</span></div>
+
+    <!-- Phantom-echo container -->
+    <div class="phantom" id="phantom"></div>
+
+    <!-- Konami easter-egg overlay -->
+    <div class="konami" id="konami">
+      <div class="konami-vintage">HQ PARTS · EST. CIRCA</div>
+      <div class="konami-caption">vintage motor service catalog</div>
+      <div class="konami-parts">
+        ◇ Crankshafts · Pistons · Bearings · Gaskets · Filters · Pumps ◇<br>
+        sold by the box · shipped same day · warranty: handshake
+      </div>
+      <div class="konami-exit">press any key to return</div>
     </div>
 
   </div>
 
   <script>
     // =====================================================================
-    // DASHBOARD CLIENT (sample, v0.1)
-    // Polls getSidebarTick() every 30s and paints the layout.
-    // Reuses the same server function the sidebar heartbeat uses — single
-    // source of truth for dashboard + sidebar data.
+    // HQ WAREHOUSE DASHBOARD — client (v1.0)
     // =====================================================================
-    var POLL_MS = 30000;
-    var dashEl = document.getElementById('dash');
-    var prevValues = {};
 
-    // --- CLOCK (own tick, not server-dependent) ---
+    // ────────────── CONFIG ──────────────
+    var BASE_POLL_MS    = 15000;     // base interval
+    var JITTER_MS       = 3000;      // ±3s jitter to avoid resonance with other pollers
+    var MAX_BACKOFF_MS  = 120000;    // 2 min ceiling on backoff
+    var REDLINE_MIN     = 180;       // oldest-pending redline
+    var WARN_MIN        = 60;        // oldest-pending warning threshold
+    var TAKEOVER_OLDEST = 240;       // 4h triggers full screen takeover
+    var TAKEOVER_OOS    = 8;
+    var TAKEOVER_NOTFND = 8;
+    var DAWN_START      = 6.83;      // 6:50am
+    var DAWN_END        = 7.25;      // 7:15am
+    var DUSK_START      = 17.00;     // 5:00pm
+    var PUSH_START      = 15.00;     // 3:00pm
+    var WEATHER_REFRESH_MS = 15 * 60 * 1000;   // every 15 min
+    var WEATHER_COORDS  = { lat: 29.76, lon: -95.36, label: 'HOU' };
+
+    // ────────────── STATE ──────────────
+    var state = {
+      booted:        false,
+      mounted:       new Date().getTime(),
+      prevValues:    {},
+      prevAlerts:    {},
+      consecutiveFails: 0,
+      pollHandle:    null,
+      lastSuccessTs: null,
+      currentScene:  'calm',
+      lastDawnShown: null,
+      lastDuskShown: null,
+      soundEnabled:  false,
+      audioCtx:      null,
+      ambientGain:   null,
+      konamiBuffer:  [],
+      paceHistory:   [],
+      vitalsHistory: { trading: [], fulfill: [], sync: [] },
+      lastTick:      null
+    };
+
+    // ────────────── ANTHEM LORE (rotated in footer) ──────────────
+    var ANTHEMS = [
+      ['CREDO',    'measure twice · cut once'],
+      ['RULE',     'inventory truth lives on eBay · not the sheet'],
+      ['RULE',     'the picker at the shelf is always right'],
+      ['CARE',     'every soft-delete needs a restore path'],
+      ['CARE',     'rituals beat reports'],
+      ['CRAFT',    'check before you cut a new deployment'],
+      ['MEMORY',   'auto-link manual rows · pull-first for the rest'],
+      ['HABIT',    'one Pull · one decision · one apply'],
+      ['SHIPRULE', 'no background mutation except VOID']
+    ];
+
+    // ────────────── DOM SHORTCUTS ──────────────
+    function $(id) { return document.getElementById(id); }
+    var dashEl = $('dash');
+
+    // ────────────── CLOCK + TIME-OF-DAY ──────────────
+    function localHourFraction() {
+      var d = new Date();
+      return d.getHours() + d.getMinutes() / 60 + d.getSeconds() / 3600;
+    }
+
     function tickClock() {
       var d = new Date();
       var h = d.getHours();
       var m = d.getMinutes();
       var ampm = h >= 12 ? 'PM' : 'AM';
       h = h % 12 || 12;
-      var mm = m < 10 ? ('0' + m) : m;
-      document.getElementById('clockTime').textContent = h + ':' + mm + ' ' + ampm;
-
-      var days = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+      $('clockTime').textContent = h + ':' + (m < 10 ? '0' + m : m) + ' ' + ampm;
+      var days   = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+      var fullDays = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
       var months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
-      document.getElementById('clockDate').textContent =
-        days[d.getDay()] + ' · ' + months[d.getMonth()] + ' ' + d.getDate();
+      $('clockDate').textContent = days[d.getDay()] + ' · ' + months[d.getMonth()] + ' ' + d.getDate();
+      // Greet panel — written here so DAWN scene has a fresh date when triggered
+      $('dawnSub').textContent = fullDays[d.getDay()] + ' · ' + months[d.getMonth()] + ' ' + d.getDate();
+      applyColorTemperature();
+      updateSunArcNow();
+      reckonScene();
     }
-    setInterval(tickClock, 30000);
-    tickClock();
 
-    // --- POP ANIMATION when a number increases ---
-    function paintNumber(elId, newVal, formatter) {
-      var el = document.getElementById(elId);
-      if (!el) return;
-      var formatted = formatter ? formatter(newVal) : String(newVal);
+    /**
+     * Color temperature CSS-var shift through the day.
+     * - 5-8am:   warm amber overlay (sunrise)
+     * - 8-15:    neutral (no overlay)
+     * - 15-17:   warm amber building (afternoon)
+     * - 17-21:   stronger warm (dusk)
+     * - 21-5:    cool blue (night)
+     */
+    function applyColorTemperature() {
+      var hr = localHourFraction();
+      var rgba;
+      var bg = '#0e0e0d';
+      if (hr >= 5 && hr < 8) {
+        // dawn — warm amber
+        var t = (hr - 5) / 3;
+        rgba = 'rgba(255, 180, 80, ' + (0.12 - 0.06 * t) + ')';
+      } else if (hr >= 15 && hr < 17) {
+        // afternoon — gentle warmth
+        var t2 = (hr - 15) / 2;
+        rgba = 'rgba(255, 195, 100, ' + (0.04 + 0.06 * t2) + ')';
+      } else if (hr >= 17 && hr < 21) {
+        // dusk — strong warm
+        rgba = 'rgba(255, 150, 70, 0.14)';
+      } else if (hr >= 21 || hr < 5) {
+        // night — cool blue tint
+        rgba = 'rgba(80, 110, 160, 0.10)';
+        bg = '#080a0d';
+      } else {
+        // mid-morning — clean neutral
+        rgba = 'rgba(255, 255, 255, 0)';
+      }
+      document.documentElement.style.setProperty('--warmth-tint', rgba);
+      document.documentElement.style.setProperty('--warmth-bg', bg);
+    }
+
+    // ────────────── SUN ARC ──────────────
+    function initSunArc() {
+      var line = $('sunArcLine');
+      var glow = $('sunArcGlow');
+      // Half-ellipse arc from x=20 to x=980, peaking near y=4
+      var arc = 'M 20 30 Q 500 -6 980 30';
+      line.setAttribute('d', arc);
+      glow.setAttribute('d', arc);
+
+      // Hourly ticks
+      var ticks = $('sunArcTicks');
+      ticks.innerHTML = '';
+      for (var h = 7; h <= 17; h++) {
+        var x = 20 + ((h - 7) / 10) * 960;
+        var tk = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+        tk.setAttribute('class', 'sun-arc-tick');
+        tk.setAttribute('x1', x); tk.setAttribute('x2', x);
+        tk.setAttribute('y1', 32); tk.setAttribute('y2', 36);
+        ticks.appendChild(tk);
+        if (h % 3 === 0 || h === 17) {
+          var lb = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+          lb.setAttribute('class', 'sun-arc-label');
+          lb.setAttribute('x', x);
+          lb.setAttribute('y', 16);
+          lb.setAttribute('text-anchor', 'middle');
+          var ampm = h >= 12 ? 'p' : 'a';
+          var label = (h % 12 || 12) + ampm;
+          lb.textContent = label;
+          ticks.appendChild(lb);
+        }
+      }
+    }
+
+    function updateSunArcNow() {
+      var hr = localHourFraction();
+      var sr = 7, ss = 17;
+      if (hr < sr - 0.5 || hr > ss + 0.5) {
+        $('sunArcNow').setAttribute('x1', -10);
+        $('sunArcNow').setAttribute('x2', -10);
+        $('sunArcSun').setAttribute('cx', -20);
+        return;
+      }
+      var t = Math.min(1, Math.max(0, (hr - sr) / (ss - sr)));
+      var x = 20 + t * 960;
+      // y on the arc: parabolic approximation matching the quadratic Q in path
+      // M 20 30 Q 500 -6 980 30 → midpoint y = (30 -6 30)/3 ≈ 6 at t=0.5; we use formula:
+      var y = 30 * (1 - t) * (1 - t) + 2 * (-6) * (1 - t) * t + 30 * t * t;
+      $('sunArcNow').setAttribute('x1', x);
+      $('sunArcNow').setAttribute('x2', x);
+      $('sunArcNow').setAttribute('y1', 2);
+      $('sunArcNow').setAttribute('y2', 36);
+      $('sunArcSun').setAttribute('cx', x);
+      $('sunArcSun').setAttribute('cy', y + 2);
+    }
+
+    function paintSunArcEvents(events) {
+      var g = $('sunArcDots');
+      g.innerHTML = '';
+      if (!events) return;
+      var lanes = { RECEIVED: 24, PREPARING: 22, SHIPPED: 20, CANCELED: 26, PRINTED: 18 };
+      var classes = { RECEIVED: 'received', PREPARING: 'preparing', SHIPPED: 'shipped', CANCELED: 'canceled', PRINTED: 'printed' };
+      for (var i = 0; i < events.length; i++) {
+        var ev = events[i];
+        var x = 20 + ev.position * 960;
+        var y = lanes[ev.type] || 24;
+        var cls = classes[ev.type];
+        if (!cls) continue;
+        var dot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+        dot.setAttribute('class', 'sun-arc-dot ' + cls);
+        dot.setAttribute('cx', x);
+        dot.setAttribute('cy', y);
+        dot.setAttribute('r', 1.7);
+        var title = document.createElementNS('http://www.w3.org/2000/svg', 'title');
+        title.textContent = ev.type + ' · ' + ev.orderId;
+        dot.appendChild(title);
+        g.appendChild(dot);
+      }
+    }
+
+    // ────────────── TACHOMETER ──────────────
+    function renderTachometer(oldestMin) {
+      var svg = $('tachoSvg');
+      svg.innerHTML = '';
+      var NS = 'http://www.w3.org/2000/svg';
+      var cx = 100, cy = 110, r = 80;
+      var startA = 135, endA = 405; // sweep 270°
+      function ang(t) { return (startA + t * (endA - startA)) * Math.PI / 180; }
+      function pt(t, rad) { var a = ang(t); return { x: cx + rad * Math.cos(a), y: cy + rad * Math.sin(a) }; }
+
+      // Outer dial glass
+      var glass = document.createElementNS(NS, 'circle');
+      glass.setAttribute('cx', cx); glass.setAttribute('cy', cy); glass.setAttribute('r', r + 8);
+      glass.setAttribute('fill', '#15181b');
+      glass.setAttribute('stroke', '#2c3137'); glass.setAttribute('stroke-width', '2');
+      svg.appendChild(glass);
+
+      // Inner ring
+      var ring = document.createElementNS(NS, 'circle');
+      ring.setAttribute('cx', cx); ring.setAttribute('cy', cy); ring.setAttribute('r', r);
+      ring.setAttribute('fill', 'none');
+      ring.setAttribute('stroke', '#0a0b0d'); ring.setAttribute('stroke-width', '1.5');
+      svg.appendChild(ring);
+
+      // Tick marks every 30 min up to 240
+      for (var v = 0; v <= 240; v += 30) {
+        var t = v / 240;
+        var inner = pt(t, r - 8);
+        var outer = pt(t, r - 2);
+        var tick = document.createElementNS(NS, 'line');
+        tick.setAttribute('x1', inner.x); tick.setAttribute('y1', inner.y);
+        tick.setAttribute('x2', outer.x); tick.setAttribute('y2', outer.y);
+        tick.setAttribute('stroke', v >= REDLINE_MIN ? '#ff6b6b' : '#5a5e63');
+        tick.setAttribute('stroke-width', v % 60 === 0 ? '2' : '1');
+        svg.appendChild(tick);
+        if (v % 60 === 0) {
+          var lblPt = pt(t, r - 22);
+          var lbl = document.createElementNS(NS, 'text');
+          lbl.setAttribute('x', lblPt.x); lbl.setAttribute('y', lblPt.y + 4);
+          lbl.setAttribute('text-anchor', 'middle');
+          lbl.setAttribute('font-family', 'Roboto Mono, monospace');
+          lbl.setAttribute('font-size', '9');
+          lbl.setAttribute('fill', v >= REDLINE_MIN ? '#ff6b6b' : '#8a8e93');
+          lbl.textContent = v;
+          svg.appendChild(lbl);
+        }
+      }
+
+      // Redline arc (180-240)
+      var rlStart = pt(180 / 240, r - 4);
+      var rlEnd = pt(1, r - 4);
+      var rl = document.createElementNS(NS, 'path');
+      var sweep = ((endA - startA) * (240 - 180) / 240) > 180 ? 1 : 0;
+      rl.setAttribute('d', 'M ' + rlStart.x + ' ' + rlStart.y + ' A ' + (r - 4) + ' ' + (r - 4) + ' 0 ' + sweep + ' 1 ' + rlEnd.x + ' ' + rlEnd.y);
+      rl.setAttribute('stroke', '#ff6b6b'); rl.setAttribute('stroke-width', '4'); rl.setAttribute('fill', 'none');
+      rl.setAttribute('opacity', '0.8');
+      svg.appendChild(rl);
+
+      // Needle
+      var val = (typeof oldestMin === 'number' && oldestMin >= 0) ? Math.min(240, oldestMin) : 0;
+      var t = val / 240;
+      var tip = pt(t, r - 12);
+      var needle = document.createElementNS(NS, 'line');
+      needle.setAttribute('x1', cx); needle.setAttribute('y1', cy);
+      needle.setAttribute('x2', tip.x); needle.setAttribute('y2', tip.y);
+      var needleColor = val >= REDLINE_MIN ? '#ff6b6b' : (val >= WARN_MIN ? '#ffb84d' : '#ffd400');
+      needle.setAttribute('stroke', needleColor); needle.setAttribute('stroke-width', '3');
+      needle.setAttribute('stroke-linecap', 'round');
+      needle.setAttribute('filter', 'drop-shadow(0 0 4px ' + needleColor + ')');
+      svg.appendChild(needle);
+
+      // Hub
+      var hub = document.createElementNS(NS, 'circle');
+      hub.setAttribute('cx', cx); hub.setAttribute('cy', cy); hub.setAttribute('r', '6');
+      hub.setAttribute('fill', '#1d1d1b'); hub.setAttribute('stroke', needleColor); hub.setAttribute('stroke-width', '1.5');
+      svg.appendChild(hub);
+    }
+
+    // ────────────── COMIC STRIP ──────────────
+    function paintComic(hourly) {
+      var grid = $('comicGrid');
+      grid.innerHTML = '';
+      var nowH = Math.floor(localHourFraction());
+      var maxTotal = 1;
+      var src = hourly && hourly.length ? hourly : [];
+      // If empty, render skeleton
+      if (!src.length) {
+        for (var h = 7; h <= 17; h++) src.push({ hour: h, shipped: 0, received: 0, total: 0 });
+      }
+      for (var i = 0; i < src.length; i++) {
+        if (src[i].total > maxTotal) maxTotal = src[i].total;
+      }
+      for (var i = 0; i < src.length; i++) {
+        var b = src[i];
+        var panel = document.createElement('div');
+        panel.className = 'comic-panel' + (b.hour === nowH ? ' now' : '');
+        var bars = document.createElement('div');
+        bars.className = 'comic-bars';
+        // Two bars: received (warm) + shipped (green)
+        var rH = Math.max(2, (b.received / maxTotal) * 100);
+        var sH = Math.max(2, (b.shipped / maxTotal) * 100);
+        if (b.received === 0) rH = 1;
+        if (b.shipped === 0) sH = 1;
+        var rB = document.createElement('div');
+        rB.className = 'comic-bar received';
+        rB.style.height = rH + '%';
+        var sB = document.createElement('div');
+        sB.className = 'comic-bar shipped';
+        sB.style.height = sH + '%';
+        bars.appendChild(rB);
+        bars.appendChild(sB);
+        var lbl = document.createElement('div');
+        lbl.className = 'comic-hour';
+        var h12 = b.hour % 12 || 12;
+        lbl.textContent = h12 + (b.hour >= 12 ? 'p' : 'a');
+        panel.appendChild(bars);
+        panel.appendChild(lbl);
+        grid.appendChild(panel);
+      }
+    }
+
+    // ────────────── PACE CAR ──────────────
+    function paintPace(paceCar, cockpit) {
+      if (!paceCar || !paceCar.insideWorkday) {
+        $('paceStat').firstChild.nodeValue = 'OFF SHIFT';
+        $('paceDetail').textContent = 'workday closed';
+        $('paceFill').style.width = '0%';
+        return;
+      }
+      var shipped = paceCar.shipped || 0;
+      var projection = paceCar.projection || shipped;
+      $('paceStat').firstChild.nodeValue = 'ON PACE FOR ' + projection;
+      $('paceDetail').textContent = paceCar.ratePerHr + ' ships/hr · ' + paceCar.remainingHrs + 'h left';
+      // Fill is current/projection
+      var pct = projection > 0 ? Math.min(100, (shipped / projection) * 100) : 0;
+      $('paceFill').style.width = pct.toFixed(1) + '%';
+
+      // Service Bay Radio readout
+      $('radioReadout').textContent = paceCar.ratePerHr + ' ships/hr';
+    }
+
+    // ────────────── QUEUE GAUGES ──────────────
+    function paintQueues(c) {
+      if (!c) return;
+      var ebay = c.ebayPending || 0;
+      var direct = c.directPending || 0;
+      var prep = c.prepQueueCount || 0;
+      var zoho = c.zohoPending || 0;
+      var CAP = 30;
+
+      function paintRow(numId, gaugeId, val) {
+        var n = $(numId);
+        n.textContent = val;
+        n.classList.toggle('zero', val === 0);
+        var g = $(gaugeId);
+        g.style.width = Math.min(100, (val / CAP) * 100).toFixed(1) + '%';
+        g.classList.toggle('warning', val >= 12);
+        g.classList.toggle('urgent', val >= 22);
+      }
+      paintRow('ebayQNum', 'ebayQGauge', ebay);
+      paintRow('directQNum', 'directQGauge', direct);
+      paintRow('prepQNum', 'prepQGauge', prep);
+
+      var dot = $('zohoDot');
+      var dotLabel = $('zohoDotLabel');
+      var hasZoho = zoho > 0;
+      dot.classList.toggle('hidden', !hasZoho);
+      dotLabel.classList.toggle('hidden', !hasZoho);
+      if (hasZoho) {
+        dotLabel.textContent = '+' + zoho + ' zoho';
+        dot.title = zoho + ' new Zoho SO' + (zoho === 1 ? '' : 's') + ' waiting to Pull';
+      }
+    }
+
+    // ────────────── VITAL SIGNS ──────────────
+    function paintVitals(api, cockpit) {
+      // eBay Trading
+      var trading = api && api.tradingApi ? api.tradingApi.pct : null;
+      var fulfill = api && api.fulfillment ? api.fulfillment.pct : null;
+      var sync = (cockpit && typeof cockpit.lastSyncMinutes === 'number') ? cockpit.lastSyncMinutes : null;
+
+      function num(elId, val, suffix, warnAt, critAt) {
+        var el = $(elId);
+        el.classList.remove('warn', 'crit');
+        if (val === null || val === undefined || isNaN(val)) {
+          el.textContent = '—';
+          return;
+        }
+        el.textContent = (typeof val === 'number' ? val : val) + (suffix || '');
+        if (critAt !== undefined && val >= critAt) el.classList.add('crit');
+        else if (warnAt !== undefined && val >= warnAt) el.classList.add('warn');
+      }
+      num('numTrading', trading, '%', 70, 90);
+      num('numFulfill', fulfill, '%', 70, 90);
+      num('numSync', sync, 'm', 15, 60);
+
+      // Update history
+      function push(arr, v) { if (v === null || v === undefined || isNaN(v)) return; arr.push(v); if (arr.length > 40) arr.shift(); }
+      push(state.vitalsHistory.trading, trading);
+      push(state.vitalsHistory.fulfill, fulfill);
+      push(state.vitalsHistory.sync, sync);
+
+      paintWaveform('waveTrading', state.vitalsHistory.trading, 100, '#ffd400');
+      paintWaveform('waveFulfill', state.vitalsHistory.fulfill, 100, '#ffd400');
+      paintWaveform('waveSync',    state.vitalsHistory.sync,    60,  '#6fb1ff');
+    }
+
+    function paintWaveform(svgId, arr, cap, color) {
+      var svg = $(svgId);
+      svg.innerHTML = '';
+      if (!arr || !arr.length) return;
+      var NS = 'http://www.w3.org/2000/svg';
+      var W = 200, H = 22;
+      var n = arr.length;
+      var stride = n > 1 ? W / (n - 1) : W;
+      var d = '';
+      for (var i = 0; i < n; i++) {
+        var v = Math.min(cap, Math.max(0, arr[i]));
+        var x = i * stride;
+        var y = H - (v / cap) * (H - 2) - 1;
+        d += (i === 0 ? 'M ' : ' L ') + x.toFixed(1) + ' ' + y.toFixed(1);
+      }
+      var line = document.createElementNS(NS, 'path');
+      line.setAttribute('d', d);
+      line.setAttribute('stroke', color);
+      line.setAttribute('stroke-width', '1.4');
+      line.setAttribute('fill', 'none');
+      line.setAttribute('stroke-linejoin', 'round');
+      line.setAttribute('opacity', '0.85');
+      svg.appendChild(line);
+    }
+
+    // ────────────── DOC ECHO ──────────────
+    function paintDocEcho(prints) {
+      var list = $('docList');
+      list.innerHTML = '';
+      if (!prints || !prints.length) {
+        list.innerHTML = '<div class="doc-empty">no prints today</div>';
+        return;
+      }
+      var now = Date.now();
+      prints.forEach(function(p) {
+        var fresh = p.epoch && (now - p.epoch) < 10 * 60 * 1000; // last 10 min = fresh
+        var chip = document.createElement('div');
+        chip.className = 'doc-chip' + (fresh ? ' fresh' : '');
+        var num = (p.detail || '').match(/FUL[^·\n]*/);
+        var numText = num ? num[0].trim() : (p.detail || '').slice(0, 28);
+        chip.innerHTML =
+          '<span class="doc-num">' + escapeHtml(numText) + '</span>' +
+          '<span class="doc-meta">' + escapeHtml(p.timeLabel || '') + ' · ' + escapeHtml(stripPicker(p.picker)) + '</span>';
+        list.appendChild(chip);
+      });
+    }
+
+    function stripPicker(p) {
+      if (!p) return '—';
+      var s = String(p).replace(/^Shipping\s*-\s*/i, '').trim();
+      return s.length > 14 ? s.slice(0, 13) + '…' : s;
+    }
+    function escapeHtml(s) {
+      return String(s).replace(/[&<>"']/g, function(c) {
+        return ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c];
+      });
+    }
+
+    // ────────────── ALERTS + PHANTOM ECHO ──────────────
+    var ALERT_DEFS = [
+      ['paidShipping', 'Paid shipping', 5],
+      ['intl',         'International', 4],
+      ['lowStock',     'Low stock',     8],
+      ['notFound',     'NOT FOUND',     5],
+      ['outOfStock',   'Out of stock',  8],
+      ['newFromZoho',  'New Zoho SO',   5]
+    ];
+    function paintAlerts(a) {
+      var grid = $('alertsGrid');
+      grid.innerHTML = '';
+      var anyActive = false;
+      var totalActive = 0;
+      ALERT_DEFS.forEach(function(def) {
+        var key = def[0], label = def[1], critAt = def[2];
+        var count = (a && typeof a[key] === 'number') ? a[key] : 0;
+        var cls = 'alert-card';
+        if (count >= critAt) { cls += ' critical'; anyActive = true; }
+        else if (count >= 1) { cls += ' active'; anyActive = true; }
+        if (count > 0) totalActive++;
+        var card = document.createElement('div');
+        card.className = cls;
+        card.innerHTML =
+          '<div class="alert-count">' + count + '</div>' +
+          '<div class="alert-label">' + escapeHtml(label) + '</div>';
+        grid.appendChild(card);
+      });
+      if (!anyActive) {
+        Array.prototype.forEach.call(grid.children, function(c) { c.classList.add('clear'); });
+        $('attnStatus').textContent = 'all clear · carry on';
+        $('attnStatus').classList.add('allclear');
+      } else {
+        $('attnStatus').textContent = totalActive + ' attention-worthy';
+        $('attnStatus').classList.remove('allclear');
+      }
+
+      // Phantom Echo — fire for any alert that went from >0 to 0
+      if (state.booted && a) {
+        ALERT_DEFS.forEach(function(def) {
+          var key = def[0], label = def[1];
+          var before = state.prevAlerts[key] || 0;
+          var after = a[key] || 0;
+          if (before > 0 && after === 0) phantom('resolved · ' + label.toLowerCase() + ' cleared');
+        });
+      }
+      state.prevAlerts = Object.assign({}, a || {});
+    }
+
+    function phantom(msg) {
+      var container = $('phantom');
+      var toast = document.createElement('div');
+      toast.className = 'phantom-toast';
+      toast.textContent = msg;
+      container.appendChild(toast);
+      setTimeout(function() {
+        if (toast.parentNode) toast.parentNode.removeChild(toast);
+      }, 4400);
+    }
+
+    // ────────────── STAT CARDS + POP ──────────────
+    function paintStats(c) {
+      if (!c) return;
+      var shipped = c.shippedToday || 0;
+      var received = c.receivedToday || 0;
+      paintNumber('shippedToday', shipped, function(v) { return v; });
+      paintNumber('receivedToday', received, function(v) { return v; });
+      // subs
+      var picker = state.lastTick && state.lastTick.picker ? stripPicker(state.lastTick.picker) : '';
+      $('shippedSub').textContent = shipped === 0 ? 'awaiting first' : (picker ? 'picker ' + picker : 'today');
+      $('receivedSub').textContent = received === 0 ? 'awaiting first' : 'today';
+
+      // Oldest pending tachometer
+      var op = c.oldestPendingMinutes;
+      renderTachometer(op);
+      var readout = $('tachoReadout');
+      readout.classList.remove('warning', 'urgent');
+      if (op == null || op < 0) {
+        readout.textContent = '—';
+        $('tachoTag').textContent = 'no pending';
+      } else {
+        readout.textContent = formatOldest(op);
+        if (op >= REDLINE_MIN) readout.classList.add('urgent');
+        else if (op >= WARN_MIN) readout.classList.add('warning');
+        $('tachoTag').textContent = op >= REDLINE_MIN
+          ? 'past redline · 180m'
+          : (op >= WARN_MIN ? 'pushing past 60m' : 'within window');
+      }
+
+      // Sound: SHIPPED stat increased → thunk
+      var prevShipped = state.prevValues.shippedToday;
+      if (state.booted && typeof prevShipped === 'number' && shipped > prevShipped) {
+        playSound('shipped');
+      }
+      var prevReceived = state.prevValues.receivedToday;
+      if (state.booted && typeof prevReceived === 'number' && received > prevReceived) {
+        playSound('received');
+      }
+    }
+
+    function paintNumber(id, val, fmt) {
+      var el = $(id);
+      var formatted = fmt ? fmt(val) : String(val);
       el.textContent = formatted;
-
-      // long-string scaling (for time durations like "16h 40m")
-      el.classList.toggle('long', formatted.length >= 6);
-
-      // pop animation when value increased
-      var prev = prevValues[elId];
-      if (typeof prev === 'number' && typeof newVal === 'number' && newVal > prev) {
+      var prev = state.prevValues[id];
+      if (typeof prev === 'number' && typeof val === 'number' && val > prev) {
         el.classList.remove('stat-pop');
         void el.offsetWidth;
         el.classList.add('stat-pop');
       }
-      prevValues[elId] = newVal;
+      state.prevValues[id] = val;
     }
 
-    function formatOldest(minutes) {
-      if (minutes == null || minutes < 0) return '—';
-      if (minutes < 60)      return minutes + 'm';
-      if (minutes < 60 * 24) {
-        var h = Math.floor(minutes / 60);
-        var m = minutes % 60;
-        return h + 'h ' + (m < 10 ? '0' + m : m) + 'm';
+    function formatOldest(m) {
+      if (m == null || m < 0) return '—';
+      if (m < 60) return m + 'm';
+      var h = Math.floor(m / 60);
+      var mm = m % 60;
+      return h + 'h ' + (mm < 10 ? '0' + mm : mm) + 'm';
+    }
+
+    // ────────────── PICKER CHIP ──────────────
+    function paintPicker(picker) {
+      var clean = stripPicker(picker);
+      $('pickerChip').textContent = picker ? 'picker · ' + clean : 'picker not set';
+    }
+
+    // ────────────── SCENE STATE MACHINE ──────────────
+    function reckonScene() {
+      var hr = localHourFraction();
+      var c = (state.lastTick && state.lastTick.cockpit) || {};
+      var a = (state.lastTick && state.lastTick.alerts) || {};
+      var op = (typeof c.oldestPendingMinutes === 'number') ? c.oldestPendingMinutes : -1;
+
+      // Takeover when oldest past TAKEOVER_OLDEST or critical alert spike
+      var takeover = (op >= TAKEOVER_OLDEST)
+        || (a.outOfStock || 0) >= TAKEOVER_OOS
+        || (a.notFound || 0) >= TAKEOVER_NOTFND;
+
+      var scene;
+      if (takeover) scene = 'alert';
+      else if (hr >= DAWN_START && hr <= DAWN_END) scene = 'dawn';
+      else if (hr >= DUSK_START) scene = 'dusk';
+      else scene = 'calm'; // PUSH/CALM share the calm shell — PUSH styles via class
+
+      // Track ceremony "first ring" — fire once per day
+      var dayKey = new Date().toDateString();
+      if (scene === 'dawn' && state.lastDawnShown !== dayKey) {
+        state.lastDawnShown = dayKey;
+        $('dawnGreet').textContent = morningGreeting();
+        playSound('chime');
       }
-      var d = Math.floor(minutes / (60 * 24));
-      var rh = Math.floor((minutes % (60 * 24)) / 60);
-      return d + 'd ' + rh + 'h';
-    }
+      if (scene === 'dusk' && state.lastDuskShown !== dayKey) {
+        state.lastDuskShown = dayKey;
+        $('duskSub').textContent = 'today we shipped ' + (c.shippedToday || 0) + ' orders';
+        seedDuskStars(40);
+        playSound('chime');
+      }
 
-    function formatSync(minutes) {
-      if (minutes == null || minutes < 0) return 'no sync detected';
-      if (minutes < 1)  return 'just now';
-      if (minutes < 60) return minutes + ' min ago';
-      var h = Math.floor(minutes / 60);
-      var m = minutes % 60;
-      return h + 'h ' + (m < 10 ? '0' + m : m) + 'm ago';
-    }
-
-    // --- PAINT helpers ---
-    function paintCockpit(c) {
-      if (!c) return;
-      paintNumber('shippedToday',   c.shippedToday   || 0);
-      paintNumber('receivedToday',  c.receivedToday  || 0);
-
-      // Oldest pending — tier-colored based on minutes
-      var op = c.oldestPendingMinutes;
-      var opEl = document.getElementById('oldestPending');
-      opEl.classList.remove('urgent', 'warning');
-      if (op == null || op < 0) {
-        opEl.textContent = '—';
-        opEl.classList.add('long');
+      // PUSH styling — add class on dash for tachometer glow
+      if (scene === 'calm' && hr >= PUSH_START && hr < DUSK_START) {
+        dashEl.classList.add('push-mode');
       } else {
-        var formatted = formatOldest(op);
-        opEl.textContent = formatted;
-        opEl.classList.toggle('long', formatted.length >= 6);
-        if (op >= 180) opEl.classList.add('urgent');
-        else if (op >= 60) opEl.classList.add('warning');
+        dashEl.classList.remove('push-mode');
       }
-      prevValues['oldestPending'] = op;
 
-      // Queue strip
-      paintNumber('ebayQueue',   c.ebayPending     || 0);
-      paintNumber('directQueue', c.directPending   || 0);
-      paintNumber('prepQueue',   c.prepQueueCount  || 0);
-
-      // Zoho sub-indicator dot on Direct
-      var zohoDot = document.getElementById('zohoDot');
-      if (zohoDot) {
-        zohoDot.classList.toggle('hidden', !c.zohoPending || c.zohoPending === 0);
+      // Alert takeover content
+      if (scene === 'alert') {
+        $('takeoverHeadline').textContent = op >= 0 ? formatOldest(op) : 'attention';
+        var headline = 'oldest pending past redline';
+        if ((a.outOfStock || 0) >= TAKEOVER_OOS) headline = (a.outOfStock || 0) + ' SKUs out of stock';
+        else if ((a.notFound || 0) >= TAKEOVER_NOTFND) headline = (a.notFound || 0) + ' rows · location not found';
+        $('takeoverSubtitle').textContent = headline;
+        $('takeoverMeta').textContent = state.lastTick && state.lastTick.picker
+          ? 'picker on floor · ' + stripPicker(state.lastTick.picker)
+          : 'no picker set';
       }
-      ['ebayQueue', 'directQueue', 'prepQueue'].forEach(function(id) {
-        var el = document.getElementById(id);
-        if (el) el.classList.toggle('zero', el.textContent === '0');
-      });
 
-      // System Pulse
-      var pulseDot   = document.getElementById('pulseDot');
-      var pulseLabel = document.getElementById('pulseLabel');
-      var pulseSub   = document.getElementById('pulseSub');
-      pulseDot.classList.remove('alive', 'idle', 'stale', 'gone');
-      var lsm = c.lastSyncMinutes;
-      if (lsm == null || lsm < 0) {
-        pulseDot.classList.add('gone');
-        pulseLabel.textContent = 'OFFLINE';
-        pulseSub.textContent = 'no sync detected';
-      } else if (lsm < 15) {
-        pulseDot.classList.add('alive');
-        pulseLabel.textContent = 'ALIVE';
-        pulseSub.textContent = formatSync(lsm);
-      } else if (lsm < 60) {
-        pulseDot.classList.add('idle');
-        pulseLabel.textContent = 'IDLE';
-        pulseSub.textContent = formatSync(lsm);
-      } else {
-        pulseDot.classList.add('stale');
-        pulseLabel.textContent = 'STALE';
-        pulseSub.textContent = formatSync(lsm);
+      if (state.currentScene !== scene) {
+        switchScene(scene);
       }
     }
 
-    function paintAlerts(a) {
-      // Card definitions — order matters (priority of attention)
-      // [key, label, criticalThreshold] — critical when value >= threshold
-      var defs = [
-        ['paidShipping', 'Paid Shipping', 1],
-        ['intl',         'International', 1],
-        ['lowStock',     'Low Stock',     1],
-        ['notFound',     'NOT FOUND',     1],
-        ['outOfStock',   'Out of Stock',  1],
-        ['newFromZoho',  'New Zoho SO',   1]
-      ];
-      var grid = document.getElementById('alertsGrid');
-      grid.innerHTML = '';
-      var anyActive = false;
-      defs.forEach(function(def) {
-        var key = def[0], label = def[1];
-        var count = (a && typeof a[key] === 'number') ? a[key] : 0;
-        var cls = 'alert-card';
-        if (count >= 5)      { cls += ' critical'; anyActive = true; }
-        else if (count >= 1) { cls += ' active';   anyActive = true; }
-        var card = document.createElement('div');
-        card.className = cls;
-        card.innerHTML =
-          '<div class="alert-count">' + count + '</div>'
-          + '<div class="alert-label">' + label + '</div>';
-        grid.appendChild(card);
+    function switchScene(target) {
+      var scenes = document.querySelectorAll('.scene');
+      Array.prototype.forEach.call(scenes, function(s) {
+        s.classList.toggle('active', s.getAttribute('data-scene') === target);
       });
+      state.currentScene = target;
+      if (target === 'alert') playSound('klaxon');
+    }
 
-      // If nothing's active, soft-paint the cards as "all clear"
-      if (!anyActive) {
-        Array.prototype.forEach.call(grid.children, function(card) {
-          if (card.classList.contains('alert-card') && !card.classList.contains('active') && !card.classList.contains('critical')) {
-            card.classList.add('clear');
-          }
+    function morningGreeting() {
+      var hr = new Date().getHours();
+      if (hr < 8) return 'Good morning.';
+      return 'Morning.';
+    }
+
+    function seedDuskStars(count) {
+      var box = $('duskStars');
+      box.innerHTML = '';
+      for (var i = 0; i < count; i++) {
+        var s = document.createElement('div');
+        s.className = 'dusk-star';
+        s.style.left = (Math.random() * 100) + '%';
+        s.style.top = (10 + Math.random() * 80) + '%';
+        s.style.animationDelay = (Math.random() * 4) + 's';
+        box.appendChild(s);
+      }
+    }
+
+    // ────────────── ANTHEM ROTATOR ──────────────
+    function rotateAnthem() {
+      var box = $('anthem');
+      var prev = box.querySelector('.anthem-line');
+      var pick = ANTHEMS[Math.floor(Math.random() * ANTHEMS.length)];
+      var next = document.createElement('div');
+      next.className = 'anthem-line';
+      next.innerHTML = '<span class="anthem-pre">' + escapeHtml(pick[0]) + '</span><span class="anthem-text">' + escapeHtml(pick[1]) + '</span>';
+      box.appendChild(next);
+      setTimeout(function() { next.classList.add('show'); }, 30);
+      if (prev) {
+        prev.classList.remove('show');
+        setTimeout(function() { if (prev.parentNode) prev.parentNode.removeChild(prev); }, 800);
+      }
+    }
+    setInterval(rotateAnthem, 12000);
+
+    // ────────────── UPTIME ──────────────
+    function tickUptime() {
+      var ms = Date.now() - state.mounted;
+      var hr = Math.floor(ms / 3600000);
+      var min = Math.floor(ms / 60000) % 60;
+      var d = Math.floor(hr / 24);
+      var label;
+      if (d > 0) label = 'uptime ' + d + 'd ' + (hr % 24) + 'h';
+      else if (hr > 0) label = 'uptime ' + hr + 'h ' + min + 'm';
+      else label = 'uptime ' + min + 'm';
+      $('uptimeChip').textContent = label;
+    }
+
+    // ────────────── KONAMI ──────────────
+    var KONAMI_CODE = ['ArrowUp','ArrowUp','ArrowDown','ArrowDown','ArrowLeft','ArrowRight','ArrowLeft','ArrowRight','b','a'];
+    document.addEventListener('keydown', function(e) {
+      // close konami on any keypress when shown
+      if ($('konami').classList.contains('show')) {
+        $('konami').classList.remove('show');
+        state.konamiBuffer = [];
+        return;
+      }
+      state.konamiBuffer.push(e.key);
+      if (state.konamiBuffer.length > KONAMI_CODE.length) state.konamiBuffer.shift();
+      var match = state.konamiBuffer.length === KONAMI_CODE.length &&
+        state.konamiBuffer.every(function(k, i) {
+          return k.toLowerCase() === KONAMI_CODE[i].toLowerCase();
+        });
+      if (match) {
+        $('konami').classList.add('show');
+        state.konamiBuffer = [];
+      }
+    });
+
+    // ────────────── WEB AUDIO (synthesized) ──────────────
+    function ensureAudio() {
+      if (state.audioCtx) return state.audioCtx;
+      try {
+        var AC = window.AudioContext || window.webkitAudioContext;
+        state.audioCtx = new AC();
+        return state.audioCtx;
+      } catch (e) {
+        return null;
+      }
+    }
+    function playSound(kind) {
+      if (!state.soundEnabled) return;
+      var ac = ensureAudio();
+      if (!ac) return;
+      var now = ac.currentTime;
+      if (kind === 'received') {
+        // soft click-clack
+        var o = ac.createOscillator(); var g = ac.createGain();
+        o.type = 'square'; o.frequency.setValueAtTime(220, now);
+        g.gain.setValueAtTime(0.0001, now);
+        g.gain.exponentialRampToValueAtTime(0.05, now + 0.005);
+        g.gain.exponentialRampToValueAtTime(0.0001, now + 0.08);
+        o.connect(g).connect(ac.destination); o.start(now); o.stop(now + 0.10);
+      } else if (kind === 'shipped') {
+        // deep thunk
+        var o2 = ac.createOscillator(); var g2 = ac.createGain();
+        o2.type = 'sine'; o2.frequency.setValueAtTime(120, now);
+        o2.frequency.exponentialRampToValueAtTime(60, now + 0.18);
+        g2.gain.setValueAtTime(0.0001, now);
+        g2.gain.exponentialRampToValueAtTime(0.12, now + 0.01);
+        g2.gain.exponentialRampToValueAtTime(0.0001, now + 0.20);
+        o2.connect(g2).connect(ac.destination); o2.start(now); o2.stop(now + 0.22);
+      } else if (kind === 'klaxon') {
+        // low oscillating tone
+        var o3 = ac.createOscillator(); var g3 = ac.createGain();
+        o3.type = 'sawtooth'; o3.frequency.setValueAtTime(180, now);
+        o3.frequency.linearRampToValueAtTime(120, now + 0.2);
+        o3.frequency.linearRampToValueAtTime(180, now + 0.4);
+        g3.gain.setValueAtTime(0.0001, now);
+        g3.gain.exponentialRampToValueAtTime(0.10, now + 0.05);
+        g3.gain.exponentialRampToValueAtTime(0.0001, now + 0.60);
+        o3.connect(g3).connect(ac.destination); o3.start(now); o3.stop(now + 0.65);
+      } else if (kind === 'chime') {
+        // brief ceremonial chime
+        [523.25, 659.25, 783.99].forEach(function(f, i) {
+          var o4 = ac.createOscillator(); var g4 = ac.createGain();
+          o4.type = 'sine'; o4.frequency.setValueAtTime(f, now + i * 0.10);
+          g4.gain.setValueAtTime(0.0001, now + i * 0.10);
+          g4.gain.exponentialRampToValueAtTime(0.06, now + i * 0.10 + 0.02);
+          g4.gain.exponentialRampToValueAtTime(0.0001, now + i * 0.10 + 0.50);
+          o4.connect(g4).connect(ac.destination);
+          o4.start(now + i * 0.10); o4.stop(now + i * 0.10 + 0.55);
         });
       }
     }
-
-    function paintLastUpdate() {
-      var d = new Date();
-      var h = d.getHours();
-      var m = d.getMinutes();
-      var s = d.getSeconds();
-      var pad = function(n) { return n < 10 ? '0' + n : '' + n; };
-      document.getElementById('lastUpdate').textContent =
-        pad(h) + ':' + pad(m) + ':' + pad(s);
+    function startAmbientHum() {
+      if (!state.soundEnabled) return;
+      var ac = ensureAudio();
+      if (!ac || state.ambientGain) return;
+      // brown-noise filtered to a barely-audible workshop hum
+      var bufferSize = 2 * ac.sampleRate;
+      var buf = ac.createBuffer(1, bufferSize, ac.sampleRate);
+      var data = buf.getChannelData(0);
+      var lastOut = 0;
+      for (var i = 0; i < bufferSize; i++) {
+        var white = Math.random() * 2 - 1;
+        data[i] = (lastOut + (0.02 * white)) / 1.02;
+        lastOut = data[i];
+        data[i] *= 3.5;
+      }
+      var src = ac.createBufferSource();
+      src.buffer = buf; src.loop = true;
+      var filter = ac.createBiquadFilter();
+      filter.type = 'lowpass'; filter.frequency.value = 220;
+      var g = ac.createGain();
+      g.gain.value = 0.02;
+      src.connect(filter).connect(g).connect(ac.destination);
+      src.start();
+      state.ambientGain = g;
+    }
+    function stopAmbientHum() {
+      if (state.ambientGain) {
+        try { state.ambientGain.gain.value = 0; } catch (e) {}
+        state.ambientGain = null;
+      }
     }
 
-    // --- POLL ---
+    $('soundToggle').addEventListener('click', function() {
+      state.soundEnabled = !state.soundEnabled;
+      this.classList.toggle('on', state.soundEnabled);
+      this.textContent = state.soundEnabled ? '♪ on' : '♪ off';
+      if (state.soundEnabled) {
+        ensureAudio();
+        startAmbientHum();
+        playSound('chime');
+      } else {
+        stopAmbientHum();
+      }
+    });
+
+    // ────────────── WEATHER (Open-Meteo, free, no auth) ──────────────
+    function fetchWeather() {
+      var url = 'https://api.open-meteo.com/v1/forecast?latitude=' + WEATHER_COORDS.lat +
+                '&longitude=' + WEATHER_COORDS.lon +
+                '&current=temperature_2m,weather_code&temperature_unit=fahrenheit';
+      fetch(url).then(function(r) { return r.json(); }).then(function(j) {
+        if (!j || !j.current) return;
+        var t = Math.round(j.current.temperature_2m);
+        var code = j.current.weather_code;
+        var label = wxCodeLabel(code);
+        var icon = wxCodeIcon(code);
+        $('wxChip').classList.remove('empty');
+        $('wxText').textContent = t + '° · ' + label;
+        $('wxChip').firstElementChild.textContent = icon;
+      }).catch(function() { /* silent — keep last-known */ });
+    }
+    function wxCodeLabel(c) {
+      if (c == null) return '—';
+      if (c === 0) return 'CLEAR';
+      if (c <= 3) return 'PART CLOUD';
+      if (c <= 48) return 'FOG';
+      if (c <= 57) return 'DRIZZLE';
+      if (c <= 67) return 'RAIN';
+      if (c <= 77) return 'SNOW';
+      if (c <= 82) return 'SHOWERS';
+      if (c <= 99) return 'STORM';
+      return 'WX ' + c;
+    }
+    function wxCodeIcon(c) {
+      if (c == null) return '○';
+      if (c === 0) return '☀';
+      if (c <= 3) return '⛅';
+      if (c <= 48) return '☁';
+      if (c <= 67) return '☂';
+      if (c <= 77) return '❄';
+      if (c <= 99) return '⛈';
+      return '○';
+    }
+
+    // ────────────── POLLING ──────────────
+    function nextDelay() {
+      var fails = state.consecutiveFails;
+      if (fails === 0) return BASE_POLL_MS + (Math.random() * 2 - 1) * JITTER_MS;
+      // exponential backoff: 2x per fail, capped
+      var ms = Math.min(MAX_BACKOFF_MS, BASE_POLL_MS * Math.pow(2, fails));
+      return ms + (Math.random() * 2 - 1) * JITTER_MS;
+    }
+
     function refresh() {
-      if (typeof google === 'undefined' || !google.script) return;
+      if (typeof google === 'undefined' || !google.script) {
+        // dev preview mode: surface a friendly note and keep clock going
+        $('attnStatus').textContent = 'dev preview · no google.script';
+        scheduleNext();
+        return;
+      }
       google.script.run
         .withSuccessHandler(function(tick) {
+          state.consecutiveFails = 0;
+          state.lastSuccessTs = Date.now();
+          markConnected();
+          if (!tick) {
+            scheduleNext();
+            return;
+          }
           dashEl.classList.remove('loading');
-          if (!tick) return;
-          paintCockpit(tick.cockpit);
+          state.lastTick = tick;
+
+          paintStats(tick.cockpit);
+          paintQueues(tick.cockpit);
+          paintComic(tick.hourlyBuckets);
+          paintPace(tick.paceCar, tick.cockpit);
+          paintVitals(tick.api, tick.cockpit);
           paintAlerts(tick.alerts);
-          paintLastUpdate();
+          paintDocEcho(tick.recentPrints);
+          paintSunArcEvents(tick.todayEvents);
+          paintPicker(tick.picker);
+          reckonScene();
+          // mark booted after first paint so phantom echo / stat pop don't fire on initial load
+          state.booted = true;
+          scheduleNext();
         })
         .withFailureHandler(function(err) {
-          // Silent — keep last-known values painted; footer dot will keep pulsing
-          console.error('Tick failed:', err);
+          state.consecutiveFails++;
+          if (state.consecutiveFails >= 2) markDisconnected();
+          console.error('tick failed (' + state.consecutiveFails + '):', err);
+          scheduleNext();
         })
-        .getSidebarTick();
+        .getDashboardTick();
     }
 
+    function scheduleNext() {
+      if (state.pollHandle) clearTimeout(state.pollHandle);
+      state.pollHandle = setTimeout(refresh, nextDelay());
+    }
+
+    function markDisconnected() {
+      $('connLost').classList.add('live');
+      dashEl.classList.add('lost');
+    }
+    function markConnected() {
+      $('connLost').classList.remove('live');
+      dashEl.classList.remove('lost');
+    }
+
+    // ────────────── BOOT ──────────────
+    initSunArc();
+    tickClock();
+    tickUptime();
+    setInterval(tickClock, 20000);
+    setInterval(tickUptime, 30000);
+    setInterval(fetchWeather, WEATHER_REFRESH_MS);
+    fetchWeather();
     refresh();
-    setInterval(refresh, POLL_MS);
   </script>
 </body>
 </html>
