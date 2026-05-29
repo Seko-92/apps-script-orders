@@ -479,6 +479,33 @@
     }
     .empty-row td:last-child { border-right: none !important; }
 
+    /* ===== ID FOR ADJUSTMENT — per-page writable field =====
+       Lives in each table's <thead> so Chrome repeats it at the top of EVERY
+       printed page. Rendered as PAGE CONTENT (not an @page margin box) so it
+       prints on every printer regardless of the driver's "headers & footers"
+       / margin settings — those only affect the page-margin region, never the
+       document body. */
+    tr.adj-row th.adj-cell {
+      background: var(--paper);
+      color: var(--ink);
+      text-align: left;
+      padding: 5px 9px 6px;
+      border-bottom: 1px solid var(--ink);
+      font-weight: 400;
+    }
+    .adj-inner { display: flex; align-items: flex-end; gap: 10px; }
+    .adj-label {
+      font-family: 'Oswald', sans-serif;
+      font-size: 10px; font-weight: 700; letter-spacing: 0.16em;
+      white-space: nowrap; color: var(--ink);
+      line-height: 1.1;
+    }
+    .adj-blank {
+      flex: 1 1 auto;
+      border-bottom: 1px solid var(--ink);
+      height: 13px;
+    }
+
     /* ===== TITLE BLOCK (architectural drawing convention, end of doc) ===== */
     .title-block-wrap {
       display: flex; justify-content: flex-end;
@@ -773,18 +800,15 @@
         vertical-align: middle;
       }
 
-      /* The CENTER box is the per-page tracking field — the warehouse picker
-         fills it in by hand on each printed page. Underscored line gives a
-         clean baseline to write on. Slightly larger + black so it's the
-         visual focus of the top margin. */
+      /* The CENTER box is intentionally EMPTY. The "ID FOR ADJUSTMENT" writable
+         field used to live here, but @page margin boxes render in the printer's
+         page-margin region — which drivers show/hide inconsistently based on
+         their "headers & footers"/margin settings. It now lives in each table's
+         <thead> as real page CONTENT, so it prints on every printer. Kept blank
+         (not removed) so any printer that renders margin boxes shows no
+         duplicate field here. */
       @top-center {
-        content: "ID FOR ADJUSTMENT  ____________________________";
-        font-family: 'Roboto Mono', monospace;
-        font-size: 10.5px;
-        font-weight: 700;
-        letter-spacing: 0.04em;
-        color: #1a1a1a;
-        vertical-align: middle;
+        content: "";
       }
 
       @bottom-center {
@@ -853,6 +877,12 @@
          small amount of brand expressiveness for guaranteed legibility. */
       thead tr { background: #1a1a1a !important; }
       th        { color: #ffffff !important; }
+
+      /* The ID FOR ADJUSTMENT thead row is a writable field on paper — it must
+         NOT inherit the dark column-header band above. Overrides win via the
+         extra class specificity + !important. */
+      thead tr.adj-row       { background: var(--paper) !important; }
+      tr.adj-row th.adj-cell { background: var(--paper) !important; color: var(--ink) !important; }
 
       /* The operations bar should only print on page 1 */
       .ops-bar { page-break-after: avoid; }
@@ -962,6 +992,16 @@
       </div>
       <table id="ebay-table">
         <thead>
+          <!-- Per-page writable adjustment field (repeats on every page via thead).
+               colspan 8 clamps to the actual column count. -->
+          <tr class="adj-row">
+            <th colspan="8" class="adj-cell">
+              <span class="adj-inner">
+                <span class="adj-label">ID FOR ADJUSTMENT</span>
+                <span class="adj-blank"></span>
+              </span>
+            </th>
+          </tr>
           <tr>
             <th class="c-sku">SKU</th>
             <th class="c-qty">Qty</th>
@@ -1059,6 +1099,16 @@
       </div>
       <table id="direct-table">
         <thead>
+          <!-- Per-page writable adjustment field (repeats on every page via thead).
+               colspan 8 clamps to the actual column count. -->
+          <tr class="adj-row">
+            <th colspan="8" class="adj-cell">
+              <span class="adj-inner">
+                <span class="adj-label">ID FOR ADJUSTMENT</span>
+                <span class="adj-blank"></span>
+              </span>
+            </th>
+          </tr>
           <tr>
             <th class="c-sku">SKU</th>
             <th class="c-qty">Qty</th>
@@ -1231,8 +1281,12 @@
       var table = document.getElementById(tableId);
       if (!table) return;
 
-      var FIRST = isFirstSection ? 17 : 22;
-      var CONT  = 22;
+      // Capacities dropped by 1 (was 17/22) to account for the extra
+      // "ID FOR ADJUSTMENT" thead row now repeating at the top of every page,
+      // which consumes ~1 row of body height. Keeps the conservative
+      // never-overflow-to-a-phantom-page buffer intact.
+      var FIRST = isFirstSection ? 16 : 21;
+      var CONT  = 21;
 
       var data   = table.querySelectorAll('tbody tr:not(.alert-row):not(.empty-row)').length;
       var alerts = table.querySelectorAll('tbody tr.alert-row').length;
