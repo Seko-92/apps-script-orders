@@ -1,64 +1,39 @@
 // =======================================================================================
-// ZOHO_SALES_ORDERS.gs — Pending sheet + Zoho webhook + Pull-to-DIRECT engine////
+// ZOHO_SALES_ORDERS.gs — Pending sheet mirror + Invoice webhook + VOID handler
 // =======================================================================================
 //
 // PURPOSE
-//   Mirrors Zoho's direct-channel sales orders into a "Pending Sales Orders"
-//   sheet in real time via webhook. Picker manually pulls each SO into the
-//   DIRECT table when the team decides to start fulfillment work. The explicit
-//   gate keeps the working sheet uncluttered and lets the team handle each
-//   customer's prepay-vs-net-terms timing without complex heuristics.
+//   Mirrors Zoho's direct-channel sales orders and invoices into the "Pending
+//   Sales Orders" sheet in real time via webhook. The picker brings each SO
+//   into the DIRECT table via the explicit Pull modal (see ZohoPull.js).
 //
 // DATA FLOW
-//   Zoho (any SO edit) → n8n proxy → doPost (action=zohoSalesOrder)
-//                                       ↓
-//                                upsertPendingSalesOrder()
-//                                       ↓
-//                          [Pending Sales Orders sheet] — always current
-//                                       ↓ user types SO# + clicks Pull
-//                                pullSalesOrderToDirect()
-//                                       ↓
-//                          [DIRECT table on All Orders] — N rows, picker visible
-//                                       ↓ further Zoho edits
-//                          _propagateToDirectRows() — unified delta-based rule
-//                                                    (Fix E, shipped 2026-05-20):
-//                              For each unique SKU (scoped to THIS SO):
-//                                directTotal = sum of non-CANCELED qty in DIRECT for this SO+SKU
-//                                              (SHIPPED counts; CANCELED doesn't)
-//                                zohoTotal   = sum of qty across Zoho lines for this SKU
+//   Zoho (SO created/edited) → n8n proxy → doPost (action=zohoSalesOrder)
+//                                            ↓
+//                                     upsertPendingSalesOrder()
+//                                            ↓
+//                                [Pending Sales Orders sheet] — always current
+//                                            ↓ (sidebar Pull → opens modal)
+//                                     [ZohoPull.js / ZohoPullModal.html]
+//                                            ↓ (picker reviews diff, hits Apply)
+//                                     [DIRECT table on All Orders]
 //
-//                                zohoTotal > directTotal → INSERT 1 row with qty=delta
-//                                                          (NEVER mutate existing rows — they may
-//                                                          already be picked / packed / shipped)
-//                                zohoTotal === directTotal → NO-OP
-//                                zohoTotal < directTotal → FLAG existing non-CANCELED rows
-//                                                          (qty decrease OR full removal)
+//   Zoho status: void  →  _handleZohoVoid() — flips DIRECT rows to CANCELED
+//                          (the one signal we still propagate automatically;
+//                          customer cancellation is unambiguous + time-sensitive,
+//                          picker action is identical regardless of source)
 //
-//                              status: void        → flip DIRECT rows to CANCELED (pre-empts diff)
-//                              shipped/fulfilled   → flip non-terminal DIRECT rows to SHIPPED
-//                                                    (gate: any non-terminal row exists; pre-empts diff)
-//                              partially_shipped   → IGNORED (mid-flight; per-line-item tracking
-//                                                    would need v2 line_item_id-keyed state)
-//                              packed / other      → IGNORED (PREPARING stays employee-driven)
+// RETIRED (2026-05-23, Option C build)
+//   The background _propagateToDirectRows feature (line-item add auto-insert,
+//   qty-change flag, removal flag, SHIPPED auto-flip) was deleted. Every
+//   recurring "phantom row" / "first-fire duplicate" / row-shift class of
+//   bug traced back to that implicit background reconciler. Replaced with
+//   the picker-driven Pull modal which puts a human in the loop for every
+//   Zoho→DIRECT change. Git history is the safety net.
 //
-//                          Compares against LIVE DIRECT state (not cached oldPayload), so it's
-//                          immune to first-fire bugs and stays correct across manual edits,
-//                          force-pulls, and auto-link scenarios. LockService acquired around
-//                          read-compute-write so concurrent webhooks for the same SO serialize.
-//
-// PULL-FIRST RULE (shipped 2026-05-20, replaces retired AUTO-LINK feature)
-//   Propagation to DIRECT fires ONLY when the picker has explicitly Pulled
-//   the SO via the sidebar (the PULLED column is the single trigger). The
-//   old auto-link feature, which inferred PULLED status from the presence
-//   of manually-typed DIRECT rows for the SO, was retired because it caused
-//   silent duplicate-row insertions on first webhook fires (null oldPayload
-//   + auto-link = diff treats every line item as new). Cost of removal:
-//   "manually type one row then let Zoho fill the rest" workflow is gone.
-//   Operational replacement: the picker Pulls explicitly (Force-Pull if a
-//   manually-typed row needs to be replaced by the synced version). Cleaner
-//   mental model: Pull = "this SO is now active and receives updates."
-//   Manual entry stays valid for orders that don't exist in Zoho at all
-//   (walk-in, special-case shipments) — those rows are simply standalone.
+//   Also retired: pullSalesOrderToDirect() (the old direct-commit pull) and
+//   _deleteDirectRowsForSo() (force re-pull helper). The Pull modal subsumes
+//   both via per-line selective apply.
 //
 // FILTERING (webhook level — skip ingest entirely)
 //   - sales_channel must equal "direct_sales" (eBay/Amazon SOs come through
@@ -68,6 +43,7 @@
 // SCHEMA (Pending Sales Orders sheet)
 //   SO# · Customer · Date · Order · Payment · Shipment · Items · Total
 //   · Last Updated · Pulled? · Pulled At · Payload (hidden JSON cache)
+//   · Invoice · Price Check
 // =======================================================================================
 
 
@@ -411,13 +387,19 @@ function upsertPendingSalesOrder(salesorder) {
   // checking it; always false going forward.
   var autoLinked = false;
 
-  // --- PROPAGATE TO DIRECT (only when explicitly Pulled) ---
+  // --- VOID HANDLER (Option C, 2026-05-23) ---
+  // The full propagation (_propagateToDirectRows) was retired in favor of
+  // the picker-driven Pull modal. The one signal that still propagates
+  // automatically is status=void — a voided SO is unambiguous, time-
+  // sensitive (picker shouldn't pick a canceled order), and the picker's
+  // action is identical regardless of who triggered it. Every other
+  // Zoho→DIRECT data movement now goes through the Pull modal.
   var propagated = null;
   if (wasPulled) {
     try {
-      propagated = _propagateToDirectRows(soNumber, salesorder, oldPayload);
+      propagated = _handleZohoVoid(soNumber, salesorder);
     } catch (propErr) {
-      console.log("Zoho propagation error for " + soNumber + ": " + propErr);
+      console.log("Zoho void handler error for " + soNumber + ": " + propErr);
       propagated = { error: propErr.toString() };
     }
   }
@@ -525,251 +507,25 @@ function upsertInvoiceFromZoho(invoice) {
 
 
 // =======================================================================================
-// PULL — sidebar entry point
+// PULL — RETIRED (Option C, 2026-05-23)
 // =======================================================================================
-
-/**
- * Pulls the SO's line items from Pending into the DIRECT table.
- *
- * @param {string}  query      — SO# (e.g. "SO-22815") OR invoice # (e.g. "INV-022496")
- * @param {object}  options    — { force: true to re-pull an already-pulled SO }
- *
- * Returns { status, soNumber, rowsInserted, reason?, customer?, total? }
- *
- * STATUS values:
- *   "success"        — rows inserted in DIRECT, Pending flagged PULLED
- *   "not_found"      — no Pending row matching this SO# / invoice #
- *   "already_pulled" — already pulled, pass options.force=true to re-pull
- *   "no_items"       — Pending row exists but cached payload has no line items
- *   "error"          — unexpected failure (see reason)
- *
- * The function parameter is still named `soNumber` for back-compat with existing
- * callers; the resolver accepts both formats and reads the canonical SO# from
- * the Pending row for all downstream writes (DIRECT table, activity log).
- */
-function pullSalesOrderToDirect(soNumber, options) {
-  options = options || {};
-  var query = String(soNumber || "").trim();
-  if (!query) {
-    return { status: "error", reason: "Empty SO / invoice number", soNumber: "" };
-  }
-
-  // LockService — same pattern as doPost. Prevents two simultaneous Pulls
-  // (rare, but possible if a user double-clicks) from inserting twice.
-  var lock = LockService.getScriptLock();
-  try { lock.waitLock(15000); }
-  catch (e) {
-    return { status: "error", reason: "Server busy, try again", soNumber: query };
-  }
-
-  try {
-    var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
-    var pendingSheet = ss.getSheetByName(PENDING_SO.sheetName);
-    if (!pendingSheet) {
-      return { status: "error", reason: "Pending Sales Orders sheet not set up", soNumber: query };
-    }
-
-    var rowNum = _resolvePendingRow(pendingSheet, query);
-    if (rowNum < 1) {
-      return { status: "not_found", soNumber: query,
-               reason: "Not in Pending sheet. Check Zoho or wait for webhook." };
-    }
-
-    var rowValues = pendingSheet.getRange(rowNum, 1, 1, PENDING_SO.dataWidth).getValues()[0];
-    // Canonical SO# from the matched row — used for all downstream writes
-    // (DIRECT col D, activity log, force-delete lookup, etc.). When the user
-    // typed an invoice number, this is how we recover the actual SO#.
-    soNumber = String(rowValues[PENDING_SO.idx("SO_NUMBER")] || "").trim() || query;
-    var alreadyPulled = String(rowValues[PENDING_SO.idx("PULLED")] || "").trim().toUpperCase()
-                        === PENDING_SO.pulledFlag;
-
-    if (alreadyPulled && !options.force) {
-      var prevPulledAt = rowValues[PENDING_SO.idx("PULLED_AT")];
-      var prevPulledStr = (prevPulledAt instanceof Date)
-        ? Utilities.formatDate(prevPulledAt, "America/Chicago", "M/d h:mm a")
-        : "previously";
-      return { status: "already_pulled", soNumber: soNumber,
-               reason: "Already pulled " + prevPulledStr,
-               customer: rowValues[PENDING_SO.idx("CUSTOMER")] };
-    }
-
-    // Force re-pull: delete any existing DIRECT rows for this SO so re-insert
-    // doesn't create duplicates. The user explicitly chose to overwrite — any
-    // picker progress (PREPARING status, LEFT counts, NOTE additions) on the
-    // existing rows is lost. Acceptable tradeoff for a deliberate Force action.
-    var deletedRowCount = 0;
-    if (alreadyPulled && options.force) {
-      try {
-        var mainSheetForDelete = ss.getSheetByName(MAIN_SHEET_NAME);
-        deletedRowCount = _deleteDirectRowsForSo(mainSheetForDelete, soNumber);
-      } catch (delErr) {
-        console.log("Force re-pull delete failed for " + soNumber + ": " + delErr);
-        return { status: "error", soNumber: soNumber,
-                 reason: "Could not delete existing rows for re-pull: " + delErr };
-      }
-    }
-
-    // Parse cached payload
-    var rawJson = String(rowValues[PENDING_SO.idx("PAYLOAD")] || "");
-    if (!rawJson) {
-      return { status: "error", reason: "Cached payload missing for this SO", soNumber: soNumber };
-    }
-    var payload;
-    try { payload = JSON.parse(rawJson); }
-    catch (e) { return { status: "error", reason: "Cached payload corrupted: " + e, soNumber: soNumber }; }
-
-    var lineItems = Array.isArray(payload.line_items) ? payload.line_items : [];
-    if (lineItems.length === 0) {
-      return { status: "no_items", soNumber: soNumber,
-               reason: "Cached payload has no line items" };
-    }
-
-    var customerName = String(payload.customer_name || "").trim();
-    var totalFormatted = String(payload.total_formatted || "").trim();
-
-    // --- BUILD DIRECT ROWS ---
-    var mainSheet = ss.getSheetByName(MAIN_SHEET_NAME);
-    var maps = buildLocationAndInventoryMaps();
-    var locationMap = maps.locationMap;
-    var inventoryMap = maps.inventoryMap;
-
-    var newRows = [];
-    var activityLogBatch = [];
-
-    for (var i = 0; i < lineItems.length; i++) {
-      var li = lineItems[i] || {};
-      var sku = String(li.sku || "").trim().toUpperCase();
-      if (!sku) continue;   // skip lines with no SKU
-
-      var qty = parseInt(li.quantity, 10) || 1;
-      var skuLower = sku.toLowerCase();
-      var location = locationMap.get(skuLower) || "NOT FOUND";
-      var inv = inventoryMap.get(skuLower);
-      var hand = inv ? inv.available : 0;
-
-      // Per user (2026-05-16): leave NOTE empty for v1. Customer name lives
-      // in the Pending sheet for context; picker can cross-reference there.
-      var note = "";
-
-      // SHIPPING + SHIP_COST: leave blank for v1. Per user, employee handles
-      // shipment status manually (we don't trust Zoho's shipped_status yet).
-      newRows.push([
-        sku,                        // A: SKU
-        qty,                        // B: QTY
-        location,                   // C: LOCATION
-        soNumber,                   // D: SALES_ORDER
-        note,                       // E: NOTE
-        Schema.status.PENDING,      // F: STATUS — always PENDING on pull
-        hand,                       // G: HAND
-        "",                         // H: LEFT — picker fills
-        "",                         // I: SHIPPING
-        ""                          // J: SHIP_COST
-      ]);
-
-      activityLogBatch.push([
-        "RECEIVED",
-        soNumber,
-        sku,
-        qty,
-        "zoho",
-        "Pulled from Zoho · " + (customerName || "no customer"),
-        undefined,                  // picker — auto-capture (warehouse source)
-        ""                          // note
-      ]);
-    }
-
-    if (newRows.length === 0) {
-      return { status: "no_items", soNumber: soNumber,
-               reason: "All line items had empty SKUs" };
-    }
-
-    // --- INSERT IN DIRECT TABLE ---
-    var boundary = getBoundaryRow();
-    if (boundary < 1) {
-      return { status: "error", reason: "DIRECT boundary divider not found on All Orders sheet",
-               soNumber: soNumber };
-    }
-
-    var insertRow = boundary + 2;   // top of DIRECT data segment (just below DIRECT header)
-    mainSheet.insertRowsBefore(insertRow, newRows.length);
-    mainSheet.getRange(insertRow, 1, newRows.length, Schema.dataWidth).setValues(newRows);
-
-    // Copy format from row below (so banding/borders inherit)
-    var templateRow = insertRow + newRows.length;
-    try {
-      mainSheet.getRange(templateRow, 1, 1, Schema.dataWidth).copyFormatToRange(
-        mainSheet, 1, Schema.dataWidth,
-        insertRow, insertRow + newRows.length - 1
-      );
-    } catch (e) { /* template row out of range — fresh sheet, no harm */ }
-
-    // --- FLAG PENDING ROW AS PULLED ---
-    pendingSheet.getRange(rowNum, PENDING_SO.cols.PULLED).setValue(PENDING_SO.pulledFlag);
-    pendingSheet.getRange(rowNum, PENDING_SO.cols.PULLED_AT).setValue(new Date());
-
-    // --- ACTIVITY LOG ---
-    try { logActivityBatch(activityLogBatch); }
-    catch (e) { console.log("pullSalesOrderToDirect: activity log error: " + e); }
-
-    // --- REFRESH DUPLICATE-SALES-ORDER BORDER TABS ---
-    // Programmatic insert + setValues doesn't fire onEdit, so the existing
-    // refreshDuplicateHighlightsOnEdit handler never runs. Without this
-    // explicit call, the new rows inherit the left-border color from the
-    // row below the insert point (Sheets default), making them look like
-    // duplicates of an unrelated SO.
-    try { setupDuplicateSalesOrderHighlighting(); }
-    catch (e) { console.log("pullSalesOrderToDirect: highlight refresh error: " + e); }
-
-    // --- REFRESH KIT SKU MARKERS ---
-    // Same reason as the duplicate-highlight refresh above: programmatic
-    // insert doesn't fire kitSkuOnEdit, so any newly-Pulled DIRECT row
-    // whose SKU is a kit wouldn't get the ▣ glyph until next manual refresh.
-    try { refreshKitSkuMarkers(); }
-    catch (e) { console.log("pullSalesOrderToDirect: kit marker refresh error: " + e); }
-
-    return {
-      status:       "success",
-      soNumber:     soNumber,
-      rowsInserted: newRows.length,
-      rowsReplaced: deletedRowCount,
-      customer:     customerName,
-      total:        totalFormatted
-    };
-
-  } catch (err) {
-    console.log("pullSalesOrderToDirect error: " + err);
-    return { status: "error", reason: err.toString(), soNumber: soNumber };
-  } finally {
-    lock.releaseLock();
-  }
-}
-
-
-/**
- * Delete all DIRECT-table rows whose SALES_ORDER matches. Returns count of
- * rows deleted. Used by the force re-pull path so re-insert doesn't duplicate.
- *
- * Descending row-number iteration so each delete doesn't invalidate the next.
- */
-function _deleteDirectRowsForSo(sheet, soNumber) {
-  if (!sheet) return 0;
-  var rowsBySku = _findDirectRowsForSo(sheet, soNumber);
-  var allRows = [];
-  Object.keys(rowsBySku).forEach(function(sku) {
-    rowsBySku[sku].forEach(function(rn) { allRows.push(rn); });
-  });
-  if (allRows.length === 0) return 0;
-  allRows.sort(function(a, b) { return b - a; });   // descending
-  allRows.forEach(function(rn) { sheet.deleteRow(rn); });
-
-  // Refresh duplicate-SO border tabs — programmatic deleteRow doesn't fire
-  // onEdit, so without this any surrounding duplicate-group borders would
-  // be stale (still painted as if the deleted rows were in the group).
-  try { setupDuplicateSalesOrderHighlighting(); }
-  catch (e) { console.log("_deleteDirectRowsForSo: highlight refresh error: " + e); }
-
-  return allRows.length;
-}
+//
+// `pullSalesOrderToDirect()` and `_deleteDirectRowsForSo()` were the original
+// direct-commit Pull path: type SO# in sidebar → server immediately wrote all
+// line items to DIRECT → optional force-rewrite via delete+insert.
+//
+// Replaced by the picker-driven Pull modal (ZohoPull.js + ZohoPullModal.html):
+// sidebar opens the modal showing a per-line diff (unchanged/new/qty_changed/
+// removed); picker selects what to apply; server commits via
+// applyZohoPullSelection with all-or-nothing optimistic locking.
+//
+// Why this architecture won out: every recurring "phantom row" / "first-fire
+// duplicate" / row-shift class of bug was an implicit reconciler running in
+// the background. Picker-in-the-loop eliminates that bug class by
+// construction. See CLAUDE.md 2026-05-23 narrative for the full story.
+//
+// Deleted in step 8 of the build. Git history is the safety net.
+// =======================================================================================
 
 
 /**
@@ -902,226 +658,43 @@ function getPendingZohoCount() {
 
 
 // =======================================================================================
-// PROPAGATION — asymmetric rule for already-pulled SOs
+// VOID HANDLER — the one signal still propagated automatically
 // =======================================================================================
 //
-// The picker has live working rows in DIRECT for this SO. We auto-apply only
-// changes that can't damage in-progress work. Dangerous changes (deletions,
-// qty mutations) get FLAGGED on the existing rows for human review.
+// Replaces the entire `_propagateToDirectRows` family (retired 2026-05-23 as
+// part of Option C). Every other Zoho→DIRECT data movement now goes through
+// the explicit picker-driven Pull modal (ZohoPull.js).
+//
+// Why VOID stays automatic: customer cancellation is unambiguous, time-
+// sensitive (picker shouldn't pick a canceled order), and the picker's
+// action is identical regardless of who triggers it. No room for "review
+// before applying" to add value.
 
 /**
- * Compare oldPayload vs newSalesOrder, apply changes to DIRECT rows.
- * Returns { added, flaggedRemoved, flaggedQtyChanged, canceledCount }.
+ * If the incoming Zoho SO payload has status=void, flip all non-terminal
+ * DIRECT rows for this SO to CANCELED. Safe no-op for any other status.
+ *
+ * Called from upsertPendingSalesOrder when wasPulled === true.
+ *
+ * @returns {{ canceledCount: number, error?: string }}
  */
-function _propagateToDirectRows(soNumber, newSalesOrder, oldPayload) {
-  var summary = { added: 0, flaggedRemoved: 0, flaggedQtyChanged: 0,
-                  canceledCount: 0, shippedCount: 0 };
-
-  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
-  var sheet = ss.getSheetByName(MAIN_SHEET_NAME);
-  if (!sheet) return summary;
-
-  // --- 1. VOID propagation — flip all DIRECT rows for this SO to CANCELED ---
-  var newOrderStatus = String(newSalesOrder.status || "").trim().toLowerCase();
-  if (newOrderStatus === "void") {
-    try {
-      var voidResult = updateOrderStatus(soNumber, Schema.status.CANCELED, {
-        source:       "zoho",
-        syncTelegram: false
-      });
-      summary.canceledCount = (voidResult && voidResult.count) || 0;
-    } catch (e) {
-      console.log("Zoho void propagation failed for " + soNumber + ": " + e);
-    }
-    // When voided, we don't bother with line-item diffs — everything's canceled
-    return summary;
-  }
-
-  // --- 2. SHIPPED propagation — flip DIRECT rows to SHIPPED when Zoho marks
-  // the SO fully shipped or fulfilled.
-  //
-  // Gate: fire when (a) Zoho says shipped/fulfilled AND (b) at least one
-  // DIRECT row for this SO is still non-terminal (PENDING / PREPARING).
-  //
-  // Why this gate, not a transition gate: a transition gate ("was not shipped
-  // before, is shipped now") would block the chicken-and-egg case where the
-  // SO was ALREADY shipped in Zoho the first time we saw it (cached payload's
-  // shipped_status was 'shipped' from the very first fire). Auto-linked
-  // manually-typed rows and "Pulled after shipping" cases both hit this.
-  // The "any non-terminal" gate handles all of: normal transition, chicken-
-  // and-egg, auto-link first-fire — without firing pointlessly when all rows
-  // are already SHIPPED (updateOrderStatus's terminal-state guard catches it
-  // as a backstop either way).
-  //
-  // `partially_shipped` deliberately IGNORED — same SO can ship in multiple
-  // tracking numbers and Zoho marks it `partially_shipped` between them.
-  // Per-line-item shipping tracking would need a v2 line_item_id-keyed
-  // mechanism. The final `shipped` / `fulfilled` state arrives later and
-  // catches us up without needing the intermediate.
-  //
-  // PREPARING stays employee-driven (Telegram / manual edit) — Zoho's
-  // `packed` and other intermediate states are not propagated, matching
-  // the eBay status-check workflow's shipped-only behavior.
-  var newShippedStatus = String(newSalesOrder.shipped_status || "").trim().toLowerCase();
-  var nowFullyShipped  = (newShippedStatus === "shipped" || newShippedStatus === "fulfilled");
-
-  if (nowFullyShipped) {
-    var directRowsBySku = _findDirectRowsForSo(sheet, soNumber);
-    var anyNonTerminal = false;
-    Object.keys(directRowsBySku).forEach(function(sku) {
-      directRowsBySku[sku].forEach(function(rn) {
-        var st = String(sheet.getRange(rn, Schema.cols.STATUS).getValue() || "").trim().toUpperCase();
-        if (!Schema.isTerminal(st)) anyNonTerminal = true;
-      });
-    });
-
-    if (anyNonTerminal) {
-      try {
-        var shippedResult = updateOrderStatus(soNumber, Schema.status.SHIPPED, {
-          source:       "zoho",
-          syncTelegram: false
-        });
-        summary.shippedCount = (shippedResult && shippedResult.count) || 0;
-      } catch (e) {
-        console.log("Zoho shipped propagation failed for " + soNumber + ": " + e);
-      }
-      // Once shipped, line-item diffs are mostly moot — return early.
-      // Edge cases (refunds adding a negative line on a shipped SO, etc.)
-      // are deferred to v2 if they ever surface.
-      return summary;
-    }
-    // All DIRECT rows already terminal — silently skip, nothing to do.
-  }
-
-  // --- 3. UNIFIED DELTA-BASED LINE-ITEM DIFF (Fix E, shipped 2026-05-20) ---
-  //
-  // Compares Zoho's live payload against CURRENT DIRECT state (not against
-  // the cached oldPayload) — eliminates the entire class of "first-fire
-  // duplicate" bugs that the old oldPayload-based diff was vulnerable to.
-  //
-  // Algorithm (per unique SKU, scoped to THIS SO only):
-  //   directTotal = sum of qty across non-CANCELED DIRECT rows for this SO+SKU
-  //   zohoTotal   = sum of qty across Zoho line items for this SKU
-  //
-  //   zohoTotal > directTotal → INSERT 1 new DIRECT row with qty = delta
-  //                             (NEVER mutate existing rows — they may be
-  //                             picked / packed / partially prepared)
-  //   zohoTotal === directTotal → NO-OP (in sync)
-  //   0 < zohoTotal < directTotal → FLAG existing rows (qty decreased)
-  //   zohoTotal === 0 (SKU gone from Zoho) → FLAG existing rows (removed)
-  //
-  // Why count CANCELED as zero: a CANCELED row represents a previously-
-  // committed line that was nullified — should NOT block legitimate new
-  // additions of the same SKU.
-  //
-  // Why count SHIPPED in directTotal: SHIPPED rows are real committed
-  // inventory (units physically out the door). Excluding them would cause
-  // re-shipment of the same units when Zoho reports a higher current total.
-  //
-  // LOCK SCOPE: acquired across the read-compute-write window so concurrent
-  // webhook fires for the same SO don't race against each other. Without
-  // this lock, two near-simultaneous webhooks could each read the same
-  // pre-update DIRECT state and both insert delta rows → duplicate.
-  var lock = LockService.getScriptLock();
-  if (!lock.tryLock(15000)) {
-    console.log("Zoho propagation: lock not acquired for " + soNumber + " — skipping line-item diff");
-    return summary;
-  }
+function _handleZohoVoid(soNumber, salesorder) {
+  var status = String(salesorder && salesorder.status || "").trim().toLowerCase();
+  if (status !== "void") return { canceledCount: 0 };
 
   try {
-    var newItems = Array.isArray(newSalesOrder.line_items) ? newSalesOrder.line_items : [];
-
-    // Build Zoho totals per SKU (sum across all lines), skipping non-physical
-    // line items (Zoho includes shipping/discount/service lines that have no
-    // SKU and shouldn't translate to picker rows).
-    var zohoBySku   = {};
-    var zohoNames   = {};
-    var zohoSkuOrder = []; // preserve order of first appearance for stable diagnostics
-    for (var i = 0; i < newItems.length; i++) {
-      var li = newItems[i] || {};
-      var sku = _normalizeSku(li.sku);
-      if (!sku) continue;
-      var qty = parseInt(li.quantity, 10);
-      if (isNaN(qty) || qty < 1) continue;
-      if (!(sku in zohoBySku)) {
-        zohoBySku[sku] = 0;
-        zohoNames[sku] = String(li.name || "");
-        zohoSkuOrder.push(sku);
-      }
-      zohoBySku[sku] += qty;
-    }
-
-    // Read DIRECT state with qty + status per row (Fix E helper — separate
-    // from _findDirectRowsForSo which only returns row numbers, used by
-    // auto-link + SHIPPED gate above).
-    var directState = _readDirectStateForSo(sheet, soNumber);
-
-    // Union of SKUs present on either side
-    var allSkus = {};
-    Object.keys(directState.skus).forEach(function(s) { allSkus[s] = true; });
-    Object.keys(zohoBySku).forEach(function(s) { allSkus[s] = true; });
-
-    var todayLabel = Utilities.formatDate(new Date(), "America/Chicago", "M/d");
-    var pendingInserts = []; // batch all inserts into one call at the end
-
-    Object.keys(allSkus).forEach(function(sku) {
-      var zohoTotal   = zohoBySku[sku] || 0;
-      var directInfo  = directState.skus[sku];
-      var directTotal = directInfo ? directInfo.totalActiveQty : 0;
-
-      // 3a. IN SYNC → no-op
-      if (zohoTotal === directTotal) return;
-
-      // 3b. ZOHO INCREASED → insert delta row (never mutate existing)
-      if (zohoTotal > directTotal) {
-        var delta = zohoTotal - directTotal;
-        var nameForRow = zohoNames[sku] || "";
-        var noteText, detailText;
-        if (directTotal === 0) {
-          // New SKU never seen on DIRECT for this SO
-          noteText   = "↳ added in Zoho on existing SO";
-          detailText = "Line added in Zoho on existing SO";
-        } else {
-          // Qty increase OR additional same-SKU line in Zoho
-          noteText   = "↳ delta from Zoho · was " + directTotal + " total, now " + zohoTotal;
-          detailText = "Zoho delta on existing SKU · was " + directTotal + ", now " + zohoTotal;
-        }
-        pendingInserts.push({
-          sku:             sku,
-          quantity:        delta,
-          name:            nameForRow,
-          _noteOverride:   noteText,
-          _detailOverride: detailText
-        });
-        return;
-      }
-
-      // 3c. ZOHO DECREASED → flag existing rows (qty change OR removal)
-      if (directInfo && directInfo.rows) {
-        var isRemoval = (zohoTotal === 0);
-        var flagText  = isRemoval
-          ? "⚠️ REMOVED IN ZOHO " + todayLabel
-          : "⚠️ ZOHO QTY: " + directTotal + " → " + zohoTotal + " " + todayLabel;
-        directInfo.rows.forEach(function(rowInfo) {
-          if (rowInfo.status === Schema.status.CANCELED) return;
-          _flagDirectRow(sheet, rowInfo.row, flagText, isRemoval);
-          if (isRemoval) summary.flaggedRemoved++;
-          else           summary.flaggedQtyChanged++;
-        });
-      }
+    var result = updateOrderStatus(soNumber, Schema.status.CANCELED, {
+      source:       "zoho",
+      syncTelegram: false
     });
-
-    // Batch all delta inserts in one shot — preserves stable row ordering
-    // and only fires the duplicate-highlight + kit-marker refreshes once.
-    if (pendingInserts.length > 0) {
-      summary.added = _insertAddedItemsToDirect(sheet, soNumber, pendingInserts);
-    }
-  } finally {
-    try { lock.releaseLock(); } catch (_) {}
+    return { canceledCount: (result && result.count) || 0 };
+  } catch (e) {
+    console.log("Zoho void handler failed for " + soNumber + ": " + e);
+    return { canceledCount: 0, error: e.toString() };
   }
-
-  return summary;
 }
+
+
 
 
 /**
@@ -1137,6 +710,7 @@ function _insertAddedItemsToDirect(sheet, soNumber, lineItems, noteOverride, det
   var maps = buildLocationAndInventoryMaps();
   var locationMap = maps.locationMap;
   var inventoryMap = maps.inventoryMap;
+  var zohoMap = buildZohoStockMap();   // DIRECT rows take HAND from Zoho first
 
   var newRows = [];
   var activityLogBatch = [];
@@ -1151,9 +725,23 @@ function _insertAddedItemsToDirect(sheet, soNumber, lineItems, noteOverride, det
     var qty = parseInt(li.quantity, 10) || 1;
     var skuLower = sku.toLowerCase();
     var inv = inventoryMap.get(skuLower);
+    // HAND for this DIRECT row: Zoho available first (owns direct sales),
+    // MI.available as fallback. No committed subtraction (Zoho already nets it).
+    var _zo = zohoMap.get(skuLower);
+    var directHand = resolveHandValue(inv ? inv.available : null,
+                                      _zo ? _zo.available : null, true);
 
-    var noteText   = li._noteOverride   || noteOverride   || "↳ added in Zoho";
-    var detailText = li._detailOverride || detailOverride || "Line added in Zoho on existing SO";
+    // Explicit-undefined checks (not `||`) so callers can pass empty string
+    // to mean "leave NOTE blank" — the Pull modal's insert action does this
+    // to reduce on-sheet note clutter (picker annotates manually after
+    // verification, kit expansion adds its own ↳ from KIT- prefix). Legacy
+    // callers that pass undefined still get the default "↳ added in Zoho".
+    var noteText   = (li._noteOverride   !== undefined) ? li._noteOverride
+                   : (noteOverride       !== undefined) ? noteOverride
+                   : "↳ added in Zoho";
+    var detailText = (li._detailOverride !== undefined) ? li._detailOverride
+                   : (detailOverride     !== undefined) ? detailOverride
+                   : "Line added in Zoho on existing SO";
 
     newRows.push([
       sku, qty,
@@ -1161,7 +749,7 @@ function _insertAddedItemsToDirect(sheet, soNumber, lineItems, noteOverride, det
       soNumber,
       noteText,
       Schema.status.PENDING,
-      inv ? inv.available : 0,
+      directHand,
       "", "", ""
     ]);
     activityLogBatch.push([
@@ -1184,6 +772,22 @@ function _insertAddedItemsToDirect(sheet, soNumber, lineItems, noteOverride, det
       sheet, 1, Schema.dataWidth,
       insertRow, insertRow + newRows.length - 1
     );
+  } catch (e) { /* no-op */ }
+
+  // Reset ROW-SPECIFIC decorations that may have been copied from the
+  // template row — newly-inserted rows should be visually neutral, NOT
+  // inherit flag/cancel treatments (soft-red bg + strikethrough) from
+  // whatever sits below the insert point.
+  //
+  // Bug regression test (2026-05-23): after the Pull modal apply handler
+  // was reordered so flags run before inserts, the row immediately below
+  // the insert was always the freshly-flagged row — so copyFormatToRange
+  // pulled the flag tint onto every new insert. Banding + duplicate-SO
+  // borders are column-level formats and survive the reset.
+  try {
+    var newRowsRange = sheet.getRange(insertRow, 1, newRows.length, Schema.dataWidth);
+    newRowsRange.setBackground(null);
+    newRowsRange.setFontLine('none');
   } catch (e) { /* no-op */ }
 
   try { logActivityBatch(activityLogBatch); }

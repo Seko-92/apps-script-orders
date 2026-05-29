@@ -1,0 +1,853 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <style>
+    /* =====================================================================
+     * ZohoPullModal.html — Picker-driven review/apply for Zoho → DIRECT pulls
+     *
+     * Replaces the background _propagateToDirectRows auto-sync. Picker sees
+     * every line's diff status, picks what to apply, server validates
+     * against fresh state and commits atomically.
+     *
+     * Brand palette mirrors KitExpansionModal so visual language is
+     * consistent across modal-based picker flows.
+     * ===================================================================== */
+
+    :root {
+      --ink:           #1a1a1a;
+      --ink-mute:      #5f5f5f;
+      --paper:         #ffffff;
+      --paper-warm:    #fff8e7;
+      --paper-tint:    #fffbf0;
+      --brand-yellow:        #ffd400;
+      --brand-yellow-soft:   #fff4b0;
+      --brand-yellow-rim:    #ffb800;
+      --green-ink:     #1b5e20;
+      --green-bg:      #e8f5e9;
+      --green-rim:     #66bb6a;
+      --amber-ink:     #6b4500;
+      --amber-bg:      #fff4e0;
+      --amber-rim:     #f57c00;
+      --red-ink:       #b71c1c;
+      --red-bg:        #ffe5e5;
+      --red-rim:       #e57373;
+      --slate-ink:     #455a64;
+      --slate-bg:      #eceff1;
+      --slate-rim:     #90a4ae;
+      --missing:       #d32f2f;
+    }
+
+    * { box-sizing: border-box; }
+    html, body {
+      height: 100%;
+      margin: 0;
+      padding: 0;
+      font-family: 'Roboto', Arial, sans-serif;
+      font-size: 13px;
+      color: var(--ink);
+      background: var(--paper-warm);
+      overflow: hidden;
+    }
+
+    .wrap {
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      width: 100%;
+    }
+
+    /* ----- HEADER ----- */
+    .hdr {
+      flex: 0 0 auto;
+      padding: 12px 16px 8px;
+      background: var(--ink);
+      color: var(--paper);
+      border-bottom: 3px solid var(--brand-yellow);
+    }
+    .hdr-row1 {
+      display: flex;
+      align-items: baseline;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .hdr-title {
+      font-family: 'Oswald', sans-serif;
+      font-weight: 700;
+      font-size: 18px;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+    .hdr-so {
+      font-family: 'Roboto Mono', monospace;
+      color: var(--brand-yellow);
+      font-size: 17px;
+      font-weight: 600;
+    }
+    .hdr-customer {
+      color: #d4d4d4;
+      font-size: 14px;
+    }
+    .hdr-total {
+      color: var(--brand-yellow);
+      font-family: 'Roboto Mono', monospace;
+      font-size: 13px;
+      margin-left: auto;
+    }
+    .hdr-row2 {
+      margin-top: 6px;
+      font-size: 12px;
+      color: #c0c0c0;
+      letter-spacing: 0.02em;
+    }
+    .hdr-row2 strong { color: var(--brand-yellow); font-weight: 600; }
+    .hdr-row2 .chip-summary {
+      display: inline-block;
+      padding: 1px 6px;
+      margin: 0 4px;
+      border-radius: 3px;
+      background: rgba(255, 212, 0, 0.15);
+      border: 1px solid rgba(255, 212, 0, 0.4);
+      color: var(--brand-yellow);
+      font-family: 'Oswald', sans-serif;
+      font-weight: 600;
+      font-size: 10.5px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    /* ----- BODY ----- */
+    .body {
+      flex: 1 1 auto;
+      overflow-y: auto;
+      padding: 12px 14px;
+    }
+
+    /* ----- LINE CARD ----- */
+    .line {
+      display: grid;
+      grid-template-columns: 28px 1fr auto;
+      gap: 10px;
+      align-items: start;
+      padding: 9px 12px;
+      margin-bottom: 7px;
+      background: var(--paper);
+      border-radius: 4px;
+      border-left: 3px solid var(--slate-rim);
+      box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+      transition: opacity 160ms ease, background 160ms ease;
+    }
+    .line.new       { border-left-color: var(--green-rim);  background: var(--green-bg); }
+    .line.qty       { border-left-color: var(--amber-rim);  background: var(--amber-bg); }
+    .line.removed   { border-left-color: var(--red-rim);    background: var(--red-bg); }
+    .line.unchanged { border-left-color: var(--slate-rim);  background: var(--slate-bg); opacity: 0.7; }
+    .line.unchecked { opacity: 0.55; }
+
+    .line-cb {
+      grid-column: 1;
+      grid-row: 1 / span 3;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding-top: 2px;
+    }
+    .line-cb input[type=checkbox] {
+      width: 18px;
+      height: 18px;
+      cursor: pointer;
+      accent-color: var(--brand-yellow-rim);
+    }
+    .line-cb .locked {
+      font-size: 11px;
+      color: var(--ink-mute);
+      font-family: 'Oswald', sans-serif;
+      letter-spacing: 0.06em;
+      transform: rotate(-90deg);
+      transform-origin: center;
+      white-space: nowrap;
+    }
+
+    .line-main {
+      grid-column: 2;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      min-width: 0;
+    }
+    .line-row1 {
+      display: flex;
+      gap: 9px;
+      align-items: baseline;
+      flex-wrap: wrap;
+    }
+    .line-sku {
+      font-family: 'Roboto Mono', monospace;
+      font-weight: 700;
+      font-size: 13.5px;
+      color: var(--ink);
+    }
+    .line-name {
+      color: var(--ink-mute);
+      font-size: 12.5px;
+    }
+    .line-row2 {
+      font-family: 'Roboto Mono', monospace;
+      font-size: 11.5px;
+      color: var(--ink-mute);
+    }
+    .line-row2 .qty-spec  { font-weight: 700; color: var(--ink); }
+    .line-row2 .qty-delta { color: var(--amber-ink); font-weight: 700; }
+    .line-row2 .loc       { padding: 0 4px; }
+    .line-row2 .loc.missing { color: var(--missing); font-weight: 700; }
+    .line-row2 .hand-low  { color: var(--missing); font-weight: 700; }
+
+    .line-chips {
+      grid-column: 3;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 4px;
+    }
+    .chip {
+      padding: 1px 7px;
+      border-radius: 3px;
+      font-family: 'Oswald', sans-serif;
+      font-weight: 700;
+      font-size: 10px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+    .chip.new       { background: #c8e6c9; color: var(--green-ink); border: 1px solid var(--green-rim); }
+    .chip.qty       { background: var(--brand-yellow-soft); color: var(--amber-ink); border: 1px solid var(--amber-rim); }
+    .chip.removed   { background: var(--red-bg); color: var(--red-ink); border: 1px solid var(--red-rim); }
+    .chip.unchanged { background: var(--slate-bg); color: var(--slate-ink); border: 1px solid var(--slate-rim); }
+    .chip.kit       { background: #ede7f6; color: #4527a0; border: 1px solid #9575cd; }
+    .chip.missing   { background: #ffebee; color: var(--missing); border: 1px solid #ef9a9a; }
+
+    /* ----- ACTION TOGGLE (sub-action for qty_changed and removed) ----- */
+    .line-actions {
+      grid-column: 2 / span 2;
+      grid-row: 3;
+      margin-top: 5px;
+      padding: 4px 0 0;
+      border-top: 1px dashed rgba(0,0,0,0.10);
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .action-opt {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      cursor: pointer;
+      padding: 2px 8px;
+      border-radius: 3px;
+      font-size: 11.5px;
+      color: var(--ink-mute);
+      transition: background 120ms ease, color 120ms ease;
+    }
+    .action-opt input[type=radio] {
+      accent-color: var(--brand-yellow-rim);
+      cursor: pointer;
+    }
+    .action-opt:hover { background: rgba(0,0,0,0.04); }
+    .action-opt.chosen {
+      background: rgba(255, 212, 0, 0.18);
+      color: var(--ink);
+      font-weight: 600;
+    }
+    .action-opt-hint {
+      color: var(--ink-mute);
+      font-size: 10.5px;
+      font-style: italic;
+      margin-left: 4px;
+    }
+
+    /* ----- DIRECT ROW DETAIL (for qty_changed and removed only) ----- */
+    .line-direct-rows {
+      grid-column: 2 / span 2;
+      grid-row: 4;
+      margin-top: 3px;
+      font-family: 'Roboto Mono', monospace;
+      font-size: 10.5px;
+      color: var(--ink-mute);
+      letter-spacing: 0.02em;
+    }
+    .line-direct-rows .label {
+      font-family: 'Oswald', sans-serif;
+      font-size: 9.5px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--amber-ink);
+      margin-right: 4px;
+    }
+
+    /* ----- FOOTER ----- */
+    .ftr {
+      flex: 0 0 auto;
+      padding: 10px 14px;
+      border-top: 2px solid var(--brand-yellow);
+      background: var(--paper-tint);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .ftr-summary {
+      flex: 1;
+      font-family: 'Roboto Mono', monospace;
+      font-size: 12px;
+      color: var(--ink);
+    }
+    .ftr-summary.warn {
+      color: var(--amber-ink);
+      font-weight: 600;
+    }
+    .ftr-btns {
+      display: flex;
+      gap: 8px;
+    }
+    .btn-cancel {
+      background: transparent;
+      color: var(--ink-mute);
+      border: 1px solid #c0c0c0;
+      padding: 7px 14px;
+      font-family: 'Oswald', sans-serif;
+      font-size: 12px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: all 130ms ease;
+    }
+    .btn-cancel:hover:not(:disabled) {
+      background: rgba(0,0,0,0.05);
+      color: var(--ink);
+    }
+    .btn-apply {
+      background: var(--brand-yellow);
+      color: var(--ink);
+      border: 1px solid var(--brand-yellow-rim);
+      padding: 7px 16px;
+      font-family: 'Oswald', sans-serif;
+      font-size: 12.5px;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: all 130ms ease;
+    }
+    .btn-apply:hover:not(:disabled) {
+      background: var(--brand-yellow-rim);
+      box-shadow: 0 3px 10px rgba(255, 212, 0, 0.5);
+    }
+    .btn-apply:disabled,
+    .btn-cancel:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    /* ----- STATUS BAR (transient toasts) ----- */
+    .status {
+      position: fixed;
+      left: 50%;
+      bottom: 70px;
+      transform: translateX(-50%) translateY(20px);
+      background: var(--ink);
+      color: var(--brand-yellow);
+      padding: 8px 16px;
+      border-radius: 4px;
+      font-family: 'Roboto Mono', monospace;
+      font-size: 12px;
+      letter-spacing: 0.04em;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 200ms ease, transform 200ms ease;
+      z-index: 100;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+    }
+    .status.shown {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+    }
+    .status.error {
+      background: var(--red-ink);
+      color: #fff;
+    }
+
+    /* ----- DONE SCREEN (after Apply succeeds) ----- */
+    .done {
+      padding: 30px 24px;
+      text-align: center;
+    }
+    .done-icon {
+      font-size: 38px;
+      color: var(--green-ink);
+      margin-bottom: 8px;
+    }
+    .done-title {
+      font-family: 'Oswald', sans-serif;
+      font-size: 22px;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      margin-bottom: 6px;
+    }
+    .done-subtitle {
+      color: var(--ink-mute);
+      font-size: 13px;
+      margin-bottom: 16px;
+    }
+    .done-result {
+      background: var(--paper);
+      padding: 10px 14px;
+      border-radius: 4px;
+      border-left: 3px solid var(--green-rim);
+      display: inline-block;
+      font-family: 'Roboto Mono', monospace;
+      font-size: 12.5px;
+      color: var(--ink);
+      text-align: left;
+    }
+    .done-result-row {
+      padding: 2px 0;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="hdr" id="hdrEl">
+      <!-- populated by renderHeader() -->
+    </div>
+
+    <div class="body" id="bodyEl">
+      <!-- populated by renderLines() -->
+    </div>
+
+    <div class="ftr" id="ftrEl">
+      <span class="ftr-summary" id="summaryEl">Loading…</span>
+      <div class="ftr-btns">
+        <button class="btn-cancel" id="btnCancel" onclick="onCancel()">Cancel</button>
+        <button class="btn-apply"  id="btnApply"  onclick="onApply()">Apply</button>
+      </div>
+    </div>
+
+    <div class="status" id="statusBar"></div>
+  </div>
+
+  <script>
+    // Server-injected payload. Force-unescaped scriptlet used below because
+    // diffJson is a JSON string that would be corrupted by HTML escaping of
+    // quotes. Pre-substituted forward-slash escapes server-side to defend
+    // against any value containing a literal closing-script-tag substring.
+    // (Documenting the scriptlet syntax in a comment here would itself
+    // trigger Apps Script's template engine — see CLAUDE.md Gotcha #2.)
+    var DIFF = <?!= diffJson ?>;
+
+    // Per-line picker state: keyed by sku, holds { checked: bool, action: string }
+    // - For "new": action is fixed "insert"
+    // - For "qty_changed": action is "insert_delta" (default) or "flag_existing"
+    // - For "removed": action is "flag_removed" (default) or "cancel_removed"
+    // - For "unchanged": locked, not in state
+    var state = {};
+
+    // ------------------------------------------------------------------
+    // INIT
+    // ------------------------------------------------------------------
+    initState();
+    renderHeader();
+    renderLines();
+    updateSummary();
+
+    function initState() {
+      DIFF.lines.forEach(function(line) {
+        if (line.status === "unchanged") return;  // locked, no state needed
+        var defaultAction;
+        switch (line.status) {
+          case "new":         defaultAction = "insert";         break;
+          case "qty_changed": defaultAction = "insert_delta";   break;
+          case "removed":     defaultAction = "flag_removed";   break;
+        }
+        state[line.sku] = {
+          checked: true,                   // per-lock: NEW lines default checked
+          action:  defaultAction
+        };
+      });
+    }
+
+    // ------------------------------------------------------------------
+    // HEADER
+    // ------------------------------------------------------------------
+    function renderHeader() {
+      var hdr = document.getElementById('hdrEl');
+      var s = DIFF.summary;
+      var bits = [];
+      if (s.new > 0)         bits.push('<span class="chip-summary">' + s.new + ' new</span>');
+      if (s.qtyChanged > 0)  bits.push('<span class="chip-summary">' + s.qtyChanged + ' qty changed</span>');
+      if (s.removed > 0)     bits.push('<span class="chip-summary">' + s.removed + ' removed</span>');
+      if (s.unchanged > 0)   bits.push('<span class="chip-summary">' + s.unchanged + ' unchanged</span>');
+
+      var since = DIFF.pulledAt
+        ? 'since pulled ' + esc(DIFF.pulledAt)
+        : (DIFF.pendingLastUpdated ? 'updated ' + esc(DIFF.pendingLastUpdated) : '');
+
+      hdr.innerHTML =
+          '<div class="hdr-row1">'
+        +   '<span class="hdr-title">Pull from Zoho</span>'
+        +   '<span class="hdr-so">' + esc(DIFF.soNumber) + '</span>'
+        + (DIFF.invoiceNumber
+            ? '<span class="hdr-customer">· ' + esc(DIFF.invoiceNumber) + '</span>'
+            : '')
+        +   '<span class="hdr-customer">· ' + esc(DIFF.customerName || '—') + '</span>'
+        + (DIFF.totalFormatted
+            ? '<span class="hdr-total">' + esc(DIFF.totalFormatted) + '</span>'
+            : '')
+        + '</div>'
+        + '<div class="hdr-row2">'
+        +   bits.join(' ')
+        + (since ? '  <span style="color:#888;">· ' + esc(since) + '</span>' : '')
+        + '</div>';
+    }
+
+    // ------------------------------------------------------------------
+    // LINE LIST
+    // ------------------------------------------------------------------
+    function renderLines() {
+      var body = document.getElementById('bodyEl');
+      var html = '';
+      DIFF.lines.forEach(function(line) {
+        html += renderLine(line);
+      });
+      body.innerHTML = html;
+    }
+
+    function renderLine(line) {
+      var sku = line.sku;
+      var s = state[sku];
+
+      // Class + chips per status
+      var classes = ['line', statusClass(line.status)];
+      if (s && !s.checked) classes.push('unchecked');
+
+      var checkbox;
+      if (line.status === "unchanged") {
+        checkbox = '<span class="locked">LOCKED</span>';
+      } else {
+        var checked = s.checked ? 'checked' : '';
+        checkbox = '<input type="checkbox" ' + checked + ' '
+                 + 'onchange="onToggleLine(\'' + escAttr(sku) + '\')">';
+      }
+
+      // Row 1: SKU + name
+      var nameDisplay = line.name ? esc(line.name) : '';
+
+      // Row 2: per-status meta
+      var row2 = renderLineMeta(line);
+
+      // Chips
+      var chips = renderLineChips(line);
+
+      // Action toggle (only for qty_changed and removed)
+      var actions = '';
+      if (line.status === "qty_changed" || line.status === "removed") {
+        actions = renderLineActions(line);
+      }
+
+      // Existing DIRECT rows (only for qty_changed and removed)
+      var directRowsHtml = '';
+      if ((line.status === "qty_changed" || line.status === "removed") && line.directRows && line.directRows.length) {
+        var rowBits = line.directRows.map(function(rr) {
+          return 'row ' + rr.row + ' (' + esc(rr.status) + ', qty ' + rr.qty + ')';
+        }).join(' · ');
+        directRowsHtml =
+            '<div class="line-direct-rows">'
+          +   '<span class="label">existing:</span>'
+          +   rowBits
+          + '</div>';
+      }
+
+      return ''
+        + '<div class="' + classes.join(' ') + '" id="line-' + escAttr(sku) + '">'
+        +   '<div class="line-cb">' + checkbox + '</div>'
+        +   '<div class="line-main">'
+        +     '<div class="line-row1">'
+        +       '<span class="line-sku">' + esc(sku) + '</span>'
+        +       '<span class="line-name">' + nameDisplay + '</span>'
+        +     '</div>'
+        +     '<div class="line-row2">' + row2 + '</div>'
+        +   '</div>'
+        +   '<div class="line-chips">' + chips + '</div>'
+        +   actions
+        +   directRowsHtml
+        + '</div>';
+    }
+
+    function renderLineMeta(line) {
+      // Per status, show the most useful info compactly.
+      var locClass = line.missing ? 'loc missing' : 'loc';
+      var locText = '<span class="' + locClass + '">' + esc(line.location) + '</span>';
+
+      var hand = '';
+      if (line.available != null) {
+        var lowClass = (line.available <= 5) ? 'hand-low' : '';
+        hand = '<span class="' + lowClass + '">HAND ' + line.available + '</span>';
+      }
+
+      switch (line.status) {
+        case "new":
+          return '<span class="qty-spec">Qty ' + line.zohoQty + '</span> · '
+               + locText + (hand ? ' · ' + hand : '');
+        case "qty_changed":
+          var deltaStr = (line.delta > 0 ? '+' : '') + line.delta;
+          return 'Was ' + line.directQty + ', now <span class="qty-spec">' + line.zohoQty + '</span> '
+               + '<span class="qty-delta">(' + deltaStr + ')</span> · '
+               + locText + (hand ? ' · ' + hand : '');
+        case "removed":
+          return '<span class="qty-spec">Was on DIRECT · qty ' + line.directQty + '</span> · '
+               + 'no longer in Zoho';
+        case "unchanged":
+          return '<span class="qty-spec">Qty ' + line.zohoQty + '</span> · '
+               + locText + (hand ? ' · ' + hand : '')
+               + '  · already in DIRECT';
+      }
+      return '';
+    }
+
+    function renderLineChips(line) {
+      var chips = [];
+      switch (line.status) {
+        case "new":         chips.push('<span class="chip new">NEW</span>'); break;
+        case "qty_changed": chips.push('<span class="chip qty">QTY CHANGED</span>'); break;
+        case "removed":     chips.push('<span class="chip removed">REMOVED</span>'); break;
+        case "unchanged":   chips.push('<span class="chip unchanged">UNCHANGED</span>'); break;
+      }
+      if (line.missing && line.status !== "unchanged") {
+        chips.push('<span class="chip missing">NOT IN MI</span>');
+      }
+      return chips.join('');
+    }
+
+    function renderLineActions(line) {
+      var s = state[line.sku];
+      var sku = line.sku;
+      var opts;
+      if (line.status === "qty_changed") {
+        opts = [
+          { val: "insert_delta",  label: "Insert delta row",
+            hint: "Adds a new row for the +" + line.delta + " — picker walks the extra units separately." },
+          { val: "flag_existing", label: "Flag existing rows",
+            hint: "Annotate existing row(s) with ⚠ ZOHO QTY: X → Y. No new row." }
+        ];
+      } else {
+        opts = [
+          { val: "flag_removed",  label: "Flag (strikethrough)",
+            hint: "Strikethrough + ⚠ REMOVED IN ZOHO. Row stays; picker decides physically." },
+          { val: "cancel_removed", label: "Mark CANCELED",
+            hint: "Flip row status to CANCELED. Use when you've confirmed the line is dead." }
+        ];
+      }
+      var html = '<div class="line-actions">';
+      opts.forEach(function(opt) {
+        var chosen = (s.action === opt.val) ? 'chosen' : '';
+        var checkedAttr = (s.action === opt.val) ? 'checked' : '';
+        html += ''
+          + '<label class="action-opt ' + chosen + '" title="' + escAttr(opt.hint) + '">'
+          +   '<input type="radio" name="action-' + escAttr(sku) + '" '
+          +     'value="' + escAttr(opt.val) + '" ' + checkedAttr + ' '
+          +     'onchange="onActionChange(\'' + escAttr(sku) + '\', \'' + escAttr(opt.val) + '\')">'
+          +   esc(opt.label)
+          + '</label>';
+      });
+      html += '</div>';
+      return html;
+    }
+
+    function statusClass(status) {
+      return {
+        "new":         "new",
+        "qty_changed": "qty",
+        "removed":     "removed",
+        "unchanged":   "unchanged"
+      }[status] || "";
+    }
+
+    // ------------------------------------------------------------------
+    // EVENT HANDLERS
+    // ------------------------------------------------------------------
+    function onToggleLine(sku) {
+      if (!state[sku]) return;
+      state[sku].checked = !state[sku].checked;
+      // Refresh just this line so the unchecked dim state updates
+      var lineEl = document.getElementById('line-' + sku);
+      if (lineEl) {
+        if (state[sku].checked) lineEl.classList.remove('unchecked');
+        else                    lineEl.classList.add('unchecked');
+      }
+      updateSummary();
+    }
+
+    function onActionChange(sku, action) {
+      if (!state[sku]) return;
+      state[sku].action = action;
+      // Re-render the actions row of this one line so .chosen highlights update
+      var lineEl = document.getElementById('line-' + sku);
+      if (lineEl) {
+        var line = findLine(sku);
+        if (line) {
+          var actionsEl = lineEl.querySelector('.line-actions');
+          if (actionsEl) {
+            // Surgical re-render: replace just the inner HTML of .line-actions
+            var temp = document.createElement('div');
+            temp.innerHTML = renderLineActions(line);
+            actionsEl.innerHTML = temp.firstChild.innerHTML;
+          }
+        }
+      }
+    }
+
+    function findLine(sku) {
+      for (var i = 0; i < DIFF.lines.length; i++) {
+        if (DIFF.lines[i].sku === sku) return DIFF.lines[i];
+      }
+      return null;
+    }
+
+    function updateSummary() {
+      var n = 0;
+      Object.keys(state).forEach(function(sku) {
+        if (state[sku].checked) n++;
+      });
+      var total = DIFF.summary.totalLines - DIFF.summary.unchanged;
+      var msg = n + ' of ' + total + ' selected to apply';
+      var el = document.getElementById('summaryEl');
+      el.textContent = msg;
+      el.className = (n === 0) ? 'ftr-summary warn' : 'ftr-summary';
+      document.getElementById('btnApply').disabled = (n === 0);
+    }
+
+    // ------------------------------------------------------------------
+    // APPLY / CANCEL
+    // ------------------------------------------------------------------
+    var busy = false;
+    function onApply() {
+      if (busy) return;
+
+      // Collect selections from state
+      var selections = [];
+      Object.keys(state).forEach(function(sku) {
+        if (state[sku].checked) {
+          selections.push({ sku: sku, action: state[sku].action });
+        }
+      });
+      if (selections.length === 0) {
+        showStatus('Nothing selected', true);
+        return;
+      }
+
+      // Soft confirm if any cancel_removed actions present — flipping rows
+      // to CANCELED is destructive in the operational sense (picker can't
+      // un-cancel a CANCELED row without manual edit).
+      var hasCancels = selections.some(function(s) { return s.action === "cancel_removed"; });
+      if (hasCancels) {
+        var count = selections.filter(function(s) { return s.action === "cancel_removed"; }).length;
+        if (!confirm('Apply will mark ' + count + ' DIRECT row(s) as CANCELED. Continue?')) {
+          return;
+        }
+      }
+
+      busy = true;
+      document.getElementById('btnApply').disabled = true;
+      document.getElementById('btnCancel').disabled = true;
+      showStatus('Applying ' + selections.length + ' change(s)…');
+
+      google.script.run
+        .withSuccessHandler(onApplyOk)
+        .withFailureHandler(onApplyFail)
+        .applyZohoPullSelection(DIFF.soNumber, selections);
+    }
+
+    function onApplyOk(res) {
+      busy = false;
+      if (!res || !res.ok) {
+        document.getElementById('btnApply').disabled = false;
+        document.getElementById('btnCancel').disabled = false;
+        showStatus('✗ ' + (res && res.reason ? res.reason : 'Apply failed'), true);
+        return;
+      }
+      // Show success screen
+      renderDone(res);
+    }
+
+    function onApplyFail(err) {
+      busy = false;
+      document.getElementById('btnApply').disabled = false;
+      document.getElementById('btnCancel').disabled = false;
+      showStatus('✗ Server error: ' + (err && err.message ? err.message : err), true);
+    }
+
+    function onCancel() {
+      if (busy) return;
+      google.script.host.close();
+    }
+
+    // ------------------------------------------------------------------
+    // DONE SCREEN
+    // ------------------------------------------------------------------
+    function renderDone(res) {
+      var a = res.applied || {};
+      var bits = [];
+      if (a.inserted > 0)        bits.push('<div class="done-result-row">✓ <strong>' + a.inserted + '</strong> row(s) inserted</div>');
+      if (a.flaggedQty > 0)      bits.push('<div class="done-result-row">⚠ <strong>' + a.flaggedQty + '</strong> row(s) flagged with qty-change note</div>');
+      if (a.flaggedRemoved > 0)  bits.push('<div class="done-result-row">⚠ <strong>' + a.flaggedRemoved + '</strong> row(s) flagged as REMOVED</div>');
+      if (a.canceled > 0)        bits.push('<div class="done-result-row">✗ <strong>' + a.canceled + '</strong> row(s) canceled</div>');
+      if (bits.length === 0)     bits.push('<div class="done-result-row">No changes applied</div>');
+
+      document.getElementById('bodyEl').innerHTML =
+          '<div class="done">'
+        +   '<div class="done-icon">✓</div>'
+        +   '<div class="done-title">Applied</div>'
+        +   '<div class="done-subtitle">' + esc(res.summary || '') + '</div>'
+        +   '<div class="done-result">' + bits.join('') + '</div>'
+        + '</div>';
+
+      // Footer: just a Close button
+      document.getElementById('ftrEl').innerHTML =
+          '<span class="ftr-summary">Done · ' + esc(res.soNumber || '') + '</span>'
+        + '<div class="ftr-btns">'
+        +   '<button class="btn-apply" onclick="google.script.host.close()">Close</button>'
+        + '</div>';
+    }
+
+    // ------------------------------------------------------------------
+    // STATUS BAR
+    // ------------------------------------------------------------------
+    var _statusT;
+    function showStatus(msg, isError) {
+      var el = document.getElementById('statusBar');
+      el.textContent = msg;
+      el.className = 'status shown' + (isError ? ' error' : '');
+      clearTimeout(_statusT);
+      _statusT = setTimeout(function() { el.classList.remove('shown'); }, isError ? 4500 : 2200);
+    }
+
+    // ------------------------------------------------------------------
+    // ESCAPE HELPERS
+    // ------------------------------------------------------------------
+    function esc(s) {
+      if (s == null) return '';
+      return String(s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+    function escAttr(s) {
+      // For attribute contexts where single quotes are the delimiter
+      return esc(s).replace(/'/g, '&#39;');
+    }
+  </script>
+</body>
+</html>
