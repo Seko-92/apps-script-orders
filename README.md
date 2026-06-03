@@ -186,7 +186,6 @@ const N8N_VERIFY_SHIPPED_WEBHOOK_URL      = '...';
 const N8N_INVENTORY_LITE_WEBHOOK_URL      = '...';
 const N8N_ZOHO_SO_WEBHOOK_URL             = '...';
 const N8N_ZOHO_FETCH_WEBHOOK_URL          = '...';
-const N8N_ZOHO_BULK_ITEMS_WEBHOOK_URL     = '...';
 const N8N_ZOHO_PRICE_WRITE_WEBHOOK_URL    = '...';
 const N8N_ZOHO_PRICE_BULK_WRITE_WEBHOOK_URL = '...';
 ```

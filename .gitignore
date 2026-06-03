@@ -17,6 +17,7 @@ CLAUDE.md
 CONTRACTS.md
 TESTING_SETUP.md
 SECURITY_SETUP.md
+VPS_INFRA.md
 
 # Claude Code per-user configuration
 .claude/

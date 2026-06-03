@@ -158,64 +158,11 @@ function openZohoStock() {
 }
 
 
-// =======================================================================================
-// REFRESH — wholesale pull from the bulk-fetch proxy
-// =======================================================================================
-
-/**
- * Pulls the whole active Zoho catalog via the existing bulk-fetch proxy and
- * rewrites the Zoho Stock sheet (clear + one batched setValues). ~20 Zoho API
- * calls per run; safe to schedule frequently against the 10K/day budget.
- *
- * Returns { ok, message, count, skipped, durationSec } for the sidebar.
- */
-function refreshZohoStock() {
-  var start = Date.now();
-  try {
-    var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
-    var sheet = ss.getSheetByName(ZOHO_STOCK.sheetName);
-    if (!sheet) {
-      setupZohoStockSheet();
-      sheet = ss.getSheetByName(ZOHO_STOCK.sheetName);
-    }
-
-    var fetchResult = triggerZohoBulkItemsFetch();
-    if (!fetchResult.ok) {
-      return { ok: false,
-               message: "Zoho bulk fetch failed: " + (fetchResult.message || "unknown"),
-               durationSec: ((Date.now() - start) / 1000).toFixed(1) };
-    }
-
-    var items = (fetchResult.data && fetchResult.data.items) || [];
-    if (items.length === 0) {
-      return { ok: false, message: "Zoho returned 0 items — check the bulk-fetch workflow",
-               durationSec: ((Date.now() - start) / 1000).toFixed(1) };
-    }
-
-    var w = _writeZohoStockRows(items);
-    var durationSec = ((Date.now() - start) / 1000).toFixed(1);
-    return {
-      ok:          true,
-      message:     "Zoho Stock refreshed · " + w.count + " SKUs" +
-                   (w.skipped ? " · " + w.skipped + " skipped (no SKU)" : ""),
-      count:       w.count,
-      skipped:     w.skipped,
-      durationSec: durationSec
-    };
-  } catch (err) {
-    try { console.log("refreshZohoStock error: " + err + "\n" + (err.stack || "")); } catch (_) {}
-    return { ok: false,
-             message: "Zoho Stock refresh failed: " + (err.message || err),
-             durationSec: ((Date.now() - start) / 1000).toFixed(1) };
-  }
-}
-
-
 /**
  * Wholesale-rewrite the Zoho Stock sheet from an items array (each item:
  * { sku, item_name, item_id, available_stock, stock_on_hand, selling_price }).
- * Shared by refreshZohoStock (manual pull) and the writeZohoStock doPost
- * action (n8n push). Clears prior data, writes fresh, stamps SYNCED.
+ * Called by the writeZohoStock doPost action (the scheduled n8n "Zoho Stock
+ * Sync" push). Clears prior data, writes fresh, stamps SYNCED.
  * Returns {count, skipped}.
  */
 function _writeZohoStockRows(items) {
@@ -260,38 +207,6 @@ function _writeZohoStockRows(items) {
   SpreadsheetApp.flush();
 
   return { count: rows.length, skipped: skipped };
-}
-
-
-// =======================================================================================
-// ONE-CALL SYNC — mirror + apply HAND everywhere
-// =======================================================================================
-
-/**
- * Refresh the Zoho Stock mirror, then rewrite HAND on BOTH the All Orders sheet
- * (recomputeHand) and the Prep Queue (refreshPrepQueueHand) so every already-
- * inserted row reflects the fresh numbers. This is what the sidebar button
- * calls, and what a scheduler should call.
- *
- * NOTE: this PULLS from the bulk-fetch proxy and blocks ~60–90s while n8n
- * paginates Zoho — fine for the occasional manual button, but a frequent
- * scheduler should instead PUSH from n8n (see writeZohoStockRows / the Slice 2
- * plan) so Apps Script doesn't burn its daily runtime quota waiting.
- *
- * Returns the refreshZohoStock object, augmented with handMessage/prepMessage.
- */
-function syncZohoStockAndHand() {
-  var r = refreshZohoStock();
-  if (!r || !r.ok) return r;          // mirror failed — leave HAND untouched
-
-  var handMsg = "", prepMsg = "";
-  try { handMsg = recomputeHand(); }        catch (e) { handMsg = "HAND recompute error: " + e; }
-  try { prepMsg = refreshPrepQueueHand(); } catch (e) { prepMsg = "Prep refresh error: " + e; }
-
-  r.handMessage = handMsg;
-  r.prepMessage = prepMsg;
-  r.message = r.message + " · " + handMsg + " · " + prepMsg;
-  return r;
 }
 
 

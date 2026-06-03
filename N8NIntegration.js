@@ -22,11 +22,12 @@ function triggerN8NWebhook() {
       'followRedirects': true,
       'timeout': 30000,
       'headers': {
+        'X-API-Token': APP_SECRET_TOKEN,
         'ngrok-skip-browser-warning': 'true',
         'User-Agent': 'GoogleAppsScript'
       }
     };
-    
+
     var response = UrlFetchApp.fetch(N8N_WEBHOOK_URL, options);
     var responseCode = response.getResponseCode();
     var responseText = response.getContentText();
@@ -78,6 +79,7 @@ function testN8NConnection() {
       'method': 'get',
       'muteHttpExceptions': true,
       'headers': {
+        'X-API-Token': APP_SECRET_TOKEN,
         'ngrok-skip-browser-warning': 'true'
       }
     });
@@ -259,78 +261,6 @@ function triggerZohoBackfill(query) {
     return { ok: false, message: "Backfill request failed: " + (err.message || err) };
   }
 }
-
-/**
- * Bulk-fetch every Zoho item with selling_price. Calls the Zoho Items Bulk
- * Fetch Proxy n8n workflow, which paginates `GET /items` and aggregates the
- * full active-items catalog. Used by the Price Audit feature (PriceAudit.js)
- * to compare Zoho's stored selling_price against MI's currentPrice.
- *
- * Returns: {
- *   ok: boolean,
- *   message: string,
- *   data: {                                — parsed n8n response body
- *     items: [{ sku, item_id, item_name, selling_price, status, reference_id }],
- *     totalFetched: number,
- *     totalPages:   number
- *   },
- *   code: number
- * }
- *
- * Latency: ~10-15s for ~3,500 items (18 pages × 500ms + OAuth). Foreground
- * call with sidebar spinner — picker waits, no async.
- */
-function triggerZohoBulkItemsFetch() {
-  var url = N8N_ZOHO_BULK_ITEMS_WEBHOOK_URL;
-  if (!url) {
-    return { ok: false, message: "Bulk items webhook URL not configured (check Secrets.js)" };
-  }
-
-  try {
-    var options = {
-      method:              'post',
-      muteHttpExceptions:  true,
-      followRedirects:     true,
-      headers: {
-        'X-API-Token':                APP_SECRET_TOKEN,
-        'ngrok-skip-browser-warning': 'true',
-        'User-Agent':                 'GoogleAppsScript'
-      },
-      contentType: 'application/json',
-      payload:     JSON.stringify({})
-    };
-
-    var response = UrlFetchApp.fetch(url, options);
-    var code     = response.getResponseCode();
-    var body     = response.getContentText();
-
-    if (code !== 200 && code !== 204) {
-      if (code === 401 || code === 403) {
-        return { ok: false, code: code, message: "Auth rejected by n8n (X-API-Token mismatch)" };
-      }
-      if (code === 404) {
-        return { ok: false, code: code, message: "Workflow not active in n8n — toggle it on" };
-      }
-      return { ok: false, code: code, message: "n8n returned HTTP " + code + ": " + body.substring(0, 200) };
-    }
-
-    var parsed;
-    try { parsed = JSON.parse(body); }
-    catch (parseErr) {
-      return { ok: false, code: code, message: "n8n returned malformed JSON: " + body.substring(0, 200) };
-    }
-
-    return {
-      ok:      true,
-      code:    code,
-      message: "Fetched " + ((parsed.items && parsed.items.length) || 0) + " items from Zoho",
-      data:    parsed
-    };
-  } catch (err) {
-    return { ok: false, message: "Bulk fetch failed: " + (err.message || err) };
-  }
-}
-
 
 /**
  * Write ONE item's selling price (rate) back to Zoho via the Zoho Item Price
