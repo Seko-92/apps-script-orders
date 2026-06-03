@@ -80,6 +80,8 @@ function getDashboardTick() {
   try { openOrders = _dashOpenOrders(); }
   catch (e) { console.error('getDashboardTick.openOrders: ' + e); }
 
+  // Floor notes are read client-side from each open order's NOTE (the "**"
+  // marker) — no server store needed; openOrders already carries the note text.
   return {
     cockpit:    base.cockpit  || {},
     alerts:     base.alerts   || {},
@@ -90,6 +92,38 @@ function getDashboardTick() {
     openOrders: openOrders,
     serverTime: new Date().toISOString()
   };
+}
+
+
+// =======================================================================================
+// PUBLIC: board console — mark an order picked (PENDING ↔ PREPARING ONLY)
+// =======================================================================================
+
+/**
+ * The Floor Board's interactive "✓ Pick" action. Called from the board via
+ * google.script.run. Routes through the canonical updateOrderStatus (lock +
+ * Activity Log + Telegram sync inherited).
+ *
+ * SAFETY — the board is a URL-reachable surface with no per-user PIN, so this
+ * function is deliberately NARROW: it will ONLY set PENDING or PREPARING. It
+ * cannot ship, cancel, or delete anything, regardless of who opens the link.
+ * (PREPARING is reversible/non-terminal/no-customer-impact, and the team
+ * already has this exact toggle via the Telegram buttons.)
+ */
+function boardSetStatus(orderId, status) {
+  orderId = String(orderId || '').trim();
+  status  = String(status  || '').trim().toUpperCase();
+  if (!orderId) return { ok: false, error: 'No order' };
+  if (status !== 'PENDING' && status !== 'PREPARING') {
+    return { ok: false, error: 'Board may only set PENDING or PREPARING' };
+  }
+  try {
+    var res = updateOrderStatus(orderId, status, { source: 'board', syncTelegram: true });
+    return { ok: !!(res && res.count), count: (res && res.count) || 0, status: status };
+  } catch (e) {
+    console.error('boardSetStatus: ' + e);
+    return { ok: false, error: String(e) };
+  }
 }
 
 

@@ -80,6 +80,20 @@
       animation: twinkle 3s ease-in-out infinite;
     }
     @keyframes twinkle { 0%,100% { opacity: 0.12; } 50% { opacity: 0.85; } }
+
+    /* ─────────── THEMES (re-skin the brand accent) ─────────── */
+    body.theme-midnight {
+      --brand-yellow: #40c4ff; --brand-rim: #82d8ff; --brand-soft: #b3e5fc;
+      --brand-deep: #0288d1;   --rule: rgba(64,196,255,0.16);
+    }
+    body.theme-crt {
+      --brand-yellow: #3dff5e; --brand-rim: #84ff85; --brand-soft: #bcffb7;
+      --brand-deep: #1faa00;   --rule: rgba(61,255,94,0.16);
+    }
+    body.theme-crt::after {
+      content: ""; position: fixed; inset: 0; z-index: 8; pointer-events: none;
+      background: repeating-linear-gradient(rgba(0,0,0,0) 0, rgba(0,0,0,0) 2px, rgba(0,0,0,0.13) 3px);
+    }
     .board {
       position: relative;
       z-index: 1;
@@ -156,6 +170,30 @@
     }
     .wx-icon { font-size: 17px; line-height: 1; }
     .wx-temp { font-weight: 500; color: var(--paper); }
+    /* prayer-times pill (info only — elegant) */
+    .pray {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 5px 16px;
+      border: 1px solid var(--mute-faint);
+      border-radius: 22px;
+      background: rgba(255,255,255,0.025);
+      font-family: 'Roboto Mono', monospace;
+      font-size: 13px;
+      letter-spacing: 0.03em;
+      color: var(--mute);
+    }
+    .pray-icon { font-size: 15px; line-height: 1; }
+    .pray-name {
+      font-family: 'Oswald', sans-serif;
+      font-weight: 500;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--paper);
+    }
+    .pray-time  { color: var(--mute); }
+    .pray-count { color: var(--brand-rim); font-weight: 500; }
     .live {
       display: flex;
       align-items: center;
@@ -190,6 +228,14 @@
       letter-spacing: 0.06em;
       color: var(--mute-soft);
       margin-top: 3px;
+    }
+    .hdr-clock-hijri {
+      font-family: 'Roboto Mono', monospace;
+      font-size: 11px;
+      letter-spacing: 0.05em;
+      color: var(--brand-rim);
+      opacity: 0.75;
+      margin-top: 2px;
     }
 
     /* ─────────── HERO STRIP ─────────── */
@@ -521,6 +567,29 @@
       margin-top: 2px;
     }
 
+    /* ─────────── NOTES PANEL (right column when notes active) ─────────── */
+    .note-row {
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      align-items: center;
+      gap: 12px;
+      padding: 13px 22px;
+      border-bottom: 1px solid var(--mute-faint);
+    }
+    .note-ic   { font-size: 16px; line-height: 1; }
+    .note-text {
+      font-family: 'Roboto', sans-serif;
+      font-size: 15px;
+      color: var(--paper);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .note-meta {
+      font-family: 'Roboto Mono', monospace;
+      font-size: 12px;
+      color: var(--mute-soft);
+      white-space: nowrap;
+    }
+
     /* ─────────── MIDDLE (pick-list + feed) ─────────── */
     .mid {
       display: grid;
@@ -532,12 +601,74 @@
 
     /* ─────────── PICK ROWS ─────────── */
     .pick-row {
-      display: grid;
-      grid-template-columns: 108px auto auto 1fr auto;
-      align-items: center;
-      gap: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
       padding: 12px 22px;
       border-bottom: 1px solid var(--mute-faint);
+    }
+    .pick-row.noted { box-shadow: inset 3px 0 0 var(--brand-yellow); }
+    .pick-main {
+      display: grid;
+      grid-template-columns: 108px auto auto 1fr auto auto;
+      align-items: center;
+      gap: 14px;
+    }
+    /* console action — mark picked (PENDING → PREPARING) */
+    .pick-do {
+      font-family: 'Oswald', sans-serif;
+      font-weight: 600;
+      font-size: 13px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      background: rgba(76,175,80,0.16);
+      color: var(--green-soft);
+      border: 1px solid rgba(76,175,80,0.45);
+      border-radius: 8px;
+      padding: 7px 14px;
+      cursor: pointer;
+      transition: background 0.15s, color 0.15s;
+    }
+    .pick-do:hover  { background: rgba(76,175,80,0.32); color: #fff; }
+    .pick-do:active { transform: scale(0.96); }
+    .pick-do:disabled { opacity: 0.5; cursor: default; }
+    /* console toast (mark-picked feedback + undo) */
+    .ctoast {
+      position: fixed;
+      left: 50%; bottom: 60px;
+      transform: translateX(-50%) translateY(20px);
+      display: flex; align-items: center; gap: 16px;
+      background: var(--ink-card);
+      border: 1px solid var(--ink-rim);
+      border-radius: 11px;
+      padding: 12px 20px;
+      box-shadow: 0 10px 34px rgba(0,0,0,0.55);
+      font-family: 'Roboto Mono', monospace;
+      font-size: 14px; color: var(--paper);
+      opacity: 0; pointer-events: none;
+      transition: opacity 0.3s ease, transform 0.3s ease;
+      z-index: 65;
+    }
+    .ctoast.show { opacity: 1; transform: translateX(-50%) translateY(0); pointer-events: auto; }
+    .ctoast button {
+      background: transparent;
+      border: 1px solid var(--rule);
+      border-radius: 6px;
+      color: var(--brand-rim);
+      font-family: 'Oswald', sans-serif;
+      font-size: 12px; letter-spacing: 0.08em;
+      text-transform: uppercase;
+      padding: 5px 12px; cursor: pointer;
+    }
+    .ctoast button:hover { color: var(--brand-yellow); border-color: var(--rule-strong, rgba(255,212,0,0.42)); }
+    .pick-note {
+      font-family: 'Roboto Mono', monospace;
+      font-size: 13px;
+      color: var(--brand-rim);
+      padding-left: 2px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
     .pick-loc {
       font-family: 'Roboto Mono', monospace;
@@ -871,6 +1002,12 @@
         <div class="hdr-mono">HQ</div>
         <div class="hdr-words">Warehouse Floor</div>
       </div>
+      <div class="pray" id="pray" title="Prayer times · Houston">
+        <span class="pray-icon">🕌</span>
+        <span class="pray-name" id="prayName">—</span>
+        <span class="pray-time" id="prayTime"></span>
+        <span class="pray-count" id="prayCount"></span>
+      </div>
       <div class="hdr-right">
         <div class="wx" id="wx" title="Houston weather">
           <span class="wx-icon" id="wxIcon">·</span>
@@ -883,6 +1020,7 @@
         <div class="hdr-clock">
           <div class="hdr-clock-time" id="clockTime">—:—</div>
           <div class="hdr-clock-date" id="clockDate">loading</div>
+          <div class="hdr-clock-hijri" id="hijri"></div>
         </div>
       </div>
     </div>
@@ -951,11 +1089,11 @@
           <li class="feed-empty">nothing open to pick</li>
         </ul>
       </div>
-      <!-- LIVE FEED (ambient — history) -->
-      <div class="feed ambient">
+      <!-- RIGHT PANEL — Floor Notes when active, else the live event feed -->
+      <div class="feed ambient" id="rightPanel">
         <div class="feed-head">
-          <span class="feed-title">As it lands</span>
-          <span class="feed-note">today · newest first</span>
+          <span class="feed-title" id="rightTitle">As it lands</span>
+          <span class="feed-note" id="rightNote">today · newest first</span>
         </div>
         <ul class="feed-list" id="feedList">
           <li class="feed-empty">waiting for today's first event…</li>
@@ -976,14 +1114,19 @@
       <div class="ftr-right">
         <span class="ftr-sound" id="soundToggle" title="Distinct chime per event">♪ off</span>
         <span class="ftr-sound" id="fsToggle" title="Fullscreen (tap on the tablet)">⛶ full</span>
+        <span class="ftr-sound" id="themeBtn" title="Theme">🎨 theme</span>
         <span id="footSync">sync —</span>
-        <span>FLOOR · v1.5</span>
+        <span>FLOOR · v2.0 · console</span>
       </div>
     </div>
     <audio id="radioAudio" preload="none"></audio>
 
     <div class="connlost" id="connLost">lost the line · retrying</div>
     <div class="egg" id="egg"></div>
+    <div class="ctoast" id="ctoast">
+      <span id="ctoastMsg"></span>
+      <button id="ctoastUndo">undo</button>
+    </div>
   </div>
 
   <script>
@@ -1008,6 +1151,9 @@
     var lastWarmthBucket = '';
     var audioCtx  = null;
     var eggClicks = 0, eggTimer = null;
+    var themes    = ['', 'midnight', 'crt'];
+    var themeIdx  = 0;
+    var prayerList = [];   // [{name, hhmm, mins}] for today, Houston time
 
     // ---------- boot ----------
     document.addEventListener('DOMContentLoaded', function () {
@@ -1021,11 +1167,21 @@
       document.addEventListener('visibilitychange', function () {
         if (document.visibilityState === 'visible') requestWakeLock();
       });
+      themeIdx = parseInt(localStorage.getItem('floorTheme'), 10);
+      if (isNaN(themeIdx) || themeIdx < 0 || themeIdx >= themes.length) themeIdx = 0;
+      applyTheme();
+      document.getElementById('themeBtn').addEventListener('click', cycleTheme);
+      document.getElementById('pickList').addEventListener('click', function (e) {
+        var b = e.target && e.target.closest ? e.target.closest('.pick-do') : null;
+        if (b) markPicked(b.getAttribute('data-order'), b);
+      });
       generateStars();
       setWarmth();
       radioInit();
       fetchWeather();
       setInterval(fetchWeather, 900000);   // refresh weather every 15 min
+      fetchPrayerTimes();
+      setInterval(fetchPrayerTimes, 3 * 3600000);   // refresh prayer times every 3h
       tickClock();
       setInterval(tickClock, CLOCK_MS);
       poll();
@@ -1066,12 +1222,68 @@
     // ---------- clock ----------
     function tickClock() {
       var now = new Date();
-      // Houston/Central regardless of the device's own timezone.
-      document.getElementById('clockTime').textContent =
-        now.toLocaleTimeString('en-US', { timeZone: TZ, hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true });
-      var d = now.toLocaleDateString('en-US', { timeZone: TZ, weekday: 'long', month: 'short', day: 'numeric' });
-      document.getElementById('clockDate').textContent = d.replace(',', ' ·');
+      var timeStr = now.toLocaleTimeString('en-US', { timeZone: TZ, hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true });
+      var dateStr = now.toLocaleDateString('en-US', { timeZone: TZ, weekday: 'long', month: 'short', day: 'numeric' }).replace(',', ' ·');
+      document.getElementById('clockTime').textContent = timeStr;
+      document.getElementById('clockDate').textContent = dateStr;
       setWarmth();
+      updateNextPrayer();
+    }
+
+    // ---------- prayer times (Aladhan · free · no key · info only) ----------
+    function fetchPrayerTimes() {
+      try {
+        fetch('https://api.aladhan.com/v1/timingsByCity?city=Houston&country=US&method=2')
+          .then(function (r) { return r.json(); })
+          .then(function (d) {
+            if (!d || d.code !== 200 || !d.data) return;
+            var t = d.data.timings;
+            var order = [['Fajr', t.Fajr], ['Dhuhr', t.Dhuhr], ['Asr', t.Asr], ['Maghrib', t.Maghrib], ['Isha', t.Isha]];
+            prayerList = order.map(function (p) {
+              var hhmm = String(p[1]).split(' ')[0];     // strip any " (CDT)" suffix
+              var hm = hhmm.split(':');
+              return { name: p[0], hhmm: hhmm, mins: parseInt(hm[0], 10) * 60 + parseInt(hm[1], 10) };
+            });
+            if (d.data.date && d.data.date.hijri) {
+              var h = d.data.date.hijri;
+              document.getElementById('hijri').textContent = h.day + ' ' + h.month.en + ' ' + h.year + ' AH';
+            }
+            updateNextPrayer();
+          })
+          .catch(function () { /* offline / blocked — pill stays quiet */ });
+      } catch (e) {}
+    }
+    function updateNextPrayer() {
+      if (!prayerList.length) return;
+      var hp = new Date().toLocaleTimeString('en-US', { timeZone: TZ, hour12: false, hour: '2-digit', minute: '2-digit' }).split(':');
+      var nowMin = parseInt(hp[0], 10) * 60 + parseInt(hp[1], 10);
+      var next = null;
+      for (var i = 0; i < prayerList.length; i++) { if (prayerList[i].mins > nowMin) { next = prayerList[i]; break; } }
+      var diff;
+      if (next) { diff = next.mins - nowMin; }
+      else { next = prayerList[0]; diff = (next.mins + 1440) - nowMin; }   // tomorrow's Fajr
+      document.getElementById('prayName').textContent  = next.name;
+      document.getElementById('prayTime').textContent  = '· ' + to12h(next.hhmm);
+      document.getElementById('prayCount').textContent = '· in ' + fmtDur(diff);
+    }
+    function to12h(hhmm) {
+      var p = hhmm.split(':'), h = parseInt(p[0], 10), m = p[1];
+      var ap = h >= 12 ? 'PM' : 'AM', h12 = h % 12; if (h12 === 0) h12 = 12;
+      return h12 + ':' + m + ' ' + ap;
+    }
+
+    // ---------- theme ----------
+    function applyTheme() {
+      document.body.classList.remove('theme-midnight', 'theme-crt');
+      var t = themes[themeIdx];
+      if (t) document.body.classList.add('theme-' + t);
+      var lbl = t ? (t.charAt(0).toUpperCase() + t.slice(1)) : 'Default';
+      document.getElementById('themeBtn').textContent = '🎨 ' + lbl;
+      localStorage.setItem('floorTheme', String(themeIdx));
+    }
+    function cycleTheme() {
+      themeIdx = (themeIdx + 1) % themes.length;
+      applyTheme();
     }
 
     // Ambient time-of-day warmth — shifts the gap tint with Houston time.
@@ -1137,7 +1349,7 @@
       paintPace(tick.paceCar);
       paintPaid(a);
       paintPickList(tick.openOrders || []);
-      paintFeed(c.timeline || []);
+      paintRightColumn(tick);
       paintLive(c, tick);
       paintFooter(tick);
 
@@ -1372,6 +1584,9 @@
       li.setAttribute('data-key', pickKey(r));
       li.innerHTML = '';
 
+      var main = document.createElement('div');
+      main.className = 'pick-main';
+
       var loc = document.createElement('span');
       loc.className = 'pick-loc';
       var locTxt = String(r.location || '').trim();
@@ -1395,8 +1610,27 @@
       st.className = 'pick-status ' + (isPrep ? 'prep' : 'pend');
       st.textContent = isPrep ? 'PREP' : 'GRAB';
 
-      li.appendChild(loc); li.appendChild(sku); li.appendChild(qty);
-      li.appendChild(meta); li.appendChild(st);
+      main.appendChild(loc); main.appendChild(sku); main.appendChild(qty);
+      main.appendChild(meta); main.appendChild(st);
+      // console action — only PENDING rows get "✓ Pick" (→ PREPARING)
+      if (!isPrep) {
+        var doBtn = document.createElement('button');
+        doBtn.className = 'pick-do';
+        doBtn.textContent = '✓ Pick';
+        doBtn.setAttribute('data-order', r.orderId || '');
+        main.appendChild(doBtn);
+      }
+      li.appendChild(main);
+
+      // floor note in this row's NOTE (the ** marker) → 📌 line + left accent
+      var fnText = extractFloorNote(r.note);
+      li.classList.toggle('noted', !!fnText);
+      if (fnText) {
+        var noteEl = document.createElement('div');
+        noteEl.className = 'pick-note';
+        noteEl.textContent = '📌 ' + fnText;
+        li.appendChild(noteEl);
+      }
     }
 
     function buildPickRow(r, animate) {
@@ -1404,6 +1638,89 @@
       li.className = 'pick-row' + (animate ? ' enter' : '');
       fillPickRow(li, r);
       return li;
+    }
+
+    // ---------- CONSOLE: mark picked (PENDING → PREPARING) ----------
+    function markPicked(orderId, btn) {
+      if (!orderId) return;
+      if (btn) { btn.disabled = true; btn.textContent = '…'; }
+      google.script.run
+        .withSuccessHandler(function (r) {
+          if (r && r.ok) { showPickedToast(orderId); poll(); }
+          else if (btn)  { btn.disabled = false; btn.textContent = '✓ Pick'; }
+        })
+        .withFailureHandler(function () { if (btn) { btn.disabled = false; btn.textContent = '✓ Pick'; } })
+        .boardSetStatus(orderId, 'PREPARING');
+    }
+    function unpick(orderId) {
+      google.script.run.withSuccessHandler(function () { poll(); }).boardSetStatus(orderId, 'PENDING');
+    }
+    function showPickedToast(orderId) {
+      var t = document.getElementById('ctoast');
+      document.getElementById('ctoastMsg').textContent = '✓ ' + orderId + ' → preparing';
+      document.getElementById('ctoastUndo').onclick = function () { unpick(orderId); hideToast(); };
+      t.classList.add('show');
+      clearTimeout(t._timer);
+      t._timer = setTimeout(hideToast, 6000);
+    }
+    function hideToast() { document.getElementById('ctoast').classList.remove('show'); }
+
+    // ---------- FLOOR NOTES (** marker, read straight from each order's NOTE) ----------
+    var FLOOR_MARK = '**';
+    function extractFloorNote(noteText) {
+      var s = String(noteText || '');
+      var i = s.lastIndexOf(FLOOR_MARK);
+      if (i < 0) return '';
+      var rest = s.slice(i + FLOOR_MARK.length);
+      var end = rest.indexOf('   ');     // stop at the next appended NOTE segment
+      if (end >= 0) rest = rest.slice(0, end);
+      return rest.trim();
+    }
+
+    function paintRightColumn(tick) {
+      var orders = tick.openOrders || [];
+      var notes = [], seen = {};
+      for (var i = 0; i < orders.length; i++) {
+        var txt = extractFloorNote(orders[i].note);
+        if (!txt) continue;
+        var oid = String(orders[i].orderId || '').trim();
+        var key = oid + '|' + txt;
+        if (seen[key]) continue;
+        seen[key] = true;
+        notes.push({ order: oid, text: txt });
+      }
+      var panel = document.getElementById('rightPanel');
+      var title = document.getElementById('rightTitle');
+      var note  = document.getElementById('rightNote');
+      if (notes.length) {
+        panel.classList.remove('ambient');
+        panel.classList.add('primary');
+        title.textContent = 'Floor notes';
+        note.textContent  = notes.length + ' active';
+        renderNotesPanel(notes);
+      } else {
+        panel.classList.add('ambient');
+        panel.classList.remove('primary');
+        title.textContent = 'As it lands';
+        note.textContent  = 'today · newest first';
+        paintFeed((tick.cockpit && tick.cockpit.timeline) || []);
+      }
+    }
+
+    function renderNotesPanel(notes) {
+      var list = document.getElementById('feedList');
+      var frag = document.createDocumentFragment();
+      notes.forEach(function (n) {
+        var li = document.createElement('li');
+        li.className = 'note-row';
+        var ic = document.createElement('span'); ic.className = 'note-ic';   ic.textContent = '📌';
+        var tx = document.createElement('span'); tx.className = 'note-text'; tx.textContent = n.text;
+        var mt = document.createElement('span'); mt.className = 'note-meta'; mt.textContent = n.order;
+        li.appendChild(ic); li.appendChild(tx); li.appendChild(mt);
+        frag.appendChild(li);
+      });
+      list.innerHTML = '';
+      list.appendChild(frag);
     }
 
     // ---------- FEED ----------
@@ -1564,20 +1881,30 @@
 
     // ---------- floor radio (free SomaFM streams; tap to play) ----------
     var radioStations = [
-      { group: 'Chill · SomaFM', name: 'Groove Salad',    id: 'groovesalad', url: 'https://ice1.somafm.com/groovesalad-128-mp3' },
-      { group: 'Chill · SomaFM', name: 'Indie Pop Rocks', id: 'indiepop',    url: 'https://ice1.somafm.com/indiepop-128-mp3' },
-      { group: 'Chill · SomaFM', name: 'Seven Inch Soul', id: '7soul',       url: 'https://ice1.somafm.com/7soul-128-mp3' },
-      { group: 'Chill · SomaFM', name: 'Lush',            id: 'lush',        url: 'https://ice1.somafm.com/lush-128-mp3' },
-      { group: 'Chill · SomaFM', name: 'Beat Blender',    id: 'beatblender', url: 'https://ice1.somafm.com/beatblender-128-mp3' },
-      { group: 'Chill · SomaFM', name: 'Boot Liquor',     id: 'bootliquor',  url: 'https://ice1.somafm.com/bootliquor-128-mp3' },
-      { group: 'Chill · SomaFM', name: 'Left Coast 70s',  id: 'seventies',   url: 'https://ice1.somafm.com/seventies-128-mp3' },
-      { group: 'Chill · SomaFM', name: 'Underground 80s', id: 'u80s',        url: 'https://ice1.somafm.com/u80s-128-mp3' },
+      { group: 'Chill · SomaFM', name: 'Groove Salad',    id: 'groovesalad',  url: 'https://ice1.somafm.com/groovesalad-128-mp3' },
+      { group: 'Chill · SomaFM', name: 'Indie Pop Rocks', id: 'indiepop',     url: 'https://ice1.somafm.com/indiepop-128-mp3' },
+      { group: 'Chill · SomaFM', name: 'Seven Inch Soul', id: '7soul',        url: 'https://ice1.somafm.com/7soul-128-mp3' },
+      { group: 'Chill · SomaFM', name: 'Lush',            id: 'lush',         url: 'https://ice1.somafm.com/lush-128-mp3' },
+      { group: 'Chill · SomaFM', name: 'Beat Blender',    id: 'beatblender',  url: 'https://ice1.somafm.com/beatblender-128-mp3' },
+      { group: 'Chill · SomaFM', name: 'Boot Liquor',     id: 'bootliquor',   url: 'https://ice1.somafm.com/bootliquor-128-mp3' },
+      { group: 'Chill · SomaFM', name: 'Left Coast 70s',  id: 'seventies',    url: 'https://ice1.somafm.com/seventies-128-mp3' },
+      { group: 'Chill · SomaFM', name: 'Underground 80s', id: 'u80s',         url: 'https://ice1.somafm.com/u80s-128-mp3' },
+      { group: 'Chill · SomaFM', name: 'Drone Zone',      id: 'dronezone',    url: 'https://ice1.somafm.com/dronezone-128-mp3' },
+      { group: 'Chill · SomaFM', name: 'Fluid',           id: 'fluid',        url: 'https://ice1.somafm.com/fluid-128-mp3' },
+      { group: 'Chill · SomaFM', name: 'Secret Agent',    id: 'secretagent',  url: 'https://ice1.somafm.com/secretagent-128-mp3' },
+      { group: 'Chill · SomaFM', name: 'Sonic Universe',  id: 'sonicuniverse',url: 'https://ice1.somafm.com/sonicuniverse-128-mp3' },
+      { group: 'Chill · SomaFM', name: 'Space Station',   id: 'spacestation', url: 'https://ice1.somafm.com/spacestation-128-mp3' },
+      { group: 'Chill · SomaFM', name: 'PopTron',         id: 'poptron',      url: 'https://ice1.somafm.com/poptron-128-mp3' },
+      // Lofi & Jazz (Radio Browser) — no track feed, id empty (station name only).
+      { group: 'Lofi & Jazz', name: 'Lofi · Chill',   id: '', url: 'https://public.isekoi-radio.com/listen/chill/radio.mp3' },
+      { group: 'Lofi & Jazz', name: 'Classic Vinyl',  id: '', url: 'https://icecast.walmradio.com:8443/classic' },
+      { group: 'Lofi & Jazz', name: 'Adroit Jazz',    id: '', url: 'https://icecast.walmradio.com:8443/jazz' },
       // Arabic (roots) — direct HTTPS streams from the Radio Browser API.
-      // No SomaFM-style track feed, so id is empty → widget shows station name only.
-      { group: 'Arabic',         name: 'Radio Orient',            id: '', url: 'https://stream.rcs.revma.com/7hnrkawf4p8uv.mp3' },
-      { group: 'Arabic',         name: 'Aswat FM',                id: '', url: 'https://broadcast.ice.infomaniak.ch/aswat-high.mp3' },
-      { group: 'Arabic',         name: 'Quran · Kuwait',          id: '', url: 'https://radio.mp3islam.com/listen/quran_radio/radio.mp3' },
-      { group: 'Arabic',         name: 'Quran · Yasser AlDosari', id: '', url: 'https://radio.mp3islam.com/listen/yaser/radio.mp3' }
+      { group: 'Arabic', name: 'Radio Orient',            id: '', url: 'https://stream.rcs.revma.com/7hnrkawf4p8uv.mp3' },
+      { group: 'Arabic', name: 'Aswat FM',                id: '', url: 'https://broadcast.ice.infomaniak.ch/aswat-high.mp3' },
+      { group: 'Arabic', name: 'Hits Cairo',              id: '', url: 'https://radiohits882.radioca.st/;' },
+      { group: 'Arabic', name: 'Quran · Kuwait',          id: '', url: 'https://radio.mp3islam.com/listen/quran_radio/radio.mp3' },
+      { group: 'Arabic', name: 'Quran · Yasser AlDosari', id: '', url: 'https://radio.mp3islam.com/listen/yaser/radio.mp3' }
     ];
     var radioIdx = 0, radioPlaying = false, radioAudio = null;
     var currentTrack = '', npTimer = null;
