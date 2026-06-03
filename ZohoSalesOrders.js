@@ -387,21 +387,37 @@ function upsertPendingSalesOrder(salesorder) {
   // checking it; always false going forward.
   var autoLinked = false;
 
-  // --- VOID HANDLER (Option C, 2026-05-23) ---
-  // The full propagation (_propagateToDirectRows) was retired in favor of
-  // the picker-driven Pull modal. The one signal that still propagates
-  // automatically is status=void — a voided SO is unambiguous, time-
-  // sensitive (picker shouldn't pick a canceled order), and the picker's
-  // action is identical regardless of who triggered it. Every other
-  // Zoho→DIRECT data movement now goes through the Pull modal.
-  var propagated = null;
-  if (wasPulled) {
-    try {
-      propagated = _handleZohoVoid(soNumber, salesorder);
-    } catch (propErr) {
-      console.log("Zoho void handler error for " + soNumber + ": " + propErr);
-      propagated = { error: propErr.toString() };
-    }
+  // --- AUTO-PROPAGATION: VOID + SHIPPED (the two unambiguous Zoho signals) ---
+  // The full line-item propagation (_propagateToDirectRows) was retired
+  // 2026-05-23 in favor of the picker-driven Pull modal. The two signals that
+  // still propagate automatically are status=void → CANCELED and
+  // shipped_status=shipped/fulfilled → SHIPPED — both unambiguous, time-
+  // sensitive, and picker-action-identical regardless of who triggered them.
+  // PREPARING stays employee-driven. Every other Zoho→DIRECT data movement
+  // goes through the Pull modal.
+  //
+  // 2026-06-02: these run REGARDLESS of wasPulled — so a Direct SO typed into
+  // DIRECT by hand (out of habit, e.g. a quick one-item order) still reflects
+  // Zoho's shipped/void state. This is SAFE where the old auto-link was not:
+  // both are pure status flips on EXISTING rows matched by SO number
+  // (updateOrderStatus) — they never insert/diff/delete, so the reconciler bug
+  // class doesn't apply. If no DIRECT row carries this SO, updateOrderStatus
+  // flips nothing (safe no-op). Each handler self-gates on the status value
+  // (early-return otherwise) so updateOrderStatus only runs on actual
+  // shipped/void fires. Each is wrapped so one failing can't block the other
+  // or the row write. (wasPulled is still computed + returned for back-compat.)
+  var propagated = {};
+  try {
+    propagated.voided = _handleZohoVoid(soNumber, salesorder);
+  } catch (propErr) {
+    console.log("Zoho void handler error for " + soNumber + ": " + propErr);
+    propagated.voided = { error: propErr.toString() };
+  }
+  try {
+    propagated.shipped = _handleZohoShipped(soNumber, salesorder);
+  } catch (shipErr) {
+    console.log("Zoho shipped handler error for " + soNumber + ": " + shipErr);
+    propagated.shipped = { error: shipErr.toString() };
   }
 
   return {
@@ -674,7 +690,9 @@ function getPendingZohoCount() {
  * If the incoming Zoho SO payload has status=void, flip all non-terminal
  * DIRECT rows for this SO to CANCELED. Safe no-op for any other status.
  *
- * Called from upsertPendingSalesOrder when wasPulled === true.
+ * Called from upsertPendingSalesOrder on every fire (2026-06-02: no longer
+ * gated on wasPulled — see the call site). Pure status flip on existing rows
+ * matched by SO number; no-op when no DIRECT row carries this SO.
  *
  * @returns {{ canceledCount: number, error?: string }}
  */
@@ -691,6 +709,46 @@ function _handleZohoVoid(soNumber, salesorder) {
   } catch (e) {
     console.log("Zoho void handler failed for " + soNumber + ": " + e);
     return { canceledCount: 0, error: e.toString() };
+  }
+}
+
+/**
+ * If the incoming Zoho SO payload reports the order shipped/fulfilled, flip
+ * all non-terminal DIRECT rows for this SO to SHIPPED. Safe no-op otherwise.
+ *
+ * RESTORED 2026-06-02. The shipped auto-flip originally shipped 2026-05-16,
+ * then was removed as collateral when the buggy line-item reconciler
+ * (_propagateToDirectRows) was deleted in the 2026-05-23 Option C pivot. It
+ * is the second of the two UNAMBIGUOUS Zoho signals that auto-propagate
+ * (SHIPPED + CANCELED); PREPARING stays employee-driven. This restores ONLY
+ * the clean shipped signal — the line-item diff reconciler stays dead.
+ *
+ *   - 'partially_shipped' is intentionally IGNORED: an SO can ship in several
+ *     tracking numbers; the final shipped/fulfilled state catches us up
+ *     without needing per-line tracking.
+ *   - updateOrderStatus's terminal-state guard means already-SHIPPED/CANCELED
+ *     rows are left untouched, so re-fires can't double-flip.
+ *
+ * Called from upsertPendingSalesOrder on every fire (2026-06-02: no longer
+ * gated on wasPulled, so hand-typed Direct SOs flip too — see the call site).
+ * Pure status flip on existing rows matched by SO number; no-op when no DIRECT
+ * row carries this SO.
+ *
+ * @returns {{ shippedCount: number, error?: string }}
+ */
+function _handleZohoShipped(soNumber, salesorder) {
+  var shipped = String(salesorder && salesorder.shipped_status || "").trim().toLowerCase();
+  if (shipped !== "shipped" && shipped !== "fulfilled") return { shippedCount: 0 };
+
+  try {
+    var result = updateOrderStatus(soNumber, Schema.status.SHIPPED, {
+      source:       "zoho",
+      syncTelegram: false
+    });
+    return { shippedCount: (result && result.count) || 0 };
+  } catch (e) {
+    console.log("Zoho shipped handler failed for " + soNumber + ": " + e);
+    return { shippedCount: 0, error: e.toString() };
   }
 }
 
