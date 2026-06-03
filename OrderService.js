@@ -561,10 +561,10 @@ function doPost(e) {
         console.log("doPost: kit marker refresh error: " + kitErr);
       }
 
-      // SKU enrichment (title note + listing link) — same reason: programmatic
-      // setValues doesn't fire onEdit, so enrich the newly-inserted rows here.
-      try { refreshSkuEnrichment(); } catch (enrErr) {
-        console.log("doPost: SKU enrichment refresh error: " + enrErr);
+      // SKU links + order links — programmatic setValues doesn't fire onEdit,
+      // so enrich the newly-inserted rows here (col A → listing, col D → order).
+      try { refreshAllOrdersEnrichment(); } catch (enrErr) {
+        console.log("doPost: enrichment refresh error: " + enrErr);
       }
     }
 
@@ -1447,20 +1447,23 @@ function sortTableByStatusAndLocation(tableNumber) {
   // format anyone adds in the future.
   var formats = range.getNumberFormats();
   // Same class of "doesn't move with setValues" problem as number formats:
-  // col-A RICH TEXT (the SKU → eBay listing link from SkuEnrichment) is stripped
-  // by setValues. Capture it and move it WITH its row through the sort, then
-  // re-write it after setValues so the links land on the right SKUs.
+  // col-A RICH TEXT (the SKU → eBay listing link) AND col-D RICH TEXT (the
+  // SALES ORDER → eBay/Zoho order link) are both stripped by setValues. Capture
+  // them, move them WITH their rows through the sort, then re-write after
+  // setValues so the links land on the right rows.
   var skuRange = sheet.getRange(startRow, Schema.cols.SKU, numRows, 1);
   var skuRich = skuRange.getRichTextValues();   // [[RichTextValue], ...]
+  var soRange = sheet.getRange(startRow, Schema.cols.SALES_ORDER, numRows, 1);
+  var soRich = soRange.getRichTextValues();
   var statusOrder = {};
   statusOrder[Schema.status.PENDING]   = 1;
   statusOrder[Schema.status.PREPARING] = 2;
   statusOrder[Schema.status.SHIPPED]   = 3;
   statusOrder[Schema.status.CANCELED]  = 4;
   statusOrder['']                      = 5;
-  // Pair values + formats + col-A rich text so they travel together.
+  // Pair values + formats + col-A & col-D rich text so they travel together.
   var indexed = data.map(function(row, i) {
-    return { values: row, formats: formats[i], rich: skuRich[i][0] };
+    return { values: row, formats: formats[i], rich: skuRich[i][0], soRich: soRich[i][0] };
   });
   indexed.sort(function(a, b) {
     var sA = String(a.values[Schema.idx("STATUS")] || '').trim().toUpperCase();
@@ -1473,11 +1476,14 @@ function sortTableByStatusAndLocation(tableNumber) {
   var sortedData    = indexed.map(function(x) { return x.values; });
   var sortedFormats = indexed.map(function(x) { return x.formats; });
   var sortedRich    = indexed.map(function(x) { return [x.rich]; });
+  var sortedSoRich  = indexed.map(function(x) { return [x.soRich]; });
   range.setValues(sortedData);
   range.setNumberFormats(sortedFormats);
-  // Re-apply col-A links AFTER setValues (which wrote plain SKU text + stripped
-  // the links). The rich text carries the same SKU text, so col A ends correct.
+  // Re-apply col-A + col-D links AFTER setValues (which wrote plain text +
+  // stripped the links). The rich text carries the same cell text, so the
+  // columns end correct with their links re-attached.
   skuRange.setRichTextValues(sortedRich);
+  soRange.setRichTextValues(sortedSoRich);
 
   // Safety net — re-derive kit ▣ markers from current SKU values against the
   // Kit Registry. Catches any drift introduced by edits/inserts that happened

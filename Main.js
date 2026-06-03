@@ -192,6 +192,14 @@ function onEditInstallable(e) {
   } catch (err) {
     Logger.log("skuEnrichmentOnEdit (installable) error: " + err);
   }
+
+  // Order link — SALES ORDER (col D) → clickable eBay/Zoho order. Same pattern
+  // as the SKU link; programmatic inserts call refreshAllOrdersEnrichment().
+  try {
+    orderLinkOnEdit(e);
+  } catch (err) {
+    Logger.log("orderLinkOnEdit (installable) error: " + err);
+  }
 }
 
 /**

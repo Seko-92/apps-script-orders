@@ -25,12 +25,12 @@ function _ebaySearchUrl(sku) {
   return 'https://www.ebay.com/sch/i.html?_nkw=' + encodeURIComponent(String(sku).trim());
 }
 
-// On-brand link styling: force brand-ink (black) + no underline so the linked
-// SKU looks exactly like a normal SKU cell (not default link blue). It stays
-// fully clickable — hover/click still pops Google's title+photo preview card.
+// On-brand link styling: brand ink (black, NOT default link-blue) + a thin
+// underline as the subtle "this is clickable" cue. Adds no foreign color to the
+// table's monochrome design. Hover/click still pops Google's preview card.
 var _SKU_LINK_STYLE = SpreadsheetApp.newTextStyle()
   .setForegroundColor('#1d1d1b')
-  .setUnderline(false)
+  .setUnderline(true)
   .build();
 
 /** Build the RichTextValue (linked SKU) for one cell. */

@@ -601,7 +601,7 @@ function expandSelectedKits(extrasQty, exclusionMap) {
       catch (dupErr) { console.log("expandSelectedKits: dup-SO refresh failed: " + dupErr); }
 
       // Enrich the inserted component SKUs (title note + listing link) from MI.
-      try { refreshSkuEnrichment(); }
+      try { refreshAllOrdersEnrichment(); }
       catch (enrErr) { console.log("expandSelectedKits: SKU enrichment failed: " + enrErr); }
     }
 
@@ -1270,7 +1270,7 @@ function _commitOneKitForModal(queueItem, excludedSkus, multiplier, force) {
   catch (kitErr) { try { console.log("modal commit: kit marker refresh failed: " + kitErr); } catch (_) {} }
 
   // Enrich the inserted component SKUs (title note + listing link) from MI.
-  try { refreshSkuEnrichment(); }
+  try { refreshAllOrdersEnrichment(); }
   catch (enrErr) { try { console.log("modal commit: SKU enrichment failed: " + enrErr); } catch (_) {} }
 
   // Repaint duplicate-SO borders — newly-inserted component rows share the

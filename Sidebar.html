@@ -3466,7 +3466,7 @@ body.dark-theme .footer-version { border-color: #2c2c2c; }
             <button onclick="run('runUpdateLocationsTableOne')">Update Locations</button>
             <button onclick="run('sortEbayTable')">Sort</button>
           </div>
-          <button class="btn-secondary" onclick="run('refreshSkuEnrichment')" title="Make every SKU a clickable eBay listing link (hover/click shows the listing's title + photo card). Looked up from Master Inventory; eBay-search fallback for unlisted SKUs. New SKUs link automatically on entry; this is the one-time backfill / re-apply (also clears old title notes).">🔗 Link SKUs → eBay listing</button>
+          <button class="btn-secondary" onclick="run('refreshAllOrdersEnrichment')" title="Link every SKU → its eBay listing (title+photo card) AND every order # → the actual order (eBay Seller Hub / Zoho SO). New rows link automatically on entry; this is the one-time backfill / re-apply.">🔗 Link SKUs + Orders</button>
           <button class="btn-danger" onclick="run('runDeleteEmptyRowsTableOne')">Cleanup Empty Rows</button>
           <div class="range-control">
             <div class="range-header"><span class="range-label">Insert Rows</span><span class="range-value" id="r1">10</span></div>
