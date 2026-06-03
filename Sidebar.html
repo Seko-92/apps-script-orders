@@ -701,6 +701,10 @@ body {
   align-items: center;
   gap: 8px;
   padding-top: 6px;
+  /* Collapsible: smoothly folds away when the cockpit condenses on scroll. */
+  overflow: hidden;
+  max-height: 64px;
+  transition: max-height 240ms ease, opacity 200ms ease, padding-top 240ms ease;
 }
 .cockpit-tape {
   flex: 1;
@@ -1040,7 +1044,11 @@ body {
   gap: 10px;
   border-bottom: 1px solid #2a2a28;
   letter-spacing: 0.03em;
-  transition: background 180ms ease, color 180ms ease, border-color 180ms ease;
+  /* Collapsible: folds away when the cockpit condenses on scroll. */
+  overflow: hidden;
+  max-height: 80px;
+  transition: background 180ms ease, color 180ms ease, border-color 180ms ease,
+              max-height 240ms ease, opacity 200ms ease, padding 240ms ease;
 }
 .picker-banner .picker-icon { font-size: 16px; line-height: 1; }
 .picker-banner .picker-label {
@@ -1079,6 +1087,44 @@ body {
   0%, 100% { box-shadow: inset 3px 0 0 #ffb800, inset 0 0 0 0 rgba(255,184,0,0); }
   50%      { box-shadow: inset 3px 0 0 #ffb800, inset 0 0 22px 0 rgba(255,184,0,0.10); }
 }
+
+/* ════════════════════════════════════════════════════════════════════════
+   CONDENSED COCKPIT — applied to <body> while #modules is scrolled down.
+   The full cockpit folds to a compact vitals strip (shrunk numbers + queue);
+   the day tape and picker banner collapse away to hand their height to the
+   cards. Blooms back at the top, or after idle. (Phase 3, 2026-06-03)
+   ════════════════════════════════════════════════════════════════════════ */
+.ops-cockpit { transition: padding 240ms ease; }
+.cockpit-readouts { transition: padding 240ms ease, border-color 240ms ease; }
+.cockpit-stat-value { transition: color 280ms ease, transform 280ms cubic-bezier(0.34,1.56,0.64,1), font-size 220ms ease; }
+
+body.cockpit-condensed .ops-cockpit { padding-top: 6px; padding-bottom: 5px; }
+body.cockpit-condensed .cockpit-readouts {
+  padding-bottom: 4px;
+  border-bottom-color: transparent;
+}
+/* Shrink the hero numbers (incl. the long/xlong variants set by JS) */
+body.cockpit-condensed .cockpit-stat-value        { font-size: 18px; }
+body.cockpit-condensed .cockpit-stat-value.long   { font-size: 15px; }
+body.cockpit-condensed .cockpit-stat-value.xlong  { font-size: 13px; }
+/* Drop the "Today / Pending" sub-line; keep the primary label tiny */
+body.cockpit-condensed .cockpit-stat-label-sub     { display: none; }
+body.cockpit-condensed .cockpit-stat-label-primary { font-size: 8.5px; }
+/* Fold the tape row + picker banner away */
+body.cockpit-condensed .cockpit-tape-row {
+  max-height: 0;
+  opacity: 0;
+  padding-top: 0;
+}
+body.cockpit-condensed .picker-banner {
+  max-height: 0;
+  opacity: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+  border-bottom-width: 0;
+  animation: none;   /* stop the unset-pulse while folded */
+}
+body.cockpit-condensed .cockpit-queue { margin-top: 4px; padding-top: 5px; }
 
 #status {
   font-family: 'Roboto Mono', 'Courier New', monospace;
@@ -1168,6 +1214,41 @@ body {
   60%  { transform: translateX(-2px); }
   80%  { transform: translateX(2px); }
   100% { transform: translateX(0); }
+}
+
+/* === IDLE STATE — "idling engine" (Phase 3, 2026-06-03) ===
+   When no real running/error/success status owns the bar, it breathes like a
+   warm idling motor and a brand shine periodically sweeps across. The live
+   whisper text is typed in by JS (_typeStatus, pulled from the cockpit). It
+   yields instantly: any real status sets #status.className = 'running'|… which
+   wipes the .idle class, so the breathing + shine stop the moment work starts. */
+#status.idle {
+  color: #e0c25c;                 /* warm idle gold, dimmer than active yellow */
+  animation: status-breathe 3.4s ease-in-out infinite;
+}
+@keyframes status-breathe {
+  0%, 100% { opacity: 0.74; text-shadow: 0 0 0 rgba(255,217,102,0); }
+  50%      { opacity: 1;    text-shadow: 0 0 7px rgba(255,217,102,0.28); }
+}
+#status.idle::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -55%;
+  width: 42%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255,217,102,0.13), transparent);
+  animation: status-shine 6s ease-in-out infinite;
+  pointer-events: none;
+}
+@keyframes status-shine {
+  0%   { left: -55%; }
+  45%  { left: 130%; }
+  100% { left: 130%; }            /* long rest between sweeps */
+}
+@media (prefers-reduced-motion: reduce) {
+  #status.idle { animation: none; opacity: 0.92; }
+  #status.idle::after { animation: none; display: none; }
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════════
@@ -1486,6 +1567,7 @@ body.dark-theme .zone-header::after {
   display: flex;
   gap: 6px;
   margin-bottom: 8px;
+  flex-wrap: wrap;   /* button drops below input at large font scales instead of squeezing */
 }
 
 .ol-search input {
@@ -1930,6 +2012,32 @@ body.dark-theme .zp-price-strip.nf   { background: rgba(255,255,255,0.06); color
   to { transform: rotate(360deg); }
 }
 
+/* Generic panel loading row — reused by any card opener while a module computes
+   its data server-side before the modal pops (kit / zoho / price). Gives every
+   open the same reassuring spinner instead of a dead gap. (2026-06-03) */
+.panel-loading {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 10px;
+  border-radius: 4px;
+  background: rgba(255, 217, 102, 0.12);
+  color: #5a4500;
+  border-left: 3px solid #f4b400;
+  font-size: var(--fs-sm);
+  line-height: 1.4;
+}
+.panel-loading .panel-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(244, 180, 0, 0.25);
+  border-top-color: #f4b400;
+  border-radius: 50%;
+  animation: zp-spin 0.8s linear infinite;
+  flex: 0 0 14px;
+}
+body.dark-theme .panel-loading { background: rgba(244,180,0,0.16); color: #ffd966; }
+
 body.dark-theme .zp-msg-success { background: rgba(46,125,50,0.18); color: #a5d6a7; }
 body.dark-theme .zp-msg-error   { background: rgba(192,57,43,0.20); color: #ffb4a8; }
 body.dark-theme .zp-msg-warn    { background: rgba(244,180,0,0.20); color: #ffd966; }
@@ -1960,6 +2068,7 @@ body.dark-theme .zp-msg-loading { background: rgba(244,180,0,0.16); color: #ffd9
   gap: 6px;
   align-items: stretch;
   margin-bottom: 8px;
+  flex-wrap: wrap;   /* action button drops below the Spares input at large font scales */
 }
 .kx-controls .kx-deploy-wrap {
   flex: 0 0 auto;
@@ -1991,10 +2100,10 @@ body.dark-theme .zp-msg-loading { background: rgba(244,180,0,0.16); color: #ffd9
   border-color: var(--hq-yellow);
   box-shadow: 0 0 0 2px rgba(255, 217, 102, 0.22);
 }
-.kx-controls .kx-preview-btn,
-.kx-controls .kx-expand-btn {
+.kx-controls .kx-action-btn {
   width: auto;
-  flex: 1;
+  flex: 1 1 auto;
+  min-width: 0;
   align-self: flex-end;
   min-height: 34px;
   padding: 8px 8px;
@@ -2006,7 +2115,6 @@ body.dark-theme .zp-msg-loading { background: rgba(244,180,0,0.16); color: #ffd9
   text-transform: uppercase;
   white-space: nowrap;
 }
-.kx-controls .kx-expand-btn { color: #1b5e20; }
 
 .kx-result { display: none; margin-bottom: 6px; }
 .kx-result.shown { display: block; }
@@ -2973,10 +3081,102 @@ body.dark-theme .footer-version { border-color: #2c2c2c; }
 .api-trading-pill a:hover {
   border-bottom-color: var(--hq-gold);
 }
+
+/* ════════════════════════════════════════════════════════════════════════
+   BOOT SPLASH — covers the panel from the instant it renders until the first
+   data tick lands (or a safety timeout), so the sidebar never flashes blank /
+   half-painted on sheet load. Dark + branded to match the cockpit & floor
+   board; fades out on ready. (2026-06-03)
+   ════════════════════════════════════════════════════════════════════════ */
+#bootSplash {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  background: linear-gradient(160deg, #1d1d1b 0%, #2a2a26 100%);
+  opacity: 1;
+  transition: opacity 420ms ease;
+}
+#bootSplash.hidden { opacity: 0; pointer-events: none; }
+.boot-mark {
+  width: 56px;
+  height: 56px;
+  border-radius: 13px;
+  background: linear-gradient(135deg, #ffd966 0%, #fff4b0 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: 'Oswald', sans-serif;
+  font-weight: 800;
+  font-size: 24px;
+  letter-spacing: 0.02em;
+  color: #1a1a1a;
+  box-shadow: 0 6px 22px rgba(0,0,0,0.45), 0 0 0 1px rgba(255,217,102,0.25);
+  animation: bootBreathe 2.4s ease-in-out infinite;
+}
+@keyframes bootBreathe {
+  0%, 100% { transform: scale(1);    box-shadow: 0 6px 22px rgba(0,0,0,0.45), 0 0 0 1px rgba(255,217,102,0.25); }
+  50%      { transform: scale(1.05); box-shadow: 0 8px 30px rgba(0,0,0,0.55), 0 0 18px rgba(255,217,102,0.35); }
+}
+.boot-word {
+  font-family: 'Oswald', sans-serif;
+  font-weight: 600;
+  font-size: 12px;
+  letter-spacing: 0.34em;
+  text-transform: uppercase;
+  color: #cfc8b4;
+  padding-left: 0.34em;   /* optical re-centering for the wide tracking */
+}
+.boot-bar {
+  width: 120px;
+  height: 3px;
+  border-radius: 3px;
+  background: rgba(255,217,102,0.14);
+  overflow: hidden;
+  position: relative;
+}
+.boot-bar::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -40%;
+  width: 40%;
+  height: 100%;
+  border-radius: 3px;
+  background: linear-gradient(90deg, transparent, #ffd966, transparent);
+  animation: bootSweep 1.15s ease-in-out infinite;
+}
+@keyframes bootSweep {
+  0%   { left: -40%; }
+  100% { left: 100%; }
+}
+.boot-sub {
+  font-family: 'Roboto Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  color: #7d7868;
+}
+@media (prefers-reduced-motion: reduce) {
+  .boot-mark, .boot-bar::after { animation: none; }
+}
 </style>
 </head>
 
 <body>
+
+<!-- Boot splash: visible the instant the panel renders, fades out when the
+     first data tick lands (or after a safety timeout). Keeps the sidebar from
+     flashing blank/half-painted while google.script.run fetches the first tick. -->
+<div id="bootSplash">
+  <div class="boot-mark">HQ</div>
+  <div class="boot-word">Control Panel</div>
+  <div class="boot-bar"></div>
+  <div class="boot-sub">warming up…</div>
+</div>
 
 <div class="header">
   <div class="header-clock">
@@ -3191,15 +3391,16 @@ body.dark-theme .footer-version { border-color: #2c2c2c; }
         <button class="btn-info" onclick="run('setupPendingSalesOrdersSheet')">Setup / Re-style</button>
       </div>
       <div class="empty-hint">
-        Type the Zoho <strong>SO #</strong> (e.g. <code>SO-22815</code>) <strong>or</strong> invoice <strong>#</strong> (e.g. <code>INV-022496</code>) and click <strong>Pull</strong> to insert its line items at the top of the DIRECT table. <strong>Preview</strong> shows what would land without committing. Pending sheet mirrors all direct-channel Zoho SOs in real time; only the ones you Pull reach the working sheet.
+        Type the Zoho <strong>SO #</strong> (e.g. <code>SO-22815</code>) <strong>or</strong> invoice <strong>#</strong> (e.g. <code>INV-022496</code>). <strong>Preview</strong> gives a quick summary — customer, totals, status, price-check verdict. <strong>Pull</strong> opens the review modal where you confirm the line items and apply them to the DIRECT table. Pending sheet mirrors all direct-channel Zoho SOs in real time; only the ones you Pull reach the working sheet.
       </div>
     </div>
   </div>
 
   <!--
-    Kit Expansion (Phase: kit feature v1, 2026-05-15) — preview only.
-    Select kit rows in All Orders, click Preview Selected, see what an expansion
-    would produce. Commit path lands in the next pass after preview is verified.
+    Kit Expansion. Select kit rows in All Orders, click Expand Selected → to
+    open the interactive modal (Sales Description reference + per-component
+    exclusion + per-kit Spares input + commit). The modal is the single path;
+    the old inline bulk-Expand button was retired 2026-06-03.
   -->
   <div class="card collapsed" data-id="kit-expand" draggable="true">
     <div class="card-header" onclick="toggleCollapse(this)">
@@ -3213,12 +3414,11 @@ body.dark-theme .footer-version { border-color: #2c2c2c; }
           <label>Spares for us</label>
           <input type="number" id="kxDeploy" value="0" min="0" max="99" />
         </div>
-        <button class="btn-primary kx-preview-btn" onclick="previewKits()">🔍 Preview</button>
-        <button class="btn-success kx-expand-btn" onclick="expandKits()">✅ Expand</button>
+        <button class="btn-primary kx-action-btn" onclick="previewKits()">📦 Expand Selected →</button>
       </div>
       <div class="kx-result" id="kxResult"></div>
       <div class="empty-hint">
-        Select kit rows in <strong>All Orders</strong> → <strong>Preview</strong> opens a popup modal (Sales Description reference + per-component exclusion + per-kit Spares input). <strong>Expand</strong> is the fallback bulk path (no exclusions). <strong>Spares for us</strong> is additive: 0 ships exactly the customer's row qty; N adds N extra kits per row. READY kits (K-* aisle) and already-expanded kits are refused with a reason.
+        Select kit rows in <strong>All Orders</strong> → <strong>Expand Selected →</strong> opens a popup modal with the Sales Description reference, per-component exclusion, and a per-kit Spares input, then commits from there. <strong>Spares for us</strong> is additive: 0 ships exactly the customer's row qty; N adds N extra kits per row. READY kits (K-* aisle) and already-expanded kits are refused with a reason.
       </div>
       <details class="card-more">
         <summary>More tools</summary>
@@ -4195,6 +4395,146 @@ if (typeof google !== 'undefined') {
   setInterval(refreshSidebarTick, 30000);
 }
 
+// Safety net: never let the boot splash get stuck if the first tick is slow,
+// fails, or google.script is unavailable in this context. Dismiss after 4.5s
+// no matter what — the panel underneath is already interactive by then.
+setTimeout(dismissBootSplash, 4500);
+
+/* Boot splash dismissal — idempotent. Called by the first successful sidebar
+   tick (the "panel is populated" moment) and by the safety timeout above. */
+var _bootSplashDismissed = false;
+function dismissBootSplash() {
+  if (_bootSplashDismissed) return;
+  _bootSplashDismissed = true;
+  var s = document.getElementById('bootSplash');
+  if (!s) return;
+  s.classList.add('hidden');
+  setTimeout(function() { if (s && s.parentNode) s.parentNode.removeChild(s); }, 500);
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   COCKPIT COLLAPSE-ON-SCROLL + IDLE-BLOOM (Phase 3, 2026-06-03)
+   - Scroll #modules down past COLLAPSE_AT → condense the cockpit to the
+     vitals strip (numbers + queue); the day tape + picker banner fold away.
+   - Scroll back near the top (< EXPAND_AT, hysteresis) → bloom to full.
+   - After COCKPIT_IDLE_RESET_MS of no interaction → bloom to full IN PLACE
+     (no scroll jump), so an idle panel returns to its rich resting state.
+   ════════════════════════════════════════════════════════════════════════ */
+var COCKPIT_IDLE_RESET_MS = 4 * 60 * 1000;   // tune by feel (3–5 min)
+var _cockpitCondensed = false;
+var _cockpitIdleTimer = null;
+
+function _setCockpitCondensed(on) {
+  if (on === _cockpitCondensed) return;
+  _cockpitCondensed = on;
+  document.body.classList.toggle('cockpit-condensed', on);
+}
+
+(function initCockpitCollapse() {
+  var modules = document.getElementById('modules');
+  if (!modules) return;
+
+  var COLLAPSE_AT = 22;   // px scrolled before condensing
+  var EXPAND_AT   = 6;    // px — bloom back only near the very top (hysteresis)
+
+  modules.addEventListener('scroll', function() {
+    var y = modules.scrollTop;
+    if (!_cockpitCondensed && y > COLLAPSE_AT)      _setCockpitCondensed(true);
+    else if (_cockpitCondensed && y < EXPAND_AT)    _setCockpitCondensed(false);
+  }, { passive: true });
+
+  // Idle-bloom: any interaction resets the timer; on fire, expand in place.
+  function resetCockpitIdle() {
+    if (_cockpitIdleTimer) clearTimeout(_cockpitIdleTimer);
+    _cockpitIdleTimer = setTimeout(function() {
+      _setCockpitCondensed(false);   // bloom to full; scroll position untouched
+    }, COCKPIT_IDLE_RESET_MS);
+  }
+  ['scroll', 'click', 'keydown', 'mousemove', 'touchstart', 'wheel'].forEach(function(ev) {
+    document.addEventListener(ev, resetCockpitIdle, { passive: true });
+  });
+  resetCockpitIdle();
+})();
+
+/* ════════════════════════════════════════════════════════════════════════
+   STATUS BAR — IDLE "ENGINE" (Phase 3, 2026-06-03)
+   When the bar isn't showing a real running/error/success message, it idles:
+   breathes (CSS .idle) and types a rotating live whisper pulled straight from
+   the cockpit DOM. Yields instantly — any real status assignment sets
+   #status.className, which wipes the .idle class, stopping the breathing/shine;
+   _typeStatus also aborts mid-type the moment the bar is no longer idle.
+   ════════════════════════════════════════════════════════════════════════ */
+var _statusWhisperIdx = -1;
+var _statusTypeTimer = null;
+var _statusIdleCycle = 0;
+
+function _statusIsIdle() {
+  var el = document.getElementById('status');
+  if (!el) return false;
+  return !/\b(running|syncing|success|error)\b/.test(el.className || '');
+}
+
+/* Live one-liners read from the cockpit numbers already on screen + the clock. */
+function _buildStatusWhispers() {
+  function num(id) {
+    var el = document.getElementById(id);
+    var n = parseInt((el && el.textContent) || '0', 10);
+    return isNaN(n) ? 0 : n;
+  }
+  var grab    = num('cockpitQueueEbay') + num('cockpitQueueDirect');
+  var prep    = num('cockpitQueuePrep');
+  var shipped = num('cockpitShipped');
+  var pulseEl = document.getElementById('cockpitPulseText');
+  var synced  = pulseEl ? (pulseEl.textContent || '').trim() : '';
+  var hr = new Date().getHours();
+
+  var w = [];
+  if (hr < 5)        w.push('quiet hours · standing watch');
+  else if (hr < 12)  w.push('good morning · floor warming up');
+  else if (hr < 17)  w.push('idling · ready to roll');
+  else if (hr < 21)  w.push('winding down · ' + shipped + ' shipped today');
+  else               w.push('late shift · engine still warm');
+
+  w.push(grab > 0 ? 'idling · ' + grab + ' to grab' : 'all caught up · nothing waiting');
+  if (prep > 0) w.push(prep + ' in the prep queue');
+  if (synced && synced !== '—') w.push('synced ' + synced + ' ago · all systems go');
+  w.push('engine warm · awaiting orders');
+  return w;
+}
+
+/* Teletype the whisper in; abort if a real status takes the bar mid-type. */
+function _typeStatus(text) {
+  if (_statusTypeTimer) { clearInterval(_statusTypeTimer); _statusTypeTimer = null; }
+  var el = document.getElementById('status');
+  if (!el) return;
+  var i = 0;
+  el.textContent = '';
+  _statusTypeTimer = setInterval(function() {
+    if (!_statusIsIdle()) { clearInterval(_statusTypeTimer); _statusTypeTimer = null; return; }
+    i++;
+    el.textContent = text.slice(0, i);
+    if (i >= text.length) { clearInterval(_statusTypeTimer); _statusTypeTimer = null; }
+  }, 34);
+}
+
+function _statusIdleTick() {
+  var el = document.getElementById('status');
+  if (!el || !_statusIsIdle()) return;       // real status owns the bar — hands off
+  el.classList.add('idle');                  // (re-added each tick; a real status wipes it)
+  _statusIdleCycle++;
+  if (_statusIdleCycle % 4 === 1) {          // rotate the whisper roughly every ~8s of idle
+    var whispers = _buildStatusWhispers();
+    _statusWhisperIdx = (_statusWhisperIdx + 1) % whispers.length;
+    _typeStatus(whispers[_statusWhisperIdx]);
+  }
+}
+
+(function initStatusIdle() {
+  if (!document.getElementById('status')) return;
+  setTimeout(_statusIdleTick, 1400);   // first whisper shortly after load
+  setInterval(_statusIdleTick, 2000);
+})();
+
 /* refreshSidebarTick() — single round-trip that fans data out to the same
    paint helpers each individual refresh function uses. Server-side wraps
    each piece in try/catch so a single slow/failing source can't black out
@@ -4205,14 +4545,15 @@ function refreshSidebarTick() {
   if (typeof google === 'undefined' || !google.script) return;
   google.script.run
     .withSuccessHandler(function(tick) {
-      if (!tick) return;
+      if (!tick) { dismissBootSplash(); return; }
       _paintCockpit(tick.cockpit);
       _paintLastSync(tick.lastSync);
       _paintApiMetrics(tick.api);
       _paintAlerts(tick.alerts);
       _paintPicker(tick.picker);
+      dismissBootSplash();   // panel is populated — drop the splash
     })
-    .withFailureHandler(function() { /* silent — keep last-known state across the board */ })
+    .withFailureHandler(function() { dismissBootSplash(); /* silent — keep last-known state */ })
     .getSidebarTick();
 }
 
@@ -4730,6 +5071,8 @@ function triggerVerifyShippedNow() {
    surfaces the "nothing pushable / wrong sheet" cases inline. */
 function openPricePushFromSidebar() {
   if (typeof google === 'undefined' || !google.script) return;
+  var pa = document.getElementById('paResult');
+  if (pa) pa.innerHTML = _panelLoading('Opening price push… (reading highlighted rows)');
   status.className = 'syncing';
   status.textContent = 'Opening price push (reading selection)…';
   google.script.run
@@ -4737,14 +5080,17 @@ function openPricePushFromSidebar() {
       if (res && res.modalOpened) {
         status.className = 'success';
         status.textContent = '✓ Review ' + res.pushable + ' price(s) in the modal';
+        if (pa) pa.innerHTML = '<div class="zp-msg zp-msg-success">Modal opened — review ' + res.pushable + ' price(s) in the popup.</div>';
       } else {
         status.className = 'error';
         status.textContent = '⚠ ' + (res && res.reason ? res.reason : 'Nothing to push');
+        if (pa) pa.innerHTML = '<div class="zp-msg zp-msg-warn">' + _olEsc((res && res.reason) || 'Nothing to push.') + '</div>';
       }
     })
     .withFailureHandler(function(err) {
       status.className = 'error';
       status.textContent = '✗ ' + (err && err.message ? err.message : err);
+      if (pa) pa.innerHTML = '<div class="zp-msg zp-msg-error">' + _olEsc((err && err.message) ? err.message : String(err)) + '</div>';
     })
     .openPricePushModal();
 }
@@ -5700,6 +6046,13 @@ function _renderZohoPreview(result, so) {
     return;
   }
 
+  // Compact summary only (slimmed 2026-06-03). The sidebar gives an at-a-glance
+  // read — SO#, customer, item count, total, Zoho status, and the price-check
+  // verdict — then hands off to the Pull modal for the per-line detail + the
+  // actual apply. Rendering every line item inline used to run off the bottom
+  // of the panel and bury the action button on big SOs.
+  var itemCount = (result.items && result.items.length) || 0;
+
   var html = '<div class="zp-summary">';
   html += '<div class="zp-summary-id">' + _olEsc(result.soNumber);
   if (result.invoiceNumber) {
@@ -5708,7 +6061,9 @@ function _renderZohoPreview(result, so) {
   html += '</div>';
   html += '<div class="zp-summary-meta">';
   if (result.customer) html += '<strong>' + _olEsc(result.customer) + '</strong><br/>';
-  if (result.total)    html += 'Total: <strong>' + _olEsc(result.total) + '</strong>';
+  var metaLine = [itemCount + ' line item' + (itemCount === 1 ? '' : 's')];
+  if (result.total) metaLine.push('Total: <strong>' + _olEsc(result.total) + '</strong>');
+  html += metaLine.join('  ·  ');
   html += '</div>';
 
   // Zoho status strip
@@ -5723,9 +6078,8 @@ function _renderZohoPreview(result, so) {
   }
   html += '</div>';
 
-  // Price-check summary banner (above the items list — gives the picker an
-  // at-a-glance answer to "should I worry about prices on this SO?" before
-  // they scan the per-item strips below).
+  // Price-check verdict — the at-a-glance "should I worry about prices on this
+  // SO?" answer. The per-line Zoho-vs-eBay detail now lives in the Pull modal.
   if (result.priceCheck && result.priceCheck.totalCount > 0) {
     var pc = result.priceCheck;
     var summaryClass = String(pc.direction || '').toLowerCase();
@@ -5735,209 +6089,50 @@ function _renderZohoPreview(result, so) {
     }
   }
 
-  // Items list — each row has the existing SKU/name/location grid, plus a
-  // new full-width price strip below showing Zoho vs eBay + delta.
-  if (result.items && result.items.length) {
-    html += '<ul class="zp-items-list">';
-    result.items.forEach(function(it) {
-      var locClass = (String(it.location).toUpperCase() === 'NOT FOUND') ? 'zp-item-loc not-found' : 'zp-item-loc';
-      html += '<li>';
-      html += '<span class="zp-item-qty">' + it.qty + '</span>';
-      html += '<span><span class="zp-item-sku">' + _olEsc(it.sku) + '</span>';
-      if (it.name) html += '<span class="zp-item-name">' + _olEsc(_olTrunc(it.name, 50)) + '</span>';
-      html += '</span>';
-      html += '<span class="' + locClass + '">' + _olEsc(it.location) + '</span>';
-
-      // Price strip — full width below the SKU row.
-      html += _renderZohoPriceStrip(it);
-
-      html += '</li>';
-    });
-    html += '</ul>';
-  } else {
+  if (itemCount === 0) {
     html += '<div class="zp-msg zp-msg-warn">No line items in this SO.</div>';
   }
-
-  // Already-pulled warning
   if (result.alreadyPulled) {
-    html += '<div class="zp-msg zp-msg-warn">⚠️ Already pulled to DIRECT. Re-pull would create duplicate rows.</div>';
-    html += '<div class="zp-confirm-row">';
-    html += '<button class="btn-primary" onclick="pullZoho(false)">⬇ Open Pull Modal</button>';
-    html += '<button class="btn-secondary" onclick="fetchFromZoho()">🔄 Refresh from Zoho</button>';
-    html += '</div>';
-  } else {
-    html += '<div class="zp-confirm-row">';
-    html += '<button class="btn-primary" onclick="pullZoho(false)">⬇ Pull to DIRECT</button>';
-    html += '<button class="btn-secondary" onclick="fetchFromZoho()">🔄 Refresh from Zoho</button>';
-    html += '</div>';
+    html += '<div class="zp-msg zp-msg-warn">⚠️ Already pulled to DIRECT. Re-pull is reviewed per-line in the modal.</div>';
   }
+
+  // Single next step: open the modal to review line detail + apply.
+  html += '<div class="zp-confirm-row">';
+  html += '<button class="btn-primary" onclick="pullZoho(false)">⬇ Open Pull Modal →</button>';
+  html += '<button class="btn-secondary" onclick="fetchFromZoho()">🔄 Refresh</button>';
+  html += '</div>';
 
   panel.innerHTML = html;
 }
 
-/**
- * Render a per-line price-check strip. Format:
- *   ok        →  "Zoho $89.50  ≈  eBay $89.50              ✓"
- *   high/low  →  "Zoho $89.50  →  eBay $79.99       −$9.51 ⚠"
- *   nf        →  "Zoho $89.50  →  eBay —      no MI lookup"
- *
- * Tier class from `it.priceStatus`: 'ok' / 'zoho_high' / 'zoho_low' / 'not_found'.
- * Returns HTML string; called from _renderZohoPreview's per-item map.
- */
-function _renderZohoPriceStrip(it) {
-  var status = it.priceStatus || 'ok';
-  var cls = status === 'zoho_high' ? 'high'
-          : status === 'zoho_low'  ? 'low'
-          : status === 'not_found' ? 'nf'
-          : 'ok';
-
-  var zoho = (it.zohoPrice != null) ? '$' + Number(it.zohoPrice).toFixed(2) : '—';
-  var ebay = (it.ebayPrice != null) ? '$' + Number(it.ebayPrice).toFixed(2) : '—';
-
-  var rightSlot = '';
-  if (status === 'not_found') {
-    rightSlot = '<span class="zp-price-delta">no MI lookup</span>';
-  } else if (status === 'ok') {
-    rightSlot = '<span class="zp-price-delta">✓</span>';
-  } else {
-    var sign = it.priceDelta >= 0 ? '+' : '−';
-    var abs  = Math.abs(it.priceDelta).toFixed(2);
-    var glyph = status === 'zoho_high' ? '⚠' : '⚠';
-    rightSlot = '<span class="zp-price-delta">' + sign + '$' + abs + ' ' + glyph + '</span>';
-  }
-
-  var arrow = (status === 'ok') ? '≈' : '→';
-
-  return ''
-    + '<div class="zp-price-strip ' + cls + '">'
-    +   '<span class="zp-price-zoho">Zoho ' + zoho + '</span>'
-    +   '<span class="zp-price-arrow">' + arrow + '</span>'
-    +   '<span class="zp-price-ebay">eBay ' + ebay + '</span>'
-    +   rightSlot
-    + '</div>';
-}
+// _renderZohoPriceStrip (per-line Zoho-vs-eBay price detail) was removed
+// 2026-06-03 when the sidebar Preview was slimmed to a compact summary. The
+// aggregate price-check verdict still shows via result.priceCheck.summary;
+// per-line price detail belongs in the Pull modal.
 
 // _renderZohoPullResult was the old direct-pull result renderer. Deleted
 // 2026-05-23 as part of the Option C cleanup — the Pull modal now handles
 // its own UI (success/error rendering happens inside ZohoPullModal.html).
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// KIT EXPANSION (preview only — commit ships next)
-// ═══════════════════════════════════════════════════════════════════════════════
-
-function expandKits() {
-  var deployInput = document.getElementById('kxDeploy');
-  var panel = document.getElementById('kxResult');
-  if (!panel) return;
-
-  // ADDITIVE semantic: input value = "spares for us" count, applied to each
-  // selected kit row (rowQty + extras = total kits per row). 0 = no spares.
-  var extras = parseInt((deployInput && deployInput.value) || '0');
-  if (isNaN(extras) || extras < 0) extras = 0;
-
-  // Lightweight confirm before destructive write
-  var msg = 'Expand selected kit rows into component rows?';
-  if (extras > 0) {
-    msg = 'Expand with ' + extras + ' spare kit' + (extras > 1 ? 's' : '')
-        + ' for us per row? Each row will ship rowQty + ' + extras + ' kits.';
-  }
-  if (!confirm(msg)) return;
-
-  panel.classList.add('shown');
-  panel.innerHTML = '<div class="ol-empty">Expanding…</div>';
-  status.className = 'running';
-  status.textContent = 'Expanding kits…';
-
-  if (typeof google === 'undefined' || !google.script) return;
-  google.script.run
-    .withSuccessHandler(function(result) {
-      renderExpandResult(result);
-      if (!result || !result.ok) {
-        status.className = 'error';
-        status.textContent = (result && result.message) || 'Expand failed';
-      } else if (result.expanded === 0) {
-        status.className = '';
-        status.textContent = 'Nothing expanded';
-      } else {
-        status.className = 'success';
-        status.textContent = '✅ ' + result.expanded + ' kit(s) expanded';
-        if (typeof playSound === 'function') { try { playSound('syncDone'); } catch (e) {} }
-      }
-      // Refresh stats so newly-inserted PENDING rows surface in cockpit
-      if (typeof refreshOpsCockpit === 'function') {
-        try { refreshOpsCockpit(); } catch (e) {}
-      }
-      setTimeout(function() { status.className = ''; status.textContent = 'Ready'; }, 3000);
-    })
-    .withFailureHandler(function(err) {
-      panel.innerHTML = '<div class="ol-empty">Error: ' + _olEsc(err.message || String(err)) + '</div>';
-      status.className = 'error';
-      status.textContent = 'Expand failed';
-    })
-    .expandSelectedKits(extras);
+// Shared loading row for any card opener that waits on a server compute before
+// a modal pops. Returns the spinner markup; callers drop it into their result
+// panel so every module open shows the same reassuring state, not a dead gap.
+function _panelLoading(msg) {
+  return '<div class="panel-loading"><span class="panel-spinner"></span><span>'
+       + _olEsc(msg || 'Loading…') + '</span></div>';
 }
 
-function renderExpandResult(result) {
-  var panel = document.getElementById('kxResult');
-  if (!panel) return;
-
-  if (!result) {
-    panel.innerHTML = '<div class="ol-empty">No result.</div>';
-    return;
-  }
-
-  var html = '';
-  html += '<div class="kx-summary">' + _olEsc(result.message || '') + '</div>';
-
-  if (result.details && result.details.length) {
-    result.details.forEach(function(d) {
-      html += '<div class="kx-kit">';
-      html += '<div class="kx-kit-head">';
-      html += '<div class="kx-kit-head-left">';
-      html += '<span class="kx-kit-sku">' + _olEsc(d.sku) + '</span>';
-      var extrasNote = (d.extras && d.extras > 0)
-        ? ' · ' + d.totalKits + ' total (' + d.rowQty + ' customer + ' + d.extras + ' for us)'
-        : '';
-      html += '<span class="kx-kit-name">Expanded · ' + d.componentsAdded + ' component rows added' + extrasNote + '</span>';
-      html += '</div>';
-      html += '<span class="kx-type-pill MANUAL">✓ DONE</span>';
-      html += '</div>';
-      html += '<div class="kx-meta">row ' + d.row + ' · components inserted directly below</div>';
-      html += '</div>';
-    });
-  }
-
-  if (result.refused && result.refused.length) {
-    html += '<div class="kx-nonkit-section">';
-    html += '<div style="font-weight:700;margin-bottom:3px;">Refused:</div>';
-    result.refused.forEach(function(r) {
-      var skuBit = r.sku ? '<code>' + _olEsc(r.sku) + '</code> ' : '';
-      html += '<div class="kx-nonkit-row">row ' + r.row + ' · ' + skuBit + _olEsc(r.reason) + '</div>';
-    });
-    html += '</div>';
-  }
-
-  if (result.skipped && result.skipped.length) {
-    html += '<div class="kx-nonkit-section">';
-    html += '<div style="font-weight:700;margin-bottom:3px;">Skipped:</div>';
-    result.skipped.forEach(function(s) {
-      html += '<div class="kx-nonkit-row">row ' + s.row + ' · ' + _olEsc(s.reason) + '</div>';
-    });
-    html += '</div>';
-  }
-
-  panel.innerHTML = html;
-}
+// ═══════════════════════════════════════════════════════════════════════════════
+// KIT EXPANSION — the sidebar fires openKitExpansionModal; the modal owns the
+// interactive review + commit. The old inline bulk-Expand path (expandKits /
+// renderExpandResult / renderKitPreview) was retired 2026-06-03.
+// ═══════════════════════════════════════════════════════════════════════════════
 
 function previewKits() {
   // Preview now OPENS THE MODAL (shipped 2026-05-19). The modal is the
   // interactive preview — it shows components checklist + Sales Description
   // reference panel + per-component exclusion controls + commit-per-kit flow.
   // The sidebar's job here is just to fire the request and show status.
-  //
-  // The inline preview rendering (renderKitPreview) + Expand button stay as
-  // a fallback path during the modal's bake-in period; will be removed once
-  // the modal proves reliable in production use.
   var deployInput = document.getElementById('kxDeploy');
   var panel = document.getElementById('kxResult');
 
@@ -5946,7 +6141,7 @@ function previewKits() {
 
   if (panel) {
     panel.classList.add('shown');
-    panel.innerHTML = '<div class="ol-empty">Opening kit expansion modal…</div>';
+    panel.innerHTML = _panelLoading('Opening kit module… (gathering selected kits)');
   }
   status.className = 'running';
   status.textContent = 'Opening kit modal…';
@@ -5987,80 +6182,6 @@ function previewKits() {
     .openKitExpansionModal(deploy);
 }
 
-function renderKitPreview(result, userDeployMultiplier) {
-  var panel = document.getElementById('kxResult');
-  if (!panel) return;
-
-  if (!result || !result.ok) {
-    panel.innerHTML = '<div class="ol-empty">' + _olEsc((result && result.message) || 'Preview failed.') + '</div>';
-    return;
-  }
-
-  var html = '';
-
-  // Top summary line
-  var bits = [];
-  bits.push('<strong>' + result.selectedCount + '</strong> row' + (result.selectedCount === 1 ? '' : 's') + ' selected');
-  bits.push('<strong>' + result.kitsFound + '</strong> kit' + (result.kitsFound === 1 ? '' : 's') + ' found');
-  if (userDeployMultiplier && userDeployMultiplier > 1) {
-    bits.push('deploy <strong>×' + userDeployMultiplier + '</strong>');
-  }
-  html += '<div class="kx-summary">' + bits.join(' · ') + '</div>';
-
-  // Kit rows
-  if (result.kitRows && result.kitRows.length) {
-    result.kitRows.forEach(function(k) {
-      html += '<div class="kx-kit">';
-      html += '<div class="kx-kit-head">';
-      html += '<div class="kx-kit-head-left">';
-      html += '<span class="kx-kit-sku">' + _olEsc(k.sourceSku) + '</span>';
-      html += '<span class="kx-kit-name">' + _olEsc(k.plan.kitName) + '</span>';
-      html += '</div>';
-      html += '<span class="kx-type-pill ' + _olAttr(k.plan.kitType) + '">' + _olEsc(k.plan.kitType) + '</span>';
-      html += '</div>';
-
-      var metaBits = [];
-      metaBits.push('row ' + k.row);
-      metaBits.push(k.table);
-      metaBits.push('qty ' + k.sourceQty);
-      if (k.sourceSalesOrder) metaBits.push('SO ' + _olEsc(k.sourceSalesOrder));
-      if (k.plan.kitEngine) metaBits.push(_olEsc(k.plan.kitEngine));
-      if (k.plan.deployQty !== k.sourceQty) metaBits.push('deploy ' + k.plan.deployQty);
-      html += '<div class="kx-meta">' + metaBits.join(' · ') + '</div>';
-
-      html += '<div class="kx-comps">';
-      k.plan.components.forEach(function(c) {
-        var miss = c.missing ? ' missing' : '';
-        html += '<div class="kx-comp' + miss + '">';
-        html += '<span class="kx-comp-qty">' + c.qty + '×</span>';
-        html += '<span class="kx-comp-sku">' + _olEsc(c.sku) + '</span>';
-        html += '<span class="kx-comp-name">' + _olEsc(c.name) + '</span>';
-        html += '<span class="kx-comp-loc">' + _olEsc(c.location || '—') + '</span>';
-        html += '<span class="kx-comp-avail">' + (c.available != null ? c.available : '—') + '</span>';
-        html += '</div>';
-      });
-      html += '</div>';
-      html += '</div>';
-    });
-  }
-
-  // Non-kit rows (for debug visibility — surfaces banner-row / non-registered-SKU cases)
-  if (result.nonKitRows && result.nonKitRows.length) {
-    html += '<div class="kx-nonkit-section">';
-    html += '<div style="font-weight:700;margin-bottom:3px;">Skipped rows:</div>';
-    result.nonKitRows.forEach(function(n) {
-      var skuBit = n.sku ? '<code>' + _olEsc(n.sku) + '</code> ' : '';
-      html += '<div class="kx-nonkit-row">row ' + n.row + ' · ' + skuBit + _olEsc(n.reason) + '</div>';
-    });
-    html += '</div>';
-  }
-
-  if (!result.kitRows.length && !result.nonKitRows.length) {
-    html += '<div class="ol-empty">Nothing selected on the sheet.</div>';
-  }
-
-  panel.innerHTML = html;
-}
 // Past-tense verb for the summary banner's "last activity" line.
 // Falls back to the raw event name for unknown event types (PRINTED, NOTE).
 function _olEventVerb(eventType) {
