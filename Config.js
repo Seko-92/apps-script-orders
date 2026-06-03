@@ -39,6 +39,10 @@ var DB_SKU_HEADER           = "sku";
 var DB_LOCATION_HEADER      = "C:Model Year";
 var DB_QUANTITY_HEADER      = "quantity";
 var DB_QUANTITY_SOLD_HEADER = "quantitySold";
+// SKU enrichment (title-on-hover + clickable listing link). Looked up by name,
+// live from MI — no cache (title/URL are effectively immutable per listing).
+var DB_TITLE_HEADER         = "title";          // human-readable item title
+var DB_VIEWURL_HEADER       = "viewItemURL";    // eBay listing URL
 
 
 // ---------- BACKWARDS-COMPAT MIRRORS OF Schema.js ----------

@@ -599,6 +599,10 @@ function expandSelectedKits(extrasQty, exclusionMap) {
       // insertRowsAfter / setValues).
       try { setupDuplicateSalesOrderHighlighting(); }
       catch (dupErr) { console.log("expandSelectedKits: dup-SO refresh failed: " + dupErr); }
+
+      // Enrich the inserted component SKUs (title note + listing link) from MI.
+      try { refreshSkuEnrichment(); }
+      catch (enrErr) { console.log("expandSelectedKits: SKU enrichment failed: " + enrErr); }
     }
 
     return {
@@ -1264,6 +1268,10 @@ function _commitOneKitForModal(queueItem, excludedSkus, multiplier, force) {
   // to re-run for any sub-assembly component rows)
   try { refreshKitSkuMarkers(); }
   catch (kitErr) { try { console.log("modal commit: kit marker refresh failed: " + kitErr); } catch (_) {} }
+
+  // Enrich the inserted component SKUs (title note + listing link) from MI.
+  try { refreshSkuEnrichment(); }
+  catch (enrErr) { try { console.log("modal commit: SKU enrichment failed: " + enrErr); } catch (_) {} }
 
   // Repaint duplicate-SO borders — newly-inserted component rows share the
   // kit row's SO# so the group needs to be surfaced immediately.

@@ -862,6 +862,10 @@ function _insertAddedItemsToDirect(sheet, soNumber, lineItems, noteOverride, det
   try { refreshKitSkuMarkers(); }
   catch (e) { console.log("_insertAddedItemsToDirect: kit marker refresh error: " + e); }
 
+  // Enrich the inserted SKUs (title note + listing link) from MI.
+  try { refreshSkuEnrichment(); }
+  catch (e) { console.log("_insertAddedItemsToDirect: SKU enrichment error: " + e); }
+
   return newRows.length;
 }
 

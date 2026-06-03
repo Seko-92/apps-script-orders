@@ -154,6 +154,11 @@ function setupPrepQueueSheet() {
   // Paint any existing duplicate SKUs (idempotent — clears stale highlights too)
   _refreshPrepQueueDuplicates(sheet);
 
+  // Backfill SKU → eBay listing links across existing rows (same as the All
+  // Orders "Link SKUs" backfill). Best-effort.
+  try { refreshPrepQueueSkuLinks(); }
+  catch (e) { try { Logger.log("setupPrepQueueSheet: SKU link backfill error: " + e); } catch (_) {} }
+
   return "✅ Prep Queue sheet ready.";
 }
 
@@ -288,6 +293,11 @@ function addPrepQueueItem(sku, qty, note) {
   // highlighting here. If this SKU is already in the queue, both rows get
   // marked; if it's new, no-op.
   _refreshPrepQueueDuplicates(sheet);
+
+  // Link the new SKU cell (programmatic setValues doesn't fire prepQueueOnEdit).
+  try {
+    applySkuLinksToColumn(sheet, PREP_QUEUE.cols.SKU, insertAt, insertAt, buildSkuEnrichmentMap());
+  } catch (enrErr) { try { Logger.log("addPrepQueueItem: SKU link error: " + enrErr); } catch (_) {} }
 
   return {
     success:  true,
@@ -480,6 +490,13 @@ function prepQueueOnEdit(e) {
       // overwrite the SKU, that's a new todo item).
       sheet.getRange(row, PREP_QUEUE.cols.DATE_ADDED).setValue(nowStr);
     }
+
+    // SKU → eBay listing link (same enrichment as All Orders). One MI read
+    // covers the whole edited batch.
+    try {
+      applySkuLinksToColumn(sheet, PREP_QUEUE.cols.SKU, startRow,
+                            startRow + edits.length - 1, buildSkuEnrichmentMap());
+    } catch (enrErr) { try { Logger.log("prepQueueOnEdit: SKU link error: " + enrErr); } catch (_) {} }
 
     // Refresh duplicate-SKU highlight after every edit batch — surfaces
     // dupes the moment they're typed, clears highlights when one of a

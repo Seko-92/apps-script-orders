@@ -182,6 +182,16 @@ function onEditInstallable(e) {
   } catch (err) {
     Logger.log("kitSkuOnEdit (installable) error: " + err);
   }
+
+  // SKU enrichment — title-on-hover (cell note) + clickable listing link, looked
+  // up live from Master Inventory by SKU when a SKU is typed into col A. Same
+  // manual-entry coverage as location + ▣; programmatic inserts call
+  // refreshSkuEnrichment() at their insert sites.
+  try {
+    skuEnrichmentOnEdit(e);
+  } catch (err) {
+    Logger.log("skuEnrichmentOnEdit (installable) error: " + err);
+  }
 }
 
 /**

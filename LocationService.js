@@ -164,7 +164,16 @@ function updateAllExistingRows(tableNumber) {
     }
   }
 
-  if (updates > 0) range.setValues(data);
+  if (updates > 0) {
+    range.setValues(data);
+    // setValues writes plain values and STRIPS the col-A SKU→listing links
+    // (same class as the ▣ marker / sort issue). Re-apply them so "Update
+    // Locations" stays at full parity with the link feature — one click
+    // refreshes both location AND the links. (Any future full-row setValues on
+    // the All Orders data range must do the same.)
+    try { refreshSkuEnrichment(); }
+    catch (e) { console.log("updateAllExistingRows: SKU link refresh error: " + e); }
+  }
   return "✅ Updated " + updates + " rows.";
 }
 
