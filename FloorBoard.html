@@ -1,0 +1,1759 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>HQ · Floor Board</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Roboto+Mono:wght@400;500;700&family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
+  <style>
+    /* ====================================================================
+       HQ MOTOR SERVICE — FLOOR BOARD v1.0
+       A calm, glanceable backstop for the warehouse floor.
+       ONE job: surface "what's waiting to be grabbed" + "paid shipping
+       just landed", big enough to catch from a passing glance — the
+       safety net for a missed Telegram ping.
+
+       Deliberately lean: no scenes, no radio, no tachometer. The
+       showpiece (Dashboard.html) stays untouched as the future wall TV.
+
+       Data: polls getDashboardTick() (DashboardService.js) every 15s.
+       Reuses cockpit + alerts already in the tick — zero new server logic.
+       ==================================================================== */
+
+    :root {
+      --ink:          #0e0e0d;
+      --ink-soft:     #161614;
+      --ink-card:     #1b1b18;
+      --ink-rim:      #2a2a26;
+      --paper:        #f5f5f2;
+      --brand-yellow: #ffd400;
+      --brand-rim:    #ffd966;
+      --brand-soft:   #fff4b0;
+      --green-go:     #4caf50;
+      --green-soft:   #8bc98e;
+      --amber-warn:   #ffb84d;
+      --red-alert:    #ff6b6b;
+      --mute:         rgba(245,245,242,0.55);
+      --mute-soft:    rgba(245,245,242,0.30);
+      --mute-faint:   rgba(245,245,242,0.12);
+      --rule:         rgba(255,212,0,0.16);
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html, body {
+      height: 100%;
+      background: var(--ink);
+      color: var(--paper);
+      font-family: 'Roboto', -apple-system, BlinkMacSystemFont, sans-serif;
+      overflow: hidden;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* Ambient time-of-day warmth — tints the gaps behind the cards, shifts
+       with Houston time. Very low opacity so text (on opaque cards) is safe. */
+    .warmth {
+      position: fixed;
+      inset: 0;
+      z-index: 0;
+      pointer-events: none;
+      transition: background 8s ease;
+    }
+    /* Night sky — twinkling starfield behind the cards, after dark (Houston) */
+    .stars {
+      position: fixed;
+      inset: 0;
+      z-index: 0;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 4s ease;
+    }
+    .stars.show { opacity: 1; }
+    .star {
+      position: absolute;
+      background: #fff;
+      border-radius: 50%;
+      opacity: 0.6;
+      animation: twinkle 3s ease-in-out infinite;
+    }
+    @keyframes twinkle { 0%,100% { opacity: 0.12; } 50% { opacity: 0.85; } }
+    .board {
+      position: relative;
+      z-index: 1;
+      height: 100vh;
+      width: 100vw;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      padding: 18px 26px 14px;
+    }
+
+    /* ─────────── HEADER ─────────── */
+    .hdr {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid var(--rule);
+      padding-bottom: 12px;
+    }
+    .hdr-brand { display: flex; align-items: center; gap: 12px; }
+    .hdr-mono {
+      position: relative;
+      overflow: hidden;
+      font-family: 'Oswald', sans-serif;
+      font-weight: 700;
+      font-size: 22px;
+      letter-spacing: 0.04em;
+      color: var(--ink);
+      background: var(--brand-yellow);
+      padding: 2px 10px;
+      border-radius: 5px;
+      animation: brandBreath 4.5s ease-in-out infinite;  /* ambient life */
+    }
+    @keyframes brandBreath {
+      0%,100% { box-shadow: 0 0 0 rgba(255,212,0,0); }
+      50%     { box-shadow: 0 0 16px rgba(255,212,0,0.40); }
+    }
+    /* periodic metallic shine sweeping across the mark */
+    .hdr-mono::after {
+      content: "";
+      position: absolute;
+      top: 0; left: -130%;
+      width: 60%; height: 100%;
+      background: linear-gradient(105deg, transparent, rgba(255,255,255,0.65), transparent);
+      transform: skewX(-18deg);
+      animation: hqShine 7s ease-in-out infinite;
+    }
+    @keyframes hqShine {
+      0%, 72%   { left: -130%; }
+      86%, 100% { left: 175%; }
+    }
+    /* celebratory coin-flip when the queue hits zero */
+    .hdr-mono.flip { animation: hqFlip 0.9s ease; }
+    @keyframes hqFlip {
+      0%   { transform: rotateY(0); }
+      100% { transform: rotateY(360deg); }
+    }
+    .hdr-words {
+      font-family: 'Oswald', sans-serif;
+      font-weight: 500;
+      font-size: 17px;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--mute);
+    }
+    .hdr-right { display: flex; align-items: center; gap: 22px; }
+    .wx {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      font-family: 'Roboto Mono', monospace;
+      font-size: 14px;
+      color: var(--mute);
+    }
+    .wx-icon { font-size: 17px; line-height: 1; }
+    .wx-temp { font-weight: 500; color: var(--paper); }
+    .live {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-family: 'Roboto Mono', monospace;
+      font-size: 13px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--mute);
+    }
+    .live-dot {
+      width: 11px; height: 11px;
+      border-radius: 50%;
+      background: var(--mute-soft);
+      transition: background 0.4s ease, box-shadow 0.4s ease;
+    }
+    .live-dot.ok    { background: var(--green-go);  box-shadow: 0 0 9px var(--green-go);  animation: beat 2.4s ease-in-out infinite; }
+    .live-dot.idle  { background: var(--amber-warn);box-shadow: 0 0 9px var(--amber-warn);animation: beat 1.5s ease-in-out infinite; }
+    .live-dot.stale { background: var(--red-alert); box-shadow: 0 0 9px var(--red-alert); animation: beat 0.8s ease-in-out infinite; }
+    @keyframes beat { 0%,100%{ transform: scale(1); opacity: 1;} 50%{ transform: scale(1.35); opacity: 0.7;} }
+    .hdr-clock { text-align: right; }
+    .hdr-clock-time {
+      font-family: 'Roboto Mono', monospace;
+      font-weight: 700;
+      font-size: 24px;
+      line-height: 1;
+      color: var(--paper);
+    }
+    .hdr-clock-date {
+      font-family: 'Roboto Mono', monospace;
+      font-size: 12px;
+      letter-spacing: 0.06em;
+      color: var(--mute-soft);
+      margin-top: 3px;
+    }
+
+    /* ─────────── HERO STRIP ─────────── */
+    .hero {
+      display: grid;
+      grid-template-columns: 1.7fr 1fr 1fr;
+      gap: 16px;
+      align-items: stretch;
+    }
+    .grab {
+      position: relative;
+      background: var(--ink-card);
+      border: 1px solid var(--ink-rim);
+      border-radius: 16px;
+      padding: 18px 30px;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    /* ACTIVE state — big number on the left, breakdown filling the right */
+    .grab-active {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      gap: 32px;
+      min-height: 0;
+    }
+    .grab-breakdown {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      gap: 4px;
+      min-width: 150px;
+    }
+    .bd-row {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 18px;
+    }
+    .bd-name {
+      font-family: 'Oswald', sans-serif;
+      font-weight: 500;
+      font-size: 16px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--mute);
+    }
+    .bd-num {
+      font-family: 'Roboto Mono', monospace;
+      font-weight: 700;
+      font-size: 28px;
+      color: var(--paper);
+      line-height: 1;
+    }
+    .bd-rule {
+      height: 1px;
+      background: var(--mute-faint);
+      margin: 8px 0 6px;
+    }
+    .grab.clear .grab-active { display: none; }
+    /* CLEAR ("all caught up") state */
+    .grab-clear { display: none; }
+    .grab.clear .grab-clear {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      gap: 22px;
+    }
+    .grab-clear-mark {
+      font-size: 70px;
+      line-height: 1;
+      color: var(--green-go);
+      text-shadow: 0 0 18px var(--green-glow);
+    }
+    .grab-clear-mark.pop-mark { animation: markPop 0.7s cubic-bezier(.2,1.5,.4,1); }
+    @keyframes markPop {
+      0%   { transform: scale(0.3); opacity: 0; }
+      55%  { transform: scale(1.18); opacity: 1; }
+      100% { transform: scale(1); opacity: 1; }
+    }
+    /* reward: soft green wash across the hero when the queue hits zero */
+    .grab.reward { animation: rewardGlow 1.5s ease; }
+    @keyframes rewardGlow {
+      0%   { box-shadow: inset 0 0 0 rgba(76,175,80,0); }
+      30%  { box-shadow: inset 0 0 70px rgba(76,175,80,0.22); }
+      100% { box-shadow: inset 0 0 0 rgba(76,175,80,0); }
+    }
+    .grab-clear-head {
+      font-family: 'Oswald', sans-serif;
+      font-weight: 700;
+      font-size: 44px;
+      line-height: 1;
+      color: var(--paper);
+    }
+    .grab-clear-sub {
+      font-family: 'Roboto Mono', monospace;
+      font-size: 14px;
+      color: var(--mute);
+      letter-spacing: 0.04em;
+      margin-top: 8px;
+    }
+    .grab-foot { display: block; }
+    .grab::before {
+      content: "";
+      position: absolute; inset: 0;
+      background: var(--brand-yellow);
+      opacity: 0; pointer-events: none;
+      transition: opacity 0.15s ease;
+    }
+    .grab.flash::before { opacity: 0.16; transition: opacity 0s; }
+    /* Arrival pulse-ring — pings outward from the hero on a new order */
+    .grab-ring {
+      position: absolute;
+      left: 78px; top: 50%;
+      width: 90px; height: 90px;
+      margin: -45px 0 0 -45px;
+      border-radius: 50%;
+      border: 2px solid var(--brand-yellow);
+      opacity: 0;
+      pointer-events: none;
+    }
+    .grab-ring.ping { animation: ringPing 0.9s ease-out; }
+    @keyframes ringPing {
+      0%   { transform: scale(0.4); opacity: 0.65; }
+      100% { transform: scale(3.6); opacity: 0; }
+    }
+    .grab-label {
+      font-family: 'Oswald', sans-serif;
+      font-weight: 600;
+      font-size: 19px;
+      letter-spacing: 0.20em;
+      text-transform: uppercase;
+      color: var(--brand-rim);
+    }
+    .grab-num {
+      font-family: 'Oswald', sans-serif;
+      font-weight: 700;
+      font-size: 110px;
+      line-height: 0.9;
+      color: var(--paper);
+      letter-spacing: -0.02em;
+    }
+    /* odometer roll — the number rolls up into place on any change */
+    .grab-num.roll { animation: numRoll 0.42s cubic-bezier(.2,1.1,.3,1); }
+    @keyframes numRoll {
+      0%   { transform: translateY(42%); opacity: 0; filter: blur(1.5px); }
+      100% { transform: translateY(0);   opacity: 1; filter: blur(0); }
+    }
+    .grab-num.zero { color: var(--mute-soft); }
+    .grab-num.pop { transform: scale(1.08); }
+    .grab-split {
+      display: flex;
+      gap: 30px;
+      margin-top: 6px;
+    }
+    .split {
+      display: flex;
+      align-items: baseline;
+      gap: 9px;
+    }
+    .split-name {
+      font-family: 'Oswald', sans-serif;
+      font-weight: 500;
+      font-size: 18px;
+      letter-spacing: 0.10em;
+      text-transform: uppercase;
+      color: var(--mute);
+    }
+    .split-num {
+      font-family: 'Roboto Mono', monospace;
+      font-weight: 700;
+      font-size: 30px;
+      color: var(--paper);
+    }
+    .split-hint {
+      font-family: 'Roboto Mono', monospace;
+      font-size: 12px;
+      color: var(--brand-rim);
+      letter-spacing: 0.04em;
+    }
+    .grab-sub {
+      font-family: 'Roboto Mono', monospace;
+      font-size: 13px;
+      color: var(--mute-soft);
+      letter-spacing: 0.04em;
+      margin-top: 9px;
+      min-height: 16px;
+    }
+
+    /* Aging bar on Oldest Waiting — fills + warms toward the 3h redline */
+    .mini-bar {
+      height: 5px;
+      background: rgba(255,255,255,0.07);
+      border-radius: 3px;
+      margin: 9px 0 7px;
+      overflow: hidden;
+    }
+    .mini-bar.ghost { visibility: hidden; }   /* keeps Shipped card the same height */
+    .mini-bar-fill {
+      height: 100%;
+      width: 0;
+      border-radius: 3px;
+      background: var(--green-go);
+      transition: width 0.6s ease, background 0.6s ease;
+    }
+    .mini-bar-fill.warn { background: var(--amber-warn); }
+    .mini-bar-fill.hot  { background: var(--red-alert); box-shadow: 0 0 10px var(--red-glow); }
+    .mini {
+      background: var(--ink-card);
+      border: 1px solid var(--ink-rim);
+      border-radius: 16px;
+      padding: 18px 24px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+    }
+    .mini-label {
+      font-family: 'Oswald', sans-serif;
+      font-weight: 500;
+      font-size: 15px;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--mute);
+    }
+    .mini-value {
+      font-family: 'Oswald', sans-serif;
+      font-weight: 700;
+      font-size: 52px;
+      line-height: 1;
+      margin-top: 4px;
+      color: var(--paper);
+    }
+    .mini-value.warn { color: var(--amber-warn); }
+    .mini-value.hot  { color: var(--red-alert); animation: agePulse 1.4s ease-in-out infinite; }
+    @keyframes agePulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
+    /* Shipped-today tick — quick green pop each time we ship */
+    .mini-value.tick { animation: shipTick 0.6s ease; }
+    @keyframes shipTick {
+      0%   { transform: scale(1); }
+      40%  { transform: scale(1.16); color: var(--green-go); }
+      100% { transform: scale(1); }
+    }
+    .mini-sub {
+      font-family: 'Roboto Mono', monospace;
+      font-size: 12px;
+      color: var(--mute-soft);
+      margin-top: 4px;
+      letter-spacing: 0.04em;
+    }
+    /* Pace Car line — "on pace for N by 5pm" (merged from the old showpiece) */
+    .mini-pace {
+      font-family: 'Roboto Mono', monospace;
+      font-size: 13px;
+      color: var(--brand-rim);
+      letter-spacing: 0.03em;
+      margin: 9px 0 4px;
+      min-height: 16px;
+    }
+
+    /* Easter egg — tap the HQ mark 5× */
+    .egg {
+      position: fixed;
+      left: 50%; bottom: 56px;
+      transform: translateX(-50%) translateY(20px);
+      background: var(--brand-yellow);
+      color: var(--ink);
+      font-family: 'Oswald', sans-serif;
+      font-weight: 600;
+      font-size: 16px;
+      letter-spacing: 0.06em;
+      padding: 12px 24px;
+      border-radius: 10px;
+      opacity: 0;
+      pointer-events: none;
+      z-index: 60;
+      box-shadow: 0 10px 34px rgba(0,0,0,0.55);
+    }
+    .egg.show { animation: eggPop 3s ease forwards; }
+    @keyframes eggPop {
+      0%        { opacity: 0; transform: translateX(-50%) translateY(20px); }
+      12%, 85%  { opacity: 1; transform: translateX(-50%) translateY(0); }
+      100%      { opacity: 0; transform: translateX(-50%) translateY(20px); }
+    }
+
+    /* ─────────── PAID SHIPPING STRIP ─────────── */
+    .paid {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      background: linear-gradient(90deg, rgba(255,184,77,0.16), rgba(255,184,77,0.04));
+      border: 1px solid rgba(255,184,77,0.45);
+      border-left: 5px solid var(--amber-warn);
+      border-radius: 12px;
+      padding: 14px 22px;
+      transition: opacity 0.3s ease, transform 0.3s ease;
+    }
+    .paid.hidden { display: none; }
+    .paid.flash { animation: paidFlash 1s ease; }
+    @keyframes paidFlash {
+      0%   { box-shadow: 0 0 0 0 rgba(255,184,77,0.6); }
+      40%  { box-shadow: 0 0 0 8px rgba(255,184,77,0); }
+      100% { box-shadow: 0 0 0 0 rgba(255,184,77,0); }
+    }
+    .paid-icon { font-size: 26px; line-height: 1; }
+    .paid-num {
+      font-family: 'Oswald', sans-serif;
+      font-weight: 700;
+      font-size: 34px;
+      color: var(--amber-warn);
+      line-height: 1;
+    }
+    .paid-text {
+      font-family: 'Oswald', sans-serif;
+      font-weight: 500;
+      font-size: 18px;
+      letter-spacing: 0.10em;
+      text-transform: uppercase;
+      color: var(--brand-soft);
+    }
+    .paid-text small {
+      display: block;
+      font-family: 'Roboto', sans-serif;
+      font-weight: 400;
+      font-size: 12px;
+      letter-spacing: 0.02em;
+      text-transform: none;
+      color: var(--mute);
+      margin-top: 2px;
+    }
+
+    /* ─────────── MIDDLE (pick-list + feed) ─────────── */
+    .mid {
+      display: grid;
+      grid-template-columns: 1.35fr 1fr;
+      gap: 16px;
+      flex: 1;
+      min-height: 0;
+    }
+
+    /* ─────────── PICK ROWS ─────────── */
+    .pick-row {
+      display: grid;
+      grid-template-columns: 108px auto auto 1fr auto;
+      align-items: center;
+      gap: 14px;
+      padding: 12px 22px;
+      border-bottom: 1px solid var(--mute-faint);
+    }
+    .pick-loc {
+      font-family: 'Roboto Mono', monospace;
+      font-weight: 700;
+      font-size: 16px;
+      color: var(--brand-rim);
+      letter-spacing: 0.01em;
+      white-space: nowrap;
+    }
+    .pick-loc.missing { color: var(--red-alert); font-weight: 500; }
+    .pick-sku {
+      font-family: 'Roboto Mono', monospace;
+      font-size: 17px;
+      color: var(--paper);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .pick-qty {
+      font-family: 'Oswald', sans-serif;
+      font-weight: 700;
+      font-size: 20px;
+      color: var(--brand-yellow);
+      min-width: 34px;
+      text-align: right;
+    }
+    .pick-meta {
+      font-family: 'Roboto Mono', monospace;
+      font-size: 12px;
+      color: var(--mute-soft);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .pick-status {
+      font-family: 'Oswald', sans-serif;
+      font-weight: 700;
+      font-size: 11px;
+      letter-spacing: 0.10em;
+      text-transform: uppercase;
+      text-align: center;
+      padding: 3px 9px;
+      border-radius: 5px;
+      min-width: 54px;
+      border: 1px solid transparent;
+    }
+    /* PENDING = act now → loud brand-yellow, with a slow sheen to draw the eye */
+    .pick-status.pend {
+      background: var(--brand-yellow);
+      color: var(--ink);
+      position: relative;
+      overflow: hidden;
+    }
+    .pick-status.pend::after {
+      content: "";
+      position: absolute;
+      top: 0; left: -60%;
+      width: 55%; height: 100%;
+      background: linear-gradient(100deg, transparent, rgba(255,255,255,0.5), transparent);
+      pointer-events: none;
+      animation: chipSheen 3.6s ease-in-out infinite;
+    }
+    @keyframes chipSheen {
+      0%       { left: -60%; }
+      55%,100% { left: 130%; }
+    }
+    /* PREPARING = in hand → quiet outline */
+    .pick-status.prep { background: transparent; border-color: rgba(255,184,77,0.5); color: var(--amber-warn); }
+
+    /* Arrival drama — a freshly-pickable row slides in + glows */
+    .pick-row.enter { animation: pickIn 0.6s cubic-bezier(.2,1,.3,1); }
+    @keyframes pickIn {
+      0%   { opacity: 0; transform: translateX(-12px); background: rgba(255,212,0,0.14); }
+      100% { opacity: 1; transform: translateX(0);     background: transparent; }
+    }
+    /* Exit — a picked/shipped row slides out and collapses away */
+    .pick-row.exit {
+      overflow: hidden;
+      pointer-events: none;
+      animation: pickOut 0.5s ease forwards;
+    }
+    @keyframes pickOut {
+      0%   { opacity: 1; transform: translateX(0);    max-height: 70px; }
+      55%  { opacity: 0; transform: translateX(18px); max-height: 70px; }
+      100% { opacity: 0; transform: translateX(18px); max-height: 0; padding-top: 0; padding-bottom: 0; border-width: 0; }
+    }
+
+    /* ─────────── FEED ─────────── */
+    .feed {
+      background: var(--ink-card);
+      border: 1px solid var(--ink-rim);
+      border-radius: 16px;
+      padding: 16px 0 8px;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      min-height: 0;
+    }
+    .feed-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 22px 12px;
+      border-bottom: 1px solid var(--mute-faint);
+    }
+    .feed-title {
+      font-family: 'Oswald', sans-serif;
+      font-weight: 600;
+      font-size: 16px;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--mute);
+    }
+    /* Panel hierarchy — primary (actionable) leads, ambient (history) recedes */
+    .feed.primary { border-color: rgba(255,212,0,0.22); }
+    .feed.primary .feed-head { border-bottom-color: rgba(255,212,0,0.28); }
+    .feed.primary .feed-title { color: var(--brand-rim); }
+    .feed.ambient { opacity: 0.9; }
+    .feed.ambient .feed-title { color: var(--mute-soft); }
+    .feed-note {
+      font-family: 'Roboto Mono', monospace;
+      font-size: 11px;
+      color: var(--mute-soft);
+      letter-spacing: 0.04em;
+    }
+    .feed-list {
+      list-style: none;
+      overflow-y: auto;
+      padding: 6px 0;
+      flex: 1;
+      min-height: 0;
+    }
+    .feed-list::-webkit-scrollbar { width: 0; }
+    .feed-row {
+      display: grid;
+      grid-template-columns: 80px 104px 1fr auto;
+      align-items: center;
+      gap: 14px;
+      padding: 11px 22px;
+      border-bottom: 1px solid var(--mute-faint);
+    }
+    .feed-row.enter { animation: slideIn 0.5s cubic-bezier(.2,1,.3,1); }
+    @keyframes slideIn {
+      from { opacity: 0; transform: translateY(-12px); background: rgba(255,212,0,0.10); }
+      to   { opacity: 1; transform: translateY(0);     background: transparent; }
+    }
+    .feed-time {
+      font-family: 'Roboto Mono', monospace;
+      font-size: 14px;
+      color: var(--mute);
+    }
+    .feed-tag {
+      font-family: 'Oswald', sans-serif;
+      font-weight: 600;
+      font-size: 13px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      text-align: center;
+      padding: 3px 0;
+      border-radius: 5px;
+    }
+    .feed-tag.new    { background: rgba(255,212,0,0.16);  color: var(--brand-rim); }
+    .feed-tag.ship   { background: rgba(76,175,80,0.16);  color: var(--green-soft); }
+    .feed-tag.cancel { background: rgba(255,107,107,0.14);color: var(--red-alert); }
+    .feed-tag.prep   { background: rgba(255,184,77,0.14); color: var(--amber-warn); }
+    .feed-tag.print  { background: rgba(120,160,200,0.16);color: #8fb6dd; }
+    .feed-order {
+      font-family: 'Roboto Mono', monospace;
+      font-size: 16px;
+      font-weight: 500;
+      color: var(--paper);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .feed-chan {
+      font-family: 'Oswald', sans-serif;
+      font-weight: 500;
+      font-size: 13px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--mute-soft);
+    }
+    .feed-empty {
+      text-align: center;
+      color: var(--mute-soft);
+      font-family: 'Roboto Mono', monospace;
+      font-size: 14px;
+      padding: 40px 0;
+    }
+
+    /* ─────────── FOOTER ─────────── */
+    .ftr {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-top: 1px solid var(--rule);
+      padding-top: 10px;
+      font-family: 'Roboto Mono', monospace;
+      font-size: 12px;
+      color: var(--mute-soft);
+      letter-spacing: 0.04em;
+    }
+    .ftr-picker { color: var(--mute); }
+    .ftr-picker b { color: var(--brand-rim); font-weight: 500; }
+    .ftr-right { display: flex; align-items: center; gap: 20px; }
+    .ftr-sound {
+      cursor: pointer;
+      user-select: none;
+      padding: 3px 10px;
+      border: 1px solid var(--mute-faint);
+      border-radius: 6px;
+      transition: color 0.2s, border-color 0.2s;
+    }
+    .ftr-sound:hover { color: var(--brand-rim); border-color: var(--rule); }
+    .ftr-sound.on { color: var(--brand-yellow); border-color: var(--rule); }
+
+    /* Floor radio widget */
+    .radio {
+      position: relative;
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      font-family: 'Roboto Mono', monospace;
+      font-size: 12px;
+      color: var(--mute-soft);
+      letter-spacing: 0.04em;
+    }
+    .radio.on { color: var(--brand-rim); }
+    .radio-btn, .radio-pick {
+      cursor: pointer;
+      user-select: none;
+      padding: 2px 8px;
+      border: 1px solid var(--mute-faint);
+      border-radius: 6px;
+      transition: color 0.2s, border-color 0.2s;
+    }
+    .radio-btn:hover, .radio-pick:hover { color: var(--brand-rim); border-color: var(--rule); }
+    .radio.on .radio-btn { color: var(--brand-yellow); border-color: var(--rule); }
+    .radio-meta {
+      cursor: pointer;
+      min-width: 84px;
+      max-width: 280px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    /* station picker popup */
+    .radio-pop {
+      position: absolute;
+      bottom: calc(100% + 10px);
+      left: 0;
+      min-width: 230px;
+      max-height: 300px;
+      overflow-y: auto;
+      background: var(--ink-card);
+      border: 1px solid var(--ink-rim);
+      border-radius: 12px;
+      padding: 6px;
+      box-shadow: 0 12px 38px rgba(0,0,0,0.6);
+      display: none;
+      z-index: 70;
+    }
+    .radio-pop.show { display: block; }
+    .radio-pop::-webkit-scrollbar { width: 0; }
+    .radio-pop-head {
+      font-family: 'Oswald', sans-serif;
+      font-size: 11px;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--mute-soft);
+      padding: 9px 12px 4px;
+    }
+    .radio-pop-item {
+      padding: 8px 12px;
+      border-radius: 8px;
+      cursor: pointer;
+      color: var(--mute);
+      white-space: nowrap;
+      transition: background 0.15s, color 0.15s;
+    }
+    .radio-pop-item:hover { background: rgba(255,255,255,0.06); color: var(--paper); }
+    .radio-pop-item.active { color: var(--brand-rim); }
+    /* synthetic equalizer — dances while the radio plays (audio stays untouched) */
+    .eq { display: inline-flex; align-items: flex-end; gap: 2px; height: 14px; }
+    .eq i {
+      display: block; width: 3px; height: 4px;
+      background: var(--brand-rim); border-radius: 1px;
+      animation: eqBar 0.9s ease-in-out infinite;
+      animation-play-state: paused;
+    }
+    .radio.on .eq i { animation-play-state: running; }
+    .eq i:nth-child(1) { animation-duration: 0.80s; }
+    .eq i:nth-child(2) { animation-duration: 1.10s; animation-delay: 0.15s; }
+    .eq i:nth-child(3) { animation-duration: 0.70s; animation-delay: 0.30s; }
+    .eq i:nth-child(4) { animation-duration: 1.00s; animation-delay: 0.10s; }
+    .eq i:nth-child(5) { animation-duration: 0.90s; animation-delay: 0.25s; }
+    @keyframes eqBar { 0%,100% { height: 4px; } 50% { height: 14px; } }
+
+    /* Connection-lost banner */
+    .connlost {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      background: var(--red-alert);
+      color: #fff;
+      font-family: 'Oswald', sans-serif;
+      font-weight: 600;
+      letter-spacing: 0.10em;
+      text-transform: uppercase;
+      text-align: center;
+      padding: 7px;
+      transform: translateY(-100%);
+      transition: transform 0.4s ease;
+      z-index: 50;
+    }
+    .connlost.show { transform: translateY(0); }
+
+    /* Boot state */
+    .board.booting .grab-num,
+    .board.booting .mini-value { opacity: 0.4; }
+  </style>
+</head>
+<body>
+  <div class="warmth" id="warmth"></div>
+  <div class="stars" id="stars"></div>
+  <div class="board booting" id="board">
+
+    <!-- HEADER -->
+    <div class="hdr">
+      <div class="hdr-brand">
+        <div class="hdr-mono">HQ</div>
+        <div class="hdr-words">Warehouse Floor</div>
+      </div>
+      <div class="hdr-right">
+        <div class="wx" id="wx" title="Houston weather">
+          <span class="wx-icon" id="wxIcon">·</span>
+          <span class="wx-temp" id="wxTemp">—</span>
+        </div>
+        <div class="live">
+          <span class="live-dot" id="liveDot"></span>
+          <span id="liveText">connecting</span>
+        </div>
+        <div class="hdr-clock">
+          <div class="hdr-clock-time" id="clockTime">—:—</div>
+          <div class="hdr-clock-date" id="clockDate">loading</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- HERO STRIP -->
+    <div class="hero">
+      <div class="grab" id="grabCard">
+        <span class="grab-ring" id="grabRing"></span>
+        <div class="grab-label">Orders to grab</div>
+
+        <!-- ACTIVE: something waiting to be picked -->
+        <div class="grab-active" id="grabActive">
+          <div class="grab-num" id="grabNum">—</div>
+          <div class="grab-breakdown">
+            <div class="bd-row"><span class="bd-name">eBay</span><span class="bd-num" id="ebayNum">—</span></div>
+            <div class="bd-row"><span class="bd-name">Direct</span><span class="bd-num" id="directNum">—</span></div>
+            <div class="bd-rule"></div>
+            <div class="grab-sub" id="grabSub">&nbsp;</div>
+            <span class="split-hint" id="zohoHint"></span>
+          </div>
+        </div>
+
+        <!-- CLEAR: all caught up -->
+        <div class="grab-clear" id="grabClear">
+          <div class="grab-clear-mark">✓</div>
+          <div class="grab-clear-text">
+            <div class="grab-clear-head">All caught up</div>
+            <div class="grab-clear-sub" id="grabClearSub">nothing waiting</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="mini">
+        <div class="mini-label">Oldest waiting</div>
+        <div class="mini-value" id="oldestVal">—</div>
+        <div class="mini-bar"><div class="mini-bar-fill" id="oldestBar"></div></div>
+        <div class="mini-sub" id="oldestSub">nothing pending</div>
+      </div>
+
+      <div class="mini">
+        <div class="mini-label">Shipped today</div>
+        <div class="mini-value" id="shippedVal">—</div>
+        <div class="mini-pace" id="shippedPace">&nbsp;</div>
+        <div class="mini-sub" id="shippedSub">&nbsp;</div>
+      </div>
+    </div>
+
+    <!-- PAID SHIPPING STRIP -->
+    <div class="paid hidden" id="paidStrip">
+      <span class="paid-icon">⚠</span>
+      <span class="paid-num" id="paidNum">0</span>
+      <span class="paid-text">Paid shipping waiting
+        <small>buyer paid for a service — match the exact label level</small>
+      </span>
+    </div>
+
+    <!-- MIDDLE: Direct pick-list + live feed -->
+    <div class="mid">
+      <!-- PICK-LIST (primary — actionable) -->
+      <div class="feed primary">
+        <div class="feed-head">
+          <span class="feed-title">To pick · by aisle</span>
+          <span class="feed-note" id="pickCount"></span>
+        </div>
+        <ul class="feed-list" id="pickList">
+          <li class="feed-empty">nothing open to pick</li>
+        </ul>
+      </div>
+      <!-- LIVE FEED (ambient — history) -->
+      <div class="feed ambient">
+        <div class="feed-head">
+          <span class="feed-title">As it lands</span>
+          <span class="feed-note">today · newest first</span>
+        </div>
+        <ul class="feed-list" id="feedList">
+          <li class="feed-empty">waiting for today's first event…</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- FOOTER -->
+    <div class="ftr">
+      <div class="ftr-picker" id="footPicker">picker —</div>
+      <div class="radio" id="radio">
+        <span class="radio-btn" id="radioBtn" title="Play / pause">📻</span>
+        <span class="eq" id="eq" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span>
+        <span class="radio-meta" id="radioMeta" title="Choose station">radio</span>
+        <span class="radio-pick" id="radioPick" title="Choose station">▾</span>
+        <div class="radio-pop" id="radioPop"></div>
+      </div>
+      <div class="ftr-right">
+        <span class="ftr-sound" id="soundToggle" title="Distinct chime per event">♪ off</span>
+        <span class="ftr-sound" id="fsToggle" title="Fullscreen (tap on the tablet)">⛶ full</span>
+        <span id="footSync">sync —</span>
+        <span>FLOOR · v1.5</span>
+      </div>
+    </div>
+    <audio id="radioAudio" preload="none"></audio>
+
+    <div class="connlost" id="connLost">lost the line · retrying</div>
+    <div class="egg" id="egg"></div>
+  </div>
+
+  <script>
+    // ===================================================================
+    // HQ FLOOR BOARD — client (v1.0)
+    // ===================================================================
+    var POLL_MS   = 15000;   // server tick cadence
+    var CLOCK_MS  = 1000;    // local clock cadence
+    var TZ        = 'America/Chicago';  // Houston/Central — board always shows shop time
+
+    // notify-on-change state
+    var prevOpen  = null;    // ebayGrab + directGrab
+    var prevPaid  = null;    // paidShipping count
+    var prevEbayGrab   = null;
+    var prevDirectGrab = null;
+    var prevShippedToday = null;
+    var prevOldestHot  = false;
+    var seenKeys  = {};      // feed dedupe: have we already rendered this event?
+    var firstTick = true;    // suppress flash/chime + animation on initial paint
+    var failCount = 0;
+    var soundOn   = false;
+    var lastWarmthBucket = '';
+    var audioCtx  = null;
+    var eggClicks = 0, eggTimer = null;
+
+    // ---------- boot ----------
+    document.addEventListener('DOMContentLoaded', function () {
+      soundOn = localStorage.getItem('floorSound') === '1';
+      paintSoundToggle();
+      document.getElementById('soundToggle').addEventListener('click', toggleSound);
+      document.getElementById('fsToggle').addEventListener('click', toggleFullscreen);
+      var hqMark = document.querySelector('.hdr-mono');
+      if (hqMark) hqMark.addEventListener('click', onHqTap);
+      requestWakeLock();
+      document.addEventListener('visibilitychange', function () {
+        if (document.visibilityState === 'visible') requestWakeLock();
+      });
+      generateStars();
+      setWarmth();
+      radioInit();
+      fetchWeather();
+      setInterval(fetchWeather, 900000);   // refresh weather every 15 min
+      tickClock();
+      setInterval(tickClock, CLOCK_MS);
+      poll();
+      setInterval(poll, POLL_MS);
+    });
+
+    // ---------- weather (Open-Meteo · free · no key) ----------
+    function fetchWeather() {
+      try {
+        fetch('https://api.open-meteo.com/v1/forecast?latitude=29.76&longitude=-95.37' +
+              '&current=temperature_2m,weather_code&temperature_unit=fahrenheit&timezone=America%2FChicago')
+          .then(function (r) { return r.json(); })
+          .then(function (d) {
+            if (!d || !d.current) return;
+            var t  = Math.round(d.current.temperature_2m);
+            var wx = wxFor(d.current.weather_code);
+            document.getElementById('wxIcon').textContent = wx.icon;
+            document.getElementById('wxTemp').textContent = t + '°';
+            document.getElementById('wx').title = 'Houston · ' + wx.label;
+          })
+          .catch(function () { /* offline / blocked — chip just stays quiet */ });
+      } catch (e) {}
+    }
+    function wxFor(code) {           // WMO weather codes
+      if (code === 0)  return { icon: '☀',  label: 'Clear' };
+      if (code <= 2)   return { icon: '🌤', label: 'Partly cloudy' };
+      if (code === 3)  return { icon: '☁',  label: 'Overcast' };
+      if (code <= 48)  return { icon: '🌫', label: 'Fog' };
+      if (code <= 57)  return { icon: '🌦', label: 'Drizzle' };
+      if (code <= 67)  return { icon: '🌧', label: 'Rain' };
+      if (code <= 77)  return { icon: '🌨', label: 'Snow' };
+      if (code <= 82)  return { icon: '🌧', label: 'Showers' };
+      if (code <= 86)  return { icon: '🌨', label: 'Snow showers' };
+      if (code <= 99)  return { icon: '⛈', label: 'Thunderstorm' };
+      return { icon: '·', label: '—' };
+    }
+
+    // ---------- clock ----------
+    function tickClock() {
+      var now = new Date();
+      // Houston/Central regardless of the device's own timezone.
+      document.getElementById('clockTime').textContent =
+        now.toLocaleTimeString('en-US', { timeZone: TZ, hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true });
+      var d = now.toLocaleDateString('en-US', { timeZone: TZ, weekday: 'long', month: 'short', day: 'numeric' });
+      document.getElementById('clockDate').textContent = d.replace(',', ' ·');
+      setWarmth();
+    }
+
+    // Ambient time-of-day warmth — shifts the gap tint with Houston time.
+    function setWarmth() {
+      var h = parseInt(new Date().toLocaleString('en-US', { timeZone: TZ, hour: '2-digit', hour12: false }), 10);
+      if (isNaN(h)) return;
+      var bucket, color;
+      if      (h >= 6  && h < 9)  { bucket = 'dawn';  color = 'rgba(255,176,80,0.10)'; }
+      else if (h >= 9  && h < 16) { bucket = 'day';   color = 'rgba(255,220,130,0.04)'; }
+      else if (h >= 16 && h < 19) { bucket = 'dusk';  color = 'rgba(255,130,55,0.11)'; }
+      else                        { bucket = 'night'; color = 'rgba(90,120,165,0.07)'; }
+      if (bucket === lastWarmthBucket) return;
+      lastWarmthBucket = bucket;
+      document.getElementById('warmth').style.background =
+        'radial-gradient(125% 85% at 50% 0%, ' + color + ' 0%, transparent 62%)';
+      document.getElementById('stars').classList.toggle('show', bucket === 'night');
+    }
+
+    // Generate a twinkling starfield (shown only after dark — see setWarmth).
+    function generateStars() {
+      var c = document.getElementById('stars');
+      if (!c) return;
+      var html = '';
+      for (var i = 0; i < 46; i++) {
+        var x  = (Math.random() * 100).toFixed(2);
+        var y  = (Math.random() * 72).toFixed(2);     // upper ~72% of the screen
+        var sz = (Math.random() * 1.6 + 1).toFixed(2);
+        var du = (Math.random() * 3 + 2).toFixed(2);  // 2–5s twinkle
+        var de = (Math.random() * 4).toFixed(2);
+        html += '<span class="star" style="left:' + x + '%;top:' + y + '%;width:' + sz +
+                'px;height:' + sz + 'px;animation-duration:' + du + 's;animation-delay:' + de + 's;"></span>';
+      }
+      c.innerHTML = html;
+    }
+
+    // ---------- poll ----------
+    function poll() {
+      google.script.run
+        .withSuccessHandler(onTick)
+        .withFailureHandler(onFail)
+        .getDashboardTick();
+    }
+
+    function onFail(err) {
+      failCount++;
+      if (failCount >= 2) {
+        document.getElementById('connLost').classList.add('show');
+        setLive('stale', 'offline');
+      }
+    }
+
+    function onTick(tick) {
+      failCount = 0;
+      document.getElementById('connLost').classList.remove('show');
+      document.getElementById('board').classList.remove('booting');
+      if (!tick) return;
+
+      var c = tick.cockpit || {};
+      var a = tick.alerts  || {};
+
+      paintGrab(c);
+      paintMinis(c);
+      paintPace(tick.paceCar);
+      paintPaid(a);
+      paintPickList(tick.openOrders || []);
+      paintFeed(c.timeline || []);
+      paintLive(c, tick);
+      paintFooter(tick);
+
+      firstTick = false;
+    }
+
+    // ---------- ORDERS TO GRAB ----------
+    function paintGrab(c) {
+      var ebay   = num(c.ebayGrab);     // strictly PENDING (to-grab), table rows only
+      var direct = num(c.directGrab);
+      var grab   = ebay + direct;
+      var card   = document.getElementById('grabCard');
+      var grabEl = document.getElementById('grabNum');
+
+      document.getElementById('ebayNum').textContent   = ebay;
+      document.getElementById('directNum').textContent = direct;
+      // Zoho "to pull" intentionally not shown — not pickable from the floor.
+      document.getElementById('zohoHint').textContent  = '';
+
+      // PREPARING (= non-terminal minus to-grab) — context, kept out of the hero.
+      var prepping = Math.max(0, (num(c.ebayPending) + num(c.directPending)) - grab);
+      document.getElementById('grabSub').textContent =
+        prepping > 0 ? (prepping + ' in progress') : '';
+
+      var increased = (!firstTick && prevOpen !== null && grab > prevOpen);
+
+      if (grab === 0) {
+        // ── ALL CAUGHT UP ──
+        document.getElementById('grabClearSub').textContent =
+          prepping > 0
+            ? (prepping + (prepping === 1 ? ' order being worked' : ' orders being worked'))
+            : 'nothing waiting';
+        if (!card.classList.contains('clear')) {
+          card.classList.add('clear');
+          if (!firstTick) { replayClearMark(); chime('caughtUp'); }
+        }
+      } else {
+        card.classList.remove('clear');
+        var prevShown = parseInt(grabEl.textContent, 10);
+        if (!firstTick && prevShown !== grab) rollNumber(grabEl, grab);   // odometer roll
+        else                                   grabEl.textContent = grab;
+      }
+
+      if (increased) {
+        flashGrab();
+        ringPing();
+        // distinct earcon per channel — ear tells eBay from Direct
+        var ebayUp   = (prevEbayGrab   !== null && ebay   > prevEbayGrab);
+        var directUp = (prevDirectGrab !== null && direct > prevDirectGrab);
+        chime(directUp && !ebayUp ? 'newDirect' : 'newEbay');
+      }
+      prevOpen = grab;
+      prevEbayGrab = ebay;
+      prevDirectGrab = direct;
+    }
+
+    function ringPing() {
+      var r = document.getElementById('grabRing');
+      if (!r) return;
+      r.classList.remove('ping');
+      void r.offsetWidth;
+      r.classList.add('ping');
+    }
+
+    // odometer-style roll for the hero number on any change
+    function rollNumber(el, to) {
+      el.textContent = to;
+      el.classList.remove('roll');
+      void el.offsetWidth;
+      el.classList.add('roll');
+    }
+
+    // replay the ✓ pop when the queue transitions to all-caught-up
+    function replayClearMark() {
+      var m = document.querySelector('.grab-clear-mark');
+      if (m) { m.classList.remove('pop-mark'); void m.offsetWidth; m.classList.add('pop-mark'); }
+      var card = document.getElementById('grabCard');
+      if (card) { card.classList.remove('reward'); void card.offsetWidth; card.classList.add('reward'); }
+      var logo = document.querySelector('.hdr-mono');   // celebratory coin-flip
+      if (logo) {
+        logo.classList.remove('flip'); void logo.offsetWidth; logo.classList.add('flip');
+        setTimeout(function () { logo.classList.remove('flip'); }, 950);
+      }
+    }
+
+    function flashGrab() {
+      var card = document.getElementById('grabCard');
+      card.classList.add('flash');
+      setTimeout(function () { card.classList.remove('flash'); }, 950);
+    }
+    function pop(el) {
+      el.classList.remove('pop');
+      void el.offsetWidth;
+      el.classList.add('pop');
+      setTimeout(function () { el.classList.remove('pop'); }, 320);
+    }
+
+    // ---------- OLDEST + SHIPPED ----------
+    function paintMinis(c) {
+      var oldest = c.oldestPendingMinutes;
+      var ov = document.getElementById('oldestVal');
+      var os = document.getElementById('oldestSub');
+      var bar = document.getElementById('oldestBar');
+      ov.classList.remove('warn', 'hot');
+      bar.classList.remove('warn', 'hot');
+      if (oldest === null || oldest === undefined || oldest < 0) {
+        ov.textContent = '—';
+        os.textContent = 'nothing pending';
+        bar.style.width = '0%';
+      } else {
+        ov.textContent = fmtDur(oldest);
+        bar.style.width = Math.min(100, (oldest / 180) * 100) + '%';   // 3h redline
+        if (oldest >= 180)      { ov.classList.add('hot');  bar.classList.add('hot');  os.textContent = 'past the 3h line'; }
+        else if (oldest >= 60)  { ov.classList.add('warn'); bar.classList.add('warn'); os.textContent = 'getting old'; }
+        else                    { os.textContent = 'fresh'; }
+      }
+
+      // aging earcon — once, when an order crosses the 3h redline
+      var isHot = (oldest !== null && oldest !== undefined && oldest >= 180);
+      if (!firstTick && isHot && !prevOldestHot) {
+        chime('aging');
+      }
+      prevOldestHot = isHot;
+
+      // Shipped today — quick green tick on increase
+      var shippedNow = num(c.shippedToday);
+      var sv = document.getElementById('shippedVal');
+      sv.textContent = shippedNow;
+      if (!firstTick && prevShippedToday !== null && shippedNow > prevShippedToday) {
+        sv.classList.remove('tick');
+        void sv.offsetWidth;
+        sv.classList.add('tick');
+      }
+      prevShippedToday = shippedNow;
+
+      var rec = num(c.receivedToday);
+      document.getElementById('shippedSub').innerHTML =
+        rec > 0 ? (rec + ' received today') : '&nbsp;';
+    }
+
+    // ---------- PACE ("on pace for N by 5pm") ----------
+    function paintPace(pace) {
+      var el = document.getElementById('shippedPace');
+      if (!pace || !pace.insideWorkday || !pace.projection || pace.projection <= num(pace.shipped)) {
+        el.innerHTML = '&nbsp;';
+        return;
+      }
+      el.textContent = '↗ on pace · ~' + pace.projection + ' by 5pm';
+    }
+
+    // ---------- PAID SHIPPING ----------
+    function paintPaid(a) {
+      var count = (a.paidShipping && a.paidShipping.count) ? a.paidShipping.count : 0;
+      var strip = document.getElementById('paidStrip');
+      document.getElementById('paidNum').textContent = count;
+      strip.classList.toggle('hidden', count === 0);
+
+      if (!firstTick && prevPaid !== null && count > prevPaid) {
+        strip.classList.remove('flash');
+        void strip.offsetWidth;
+        strip.classList.add('flash');
+        chime('paid');
+      }
+      prevPaid = count;
+    }
+
+    // ---------- PICK-LIST (keyed reconcile so rows can enter AND exit) ----------
+    function pickKey(r) {
+      return (r.channel || '') + '|' + (r.orderId || '') + '|' + (r.sku || '');
+    }
+
+    function paintPickList(rows) {
+      rows = rows || [];
+      var list = document.getElementById('pickList');
+      document.getElementById('pickCount').textContent =
+        rows.length ? (rows.length + (rows.length === 1 ? ' line' : ' lines')) : '';
+
+      // drop the empty placeholder once real rows arrive
+      var emptyEl = list.querySelector('.feed-empty');
+      if (emptyEl && rows.length) emptyEl.remove();
+
+      // index the rows already on screen (ignore ones mid-exit)
+      var existing = {};
+      var domRows = list.querySelectorAll('.pick-row');
+      for (var i = 0; i < domRows.length; i++) {
+        var dk = domRows[i].getAttribute('data-key');
+        if (dk && !domRows[i].classList.contains('exit')) existing[dk] = domRows[i];
+      }
+
+      // place each incoming row in order — reuse if present, build (with enter) if new
+      var nextKeys = {};
+      var anchor = null;
+      for (var j = 0; j < rows.length; j++) {
+        var r = rows[j];
+        var key = pickKey(r);
+        nextKeys[key] = true;
+        var rowEl = existing[key];
+        if (rowEl) {
+          fillPickRow(rowEl, r);            // refresh content (e.g. GRAB → PREP)
+          rowEl.classList.remove('exit');
+        } else {
+          rowEl = buildPickRow(r, !firstTick);
+        }
+        var ref = anchor ? anchor.nextSibling : list.firstChild;
+        if (ref !== rowEl) list.insertBefore(rowEl, ref);
+        anchor = rowEl;
+      }
+
+      // anything on screen that's no longer in the data → animate out
+      for (var k in existing) {
+        if (!nextKeys[k]) animateRowOut(existing[k]);
+      }
+
+      // empty state (only when nothing is left, even mid-exit)
+      if (!rows.length && !list.querySelector('.pick-row:not(.exit)') && !list.querySelector('.feed-empty')) {
+        var li = document.createElement('li');
+        li.className = 'feed-empty';
+        li.textContent = 'nothing open to pick';
+        list.appendChild(li);
+      }
+    }
+
+    function animateRowOut(node) {
+      if (!node || node.classList.contains('exit')) return;
+      node.classList.add('exit');
+      setTimeout(function () {
+        if (node && node.parentNode) node.parentNode.removeChild(node);
+      }, 520);
+    }
+
+    function fillPickRow(li, r) {
+      li.setAttribute('data-key', pickKey(r));
+      li.innerHTML = '';
+
+      var loc = document.createElement('span');
+      loc.className = 'pick-loc';
+      var locTxt = String(r.location || '').trim();
+      if (!locTxt || locTxt.toUpperCase() === 'NOT FOUND') { loc.classList.add('missing'); locTxt = locTxt || '—'; }
+      loc.textContent = locTxt;
+
+      var sku = document.createElement('span');
+      sku.className = 'pick-sku';
+      sku.textContent = r.sku || '';
+
+      var qty = document.createElement('span');
+      qty.className = 'pick-qty';
+      qty.textContent = '×' + (num(r.qty) || 1);
+
+      var meta = document.createElement('span');
+      meta.className = 'pick-meta';
+      meta.textContent = (r.channel === 'DIRECT' ? 'Direct' : 'eBay') + ' · ' + (r.orderId || '');
+
+      var isPrep = String(r.status).toUpperCase() === 'PREPARING';
+      var st = document.createElement('span');
+      st.className = 'pick-status ' + (isPrep ? 'prep' : 'pend');
+      st.textContent = isPrep ? 'PREP' : 'GRAB';
+
+      li.appendChild(loc); li.appendChild(sku); li.appendChild(qty);
+      li.appendChild(meta); li.appendChild(st);
+    }
+
+    function buildPickRow(r, animate) {
+      var li = document.createElement('li');
+      li.className = 'pick-row' + (animate ? ' enter' : '');
+      fillPickRow(li, r);
+      return li;
+    }
+
+    // ---------- FEED ----------
+    function paintFeed(timeline) {
+      if (!timeline.length) return;
+      // newest first by hour fraction
+      var rows = timeline.slice().sort(function (x, y) {
+        return (y.hourFraction || 0) - (x.hourFraction || 0);
+      }).slice(0, 16);
+
+      var list = document.getElementById('feedList');
+      // clear empty placeholder once we have data
+      if (list.querySelector('.feed-empty')) list.innerHTML = '';
+
+      // Rebuild from scratch each tick but mark which keys are new for animation.
+      var frag = document.createDocumentFragment();
+      for (var i = 0; i < rows.length; i++) {
+        var e = rows[i];
+        var key = e.event + '|' + e.orderId + '|' + (e.hourFraction || 0).toFixed(3);
+        var isNew = !seenKeys[key];
+        frag.appendChild(buildFeedRow(e, isNew && !firstTick));
+        seenKeys[key] = true;
+      }
+      list.innerHTML = '';
+      list.appendChild(frag);
+    }
+
+    function buildFeedRow(e, animate) {
+      var li = document.createElement('li');
+      li.className = 'feed-row' + (animate ? ' enter' : '');
+
+      var chan = inferChannel(e.orderId);
+      var tag  = tagFor(e.event);
+
+      var t = document.createElement('span');
+      t.className = 'feed-time';
+      t.textContent = fmtClock(e.hourFraction);
+
+      var g = document.createElement('span');
+      g.className = 'feed-tag ' + tag.cls;
+      g.textContent = tag.label;
+
+      var o = document.createElement('span');
+      o.className = 'feed-order';
+      o.textContent = e.orderId || '(no id)';
+
+      var ch = document.createElement('span');
+      ch.className = 'feed-chan';
+      ch.textContent = chan;
+
+      li.appendChild(t); li.appendChild(g); li.appendChild(o); li.appendChild(ch);
+      return li;
+    }
+
+    function tagFor(evt) {
+      switch (String(evt).toUpperCase()) {
+        case 'RECEIVED':  return { cls: 'new',    label: 'Received' };
+        case 'SHIPPED':   return { cls: 'ship',   label: 'Shipped' };
+        case 'CANCELED':  return { cls: 'cancel', label: 'Canceled' };
+        case 'PREPARING': return { cls: 'prep',   label: 'Prepping' };
+        case 'PRINTED':   return { cls: 'print',  label: 'Printed' };
+        default:          return { cls: 'new',    label: evt || '—' };
+      }
+    }
+
+    // eBay ids: 02-14623-46718 (digits + dashes). Zoho/Direct: SO-####, INV-####.
+    function inferChannel(orderId) {
+      var id = String(orderId || '').trim().toUpperCase();
+      if (!id) return '';
+      if (id.indexOf('SO-') === 0 || id.indexOf('INV-') === 0) return 'Direct';
+      if (/^[\d][\d\-]+$/.test(id)) return 'eBay';
+      return 'Direct';
+    }
+
+    // ---------- LIVE DOT + FOOTER ----------
+    function paintLive(c, tick) {
+      var mins = c.lastSyncMinutes;
+      if (mins === null || mins === undefined) {
+        // fall back to parsing the lastSync banner string if present
+        setLive('idle', 'live');
+        return;
+      }
+      if (mins < 15)      setLive('ok',   'live · ' + Math.round(mins) + 'm');
+      else if (mins < 60) setLive('idle', 'idle · ' + Math.round(mins) + 'm');
+      else                setLive('stale','stale · ' + fmtDur(mins));
+    }
+    function setLive(cls, text) {
+      var dot = document.getElementById('liveDot');
+      dot.className = 'live-dot ' + cls;
+      document.getElementById('liveText').textContent = text;
+    }
+
+    function paintFooter(tick) {
+      var picker = (tick.picker || '').trim();
+      document.getElementById('footPicker').innerHTML =
+        picker ? ('picker · <b>' + esc(picker) + '</b>') : 'no picker set';
+      document.getElementById('footSync').textContent =
+        tick.lastSync ? String(tick.lastSync).replace(/^[^A-Za-z0-9]+/, '') : 'sync —';
+    }
+
+    // ---------- sound ----------
+    function toggleSound() {
+      soundOn = !soundOn;
+      localStorage.setItem('floorSound', soundOn ? '1' : '0');
+      paintSoundToggle();
+      if (soundOn) chime('newEbay'); // confirm
+    }
+    function paintSoundToggle() {
+      var el = document.getElementById('soundToggle');
+      el.textContent = soundOn ? '♪ on' : '♪ off';
+      el.classList.toggle('on', soundOn);
+    }
+
+    // ---------- kiosk: fullscreen + keep-awake ----------
+    function toggleFullscreen() {
+      try {
+        var el = document.documentElement;
+        if (!document.fullscreenElement && !document.webkitFullscreenElement) {
+          (el.requestFullscreen || el.webkitRequestFullscreen).call(el);
+        } else {
+          (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+        }
+      } catch (e) { /* fullscreen blocked — ignore */ }
+    }
+    // ---------- easter egg: tap the HQ mark 5× ----------
+    function onHqTap() {
+      eggClicks++;
+      clearTimeout(eggTimer);
+      eggTimer = setTimeout(function () { eggClicks = 0; }, 1500);
+      if (eggClicks >= 5) { eggClicks = 0; triggerEgg(); }
+    }
+    function triggerEgg() {
+      var msgs = [
+        '🔧  Measure twice · cut once',
+        '⚙  Same-day · warranty: handshake',
+        '🏁  HQ Motor Service · built on the floor'
+      ];
+      var egg = document.getElementById('egg');
+      egg.textContent = msgs[Math.floor(Math.random() * msgs.length)];
+      egg.classList.remove('show'); void egg.offsetWidth; egg.classList.add('show');
+      var logo = document.querySelector('.hdr-mono');
+      if (logo) { logo.classList.remove('flip'); void logo.offsetWidth; logo.classList.add('flip');
+                  setTimeout(function () { logo.classList.remove('flip'); }, 950); }
+      chime('caughtUp');
+    }
+
+    var wakeLock = null;
+    function requestWakeLock() {
+      try {
+        if ('wakeLock' in navigator) {
+          navigator.wakeLock.request('screen').then(
+            function (wl) { wakeLock = wl; },
+            function () { /* denied — device sleep settings still apply */ }
+          );
+        }
+      } catch (e) { /* unsupported — ignore */ }
+    }
+
+    // ---------- floor radio (free SomaFM streams; tap to play) ----------
+    var radioStations = [
+      { group: 'Chill · SomaFM', name: 'Groove Salad',    id: 'groovesalad', url: 'https://ice1.somafm.com/groovesalad-128-mp3' },
+      { group: 'Chill · SomaFM', name: 'Indie Pop Rocks', id: 'indiepop',    url: 'https://ice1.somafm.com/indiepop-128-mp3' },
+      { group: 'Chill · SomaFM', name: 'Seven Inch Soul', id: '7soul',       url: 'https://ice1.somafm.com/7soul-128-mp3' },
+      { group: 'Chill · SomaFM', name: 'Lush',            id: 'lush',        url: 'https://ice1.somafm.com/lush-128-mp3' },
+      { group: 'Chill · SomaFM', name: 'Beat Blender',    id: 'beatblender', url: 'https://ice1.somafm.com/beatblender-128-mp3' },
+      { group: 'Chill · SomaFM', name: 'Boot Liquor',     id: 'bootliquor',  url: 'https://ice1.somafm.com/bootliquor-128-mp3' },
+      { group: 'Chill · SomaFM', name: 'Left Coast 70s',  id: 'seventies',   url: 'https://ice1.somafm.com/seventies-128-mp3' },
+      { group: 'Chill · SomaFM', name: 'Underground 80s', id: 'u80s',        url: 'https://ice1.somafm.com/u80s-128-mp3' },
+      // Arabic (roots) — direct HTTPS streams from the Radio Browser API.
+      // No SomaFM-style track feed, so id is empty → widget shows station name only.
+      { group: 'Arabic',         name: 'Radio Orient',            id: '', url: 'https://stream.rcs.revma.com/7hnrkawf4p8uv.mp3' },
+      { group: 'Arabic',         name: 'Aswat FM',                id: '', url: 'https://broadcast.ice.infomaniak.ch/aswat-high.mp3' },
+      { group: 'Arabic',         name: 'Quran · Kuwait',          id: '', url: 'https://radio.mp3islam.com/listen/quran_radio/radio.mp3' },
+      { group: 'Arabic',         name: 'Quran · Yasser AlDosari', id: '', url: 'https://radio.mp3islam.com/listen/yaser/radio.mp3' }
+    ];
+    var radioIdx = 0, radioPlaying = false, radioAudio = null;
+    var currentTrack = '', npTimer = null;
+    function radioInit() {
+      radioAudio = document.getElementById('radioAudio');
+      radioAudio.volume = 0.5;
+      document.getElementById('radioBtn').addEventListener('click', radioToggle);
+      document.getElementById('radioPick').addEventListener('click', toggleRadioPop);
+      document.getElementById('radioMeta').addEventListener('click', toggleRadioPop);
+      document.getElementById('radioPop').addEventListener('click', function (e) {
+        var item = e.target.closest ? e.target.closest('.radio-pop-item') : null;
+        if (item) playStation(parseInt(item.getAttribute('data-idx'), 10));
+      });
+      document.addEventListener('click', function (e) {
+        var r = document.getElementById('radio');
+        if (r && !r.contains(e.target)) document.getElementById('radioPop').classList.remove('show');
+      });
+      paintRadio();
+    }
+    function radioToggle() {
+      if (!radioAudio) return;
+      if (radioPlaying) {
+        radioAudio.pause();
+        radioPlaying = false;
+        stopNowPlaying();
+      } else {
+        radioAudio.src = radioStations[radioIdx].url;
+        var p = radioAudio.play();
+        if (p && p.catch) p.catch(function () { radioPlaying = false; paintRadio(); });
+        radioPlaying = true;
+        startNowPlaying();
+      }
+      paintRadio();
+    }
+    function toggleRadioPop(e) {
+      if (e) e.stopPropagation();
+      var pop = document.getElementById('radioPop');
+      if (pop.classList.contains('show')) { pop.classList.remove('show'); return; }
+      buildRadioPop();
+      pop.classList.add('show');
+    }
+    function buildRadioPop() {
+      var pop = document.getElementById('radioPop');
+      var html = '', lastGroup = null;
+      for (var i = 0; i < radioStations.length; i++) {
+        var s = radioStations[i];
+        if (s.group !== lastGroup) { html += '<div class="radio-pop-head">' + s.group + '</div>'; lastGroup = s.group; }
+        var live = (i === radioIdx && radioPlaying);
+        html += '<div class="radio-pop-item' + (live ? ' active' : '') + '" data-idx="' + i + '">' +
+                (live ? '▸ ' : '') + s.name + '</div>';
+      }
+      pop.innerHTML = html;
+    }
+    function playStation(idx) {
+      if (idx < 0 || idx >= radioStations.length) return;
+      radioIdx = idx;
+      currentTrack = '';
+      radioAudio.src = radioStations[idx].url;
+      var p = radioAudio.play();
+      if (p && p.catch) p.catch(function () {});
+      radioPlaying = true;
+      startNowPlaying();
+      document.getElementById('radioPop').classList.remove('show');
+      paintRadio();
+    }
+    function paintRadio() {
+      document.getElementById('radioBtn').textContent = radioPlaying ? '⏸' : '📻';
+      var meta = document.getElementById('radioMeta');
+      if (!radioPlaying) {
+        meta.textContent = 'radio';
+        meta.title = '';
+      } else {
+        var txt = radioStations[radioIdx].name + (currentTrack ? '  ·  ♫ ' + currentTrack : '');
+        meta.textContent = txt;
+        meta.title = txt;
+      }
+      document.getElementById('radio').classList.toggle('on', radioPlaying);
+    }
+    // SomaFM now-playing — best-effort (CORS may block → just show the station)
+    function startNowPlaying() {
+      stopNowPlaying();
+      fetchNowPlaying();
+      npTimer = setInterval(fetchNowPlaying, 25000);
+    }
+    function stopNowPlaying() {
+      if (npTimer) { clearInterval(npTimer); npTimer = null; }
+    }
+    function fetchNowPlaying() {
+      var id = radioStations[radioIdx].id;
+      if (!id) { currentTrack = ''; paintRadio(); return; }   // non-SomaFM (e.g. Quran) — no track feed
+      try {
+        google.script.run
+          .withSuccessHandler(function (t) { if (t) { currentTrack = t; paintRadio(); } })
+          .withFailureHandler(function () { /* leave station name only */ })
+          .getRadioNowPlaying(id);
+      } catch (e) {}
+    }
+    // Earcon palette — each event has its own recognizable little motif.
+    //   newEbay   : bright 2-note rise          (E5 → B5)
+    //   newDirect : warm 3-note major arpeggio  (C5 → E5 → G5)
+    //   paid      : doorbell ding-dong          (E5 → C5, triangle)
+    //   caughtUp  : resolved rising reward       (C5 → E5 → G5 → C6)
+    //   aging     : gentle low descending warn   (A3 → F3, soft)
+    // Refined bell palette — warm, soft, modern (not arcade). Each event is a
+    // short bell phrase with a gentle attack + long lowpass-filtered decay.
+    function chime(kind) {
+      if (!soundOn) return;
+      try {
+        if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+        switch (kind) {
+          case 'newDirect':                         // warm, lower two-note rise
+            bell(440.00, 0,    0.75); bell(659.25, 0.15, 0.95); break;
+          case 'paid':                              // soft chord — present but classy
+            bell(698.46, 0,    1.05, 0.13); bell(1046.50, 0.03, 1.05, 0.085); break;
+          case 'caughtUp':                          // gentle descending resolve
+            bell(783.99, 0,    0.6); bell(659.25, 0.17, 0.6); bell(523.25, 0.34, 1.2); break;
+          case 'aging':                             // low soft toll — non-alarming
+            bell(146.83, 0,    1.5, 0.13); break;
+          case 'newEbay':                           // bright, airy two-note rise
+          default:
+            bell(587.33, 0,    0.75); bell(880.00, 0.15, 0.95);
+        }
+      } catch (e) { /* audio not available — silent */ }
+    }
+
+    // Soft bell voice — gentle attack, long warm decay, lowpass + faint octave
+    // shimmer for richness. The building block of the refined palette.
+    function bell(freq, delay, dur, peak) {
+      dur = dur || 0.8; peak = peak || 0.12;
+      var t0 = audioCtx.currentTime + delay;
+      var osc  = audioCtx.createOscillator();
+      var gain = audioCtx.createGain();
+      var filt = audioCtx.createBiquadFilter();
+      filt.type = 'lowpass'; filt.frequency.value = 2400;
+      osc.type = 'sine'; osc.frequency.value = freq;
+      gain.gain.setValueAtTime(0, t0);
+      gain.gain.linearRampToValueAtTime(peak, t0 + 0.018);     // soft attack
+      gain.gain.exponentialRampToValueAtTime(0.0005, t0 + dur); // long bell decay
+      osc.connect(filt); filt.connect(gain); gain.connect(audioCtx.destination);
+      osc.start(t0); osc.stop(t0 + dur + 0.05);
+      // faint octave shimmer
+      var o2 = audioCtx.createOscillator();
+      var g2 = audioCtx.createGain();
+      o2.type = 'sine'; o2.frequency.value = freq * 2.001;
+      g2.gain.setValueAtTime(0, t0);
+      g2.gain.linearRampToValueAtTime(peak * 0.16, t0 + 0.02);
+      g2.gain.exponentialRampToValueAtTime(0.0004, t0 + dur * 0.6);
+      o2.connect(g2); g2.connect(audioCtx.destination);
+      o2.start(t0); o2.stop(t0 + dur);
+    }
+
+    // ---------- helpers ----------
+    function num(v) { var n = parseInt(v, 10); return isNaN(n) ? 0 : n; }
+    function fmtDur(mins) {
+      mins = Math.round(mins);
+      if (mins < 60) return mins + 'm';
+      var h = Math.floor(mins / 60), m = mins % 60;
+      if (h < 24) return m ? (h + 'h ' + m + 'm') : (h + 'h');
+      var d = Math.floor(h / 24); h = h % 24;
+      return h ? (d + 'd ' + h + 'h') : (d + 'd');
+    }
+    function fmtClock(hourFraction) {
+      if (hourFraction === null || hourFraction === undefined) return '';
+      var h = Math.floor(hourFraction);
+      var m = Math.round((hourFraction - h) * 60);
+      if (m === 60) { m = 0; h++; }
+      var ap = h >= 12 ? 'p' : 'a';
+      var h12 = h % 12; if (h12 === 0) h12 = 12;
+      return h12 + ':' + (m < 10 ? '0' + m : m) + ap;
+    }
+    function esc(s) {
+      return String(s).replace(/[&<>"]/g, function (ch) {
+        return { '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[ch];
+      });
+    }
+  </script>
+</body>
+</html>

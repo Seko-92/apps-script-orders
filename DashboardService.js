@@ -1,36 +1,31 @@
 // =======================================================================================
-// DashboardService.js — server endpoints for the wall-mounted warehouse dashboard
+// DashboardService.js — server endpoints for the Floor Board (FloorBoard.html)
 // =======================================================================================
 //
-// The dashboard (Dashboard.html) is served via doGet() in UIService.js. It polls
-// getDashboardTick() every ~15s for a single payload that wraps the sidebar tick
-// (cockpit + alerts + api + picker + lastSync) with dashboard-only enrichments:
+// The Floor Board is served via doGet() in UIService.js (browser tab) and via
+// openFloorBoard() (in-sheet modal). It polls getDashboardTick() every ~15s for a
+// single payload that wraps the sidebar tick (cockpit + alerts + picker + lastSync)
+// with two Floor-Board signals:
 //
-//   - hourlyBuckets[]   — 11 elements 7am-5pm with {shipped,received,total}
-//                         drives the "day as a comic strip" hourly panels
-//   - recentPrints[]    — last 10 PRINTED events from Activity Log
-//                         drives the Doc Echo rail of FUL chips
-//   - todayEvents[]     — every today event mapped onto sunrise→sunset position
-//                         drives the Sun Arc dots
-//   - paceCarStats      — current shipping velocity + linear projection to 5pm
-//                         drives the "ON PACE FOR N BY 5PM" forecast
+//   - paceCar     — current shipping velocity + linear projection to 5pm
+//                   ("on pace for N by 5pm")
+//   - openOrders  — every OPEN (PENDING/PREPARING) row across both tables, sorted
+//                   by aisle, for the "To pick" panel (SKU · qty · location)
 //
-// All extras are best-effort: any throw → empty default, no error propagates to
-// the client. The dashboard treats missing fields as "no data yet" and continues
-// painting from last-known values.
+// Both extras are best-effort: any throw → empty default, no error propagates to
+// the client. The board treats missing fields as "no data yet" and keeps painting
+// from last-known values.
 //
-// Also exposes openWarehouseDashboard() — opens the dashboard inside the sheet
-// via showModalDialog for at-the-desk viewing without leaving the spreadsheet.
-// The wall-mounted TV uses doGet() instead (separate web-app deployment URL).
+// 2026-06-03: the old multi-feature showpiece (Dashboard.html) was retired — the
+// Floor Board is the single board. The showpiece-only tick signals (hourlyBuckets,
+// recentPrints, todayEvents) and their helpers were removed with it.
 // =======================================================================================
 
 
 // ---------- DASHBOARD CONSTANTS ----------
 var DASHBOARD = {
-  sunriseHour:  7,     // start of the "workday arc"
-  sunsetHour:   17,    // end of the workday arc (5pm)
-  printRailLimit: 10,  // how many recent prints to surface in Doc Echo
-  arcEventCap:    250  // hard cap so the arc paint stays cheap on busy days
+  sunriseHour: 7,    // start of the workday (pace baseline)
+  sunsetHour:  17    // end of the workday — 5pm (pace projection target)
 };
 
 
@@ -39,16 +34,19 @@ var DASHBOARD = {
 // =======================================================================================
 
 /**
- * Open the warehouse dashboard in an in-sheet modal. Sized for a typical
- * desktop browser. The wall-mounted display uses the doGet web-app URL.
+ * Open the Floor Board in an in-sheet modal — the calm, glanceable warehouse
+ * monitor (orders-to-grab + a by-aisle pick list + paid-shipping + a live
+ * event feed + pace). Reuses getDashboardTick(). The always-on browser-tab
+ * version is served via doGet() in UIService.js. This is now the ONE board —
+ * the old multi-feature showpiece (Dashboard.html) was retired 2026-06-03.
  */
-function openWarehouseDashboard() {
-  var html = HtmlService.createTemplateFromFile('Dashboard')
+function openFloorBoard() {
+  var html = HtmlService.createTemplateFromFile('FloorBoard')
     .evaluate()
     .setWidth(1400)
-    .setHeight(800)
-    .setTitle('HQ · Warehouse Dashboard');
-  SpreadsheetApp.getUi().showModalDialog(html, 'HQ Motor Service · Warehouse Dashboard');
+    .setHeight(820)
+    .setTitle('HQ · Floor Board');
+  SpreadsheetApp.getUi().showModalDialog(html, 'HQ Motor Service · Floor Board');
 }
 
 
@@ -73,180 +71,62 @@ function getDashboardTick() {
     base = { cockpit: null, lastSync: '', api: null, alerts: null, picker: '' };
   }
 
-  var hourly = [];
-  var prints = [];
-  var arc = [];
   var pace = null;
-
-  try { hourly = _dashHourlyBuckets(); }
-  catch (e) { console.error('getDashboardTick.hourly: ' + e); }
-
-  try { prints = _dashRecentPrints(DASHBOARD.printRailLimit); }
-  catch (e) { console.error('getDashboardTick.prints: ' + e); }
-
-  try { arc = _dashTodayEventsForArc(); }
-  catch (e) { console.error('getDashboardTick.arc: ' + e); }
+  var openOrders = [];
 
   try { pace = _dashPaceCarStats(base.cockpit); }
   catch (e) { console.error('getDashboardTick.pace: ' + e); }
 
+  try { openOrders = _dashOpenOrders(); }
+  catch (e) { console.error('getDashboardTick.openOrders: ' + e); }
+
   return {
-    cockpit:       base.cockpit  || {},
-    alerts:        base.alerts   || {},
-    api:           base.api      || null,
-    picker:        base.picker   || '',
-    lastSync:      base.lastSync || '',
-    hourlyBuckets: hourly,
-    recentPrints:  prints,
-    todayEvents:   arc,
-    paceCar:       pace,
-    serverTime:    new Date().toISOString()
+    cockpit:    base.cockpit  || {},
+    alerts:     base.alerts   || {},
+    api:        base.api      || null,
+    picker:     base.picker   || '',
+    lastSync:   base.lastSync || '',
+    paceCar:    pace,
+    openOrders: openOrders,
+    serverTime: new Date().toISOString()
   };
+}
+
+
+// =======================================================================================
+// PUBLIC: radio now-playing (server-side fetch — bypasses browser CORS)
+// =======================================================================================
+
+/**
+ * Returns "artist – title" for a SomaFM station's current track, fetched
+ * server-side (UrlFetchApp has no CORS restriction, unlike the browser — which
+ * is why the client fetch came back blank). Called from the Floor Board radio
+ * widget via google.script.run. Non-SomaFM stations (empty id, e.g. the Quran
+ * stream) and any failure return '' → the widget just shows the station name.
+ */
+function getRadioNowPlaying(stationId) {
+  try {
+    if (!stationId) return '';
+    var resp = UrlFetchApp.fetch('https://somafm.com/songs/' + encodeURIComponent(stationId) + '.json', {
+      muteHttpExceptions: true,
+      followRedirects:    true
+    });
+    if (resp.getResponseCode() !== 200) return '';
+    var data = JSON.parse(resp.getContentText());
+    if (data && data.songs && data.songs.length) {
+      var s = data.songs[0];
+      return ((s.artist || '') + (s.title ? ' – ' + s.title : '')).trim();
+    }
+  } catch (e) {
+    console.error('getRadioNowPlaying: ' + e);
+  }
+  return '';
 }
 
 
 // =======================================================================================
 // PRIVATE: dashboard extras
 // =======================================================================================
-
-/**
- * 11 hourly buckets (sunrise → sunset) with {shipped, received, total}
- * counted off the Activity Log. Drives the comic-strip hourly panels.
- */
-function _dashHourlyBuckets() {
-  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
-  var log = ss.getSheetByName(ACTIVITY_LOG.sheetName);
-  if (!log) return [];
-  var last = log.getLastRow();
-  if (last < ACTIVITY_LOG.dataStartRow) return [];
-
-  var tz = ss.getSpreadsheetTimeZone() || 'America/Chicago';
-  var todayStr = Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd');
-
-  var span = DASHBOARD.sunsetHour - DASHBOARD.sunriseHour + 1;
-  var buckets = [];
-  for (var h = 0; h < span; h++) {
-    buckets.push({
-      hour:     DASHBOARD.sunriseHour + h,
-      shipped:  0,
-      received: 0,
-      total:    0
-    });
-  }
-
-  // Read TS + EVENT only — cheap two-column scan
-  var nRows = last - ACTIVITY_LOG.dataStartRow + 1;
-  var data = log.getRange(
-    ACTIVITY_LOG.dataStartRow,
-    ACTIVITY_LOG.cols.TIMESTAMP,
-    nRows,
-    2
-  ).getValues();
-
-  for (var i = 0; i < data.length; i++) {
-    var ts = data[i][0];
-    var evt = String(data[i][1] || '').toUpperCase();
-    if (!ts) continue;
-    var d = (ts instanceof Date) ? ts : new Date(ts);
-    if (isNaN(d.getTime())) continue;
-    if (Utilities.formatDate(d, tz, 'yyyy-MM-dd') !== todayStr) continue;
-    var hr = parseInt(Utilities.formatDate(d, tz, 'H'), 10);
-    if (hr < DASHBOARD.sunriseHour || hr > DASHBOARD.sunsetHour) continue;
-    var idx = hr - DASHBOARD.sunriseHour;
-    buckets[idx].total++;
-    if (evt === 'SHIPPED') buckets[idx].shipped++;
-    else if (evt === 'RECEIVED') buckets[idx].received++;
-  }
-  return buckets;
-}
-
-/**
- * Last N PRINTED events. Each event carries the FUL doc number in DETAIL
- * and the picker who fired the print. Drives the Doc Echo rail chips.
- */
-function _dashRecentPrints(limit) {
-  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
-  var log = ss.getSheetByName(ACTIVITY_LOG.sheetName);
-  if (!log) return [];
-  var last = log.getLastRow();
-  if (last < ACTIVITY_LOG.dataStartRow) return [];
-
-  // Scan up to 500 most-recent rows looking for PRINTED — small N keeps cost flat
-  var scanRows = Math.min(500, last - ACTIVITY_LOG.dataStartRow + 1);
-  var startRow = last - scanRows + 1;
-  var data = log.getRange(
-    startRow,
-    ACTIVITY_LOG.cols.TIMESTAMP,
-    scanRows,
-    ACTIVITY_LOG.dataWidth
-  ).getValues();
-
-  var tz = ss.getSpreadsheetTimeZone() || 'America/Chicago';
-  var prints = [];
-  for (var i = data.length - 1; i >= 0 && prints.length < limit; i--) {
-    var evt = String(data[i][ACTIVITY_LOG.idx('EVENT')] || '').toUpperCase();
-    if (evt !== 'PRINTED') continue;
-    var ts = data[i][ACTIVITY_LOG.idx('TIMESTAMP')];
-    var d = (ts instanceof Date) ? ts : new Date(ts);
-    if (isNaN(d.getTime())) continue;
-    prints.push({
-      timeLabel: Utilities.formatDate(d, tz, 'h:mm a'),
-      epoch:     d.getTime(),
-      detail:    String(data[i][ACTIVITY_LOG.idx('DETAIL')] || ''),
-      picker:    String(data[i][ACTIVITY_LOG.idx('PICKER')] || '')
-    });
-  }
-  return prints;
-}
-
-/**
- * Every today event mapped to its position on the sunrise→sunset arc.
- * Each event = {position: 0..1, type, orderId}. The arc renderer uses
- * `position` directly for x-coordinate. NOTE events excluded (visual noise).
- */
-function _dashTodayEventsForArc() {
-  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
-  var log = ss.getSheetByName(ACTIVITY_LOG.sheetName);
-  if (!log) return [];
-  var last = log.getLastRow();
-  if (last < ACTIVITY_LOG.dataStartRow) return [];
-
-  var tz = ss.getSpreadsheetTimeZone() || 'America/Chicago';
-  var todayStr = Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd');
-  var sr = DASHBOARD.sunriseHour;
-  var span = DASHBOARD.sunsetHour - sr;
-
-  // Read TS + EVENT + ORDER_ID
-  var nRows = last - ACTIVITY_LOG.dataStartRow + 1;
-  var data = log.getRange(
-    ACTIVITY_LOG.dataStartRow,
-    ACTIVITY_LOG.cols.TIMESTAMP,
-    nRows,
-    3
-  ).getValues();
-
-  var events = [];
-  for (var i = 0; i < data.length; i++) {
-    var ts = data[i][0];
-    var evt = String(data[i][1] || '').toUpperCase();
-    if (!ts || evt === 'NOTE') continue;
-    var d = (ts instanceof Date) ? ts : new Date(ts);
-    if (isNaN(d.getTime())) continue;
-    if (Utilities.formatDate(d, tz, 'yyyy-MM-dd') !== todayStr) continue;
-    var hr = parseFloat(Utilities.formatDate(d, tz, 'H')) +
-             parseFloat(Utilities.formatDate(d, tz, 'm')) / 60;
-    if (hr < sr || hr > DASHBOARD.sunsetHour) continue;
-    events.push({
-      position: (hr - sr) / span,
-      type:     evt,
-      orderId:  String(data[i][2] || '')
-    });
-  }
-  if (events.length > DASHBOARD.arcEventCap) {
-    events = events.slice(events.length - DASHBOARD.arcEventCap);
-  }
-  return events;
-}
 
 /**
  * Pace Car projection — current ships/hr × hours-remaining-in-shift.
@@ -273,4 +153,57 @@ function _dashPaceCarStats(cockpit) {
     projection:   projection,
     insideWorkday: (hr >= DASHBOARD.sunriseHour && hr <= DASHBOARD.sunsetHour)
   };
+}
+
+/**
+ * Every OPEN (PENDING / PREPARING) row across BOTH tables — the picker's live
+ * worklist. Each = {channel, orderId, sku, qty, location, status, note}. Drives
+ * the Floor Board "To pick" panel so a picker can grab items straight off the
+ * screen (SKU · qty · location) without opening the sheet — including manually
+ * typed eBay replacement rows (Missing:/Replacement #:). Sorted by LOCATION for
+ * a natural pick walk (NOT FOUND / blank sink to the end), so it reads in aisle
+ * order regardless of where rows physically sit in the (unsorted) sheet.
+ * Capped to keep the paint cheap.
+ */
+function _dashOpenOrders() {
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  var sheet = ss.getSheetByName(MAIN_SHEET_NAME);
+  if (!sheet) return [];
+
+  var lastRow = sheet.getLastRow();
+  if (lastRow < Schema.dataStartRow) return [];
+
+  var n = lastRow - Schema.dataStartRow + 1;
+  var data = sheet.getRange(Schema.dataStartRow, 1, n, Schema.cols.HAND).getValues();
+
+  var out = [];
+  var inDirect = false;
+  for (var i = 0; i < data.length; i++) {
+    var sku = String(data[i][Schema.idx("SKU")] || "").trim();
+    // Boundary divider (col A == "DIRECT") flips us onto the DIRECT side.
+    if (sku.toUpperCase() === Schema.boundaryMarker) { inDirect = true; continue; }
+    if (!sku) continue;
+    var status = String(data[i][Schema.idx("STATUS")] || "").trim().toUpperCase();
+    if (status !== Schema.status.PENDING && status !== Schema.status.PREPARING) continue;
+    out.push({
+      channel:  inDirect ? "DIRECT" : "EBAY",
+      orderId:  String(data[i][Schema.idx("SALES_ORDER")] || "").trim(),
+      sku:      sku,
+      qty:      data[i][Schema.idx("QTY")],
+      location: String(data[i][Schema.idx("LOCATION")] || "").trim(),
+      status:   status,
+      note:     String(data[i][Schema.idx("NOTE")] || "").trim()
+    });
+    if (out.length >= 60) break;            // hard cap — keep the paint cheap
+  }
+
+  // Sort by LOCATION for a natural pick walk; NOT FOUND / blank sink to the end.
+  out.sort(function (a, b) {
+    var la = String(a.location || ""), lb = String(b.location || "");
+    var am = (!la || la.toUpperCase() === "NOT FOUND") ? 1 : 0;
+    var bm = (!lb || lb.toUpperCase() === "NOT FOUND") ? 1 : 0;
+    if (am !== bm) return am - bm;
+    return la.localeCompare(lb);
+  });
+  return out;
 }

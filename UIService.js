@@ -33,9 +33,11 @@ function showSidebar() {
  * @returns {HtmlOutput} the rendered Dashboard.html
  */
 function doGet(e) {
-  return HtmlService.createTemplateFromFile('Dashboard')
+  // The Floor Board (FloorBoard.html) is the single warehouse monitor. The old
+  // multi-feature showpiece (Dashboard.html) was retired 2026-06-03.
+  return HtmlService.createTemplateFromFile('FloorBoard')
     .evaluate()
-    .setTitle('HQ Motor Service · Warehouse Dashboard')
+    .setTitle('HQ Motor Service · Floor Board')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }

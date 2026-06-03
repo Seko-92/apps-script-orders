@@ -551,6 +551,8 @@ function getDashboardSnapshot() {
     lastSyncMinutes:      null,
     ebayPending:          0,
     directPending:        0,
+    ebayGrab:             0,
+    directGrab:           0,
     zohoPending:          0,
     prepQueueCount:       0,
     timeline:             []
@@ -653,9 +655,14 @@ function getDashboardSnapshot() {
             else          result.ebayPending++;
           }
 
-          // PENDING-only counters (legacy pendingCount + oldest-pending join)
+          // PENDING-only counters: pendingCount + per-channel "to grab".
+          // ebayGrab/directGrab are the Floor Board's ORDERS-TO-GRAB hero —
+          // strictly not-yet-started, table rows only (excludes PREPARING and
+          // the Pending-SO mirror), so the number reflects real pick work.
           if (status !== Schema.status.PENDING) continue;
           result.pendingCount++;
+          if (inDirect) result.directGrab++;
+          else          result.ebayGrab++;
           var oid = String(mainData[j][Schema.idx("SALES_ORDER")] || "").trim();
           if (oid && receivedMap[oid]) {
             if (oldestMs === null || receivedMap[oid] < oldestMs) {
@@ -677,22 +684,30 @@ function getDashboardSnapshot() {
         var mer  = match[3].toUpperCase();
         if (mer === "PM" && hour < 12) hour += 12;
         if (mer === "AM" && hour === 12) hour = 0;
-        var anchor = new Date();
-        anchor.setHours(hour, min, 0, 0);
-        // If the parsed time is in the future relative to now, it must be
-        // yesterday's stamp (sidebar opened past midnight before any new sync).
-        if (anchor.getTime() > Date.now()) anchor.setDate(anchor.getDate() - 1);
-        result.lastSyncMinutes = Math.floor((Date.now() - anchor.getTime()) / 60000);
+        // E1 is wall-clock time in the SPREADSHEET timezone (America/Chicago).
+        // Compare against "now" in the SAME timezone via formatDate — the old
+        // new Date()+setHours() ran in the SCRIPT timezone, and that mismatch
+        // produced bogus multi-hour "stale" readings (2026-06-02 fix). Pure
+        // minutes-of-day diff, midnight-wrapped.
+        var nowParts = Utilities.formatDate(new Date(), "America/Chicago", "H:m").split(":");
+        var nowMin   = parseInt(nowParts[0], 10) * 60 + parseInt(nowParts[1], 10);
+        var syncMin  = hour * 60 + min;
+        var diff = nowMin - syncMin;
+        if (diff < 0) diff += 1440;   // sync stamped before midnight, now after
+        result.lastSyncMinutes = diff;
       }
     }
     // ---- Zoho pending + Prep Queue (defensive: silent 0 if helpers missing) ----
-    // Direct count is MERGED: DIRECT-table non-terminal + Zoho not-yet-pulled.
-    // zohoPending stays exposed separately so the cockpit can show a tooltip
-    // breakdown without re-querying.
+    // 2026-06-02: directPending is NO LONGER merged with the Pending-SO mirror.
+    // Per picker feedback, "Direct" must mean what's actually on the DIRECT
+    // table (pickable) — not not-yet-Pulled SOs sitting in the Pending Sales
+    // Orders sheet (that mirror holds many old/shipped/closed SOs and inflated
+    // the count). zohoPending stays exposed separately so both surfaces show it
+    // as a distinct "N to pull" signal WITHOUT inflating Direct. (Reverses the
+    // v3.5 merge; affects the sidebar cockpit Direct pill too — intentional.)
     try {
       if (typeof getPendingZohoCount === "function") {
         result.zohoPending = getPendingZohoCount() || 0;
-        result.directPending += result.zohoPending;
       }
     } catch (e1) { /* swallow — never fail the snapshot for a sub-count */ }
 

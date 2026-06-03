@@ -23,6 +23,12 @@ function onOpen() {
   ui.createMenu('🕹️ HQ ARCADE')
     .addItem('Launch HQ Snake', 'showSnakeSidebar')
     .addToUi();
+
+  // 2b. Floor Board — the warehouse monitor. Opens in-sheet for a quick look;
+  //     the always-on version is the doGet web-app URL (open in a tablet tab).
+  ui.createMenu('📺 Floor Board')
+    .addItem('Open Floor Board', 'openFloorBoard')
+    .addToUi();
   
   // 3. Run your existing background logic
   updateOrderStatsInSheet();
