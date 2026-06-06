@@ -40,6 +40,7 @@
       --mute-soft:    rgba(245,245,242,0.30);
       --mute-faint:   rgba(245,245,242,0.12);
       --rule:         rgba(255,212,0,0.16);
+      --dawn:         0;    /* 0 deep night .. 1 about to open — driven by JS */
     }
 
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -536,6 +537,24 @@
       min-height: 16px;
     }
 
+    /* ── REST LEDGER — at rest the loud hero recedes to one dim line ── */
+    .floor-ledger { display: none; }
+    .board.mode-quiet .hero,
+    .board.mode-quiet .paid { display: none; }
+    .board.mode-quiet .floor-ledger {
+      display: flex; align-items: center; justify-content: center;
+      padding: 2px 0 6px;
+      font-family: 'Oswald', sans-serif; font-weight: 300;
+      letter-spacing: 0.18em; text-transform: uppercase; font-size: 14px;
+      color: var(--mute-soft);
+    }
+    .fl-seg { display: flex; align-items: baseline; gap: 9px; padding: 0 26px; position: relative; }
+    .fl-seg + .fl-seg::before { content: ""; position: absolute; left: 0; top: 50%;
+      transform: translateY(-50%); width: 1px; height: 11px; background: var(--mute-faint); }
+    .fl-k { color: var(--mute-soft); }
+    .fl-v { color: var(--mute); font-weight: 400; letter-spacing: 0.05em; }
+    .fl-v.warn { color: rgba(255,140,120,0.5); }
+
     /* Easter egg — tap the HQ mark 5× */
     .egg {
       position: fixed;
@@ -718,6 +737,26 @@
       box-shadow: 0 0 8px rgba(255,212,0,0.85), 0 0 18px rgba(255,212,0,0.40);
     }
     @keyframes dialSpin { to { transform: rotate(360deg); } }
+
+    /* ── NIGHT-HAND — the slow second hand: the night filling the rim,
+       empty at ~5PM, full at ~9AM, with a glowing head riding the front. ── */
+    .dial-night { position: absolute; inset: 0; z-index: 2; overflow: visible; transform: rotate(-90deg); }
+    .dial-night .track { fill: none; stroke: rgba(255,212,0,0.055); stroke-width: 0.9; }
+    .dial-night .fill  { fill: none; stroke: var(--brand-yellow); stroke-width: 1.15; stroke-linecap: round;
+      filter: drop-shadow(0 0 1.4px rgba(255,212,0,0.6)); transition: stroke 0.9s ease; }
+    .dial-night .head  { fill: var(--brand-soft);
+      filter: drop-shadow(0 0 2.4px rgba(255,212,0,0.95)) drop-shadow(0 0 5px rgba(255,212,0,0.45)); }
+    /* dawn halo — a faint amber bloom behind the face as morning nears */
+    .dial-halo { position: absolute; inset: 14%; border-radius: 50%; z-index: 1; pointer-events: none;
+      background: radial-gradient(circle, rgba(255,176,80, calc(0.16 * var(--dawn))) 0%, transparent 70%);
+      transition: background 1s ease; }
+    /* dawn wash — warm light rising from the floor of the rest panel as open nears */
+    .rest-dawn { position: absolute; inset: 0; z-index: 1; pointer-events: none;
+      background: radial-gradient(135% 95% at 50% 124%,
+        rgba(255,168,70, calc(0.18 * var(--dawn))) 0%,
+        rgba(255,120,40, calc(0.08 * var(--dawn))) 34%, transparent 64%);
+      transition: background 1.2s ease; }
+    .rest-line.dawn { color: rgba(255,176,80,0.62); }
 
     .dial-face { position: relative; z-index: 3; display: flex; flex-direction: column; align-items: center; text-align: center; }
     .rest-greet { font-family: 'Oswald', sans-serif; font-weight: 300; font-size: 1.05em; letter-spacing: 0.30em; text-transform: uppercase; color: var(--mute); }
@@ -1212,6 +1251,14 @@
       </div>
     </div>
 
+    <!-- REST LEDGER — the day's pulse in one dim line; shown only at rest -->
+    <div class="floor-ledger" id="floorLedger">
+      <div class="fl-seg"><span class="fl-k">To grab</span><span class="fl-v" id="flGrab">0</span></div>
+      <div class="fl-seg"><span class="fl-k">Oldest</span><span class="fl-v warn" id="flOld">—</span></div>
+      <div class="fl-seg"><span class="fl-k">Shipped</span><span class="fl-v" id="flShip">0</span></div>
+      <div class="fl-seg"><span class="fl-k">Received</span><span class="fl-v" id="flRecv">0</span></div>
+    </div>
+
     <!-- PAID SHIPPING STRIP -->
     <div class="paid hidden" id="paidStrip">
       <span class="paid-icon">⚠</span>
@@ -1246,6 +1293,7 @@
 
       <!-- REST — the living desk companion shown when the floor is at rest -->
       <div class="rest" id="restPanel">
+        <div class="rest-dawn"></div>
         <div class="rest-embers" id="restEmbers"></div>
 
         <!-- LEFT — the day behind -->
@@ -1264,6 +1312,13 @@
         <div class="dial">
           <div class="dial-bezel"></div>
           <div class="dial-ticks"></div>
+          <div class="dial-halo"></div>
+          <!-- night-hand: r=47 in a 100 viewBox, circumference = 2·π·47 = 295.31 -->
+          <svg class="dial-night" viewBox="0 0 100 100">
+            <circle class="track" cx="50" cy="50" r="47"></circle>
+            <circle class="fill" id="nightFill" cx="50" cy="50" r="47" stroke-dasharray="0 295.31"></circle>
+            <circle class="head" id="nightHead" cx="97" cy="50" r="1.5"></circle>
+          </svg>
           <div class="dial-sweep" id="dialSweep"><i class="dial-dot"></i></div>
           <div class="dial-face">
             <div class="rest-greet" id="restGreet">Good evening</div>
@@ -1588,11 +1643,19 @@
       var h = houstonHour();
       document.getElementById('restGreet').textContent =
         h < 12 ? 'Good morning' : (h < 17 ? 'Good afternoon' : (h < 21 ? 'Good evening' : 'Good night'));
-      document.getElementById('restLine').textContent = isOffHours() ? 'the floor is at rest' : 'all systems quiet';
+      // restLine ('at rest' / 'about to wake') is owned by updateRestAmbient (per-second, dawn-aware)
 
       // flanking readouts — the day behind (left), set per tick; the night ahead (right) ticks live
       var sEl = document.getElementById('restShipped');  if (sEl) sEl.textContent = num(c.shippedToday);
       var rEl = document.getElementById('restReceived'); if (rEl) rEl.textContent = num(c.receivedToday);
+
+      // rest ledger — the day's pulse in one dim line (the receded hero)
+      var lg = num(c.ebayGrab) + num(c.directGrab);
+      var om = c.oldestPendingMinutes;
+      var fg = document.getElementById('flGrab');  if (fg) fg.textContent = lg;
+      var fo = document.getElementById('flOld');   if (fo) fo.textContent = (om === null || om === undefined || om < 0) ? '—' : fmtDur(om);
+      var fs = document.getElementById('flShip');  if (fs) fs.textContent = num(c.shippedToday);
+      var fr = document.getElementById('flRecv');  if (fr) fr.textContent = num(c.receivedToday);
 
       var orders = tick.openOrders || [], strEl = document.getElementById('restStraggler');
       if (orders.length === 1) {
@@ -1620,12 +1683,31 @@
       restEmbersBuilt = true;
     }
     function minsToOpen() {
-      var hp = new Date().toLocaleTimeString('en-US', { timeZone: TZ, hour12: false, hour: '2-digit', minute: '2-digit' }).split(':');
+      // Next open = the next Mon–Fri 09:00 Houston (weekends are off).
+      var now = new Date();
+      var hp = now.toLocaleTimeString('en-US', { timeZone: TZ, hour12: false, hour: '2-digit', minute: '2-digit' }).split(':');
       var nowMin = parseInt(hp[0], 10) * 60 + parseInt(hp[1], 10);
+      var order = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+      var d = order.indexOf(now.toLocaleDateString('en-US', { timeZone: TZ, weekday: 'short' }));
       var openMin = 9 * 60;
-      var diff = nowMin < openMin ? (openMin - nowMin) : (openMin + 1440 - nowMin);
-      return fmtDur(diff);
+      var isWeekday = function (i) { return i >= 1 && i <= 5; };
+      var total;
+      if (isWeekday(d) && nowMin < openMin) {
+        total = openMin - nowMin;                         // opens later today
+      } else {
+        total = 1440 - nowMin;                            // rest of today
+        var dd = (d + 1) % 7;
+        while (!isWeekday(dd)) { total += 1440; dd = (dd + 1) % 7; }   // skip Sat/Sun
+        total += openMin;                                 // then to 09:00
+      }
+      if (total >= 1440) {
+        var dys = Math.floor(total / 1440), hrs = Math.round((total % 1440) / 60);
+        if (hrs === 24) { dys += 1; hrs = 0; }
+        return dys + 'd ' + hrs + 'h';
+      }
+      return fmtDur(total);
     }
+    function smoothstep(t) { t = Math.min(1, Math.max(0, t)); return t * t * (3 - 2 * t); }
     // runs every second from tickClock — keeps the rest scene alive (clock, countdown, prayer)
     function updateRestAmbient() {
       var board = document.getElementById('board');
@@ -1647,6 +1729,37 @@
         var p = document.getElementById('prayName'), pt = document.getElementById('prayTime');
         pe.textContent = (p && p.textContent && p.textContent !== '—')
           ? (p.textContent + ' · ' + (pt ? pt.textContent.replace('· ', '').trim() : '')) : '—';
+      }
+
+      // ── NIGHT-HAND + DAWN — the night fills the rim toward open (5PM→9AM) ──
+      var REST_START = 17 * 60, REST_LEN = 960;           // 5PM, 16h
+      var hp2 = new Date().toLocaleTimeString('en-US', { timeZone: TZ, hour12: false, hour: '2-digit', minute: '2-digit' }).split(':');
+      var modNow = parseInt(hp2[0], 10) * 60 + parseInt(hp2[1], 10);
+      var nm = (modNow >= REST_START) ? (modNow - REST_START)
+             : (modNow < 9 * 60)     ? (modNow + 1440 - REST_START)
+             : null;                                       // null = weekend daytime (no overnight arc)
+      var inRest = (nm !== null);
+      var prog = inRest ? Math.min(1, nm / REST_LEN) : 0;
+      var nf = document.getElementById('nightFill'), nh = document.getElementById('nightHead');
+      if (nf) {
+        var CIRC = 295.31;
+        nf.setAttribute('stroke-dasharray', (CIRC * prog).toFixed(2) + ' ' + CIRC.toFixed(2));
+      }
+      if (nh) {
+        var ang = (prog * 360 - 90) * Math.PI / 180;       // start at 12 o'clock
+        nh.setAttribute('cx', (50 + 47 * Math.cos(ang)).toFixed(2));
+        nh.setAttribute('cy', (50 + 47 * Math.sin(ang)).toFixed(2));
+        nh.style.opacity = inRest ? 1 : 0;
+      }
+      var dawn = inRest ? smoothstep((prog - 0.78) / 0.22) : 0;   // warms ~5:30AM → open
+      document.documentElement.style.setProperty('--dawn', dawn.toFixed(3));
+      if (nf) nf.style.stroke = dawn > 0.02
+        ? 'color-mix(in srgb, var(--brand-yellow) ' + (100 - dawn * 45).toFixed(0) + '%, var(--amber-warn))'
+        : 'var(--brand-yellow)';
+      var ln = document.getElementById('restLine');
+      if (ln) {
+        if (inRest && dawn > 0.55) { ln.textContent = 'the floor is about to wake'; ln.classList.add('dawn'); }
+        else { ln.textContent = 'the floor is at rest'; ln.classList.remove('dawn'); }
       }
     }
 
