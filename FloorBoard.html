@@ -7,7 +7,7 @@
   <title>HQ · Floor Board</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Roboto+Mono:wght@400;500;700&family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@200;300;400;500;600;700&family=Roboto+Mono:wght@400;500;700&family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
   <style>
     /* ====================================================================
        HQ MOTOR SERVICE — FLOOR BOARD v1.0
@@ -81,6 +81,19 @@
     }
     @keyframes twinkle { 0%,100% { opacity: 0.12; } 50% { opacity: 0.85; } }
 
+    /* ─────────── AMBIENT BREATH — barely-there premium ───────────
+       One slow rhythm driven by a JS sine of ABSOLUTE time, so it is
+       velocity-continuous and has NO keyframe loop seam — seamless,
+       infinite breathing. will-change promotes it to its own GPU layer
+       so the opacity glide never janks. Gated on body.breathe — toggle
+       OFF (rAF is cancelled) and the board is exactly today's board. */
+    .breath {
+      position: fixed; inset: 0; z-index: 0; pointer-events: none;
+      opacity: 0; will-change: opacity;
+      background: radial-gradient(120% 95% at 50% 44%,
+        rgba(255,247,228,0.07) 0%, rgba(255,247,228,0.015) 34%, transparent 60%);
+    }
+
     /* ─────────── THEMES (re-skin the brand accent) ─────────── */
     body.theme-midnight {
       --brand-yellow: #40c4ff; --brand-rim: #82d8ff; --brand-soft: #b3e5fc;
@@ -107,13 +120,16 @@
 
     /* ─────────── HEADER ─────────── */
     .hdr {
-      display: flex;
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;   /* brand · centered prayer · status */
       align-items: center;
-      justify-content: space-between;
+      gap: 16px;
       border-bottom: 1px solid var(--rule);
       padding-bottom: 12px;
     }
-    .hdr-brand { display: flex; align-items: center; gap: 12px; }
+    .hdr-brand { display: flex; align-items: center; gap: 12px; justify-self: start; }
+    .pray      { justify-self: center; }
+    .hdr-right { justify-self: end; }
     .hdr-mono {
       position: relative;
       overflow: hidden;
@@ -245,6 +261,7 @@
       gap: 16px;
       align-items: stretch;
     }
+    .hero > div { min-height: 168px; }   /* room for the orbit to circle the count cleanly */
     .grab {
       position: relative;
       background: var(--ink-card);
@@ -260,7 +277,7 @@
       flex: 1;
       display: flex;
       align-items: center;
-      gap: 32px;
+      gap: 44px;
       min-height: 0;
     }
     .grab-breakdown {
@@ -268,6 +285,7 @@
       flex-direction: column;
       justify-content: center;
       gap: 4px;
+      flex: 1;            /* expand to fill the card — no right-side void */
       min-width: 150px;
     }
     .bd-row {
@@ -296,6 +314,11 @@
       background: var(--mute-faint);
       margin: 8px 0 6px;
     }
+    /* channel-share bar — eBay vs Direct, fills the breakdown width */
+    .grab-share { display: flex; gap: 3px; height: 6px; margin: 2px 0 4px; }
+    .grab-share i { height: 100%; width: 0; border-radius: 2px; transition: width 0.6s ease; }
+    .grab-share .se { background: var(--brand-yellow); }
+    .grab-share .sd { background: var(--mute-soft); }
     .grab.clear .grab-active { display: none; }
     /* CLEAR ("all caught up") state */
     .grab-clear { display: none; }
@@ -372,12 +395,29 @@
       color: var(--brand-rim);
     }
     .grab-num {
+      position: relative; z-index: 1;
       font-family: 'Oswald', sans-serif;
       font-weight: 700;
-      font-size: 110px;
+      font-size: 80px;
       line-height: 0.9;
       color: var(--paper);
       letter-spacing: -0.02em;
+    }
+    /* ── orbiting jewel around the live count — echoes the night dial ── */
+    .grab-numwrap { position: relative; flex: 0 0 108px; width: 108px; height: 108px; display: flex; align-items: center; justify-content: center; }
+    .grab-orbit {
+      position: absolute; top: 50%; left: 50%;
+      width: 104px; height: 104px; margin: -52px 0 0 -52px;
+      border-radius: 50%;
+      border: 1px solid rgba(245,245,242,0.09);
+      pointer-events: none;
+    }
+    .grab-orbit-sweep { position: absolute; inset: -1px; animation: dialSpin 14s linear infinite; }
+    .grab-orbit-dot {
+      position: absolute; top: -3px; left: 50%; margin-left: -3px;
+      width: 6px; height: 6px; border-radius: 50%;
+      background: var(--brand-yellow);
+      box-shadow: 0 0 8px rgba(255,212,0,0.85), 0 0 16px rgba(255,212,0,0.40);
     }
     /* odometer roll — the number rolls up into place on any change */
     .grab-num.roll { animation: numRoll 0.42s cubic-bezier(.2,1.1,.3,1); }
@@ -597,7 +637,105 @@
       gap: 16px;
       flex: 1;
       min-height: 0;
+      transition: grid-template-columns 0.55s cubic-bezier(.4,0,.2,1);
     }
+    /* ── ADAPTIVE MODES — space is earned by live data ── */
+    .board.mode-busy     .mid { grid-template-columns: 2.3fr 1fr; }  /* picks lead + shine */
+    .board.mode-balanced .mid { grid-template-columns: 1.35fr 1fr; }
+    .board.mode-quiet    .mid { grid-template-columns: 1fr; }        /* rest fills the room */
+    .board.mode-busy .feed.primary {
+      border-color: rgba(255,212,0,0.40);
+      box-shadow: 0 0 0 1px rgba(255,212,0,0.10), 0 0 26px rgba(255,212,0,0.06);
+    }
+    .board.mode-quiet .feed { display: none; }
+
+    /* ── REST STATE — an elegant night dial; the desk companion at rest ── */
+    .rest {
+      display: none;
+      grid-column: 1 / -1;
+      position: relative;
+      overflow: hidden;
+      align-items: center;
+      justify-content: center;
+      gap: clamp(34px, 6.5vw, 104px);   /* breathing space between the dial and its flanking readouts */
+      border: 1px solid var(--ink-rim);
+      border-radius: 16px;
+      background: radial-gradient(120% 100% at 50% 36%, #1c1c19 0%, #141412 56%, #0d0d0c 100%);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.04), inset 0 0 90px rgba(0,0,0,0.55);
+    }
+    .board.mode-quiet .rest { display: flex; }
+
+    /* sparse, faint warm motes — a whisper of life, not a campfire */
+    .rest-embers { position: absolute; inset: 0; z-index: 1; pointer-events: none; }
+    .ember {
+      position: absolute; bottom: -8px; border-radius: 50%;
+      background: rgba(255,247,228,0.9); opacity: 0;
+      animation-name: emberRise; animation-timing-function: linear; animation-iteration-count: infinite;
+    }
+    @keyframes emberRise {
+      0%   { transform: translateY(0) translateX(0); opacity: 0; }
+      14%  { opacity: 0.26; }
+      86%  { opacity: 0.18; }
+      100% { transform: translateY(-320px) translateX(14px); opacity: 0; }
+    }
+
+    /* ── THE DIAL — a fine instrument ── */
+    .rest-inner { position: relative; z-index: 2; display: flex; flex-direction: column; align-items: center; text-align: center; }
+    /* the whole dial scales as ONE unit off its font-size, so the clock text
+       and the tick ring always hold the same proportion — never collide. */
+    .dial { position: relative; font-size: clamp(10px, 1.95vh, 16.5px); width: 24em; height: 24em; display: flex; align-items: center; justify-content: center; }
+    /* bezel — a hairline ring, a soft light catching as it slowly turns */
+    .dial-bezel {
+      position: absolute; inset: 0; border-radius: 50%;
+      background: conic-gradient(from 0deg,
+        rgba(255,247,228,0) 0deg, rgba(255,247,228,0.16) 70deg,
+        rgba(255,247,228,0) 160deg, rgba(255,212,0,0.10) 285deg, rgba(255,247,228,0) 360deg);
+      -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 1px), #000 calc(100% - 0.5px));
+              mask: radial-gradient(farthest-side, transparent calc(100% - 1px), #000 calc(100% - 0.5px));
+      animation: dialSpin 90s linear infinite;
+      opacity: 0.85;
+    }
+    /* minute ticks — 60 faint hairlines */
+    .dial-ticks {
+      position: absolute; inset: 16px; border-radius: 50%;
+      background: repeating-conic-gradient(from -0.15deg, rgba(245,245,242,0.22) 0deg 0.3deg, transparent 0.3deg 6deg);
+      -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 8px), #000 calc(100% - 7px));
+              mask: radial-gradient(farthest-side, transparent calc(100% - 8px), #000 calc(100% - 7px));
+    }
+    /* hour ticks — 12 longer, brighter */
+    .dial-ticks::after {
+      content: ""; position: absolute; inset: -7px; border-radius: 50%;
+      background: repeating-conic-gradient(from -0.5deg, rgba(245,245,242,0.40) 0deg 1deg, transparent 1deg 30deg);
+      -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 13px), #000 calc(100% - 7px));
+              mask: radial-gradient(farthest-side, transparent calc(100% - 13px), #000 calc(100% - 7px));
+    }
+    /* the seconds — a single gold jewel gliding once per minute */
+    .dial-sweep { position: absolute; inset: 0; z-index: 2; animation: dialSpin 60s linear infinite; }
+    .dial-dot {
+      position: absolute; top: 7px; left: 50%; margin-left: -3px;
+      width: 6px; height: 6px; border-radius: 50%;
+      background: var(--brand-yellow);
+      box-shadow: 0 0 8px rgba(255,212,0,0.85), 0 0 18px rgba(255,212,0,0.40);
+    }
+    @keyframes dialSpin { to { transform: rotate(360deg); } }
+
+    .dial-face { position: relative; z-index: 3; display: flex; flex-direction: column; align-items: center; text-align: center; }
+    .rest-greet { font-family: 'Oswald', sans-serif; font-weight: 300; font-size: 1.05em; letter-spacing: 0.30em; text-transform: uppercase; color: var(--mute); }
+    .rest-clock { font-family: 'Oswald', sans-serif; font-weight: 300; font-size: 4.6em; line-height: 1.12; color: var(--paper); letter-spacing: 0.05em; }
+    .rest-line  { font-family: 'Oswald', sans-serif; font-weight: 300; font-size: 0.82em; letter-spacing: 0.34em; text-transform: uppercase; color: var(--mute-soft); margin-top: 0.3em; }
+    /* flanking readouts — the day behind (left) · the night ahead (right) */
+    .rest-side { display: flex; flex-direction: column; gap: clamp(20px, 3.4vh, 38px); z-index: 2; }
+    .rest-left  { text-align: right; align-items: flex-end; }
+    .rest-right { text-align: left;  align-items: flex-start; }
+    .rs-group { display: flex; flex-direction: column; gap: 5px; }
+    .rs-label { font-family: 'Oswald', sans-serif; font-weight: 400; font-size: 12px; letter-spacing: 0.26em; text-transform: uppercase; color: var(--mute-soft); }
+    .rs-num { font-family: 'Oswald', sans-serif; font-weight: 300; font-size: clamp(28px, 4.6vh, 42px); line-height: 1; color: var(--brand-rim); letter-spacing: 0.01em; white-space: nowrap; }
+    .rs-num-sm { font-size: clamp(17px, 2.7vh, 24px); letter-spacing: 0.04em; }
+    /* the lone straggler is a quiet footnote at the very bottom */
+    .rest-foot { position: absolute; left: 0; right: 0; bottom: clamp(16px, 3.4vh, 32px); z-index: 3; text-align: center; }
+    .rest-straggler { font-family: 'Roboto Mono', monospace; font-size: 12px; color: var(--mute-soft); letter-spacing: 0.08em; }
+    .rest-straggler:empty { display: none; }
+    @media (prefers-reduced-motion: reduce) { .dial-bezel, .dial-sweep, .ember, .grab-orbit-sweep { animation: none !important; } }
 
     /* ─────────── PICK ROWS ─────────── */
     .pick-row {
@@ -993,6 +1131,7 @@
 </head>
 <body>
   <div class="warmth" id="warmth"></div>
+  <div class="breath" id="breath"></div>
   <div class="stars" id="stars"></div>
   <div class="board booting" id="board">
 
@@ -1033,11 +1172,15 @@
 
         <!-- ACTIVE: something waiting to be picked -->
         <div class="grab-active" id="grabActive">
-          <div class="grab-num" id="grabNum">—</div>
+          <div class="grab-numwrap">
+            <span class="grab-orbit"><span class="grab-orbit-sweep"><i class="grab-orbit-dot"></i></span></span>
+            <div class="grab-num" id="grabNum">—</div>
+          </div>
           <div class="grab-breakdown">
             <div class="bd-row"><span class="bd-name">eBay</span><span class="bd-num" id="ebayNum">—</span></div>
             <div class="bd-row"><span class="bd-name">Direct</span><span class="bd-num" id="directNum">—</span></div>
             <div class="bd-rule"></div>
+            <div class="grab-share"><i class="se" id="shareE"></i><i class="sd" id="shareD"></i></div>
             <div class="grab-sub" id="grabSub">&nbsp;</div>
             <span class="split-hint" id="zohoHint"></span>
           </div>
@@ -1063,6 +1206,7 @@
       <div class="mini">
         <div class="mini-label">Shipped today</div>
         <div class="mini-value" id="shippedVal">—</div>
+        <div class="mini-bar"><div class="mini-bar-fill" id="throughBar"></div></div>
         <div class="mini-pace" id="shippedPace">&nbsp;</div>
         <div class="mini-sub" id="shippedSub">&nbsp;</div>
       </div>
@@ -1099,6 +1243,51 @@
           <li class="feed-empty">waiting for today's first event…</li>
         </ul>
       </div>
+
+      <!-- REST — the living desk companion shown when the floor is at rest -->
+      <div class="rest" id="restPanel">
+        <div class="rest-embers" id="restEmbers"></div>
+
+        <!-- LEFT — the day behind -->
+        <div class="rest-side rest-left">
+          <div class="rs-group">
+            <div class="rs-label">Shipped today</div>
+            <div class="rs-num" id="restShipped">—</div>
+          </div>
+          <div class="rs-group">
+            <div class="rs-label">Received</div>
+            <div class="rs-num" id="restReceived">—</div>
+          </div>
+        </div>
+
+        <!-- CENTER — the dial -->
+        <div class="dial">
+          <div class="dial-bezel"></div>
+          <div class="dial-ticks"></div>
+          <div class="dial-sweep" id="dialSweep"><i class="dial-dot"></i></div>
+          <div class="dial-face">
+            <div class="rest-greet" id="restGreet">Good evening</div>
+            <div class="rest-clock" id="restClock">—:—</div>
+            <div class="rest-line" id="restLine">the floor is at rest</div>
+          </div>
+        </div>
+
+        <!-- RIGHT — the night ahead -->
+        <div class="rest-side rest-right">
+          <div class="rs-group">
+            <div class="rs-label">Opens in</div>
+            <div class="rs-num" id="restOpens">—</div>
+          </div>
+          <div class="rs-group">
+            <div class="rs-label">Next prayer</div>
+            <div class="rs-num rs-num-sm" id="restPrayer">—</div>
+          </div>
+        </div>
+
+        <div class="rest-foot">
+          <div class="rest-straggler" id="restStraggler"></div>
+        </div>
+      </div>
     </div>
 
     <!-- FOOTER -->
@@ -1115,6 +1304,7 @@
         <span class="ftr-sound" id="soundToggle" title="Distinct chime per event">♪ off</span>
         <span class="ftr-sound" id="fsToggle" title="Fullscreen (tap on the tablet)">⛶ full</span>
         <span class="ftr-sound" id="themeBtn" title="Theme">🎨 theme</span>
+        <span class="ftr-sound" id="breatheBtn" title="Ambient breath — a barely-there living calm">◌ breathe</span>
         <span id="footSync">sync —</span>
         <span>FLOOR · v2.0 · console</span>
       </div>
@@ -1142,6 +1332,10 @@
     var prevPaid  = null;    // paidShipping count
     var prevEbayGrab   = null;
     var prevDirectGrab = null;
+
+    // rest-scene ambient state
+    var restEmbersBuilt = false;
+    var restDialAligned = false;
     var prevShippedToday = null;
     var prevOldestHot  = false;
     var seenKeys  = {};      // feed dedupe: have we already rendered this event?
@@ -1153,6 +1347,7 @@
     var eggClicks = 0, eggTimer = null;
     var themes    = ['', 'midnight', 'crt'];
     var themeIdx  = 0;
+    var breatheOn = true;  // ambient breath — default ON, toggleable in the footer
     var prayerList = [];   // [{name, hhmm, mins}] for today, Houston time
 
     // ---------- boot ----------
@@ -1171,6 +1366,9 @@
       if (isNaN(themeIdx) || themeIdx < 0 || themeIdx >= themes.length) themeIdx = 0;
       applyTheme();
       document.getElementById('themeBtn').addEventListener('click', cycleTheme);
+      breatheOn = localStorage.getItem('floorBreathe') !== '0';   // default ON
+      applyBreathe();
+      document.getElementById('breatheBtn').addEventListener('click', toggleBreathe);
       document.getElementById('pickList').addEventListener('click', function (e) {
         var b = e.target && e.target.closest ? e.target.closest('.pick-do') : null;
         if (b) markPicked(b.getAttribute('data-order'), b);
@@ -1228,6 +1426,7 @@
       document.getElementById('clockDate').textContent = dateStr;
       setWarmth();
       updateNextPrayer();
+      updateRestAmbient();
     }
 
     // ---------- prayer times (Aladhan · free · no key · info only) ----------
@@ -1300,6 +1499,7 @@
       document.getElementById('warmth').style.background =
         'radial-gradient(125% 85% at 50% 0%, ' + color + ' 0%, transparent 62%)';
       document.getElementById('stars').classList.toggle('show', bucket === 'night');
+      document.body.classList.toggle('is-night', bucket === 'night');
     }
 
     // Generate a twinkling starfield (shown only after dark — see setWarmth).
@@ -1350,10 +1550,104 @@
       paintPaid(a);
       paintPickList(tick.openOrders || []);
       paintRightColumn(tick);
+      paintRest(tick, c);
+      applyMode((tick.openOrders || []).length);
       paintLive(c, tick);
       paintFooter(tick);
 
       firstTick = false;
+    }
+
+    // ---------- WORKING HOURS + ADAPTIVE MODE ----------
+    function isOffHours() {
+      // Weekends are off — Saturday & Sunday rest all day (Houston).
+      var wd = new Date().toLocaleDateString('en-US', { timeZone: TZ, weekday: 'short' });
+      if (wd === 'Sat' || wd === 'Sun') return true;
+      var h = parseInt(new Date().toLocaleString('en-US', { timeZone: TZ, hour: '2-digit', hour12: false }), 10);
+      if (isNaN(h)) return false;
+      return (h < 9 || h >= 17);          // shop open 9–5 Houston, Mon–Fri
+    }
+    // Space is earned by live data: off-hours rests, a busy floor expands the pick list.
+    function applyMode(pickN) {
+      var board = document.getElementById('board');
+      var mode;
+      if (isOffHours() && pickN <= 1) mode = 'quiet';     // resting companion
+      else if (pickN >= 6)            mode = 'busy';      // picks lead + shine
+      else                            mode = 'balanced';
+      if (!board.classList.contains('mode-' + mode)) {
+        board.classList.remove('mode-quiet', 'mode-busy', 'mode-balanced');
+        board.classList.add('mode-' + mode);
+      }
+    }
+    // The living "floor at rest" night scene — the desk companion.
+    function houstonHour() {
+      var h = parseInt(new Date().toLocaleString('en-US', { timeZone: TZ, hour: '2-digit', hour12: false }), 10);
+      return isNaN(h) ? 0 : h;
+    }
+    function paintRest(tick, c) {
+      var h = houstonHour();
+      document.getElementById('restGreet').textContent =
+        h < 12 ? 'Good morning' : (h < 17 ? 'Good afternoon' : (h < 21 ? 'Good evening' : 'Good night'));
+      document.getElementById('restLine').textContent = isOffHours() ? 'the floor is at rest' : 'all systems quiet';
+
+      // flanking readouts — the day behind (left), set per tick; the night ahead (right) ticks live
+      var sEl = document.getElementById('restShipped');  if (sEl) sEl.textContent = num(c.shippedToday);
+      var rEl = document.getElementById('restReceived'); if (rEl) rEl.textContent = num(c.receivedToday);
+
+      var orders = tick.openOrders || [], strEl = document.getElementById('restStraggler');
+      if (orders.length === 1) {
+        var o = orders[0];
+        strEl.textContent = 'still on the floor — ' + (o.location || '—') + ' · ' + (o.sku || '') + ' ×' + (o.qty || 1);
+      } else {
+        strEl.textContent = '';
+      }
+      buildEmbers();
+    }
+    function buildEmbers() {
+      if (restEmbersBuilt) return;
+      var box = document.getElementById('restEmbers');
+      if (!box) return;
+      var html = '';
+      for (var i = 0; i < 7; i++) {
+        var left = (Math.random() * 100).toFixed(1);
+        var dur  = (Math.random() * 10 + 14).toFixed(1);
+        var del  = (Math.random() * 14).toFixed(1);
+        var sz   = (Math.random() * 1.3 + 1.4).toFixed(1);
+        html += '<span class="ember" style="left:' + left + '%;width:' + sz + 'px;height:' + sz +
+                'px;animation-duration:' + dur + 's;animation-delay:' + del + 's;"></span>';
+      }
+      box.innerHTML = html;
+      restEmbersBuilt = true;
+    }
+    function minsToOpen() {
+      var hp = new Date().toLocaleTimeString('en-US', { timeZone: TZ, hour12: false, hour: '2-digit', minute: '2-digit' }).split(':');
+      var nowMin = parseInt(hp[0], 10) * 60 + parseInt(hp[1], 10);
+      var openMin = 9 * 60;
+      var diff = nowMin < openMin ? (openMin - nowMin) : (openMin + 1440 - nowMin);
+      return fmtDur(diff);
+    }
+    // runs every second from tickClock — keeps the rest scene alive (clock, countdown, prayer)
+    function updateRestAmbient() {
+      var board = document.getElementById('board');
+      if (!board || !board.classList.contains('mode-quiet')) return;
+      // phase-align the seconds jewel to real time, once
+      if (!restDialAligned) {
+        var sweep = document.getElementById('dialSweep');
+        if (sweep) {
+          var dd = new Date();
+          sweep.style.animationDelay = '-' + (dd.getSeconds() + dd.getMilliseconds() / 1000).toFixed(2) + 's';
+          restDialAligned = true;
+        }
+      }
+      var ce = document.getElementById('restClock');
+      if (ce) ce.textContent = new Date().toLocaleTimeString('en-US', { timeZone: TZ, hour: 'numeric', minute: '2-digit', hour12: true });
+      var oe = document.getElementById('restOpens'); if (oe) oe.textContent = minsToOpen();
+      var pe = document.getElementById('restPrayer');
+      if (pe) {
+        var p = document.getElementById('prayName'), pt = document.getElementById('prayTime');
+        pe.textContent = (p && p.textContent && p.textContent !== '—')
+          ? (p.textContent + ' · ' + (pt ? pt.textContent.replace('· ', '').trim() : '')) : '—';
+      }
     }
 
     // ---------- ORDERS TO GRAB ----------
@@ -1366,6 +1660,11 @@
 
       document.getElementById('ebayNum').textContent   = ebay;
       document.getElementById('directNum').textContent = direct;
+      var _tot = ebay + direct, _se = document.getElementById('shareE'), _sd = document.getElementById('shareD');
+      if (_se && _sd) {
+        _se.style.width = (_tot ? (ebay / _tot * 100) : 0) + '%';
+        _sd.style.width = (_tot ? (direct / _tot * 100) : 0) + '%';
+      }
       // Zoho "to pull" intentionally not shown — not pickable from the floor.
       document.getElementById('zohoHint').textContent  = '';
 
@@ -1486,8 +1785,11 @@
       prevShippedToday = shippedNow;
 
       var rec = num(c.receivedToday);
+      var pct = rec > 0 ? Math.min(100, Math.round(shippedNow / rec * 100)) : 0;
+      var tb = document.getElementById('throughBar');
+      if (tb) tb.style.width = pct + '%';
       document.getElementById('shippedSub').innerHTML =
-        rec > 0 ? (rec + ' received today') : '&nbsp;';
+        rec > 0 ? (rec + ' received · ' + pct + '% out') : '&nbsp;';
     }
 
     // ---------- PACE ("on pace for N by 5pm") ----------
@@ -1727,9 +2029,17 @@
     function paintFeed(timeline) {
       if (!timeline.length) return;
       // newest first by hour fraction
-      var rows = timeline.slice().sort(function (x, y) {
+      // newest first, then collapse a multi-line order (same event + id) into ONE row
+      var sorted = timeline.slice().sort(function (x, y) {
         return (y.hourFraction || 0) - (x.hourFraction || 0);
-      }).slice(0, 16);
+      });
+      var rows = [], gidx = {};
+      for (var gi = 0; gi < sorted.length; gi++) {
+        var ev = sorted[gi], gk = String(ev.event) + '|' + String(ev.orderId);
+        if (gidx[gk] !== undefined) { rows[gidx[gk]]._n++; }
+        else { var cp = {}; for (var kk in ev) cp[kk] = ev[kk]; cp._n = 1; gidx[gk] = rows.length; rows.push(cp); }
+      }
+      rows = rows.slice(0, 16);
 
       var list = document.getElementById('feedList');
       // clear empty placeholder once we have data
@@ -1765,7 +2075,7 @@
 
       var o = document.createElement('span');
       o.className = 'feed-order';
-      o.textContent = e.orderId || '(no id)';
+      o.textContent = (e.orderId || '(no id)') + (e._n > 1 ? '  ·  ' + e._n + ' items' : '');
 
       var ch = document.createElement('span');
       ch.className = 'feed-chan';
@@ -1798,11 +2108,9 @@
     // ---------- LIVE DOT + FOOTER ----------
     function paintLive(c, tick) {
       var mins = c.lastSyncMinutes;
-      if (mins === null || mins === undefined) {
-        // fall back to parsing the lastSync banner string if present
-        setLive('idle', 'live');
-        return;
-      }
+      if (mins === null || mins === undefined) { setLive('idle', 'live'); return; }
+      // Off-hours, a stale sync is EXPECTED (shop closed) — stay calm, never alarm.
+      if (isOffHours())   { setLive('idle', 'resting · off hours'); return; }
       if (mins < 15)      setLive('ok',   'live · ' + Math.round(mins) + 'm');
       else if (mins < 60) setLive('idle', 'idle · ' + Math.round(mins) + 'm');
       else                setLive('stale','stale · ' + fmtDur(mins));
@@ -1817,8 +2125,53 @@
       var picker = (tick.picker || '').trim();
       document.getElementById('footPicker').innerHTML =
         picker ? ('picker · <b>' + esc(picker) + '</b>') : 'no picker set';
-      document.getElementById('footSync').textContent =
-        tick.lastSync ? String(tick.lastSync).replace(/^[^A-Za-z0-9]+/, '') : 'sync —';
+      // Show just the sync TIME — freshness STATE lives in the live indicator,
+      // which is off-hours-aware (no scary STALE when the shop is simply closed).
+      var raw = tick.lastSync ? String(tick.lastSync) : '';
+      var m = raw.match(/(\d{1,2}:\d{2}\s*[AP]M)/i);
+      var timeTxt = m ? m[1] : raw.replace(/[^0-9A-Za-z:·.\s]/g, '').trim();
+      document.getElementById('footSync').textContent = timeTxt ? ('last sync · ' + timeTxt) : 'sync —';
+    }
+
+    // ---------- ambient breath (barely-there premium) ----------
+    // Sine of absolute time → seamless, infinite, no loop boundary to hitch on.
+    // Pauses automatically when the tab is hidden (rAF), and resumes in phase
+    // (phase derives from the clock, so there is never a jump).
+    var breathRAF = null;
+    function breathLoop() {
+      if (!breatheOn) { breathRAF = null; return; }
+      var b = 0.5 + 0.5 * Math.sin(performance.now() / 12000 * 2 * Math.PI); // 12s, 0..1
+      var night = document.body.classList.contains('is-night');
+      var lo = night ? 0.05 : 0.22;          // breath recedes to a whisper at night
+      var hi = night ? 0.18 : 0.80;
+      var el = document.getElementById('breath');
+      if (el) el.style.opacity = (lo + b * (hi - lo)).toFixed(3);
+      breathRAF = requestAnimationFrame(breathLoop);
+    }
+    function toggleBreathe() {
+      breatheOn = !breatheOn;
+      localStorage.setItem('floorBreathe', breatheOn ? '1' : '0');
+      applyBreathe();
+    }
+    function applyBreathe() {
+      document.body.classList.toggle('breathe', breatheOn);
+      var btn = document.getElementById('breatheBtn');
+      if (btn) {
+        btn.textContent = breatheOn ? '◍ breathe' : '◌ breathe';
+        btn.classList.toggle('on', breatheOn);
+      }
+      var el = document.getElementById('breath');
+      var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      if (breatheOn) {
+        if (reduce) {
+          if (el) el.style.opacity = '0.5';                 // static, motion off
+        } else if (!breathRAF) {
+          breathRAF = requestAnimationFrame(breathLoop);
+        }
+      } else {
+        if (breathRAF) { cancelAnimationFrame(breathRAF); breathRAF = null; }
+        if (el) el.style.opacity = '';                      // back to invisible
+      }
     }
 
     // ---------- sound ----------
