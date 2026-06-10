@@ -542,11 +542,24 @@ function getTodayMetrics() {
  * Chicago time so the client can render the tape without doing date math.
  * Array is sorted oldest → newest.
  */
+// Classify an order id as Direct vs eBay — mirrors the Floor Board's
+// inferChannel(): SO-/INV- prefixes and any non eBay-digit-dash id are Direct.
+function _floorOrderIsDirect(orderId) {
+  var u = String(orderId || "").trim().toUpperCase();
+  if (!u) return false;                                  // unknown → count with eBay so the split sums to the total
+  if (u.indexOf("SO-") === 0 || u.indexOf("INV-") === 0) return true;
+  if (/^[0-9][0-9\-]+$/.test(u)) return false;           // clean eBay digit-dash id
+  return true;
+}
+
 function getDashboardSnapshot() {
   var result = {
     shippedToday:         0,
     receivedToday:        0,
+    receivedEbay:         0,    // today's intake split by channel (Received-card breakdown)
+    receivedDirect:       0,
     oldestPendingMinutes: null,
+    pastRedlineCount:     0,    // # of PENDING orders aged past the 3h redline
     pendingCount:         0,
     lastSyncMinutes:      null,
     ebayPending:          0,
@@ -591,7 +604,13 @@ function getDashboardSnapshot() {
           var isToday = (eventDateStr === todayStr);
 
           if (isToday) {
-            if (event === "RECEIVED")     result.receivedToday++;
+            if (event === "RECEIVED") {
+              result.receivedToday++;
+              // channel by order-id shape (mirrors the board's inferChannel);
+              // anything not a clean eBay digit-dash id counts as Direct.
+              if (_floorOrderIsDirect(orderId)) result.receivedDirect++;
+              else                              result.receivedEbay++;
+            }
             else if (event === "SHIPPED") result.shippedToday++;
 
             // Timeline entry — convert to 0..24 hour fraction in Chicago TZ
@@ -668,6 +687,8 @@ function getDashboardSnapshot() {
             if (oldestMs === null || receivedMap[oid] < oldestMs) {
               oldestMs = receivedMap[oid];
             }
+            // how many are aging past the 3h redline (companion to the oldest figure)
+            if (Date.now() - receivedMap[oid] > 180 * 60000) result.pastRedlineCount++;
           }
         }
         if (oldestMs !== null) {

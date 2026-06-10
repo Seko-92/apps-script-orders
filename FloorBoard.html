@@ -258,7 +258,7 @@
     /* ─────────── HERO STRIP ─────────── */
     .hero {
       display: grid;
-      grid-template-columns: 1.7fr 1fr 1fr;
+      grid-template-columns: 1.7fr 1fr 1fr 1fr;
       gap: 16px;
       align-items: stretch;
     }
@@ -396,19 +396,24 @@
       color: var(--brand-rim);
     }
     .grab-num {
-      position: relative; z-index: 1;
+      /* absolutely centered on the orbit's own center — stays dead-centred
+         whether the count is 1, 2, or 3 digits (flex-centring drifted) */
+      position: absolute; top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      z-index: 1;
       font-family: 'Oswald', sans-serif;
       font-weight: 700;
       font-size: 80px;
       line-height: 0.9;
+      text-align: center;
       color: var(--paper);
       letter-spacing: -0.02em;
     }
     /* ── orbiting jewel around the live count — echoes the night dial ── */
-    .grab-numwrap { position: relative; flex: 0 0 108px; width: 108px; height: 108px; display: flex; align-items: center; justify-content: center; }
+    .grab-numwrap { position: relative; flex: 0 0 118px; width: 118px; height: 118px; display: flex; align-items: center; justify-content: center; }
     .grab-orbit {
       position: absolute; top: 50%; left: 50%;
-      width: 104px; height: 104px; margin: -52px 0 0 -52px;
+      width: 114px; height: 114px; margin: -57px 0 0 -57px;   /* clears a two-digit count cleanly */
       border-radius: 50%;
       border: 1px solid rgba(245,245,242,0.09);
       pointer-events: none;
@@ -423,11 +428,11 @@
     /* odometer roll — the number rolls up into place on any change */
     .grab-num.roll { animation: numRoll 0.42s cubic-bezier(.2,1.1,.3,1); }
     @keyframes numRoll {
-      0%   { transform: translateY(42%); opacity: 0; filter: blur(1.5px); }
-      100% { transform: translateY(0);   opacity: 1; filter: blur(0); }
+      0%   { transform: translate(-50%, -8%);  opacity: 0; filter: blur(1.5px); }
+      100% { transform: translate(-50%, -50%); opacity: 1; filter: blur(0); }
     }
     .grab-num.zero { color: var(--mute-soft); }
-    .grab-num.pop { transform: scale(1.08); }
+    .grab-num.pop { transform: translate(-50%, -50%) scale(1.08); }
     .grab-split {
       display: flex;
       gap: 30px;
@@ -476,6 +481,7 @@
       overflow: hidden;
     }
     .mini-bar.ghost { visibility: hidden; }   /* keeps Shipped card the same height */
+    .mini-share { margin: 9px 0 7px; }        /* Received channel-share bar — aligns with .mini-bar */
     .mini-bar-fill {
       height: 100%;
       width: 0;
@@ -489,11 +495,13 @@
       background: var(--ink-card);
       border: 1px solid var(--ink-rim);
       border-radius: 16px;
-      padding: 18px 24px;
+      padding: 20px 24px;
       display: flex;
       flex-direction: column;
-      justify-content: center;
+      justify-content: space-between;   /* label top · number mid · sub bottom — fills the card */
     }
+    /* the number + its bar travel together in the card's middle band */
+    .mini-core { display: flex; flex-direction: column; justify-content: center; flex: 1; }
     .mini-label {
       font-family: 'Oswald', sans-serif;
       font-weight: 500;
@@ -505,9 +513,8 @@
     .mini-value {
       font-family: 'Oswald', sans-serif;
       font-weight: 700;
-      font-size: 52px;
+      font-size: 58px;
       line-height: 1;
-      margin-top: 4px;
       color: var(--paper);
     }
     .mini-value.warn { color: var(--amber-warn); }
@@ -659,8 +666,8 @@
       transition: grid-template-columns 0.55s cubic-bezier(.4,0,.2,1);
     }
     /* ── ADAPTIVE MODES — space is earned by live data ── */
-    .board.mode-busy     .mid { grid-template-columns: 2.3fr 1fr; }  /* picks lead + shine */
-    .board.mode-balanced .mid { grid-template-columns: 1.35fr 1fr; }
+    .board.mode-busy     .mid { grid-template-columns: 1.5fr 1fr; }  /* picks lead, feed still readable */
+    .board.mode-balanced .mid { grid-template-columns: 1.15fr 1fr; }
     .board.mode-quiet    .mid { grid-template-columns: 1fr; }        /* rest fills the room */
     .board.mode-busy .feed.primary {
       border-color: rgba(255,212,0,0.40);
@@ -981,10 +988,10 @@
     .feed-list::-webkit-scrollbar { width: 0; }
     .feed-row {
       display: grid;
-      grid-template-columns: 80px 104px 1fr auto;
+      grid-template-columns: 60px 84px 1fr auto;   /* tightened so the full order id fits */
       align-items: center;
-      gap: 14px;
-      padding: 11px 22px;
+      gap: 12px;
+      padding: 11px 18px;
       border-bottom: 1px solid var(--mute-faint);
     }
     .feed-row.enter { animation: slideIn 0.5s cubic-bezier(.2,1,.3,1); }
@@ -1237,17 +1244,30 @@
 
       <div class="mini">
         <div class="mini-label">Oldest waiting</div>
-        <div class="mini-value" id="oldestVal">—</div>
-        <div class="mini-bar"><div class="mini-bar-fill" id="oldestBar"></div></div>
+        <div class="mini-core">
+          <div class="mini-value" id="oldestVal">—</div>
+          <div class="mini-bar"><div class="mini-bar-fill" id="oldestBar"></div></div>
+        </div>
         <div class="mini-sub" id="oldestSub">nothing pending</div>
       </div>
 
       <div class="mini">
         <div class="mini-label">Shipped today</div>
-        <div class="mini-value" id="shippedVal">—</div>
-        <div class="mini-bar"><div class="mini-bar-fill" id="throughBar"></div></div>
+        <div class="mini-core">
+          <div class="mini-value" id="shippedVal">—</div>
+          <div class="mini-bar"><div class="mini-bar-fill" id="throughBar"></div></div>
+        </div>
         <div class="mini-pace" id="shippedPace">&nbsp;</div>
         <div class="mini-sub" id="shippedSub">&nbsp;</div>
+      </div>
+
+      <div class="mini">
+        <div class="mini-label">Received today</div>
+        <div class="mini-core">
+          <div class="mini-value" id="receivedVal">—</div>
+          <div class="grab-share mini-share"><i class="se" id="recShareE"></i><i class="sd" id="recShareD"></i></div>
+        </div>
+        <div class="mini-sub" id="receivedSub">&nbsp;</div>
       </div>
     </div>
 
@@ -1874,7 +1894,11 @@
       } else {
         ov.textContent = fmtDur(oldest);
         bar.style.width = Math.min(100, (oldest / 180) * 100) + '%';   // 3h redline
-        if (oldest >= 180)      { ov.classList.add('hot');  bar.classList.add('hot');  os.textContent = 'past the 3h line'; }
+        if (oldest >= 180) {
+          ov.classList.add('hot');  bar.classList.add('hot');
+          var pastN = num(c.pastRedlineCount);
+          os.textContent = pastN > 0 ? (pastN + ' past the 3h line') : 'past the 3h line';
+        }
         else if (oldest >= 60)  { ov.classList.add('warn'); bar.classList.add('warn'); os.textContent = 'getting old'; }
         else                    { os.textContent = 'fresh'; }
       }
@@ -1902,7 +1926,19 @@
       var tb = document.getElementById('throughBar');
       if (tb) tb.style.width = pct + '%';
       document.getElementById('shippedSub').innerHTML =
-        rec > 0 ? (rec + ' received · ' + pct + '% out') : '&nbsp;';
+        rec > 0 ? (pct + '% of today out') : '&nbsp;';
+
+      // Received today — its own card; channel split mirrors ORDERS TO GRAB
+      var rv = document.getElementById('receivedVal');
+      if (rv) rv.textContent = rec;
+      var re = num(c.receivedEbay), rd = num(c.receivedDirect);
+      var rse = document.getElementById('recShareE'), rsd = document.getElementById('recShareD');
+      if (rse && rsd) {
+        rse.style.width = (rec ? (re / rec * 100) : 0) + '%';
+        rsd.style.width = (rec ? (rd / rec * 100) : 0) + '%';
+      }
+      var rs = document.getElementById('receivedSub');
+      if (rs) rs.innerHTML = (re + rd) > 0 ? ('eBay ' + re + ' · Direct ' + rd) : '&nbsp;';
     }
 
     // ---------- PACE ("on pace for N by 5pm") ----------

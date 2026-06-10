@@ -4176,6 +4176,13 @@ function _renderDayTape(events) {
  *   > 60m → "stale" (red — this is the n8n-is-down signal)
  *   null → "unknown" (gray, no animation)
  */
+// Shop open 9–5 Houston — off-hours a stale sync is expected, so don't alarm.
+function _isOffHoursHouston() {
+  try {
+    var h = parseInt(new Date().toLocaleString('en-US', { timeZone: 'America/Chicago', hour: '2-digit', hour12: false }), 10);
+    return isNaN(h) ? false : (h < 9 || h >= 17);
+  } catch (e) { return false; }
+}
 function _renderSystemPulse(minutes) {
   var pulse = document.getElementById('cockpitPulse');
   var text  = document.getElementById('cockpitPulseText');
@@ -4197,16 +4204,20 @@ function _renderSystemPulse(minutes) {
   else               label = Math.floor(m / 1440) + 'd';
   text.textContent = label;
 
+  var off = _isOffHoursHouston();
   if (m < 15)      pulse.classList.add('fresh');
   else if (m < 60) pulse.classList.add('warn');
+  else if (off)    pulse.classList.add('warn');   // off-hours: stale is expected — amber, not alarming red
   else             pulse.classList.add('stale');
 
   // Tooltip carries the longer story
-  pulse.title = 'System Pulse — n8n synced ' +
-    (m < 1 ? 'just now' :
-     m < 60 ? (m + ' min ago') :
-     m < 1440 ? (Math.floor(m / 60) + 'h ' + (m % 60) + 'm ago') :
-     (Math.floor(m / 1440) + ' days ago'));
+  pulse.title = (off && m >= 60)
+    ? 'System Pulse — resting · off hours (shop open 9–5)'
+    : 'System Pulse — n8n synced ' +
+      (m < 1 ? 'just now' :
+       m < 60 ? (m + ' min ago') :
+       m < 1440 ? (Math.floor(m / 60) + 'h ' + (m % 60) + 'm ago') :
+       (Math.floor(m / 1440) + ' days ago'));
 }
 
 /**
