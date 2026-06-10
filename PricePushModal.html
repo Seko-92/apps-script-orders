@@ -164,6 +164,30 @@
     .status.shown { opacity: 1; transform: translateX(-50%) translateY(0); }
     .status.error { background: var(--red-ink); color: #fff; }
 
+    /* ----- LOADING OVERLAY (during the synchronous n8n price push) ----- */
+    /* The push fires n8n synchronously and can take up to a minute — without
+       a clear overlay the greyed buttons read as a frozen window and a picker
+       might force-close mid-write. */
+    .px-overlay {
+      position: fixed; inset: 0; z-index: 200;
+      background: rgba(26, 26, 26, 0.82);
+      display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px;
+      opacity: 0; pointer-events: none; transition: opacity 160ms;
+    }
+    .px-overlay.shown { opacity: 1; pointer-events: all; }
+    .px-spinner {
+      width: 46px; height: 46px; border-radius: 50%;
+      border: 4px solid rgba(255, 212, 0, 0.22); border-top-color: var(--brand-yellow);
+      animation: px-spin 0.8s linear infinite;
+    }
+    @keyframes px-spin { to { transform: rotate(360deg); } }
+    .px-overlay-msg {
+      font-family: 'Oswald', sans-serif; font-size: 15px; font-weight: 700;
+      letter-spacing: 0.08em; text-transform: uppercase; color: var(--brand-yellow);
+      text-align: center; padding: 0 24px;
+    }
+    .px-overlay-sub { font-family: 'Roboto', sans-serif; font-size: 12px; color: #d0d0d0; margin-top: -6px; text-align: center; padding: 0 24px; }
+
     .done { padding: 22px 24px; }
     .done-head { text-align: center; margin-bottom: 14px; }
     .done-icon { font-size: 34px; }
@@ -198,6 +222,13 @@
       </div>
     </div>
     <div class="status" id="statusBar"></div>
+  </div>
+
+  <!-- LOADING OVERLAY — shown while applyPricePush runs (synchronous n8n write) -->
+  <div class="px-overlay" id="pxOverlay">
+    <div class="px-spinner"></div>
+    <div class="px-overlay-msg" id="pxOverlayMsg">Writing to Zoho…</div>
+    <div class="px-overlay-sub">This can take up to a minute — please don't close this window</div>
   </div>
 
   <script>
@@ -333,6 +364,7 @@
       document.getElementById('btnApply').disabled = true;
       document.getElementById('btnCancel').disabled = true;
       showStatus('Writing ' + checked.length + ' price(s) to Zoho…');
+      showOverlay('Writing ' + checked.length + ' price(s) to Zoho');
 
       google.script.run
         .withSuccessHandler(onApplyOk)
@@ -342,6 +374,7 @@
 
     function onApplyOk(res) {
       busy = false;
+      hideOverlay();
       if (!res || !res.ok) {
         document.getElementById('btnApply').disabled = false;
         document.getElementById('btnCancel').disabled = false;
@@ -353,6 +386,7 @@
 
     function onApplyFail(err) {
       busy = false;
+      hideOverlay();
       document.getElementById('btnApply').disabled = false;
       document.getElementById('btnCancel').disabled = false;
       showStatus('✗ Server error: ' + (err && err.message ? err.message : err), true);
@@ -396,6 +430,14 @@
       el.className = 'status shown' + (isError ? ' error' : '');
       clearTimeout(_statusT);
       _statusT = setTimeout(function() { el.classList.remove('shown'); }, isError ? 4500 : 2200);
+    }
+
+    function showOverlay(msg) {
+      document.getElementById('pxOverlayMsg').textContent = (msg || 'Working') + '…';
+      document.getElementById('pxOverlay').classList.add('shown');
+    }
+    function hideOverlay() {
+      document.getElementById('pxOverlay').classList.remove('shown');
     }
 
     function fmt(n) {

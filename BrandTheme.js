@@ -56,7 +56,8 @@ var BRAND = {
  *   - Paid SHIP COST: yellow bg + bold (the "money on the line" cue)
  *   - Buyer Note CF: italic muted gold (subtle audit overlay)
  *   - Banner E1: live System Pulse from Activity Log MAX(A:A) + minutes-since
- *   - Banner G1: live COUNTIF-based status counts + today total from __SparkData
+ *   - Banner F1 (Schema.cellStats): live COUNTIF status counts + an event-driven
+ *     "work-shape" block bar (█ to-grab / ▒ in-prep / ░ headroom) + today total
  *
  * Parameterized: when called without arguments, targets MAIN_SHEET_NAME (production).
  * Pass a sheet name to target a different sheet — used by VisualLab.testServiceBay()
@@ -1528,13 +1529,37 @@ function _setSystemPulseBannerFormulas(sheet) {
   // INCLUDES the formula cell itself — Sheets refuses with #REF! "Circular
   // dependency detected." Starting at F4 skips the entire banner zone (rows
   // 1-3) and only counts real data rows.
-  var statusRangeStart = 'F' + Schema.dataStartRow;        // e.g. "F4"
+  // Live status counts + a "work-shape" bar — a zero-cost, trigger-free
+  // creative touch. It is NOT volatile (no NOW()), so it recalcs ONLY when
+  // column F changes — i.e. when the real floor moves (order lands, status
+  // flips). That event-driven recalc IS the animation: no time trigger, no
+  // Apps Script quota, negligible perf (a handful of COUNTIFs over one column).
+  //
+  // The bar is a plain ASCII load meter — REPT("|", ...) inside [ ] — capped at
+  // 12, so it can't trip a Sheets "Formula parse error" and never mangles on
+  // paste. Its length = the active queue (PENDING+PREPARING); it grows when
+  // busy and collapses to "[clear]" when the floor empties. It gauges the
+  // PERSISTENT queue on purpose: SHIPPED eBay rows get deleted off the sheet,
+  // so a SHIPPED-based bar would read near-empty and mislead.
+  //
+  // DO NOT reintroduce LET() here — it threw "Formula parse error" on the live
+  // sheet (2026-06-05). Plain & concatenation is universally supported. The
+  // "◢ N today" tail was dropped so F1 fits one line at fixed row height (the
+  // merged F1 cell also needs Format → Wrapping → Clip so it never expands).
+  //
+  // CRITICAL: range MUST start at Schema.dataStartRow (F4), not F:F — F:F
+  // would include the formula cell (F1 since the 2026-05-19 compaction) and
+  // throw #REF! circular dependency. F4 also skips the banner rows; COUNTIF
+  // matches exact status words so the divider/header rows in between are inert.
+  var dataRange = 'F' + Schema.dataStartRow + ':F';        // e.g. "F4:F"
   sheet.getRange(Schema.cellStats).setFormula(
-    '="🔴 "&COUNTIF(' + statusRangeStart + ':F,"PENDING")&' +
-    '"   🟡 "&COUNTIF(' + statusRangeStart + ':F,"PREPARING")&' +
-    '"   🟢 "&COUNTIF(' + statusRangeStart + ':F,"SHIPPED")&' +
-    '"   ⚫ "&COUNTIF(' + statusRangeStart + ':F,"CANCELED")&' +
-    '"      ◢ "&IFERROR(SUM(\'__SparkData\'!A1:X1),0)&" TODAY"'
+    '="🔴 "&COUNTIF(' + dataRange + ',"PENDING")&' +
+    '"  🟡 "&COUNTIF(' + dataRange + ',"PREPARING")&' +
+    '"  🟢 "&COUNTIF(' + dataRange + ',"SHIPPED")&' +
+    '"  ⚫ "&COUNTIF(' + dataRange + ',"CANCELED")&' +
+    '"   "&IF(COUNTIF(' + dataRange + ',"PENDING")+COUNTIF(' + dataRange + ',"PREPARING")=0,' +
+    '"[clear]",' +
+    '"["&REPT("|",MIN(12,COUNTIF(' + dataRange + ',"PENDING")+COUNTIF(' + dataRange + ',"PREPARING")))&"]")'
   );
 }
 

@@ -377,6 +377,29 @@
       color: #fff;
     }
 
+    /* ----- LOADING OVERLAY (during applyZohoPullSelection) ----- */
+    /* Covers the modal while DIRECT rows are written — replaces the
+       greyed-buttons-only feedback that read as a frozen window. */
+    .zp-overlay {
+      position: fixed; inset: 0; z-index: 200;
+      background: rgba(26, 26, 26, 0.82);
+      display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px;
+      opacity: 0; pointer-events: none; transition: opacity 160ms;
+    }
+    .zp-overlay.shown { opacity: 1; pointer-events: all; }
+    .zp-spinner {
+      width: 46px; height: 46px; border-radius: 50%;
+      border: 4px solid rgba(255, 212, 0, 0.22); border-top-color: var(--brand-yellow);
+      animation: zp-spin 0.8s linear infinite;
+    }
+    @keyframes zp-spin { to { transform: rotate(360deg); } }
+    .zp-overlay-msg {
+      font-family: 'Oswald', sans-serif; font-size: 15px; font-weight: 700;
+      letter-spacing: 0.08em; text-transform: uppercase; color: var(--brand-yellow);
+      text-align: center; padding: 0 24px;
+    }
+    .zp-overlay-sub { font-family: 'Roboto', sans-serif; font-size: 12px; color: #d0d0d0; margin-top: -6px; text-align: center; padding: 0 24px; }
+
     /* ----- DONE SCREEN (after Apply succeeds) ----- */
     .done {
       padding: 30px 24px;
@@ -435,6 +458,13 @@
     </div>
 
     <div class="status" id="statusBar"></div>
+  </div>
+
+  <!-- LOADING OVERLAY — shown while applyZohoPullSelection writes DIRECT rows -->
+  <div class="zp-overlay" id="zpOverlay">
+    <div class="zp-spinner"></div>
+    <div class="zp-overlay-msg" id="zpOverlayMsg">Applying changes…</div>
+    <div class="zp-overlay-sub">Writing rows to the sheet — please don't close this window</div>
   </div>
 
   <script>
@@ -761,6 +791,7 @@
       document.getElementById('btnApply').disabled = true;
       document.getElementById('btnCancel').disabled = true;
       showStatus('Applying ' + selections.length + ' change(s)…');
+      showOverlay('Applying ' + selections.length + ' change(s)');
 
       google.script.run
         .withSuccessHandler(onApplyOk)
@@ -770,6 +801,7 @@
 
     function onApplyOk(res) {
       busy = false;
+      hideOverlay();
       if (!res || !res.ok) {
         document.getElementById('btnApply').disabled = false;
         document.getElementById('btnCancel').disabled = false;
@@ -782,6 +814,7 @@
 
     function onApplyFail(err) {
       busy = false;
+      hideOverlay();
       document.getElementById('btnApply').disabled = false;
       document.getElementById('btnCancel').disabled = false;
       showStatus('✗ Server error: ' + (err && err.message ? err.message : err), true);
@@ -830,6 +863,14 @@
       el.className = 'status shown' + (isError ? ' error' : '');
       clearTimeout(_statusT);
       _statusT = setTimeout(function() { el.classList.remove('shown'); }, isError ? 4500 : 2200);
+    }
+
+    function showOverlay(msg) {
+      document.getElementById('zpOverlayMsg').textContent = (msg || 'Working') + '…';
+      document.getElementById('zpOverlay').classList.add('shown');
+    }
+    function hideOverlay() {
+      document.getElementById('zpOverlay').classList.remove('shown');
     }
 
     // ------------------------------------------------------------------
