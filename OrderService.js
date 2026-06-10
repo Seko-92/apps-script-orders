@@ -1318,8 +1318,14 @@ function clearDebugLog() {
 // ═══════════════════════════════════════════════════════════════════════════════════════
 
 function setWebhook() {
-  // Note: WEB_APP_URL is now defined in Secrets.js
-  var response = UrlFetchApp.fetch("https://api.telegram.org/bot" + TELEGRAM_BOT_TOKEN + "/setWebhook?url=" + WEB_APP_URL);
+  // The bot's webhook MUST point at the n8n Telegram Button Handler workflow
+  // (N8N_TELEGRAM_CALLBACK_WEBHOOK_URL in Secrets.js), NOT at WEB_APP_URL.
+  // Apps Script /exec always answers with a 302 redirect, which Telegram
+  // rejects ("Wrong response from the webhook: 302 Moved Temporarily") — so
+  // pointing the webhook at Apps Script silently kills every button click.
+  // That exact mistake broke the Telegram buttons after the 2026-05-31 VPS
+  // migration (fixed 2026-06-10). Flow: Telegram → n8n → doPost.
+  var response = UrlFetchApp.fetch("https://api.telegram.org/bot" + TELEGRAM_BOT_TOKEN + "/setWebhook?url=" + N8N_TELEGRAM_CALLBACK_WEBHOOK_URL);
   Logger.log(response.getContentText());
 }
 
