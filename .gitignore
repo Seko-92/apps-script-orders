@@ -13,11 +13,14 @@ Screenshots/
 *.csv
 
 # Personal / internal documentation (not for public repo)
+Learning/
 CLAUDE.md
 CONTRACTS.md
 TESTING_SETUP.md
 SECURITY_SETUP.md
 VPS_INFRA.md
+FEEDBACK_AUTOMATION_BUILD.md
+EBAY_ANALYTICS_BUILD.md
 
 # Claude Code per-user configuration
 .claude/
