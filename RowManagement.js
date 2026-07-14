@@ -204,33 +204,9 @@ var SKU_DUPE_COLORS = [
   ["#80cbc4", "#00695c"],  // Aquamarine / Emerald
 ];
 
-/**
- * Bold border colors for duplicate Sales Order group indicators.
- * Each group gets a thick colored LEFT border on column D.
- * 20 distinctive colors that cycle if more groups exist.
- */
-var ORDER_BORDER_COLORS = [
-  "#1a73e8",  // Google Blue
-  "#e53935",  // Red
-  "#43a047",  // Green
-  "#fb8c00",  // Orange
-  "#8e24aa",  // Purple
-  "#00acc1",  // Cyan
-  "#d81b60",  // Pink
-  "#6d4c41",  // Brown
-  "#3949ab",  // Indigo
-  "#00897b",  // Teal
-  "#c0ca33",  // Lime
-  "#f4511e",  // Deep Orange
-  "#5e35b1",  // Deep Purple
-  "#039be5",  // Light Blue
-  "#7cb342",  // Light Green
-  "#ffb300",  // Amber
-  "#1e88e5",  // Blue
-  "#e91e63",  // Hot Pink
-  "#26a69a",  // Medium Teal
-  "#546e7a",  // Blue Grey
-];
+// (ORDER_BORDER_COLORS removed 2026-07-14 — the colored left-border tabs
+// were replaced by the SO badge glyphs, which survive B&W printing and
+// scattered rows. Git history has the palette if ever wanted back.)
 
 // =======================================================================================
 // HIGHLIGHT DUPLICATE SKUs (Per-Group, Bright, Auto-Refresh)
@@ -339,12 +315,43 @@ function clearAllDuplicateHighlights() {
 // DUPLICATE SALES ORDER BORDERS (Per-Group, Colored Left Border Tabs)
 // =======================================================================================
 
+// Keycap digits 1-10 — the SO BADGE glyph set (2026-07-14, final form).
+// Rendered via NUMBER FORMAT prefix ONLY (display layer): the cell VALUE
+// stays the clean order id, so every machine reader is untouched — n8n's
+// four All-Orders reader nodes (pinned to UNFORMATTED_VALUE), the
+// updateOrderStatus col-D matcher, dedupe, and the rich-text order links.
+// Same device as the ▣ kit marker and the ▌ DIRECT divider.
+//
+// WHY KEYCAP EMOJI (the glyph saga, condensed): the filled circled digits
+// (❶❷❸) are illegible at the table's 10px, and making ONLY the glyph render
+// larger is IMPOSSIBLE — Sheets normalizes cell-level font writes and
+// rich-text run styles into each other on every write (setFontSizes stomps
+// run sizes; setRichTextValue resets the cell default from the runs), so a
+// format prefix can never durably out-size the value text beside it. Two
+// shipped attempts proved this. Keycap emoji solve it a different way:
+// they render as colored squares visually LARGER than letterforms at the
+// SAME font size — instantly distinguishable, table stays uniform 10px.
+// The PRINT pick list maps the badge to a drawn ink circle-digit instead
+// (emoji print as gray mush on B&W; see _badgeFromFormat + .so-badge).
+// Numbering restarts per TABLE (eBay / DIRECT) and cycles past 10 — a badge
+// only needs to be unique among the currently-visible multi-item orders of
+// its own table.
+var SO_BADGE_GLYPHS = ["1️⃣","2️⃣","3️⃣","4️⃣","5️⃣","6️⃣","7️⃣","8️⃣","9️⃣","🔟"];
+
 /**
- * Applies colored left border tabs on Column D for duplicate Sales Order groups.
- * Each group gets a unique thick left border color — no background fill.
- * Clears all previous borders first, then re-applies for current duplicates.
- * Skips DIRECT boundary row and its header.
- * Called from onOpen() and auto-refreshed on edits.
+ * Multi-item Sales Order marking on Column D — the SO BADGE:
+ * a keycap digit (1️⃣2️⃣3️⃣…) prefixed via number format on every row of the
+ * group. Survives the aisle sort's scattering (repeated on every row of the
+ * group); the print pick list reads the SAME format and renders it as a
+ * drawn ink circle-digit (B&W-crisp). The table stays uniform 10px — the
+ * keycap's salience comes from the glyph itself, not font size. (The
+ * colored left-border tabs this replaced were dropped 2026-07-14; the
+ * band-wide border clear remains so legacy bars self-wipe.)
+ * Clears stale borders AND stale badge formats first, then re-applies for
+ * current duplicates. Skips DIRECT boundary row and its header.
+ * Called from onOpen(), auto-refreshed on edits/inserts, and re-run by
+ * sortTableByStatusAndLocation (formats travel with the sort, but the
+ * repaint keeps assignment canonical — ▣ lesson).
  */
 function setupDuplicateSalesOrderHighlighting() {
   var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
@@ -400,23 +407,61 @@ function setupDuplicateSalesOrderHighlighting() {
     if (orderCount[order] > 1) duplicateOrders.push(order);
   }
 
-  if (duplicateOrders.length === 0) return null;
-
-  // 4. Apply thick colored left border per group
-  for (var i = 0; i < duplicateOrders.length; i++) {
-    var color = ORDER_BORDER_COLORS[i % ORDER_BORDER_COLORS.length];
-    var rows = orderRows[duplicateOrders[i]];
-
-    for (var j = 0; j < rows.length; j++) {
-      var cell = sheet.getRange(rows[j], Schema.cols.SALES_ORDER);
-      cell.setBorder(null, true, null, null, null, null, color, SpreadsheetApp.BorderStyle.SOLID_THICK);
-    }
+  // 3b. SO BADGES — rebuild column D's number formats over the whole clear
+  // band in ONE batched write. Default '@' (plain text: clears stale badges
+  // when a group dissolves AND guards order ids against date coercion);
+  // multi-item groups get '"❶ "@' etc. Boundary + DIRECT-header rows keep
+  // whatever format they already carry. Runs even when there are NO
+  // duplicates — that's what erases the last badge when a group shrinks to
+  // one row.
+  var bandFormats = fullRange.getNumberFormats();
+  for (var f = 0; f < bandFormats.length; f++) {
+    var fRow = Schema.dataStartRow + f;
+    if (boundary > 0 && (fRow === boundary || fRow === boundary + 1)) continue;
+    bandFormats[f][0] = '@';
   }
 
+  // Per-table sequences, numbered top-to-bottom by each group's first row.
+  var ebaySeq = [];
+  var directSeq = [];
+  for (var d = 0; d < duplicateOrders.length; d++) {
+    var dupFirstRow = orderRows[duplicateOrders[d]][0];   // rows collected top-down
+    if (boundary > 0 && dupFirstRow > boundary) directSeq.push(duplicateOrders[d]);
+    else ebaySeq.push(duplicateOrders[d]);
+  }
+  var byFirstRow = function(a, b) { return orderRows[a][0] - orderRows[b][0]; };
+  ebaySeq.sort(byFirstRow);
+  directSeq.sort(byFirstRow);
+  [ebaySeq, directSeq].forEach(function(seq) {
+    for (var s = 0; s < seq.length; s++) {
+      var glyph = SO_BADGE_GLYPHS[s % SO_BADGE_GLYPHS.length];
+      var gRows = orderRows[seq[s]];
+      for (var g = 0; g < gRows.length; g++) {
+        bandFormats[gRows[g] - Schema.dataStartRow][0] = '"' + glyph + ' "@';
+      }
+    }
+  });
+  fullRange.setNumberFormats(bandFormats);
+
+  // 3c. Column font: uniform 10px across the band. Heals the 12px/14px
+  // residue from the abandoned size-split attempts (see the SO_BADGE_GLYPHS
+  // comment for why per-glyph sizing is impossible — the keycap glyphs carry
+  // their own visual weight at 10px instead).
+  var bandSizes = fullRange.getFontSizes();
+  for (var fs = 0; fs < bandSizes.length; fs++) {
+    var fsRow = Schema.dataStartRow + fs;
+    if (boundary > 0 && (fsRow === boundary || fsRow === boundary + 1)) continue;
+    bandSizes[fs][0] = 10;
+  }
+  fullRange.setFontSizes(bandSizes);
+
+  // COLOR BARS DROPPED (2026-07-14, user's call after living with both):
+  // the badge answers "which order" — the bar only ever answered "some
+  // group", spent scarce color budget, and died on B&W prints. The band-wide
+  // border CLEAR above (step 2) stays so legacy bars wipe themselves on the
+  // first repaint. Border-apply loop deleted; git history has it.
+
   // Force the clear-then-apply sequence to land before any subsequent reads.
-  // Without flush(), Sheets can batch the writes and the clear can lose to
-  // the re-apply in certain races, leaving stale borders on rows whose SO
-  // was just cleared or whose row was just deleted.
   SpreadsheetApp.flush();
 }
 

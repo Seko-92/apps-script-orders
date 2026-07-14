@@ -871,7 +871,12 @@ function _applyColumnLevelDataFormats(sheet) {
     .setHorizontalAlignment('center').setVerticalAlignment('middle');
 
   // D: SALES ORDER — Roboto Mono, regular, center (matches eBay convention,
-  //    centered since 2026-05-16 to fix DIRECT-table column-alignment drift)
+  //    centered since 2026-05-16 to fix DIRECT-table column-alignment drift).
+  //    Size stays 10 = the table's uniform rhythm. The SO badge glyph gets
+  //    its LARGER size from the painter (setupDuplicateSalesOrderHighlighting
+  //    raises the CELL font to 14 on badge rows while the id text is pinned
+  //    at 10 via its rich-text run) — do NOT bump this column-level size,
+  //    that was tried 2026-07-14 and read as inconsistent with the table.
   sheet.getRange(startRow, Schema.cols.SALES_ORDER, rows, 1)
     .setFontFamily(BRAND.fontMono).setFontColor(BRAND.ink)
     .setFontWeight('normal').setFontSize(10)

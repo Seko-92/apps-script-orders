@@ -154,6 +154,43 @@
       text-transform: none;
     }
 
+    /* UNPARSED warning banner — RED, not amber: lines in Zoho's Purchase
+       Description the registry parser could not read. Unlike READY (a
+       legitimate alternative path), this is a data-loss warning — the
+       checklist is INCOMPLETE until the item is fixed in Zoho. */
+    .unparsed-banner {
+      background: #ffe5e5;
+      border: 1px solid #ff8a8a;
+      border-left: 4px solid #d32f2f;
+      padding: 10px 14px;
+      margin: 10px 16px 0;
+      border-radius: 4px;
+      font-size: 12.5px;
+      color: #7a1010;
+      line-height: 1.5;
+    }
+    .unparsed-banner-title {
+      font-family: 'Oswald', sans-serif;
+      font-weight: 700;
+      font-size: 12px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: #8e0000;
+      margin-bottom: 4px;
+    }
+    .unparsed-banner .raw-line {
+      display: block;
+      font-family: 'Roboto Mono', monospace;
+      font-size: 11px;
+      background: #fff;
+      border: 1px dashed #ff8a8a;
+      border-radius: 3px;
+      padding: 2px 8px;
+      margin: 3px 0;
+      color: #7a1010;
+      white-space: pre-wrap;
+    }
+
     .kit-source-meta {
       font-family: 'Roboto Mono', monospace;
       font-size: 11px;
@@ -218,15 +255,23 @@
       min-height: 0;
       overflow: hidden;
     }
+    /* Column weights (2026-07-14 layout pass): the CHECKLIST is the
+       actionable surface — it gets ~62% of the width and never shrinks
+       below a working size. The Sales Description is reference text; it
+       reads fine narrower and scrolls in its own column, so long SDs can
+       no longer squeeze the component rows. */
     .col-left, .col-right {
-      flex: 1;
       overflow-y: auto;
       padding: 12px 16px;
+      min-width: 0;
     }
     .col-left {
+      flex: 1.6;
       border-right: 1px solid var(--rule);
     }
     .col-right {
+      flex: 1;
+      min-width: 250px;
       background: var(--paper-warm);
     }
     .col-label {
@@ -284,6 +329,14 @@
       font-size: 14px;
       color: var(--ink);
       text-align: right;
+      white-space: nowrap;   /* qty updates in place — never wraps the row */
+    }
+    /* Spares breakdown on the meta line ("4 × 3 kits") — brand-tinted so an
+       active spares multiplier reads at a glance; lives OUTSIDE the narrow
+       qty column so changing spares never reflows the checklist. */
+    .comp-meta .qty-breakdown {
+      color: #8a6d00;
+      font-weight: 600;
     }
     .comp-main {
       grid-row: 1;
@@ -614,6 +667,9 @@
     <!-- READY WARNING BANNER (hidden for MANUAL kits) -->
     <div class="ready-banner" id="readyBanner" style="display:none"></div>
 
+    <!-- UNPARSED-LINES WARNING (hidden unless the registry has ⚠ rows for this kit) -->
+    <div class="unparsed-banner" id="unparsedBanner" style="display:none"></div>
+
     <!-- BODY: two columns -->
     <div class="body" id="bodyEl">
       <div class="col-left">
@@ -731,6 +787,29 @@
         bannerEl.innerHTML = '';
       }
 
+      // UNPARSED-LINES warning — red banner listing the raw Zoho PD lines
+      // the registry parser could not read. Those components are NOT in the
+      // checklist below; the picker must know the kit may be incomplete.
+      var upEl = document.getElementById('unparsedBanner');
+      var upLines = kit.unparsedLines || [];
+      if (upLines.length > 0) {
+        var upHtml = ''
+          + '<div class="unparsed-banner-title">⚠ ' + upLines.length
+          + ' line(s) in Zoho could not be read — checklist is INCOMPLETE</div>';
+        for (var ui = 0; ui < upLines.length; ui++) {
+          upHtml += '<span class="raw-line">' + esc(upLines[ui]) + '</span>';
+        }
+        upHtml += 'Fix the Purchase Description in Zoho — format: '
+          + '<strong>- qty name 6-digit-SKU</strong> (allowed after the SKU: '
+          + '"(Deleted)", "*N", "+ packed-with note" — one SKU per line) — '
+          + 'then re-open this modal.';
+        upEl.innerHTML = upHtml;
+        upEl.style.display = 'block';
+      } else {
+        upEl.style.display = 'none';
+        upEl.innerHTML = '';
+      }
+
       // Footer button layout differs by kit type:
       //   MANUAL: [Cancel] [Skip] [Expand & Continue]   (primary = Expand)
       //   READY:  [Cancel] [⚠ Force Expand] [Skip · ship as box]  (primary = Skip)
@@ -787,16 +866,20 @@
         var checkedAttr = excludedSkus[c.sku] ? '' : 'checked';
         var basePerKit = (parseInt(c.qty) || 1) / rowQty;
         var displayQty = Math.round(basePerKit * totalKits);
-        // Show breakdown when extras > 0: "12 (4 × 3 kits)"
-        var qtyDisplay = currentExtras > 0
-          ? displayQty + '× <span style="font-size:10px;color:#5f5f5f;">(' + Math.round(basePerKit) + ' × ' + totalKits + ' kits)</span>'
-          : displayQty + '×';
+        // The qty cell shows ONLY the number ("12×") so it updates in place
+        // without reflowing the row (the old inline "(4 × 3 kits)" breakdown
+        // wrapped into a 3-line tower inside the 36px qty column — 2026-07-14
+        // layout feedback). The breakdown lives on the meta line instead,
+        // where there's horizontal room.
+        var breakdown = currentExtras > 0
+          ? ' · <span class="qty-breakdown">' + Math.round(basePerKit) + ' × ' + totalKits + ' kits</span>'
+          : '';
         compsHtml += ''
           + '<label class="comp' + missing + isExcluded + '" data-sku="' + esc(c.sku) + '">'
           +   '<input type="checkbox" class="comp-cb" ' + checkedAttr + ' '
           +     'data-sku="' + esc(c.sku) + '" '
           +     'onchange="onToggle(this)">'
-          +   '<span class="comp-qty">' + qtyDisplay + '</span>'
+          +   '<span class="comp-qty">' + displayQty + '×</span>'
           +   '<span class="comp-main">'
           +     '<span class="comp-sku">' + esc(c.sku) + '</span>'
           +     '<span class="comp-name">' + esc(c.name) + '</span>'
@@ -804,6 +887,7 @@
           +   '<span class="comp-meta">'
           +     '<span class="loc">' + esc(c.location || '—') + '</span>'
           +     (c.available != null ? ' · HAND ' + c.available : '')
+          +     breakdown
           +   '</span>'
           + '</label>';
       }

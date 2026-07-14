@@ -83,7 +83,15 @@ function expandKit(kitSku, deployQty) {
     return { found: false, reason: "Kit SKU not in registry", kitSku: sku };
   }
   if (!kit.components || kit.components.length === 0) {
-    return { found: false, reason: "Kit has no components in registry", kitSku: sku };
+    var upN = (kit.unparsedLines || []).length;
+    return {
+      found: false,
+      reason: upN > 0
+        ? ("Kit has NO readable components — " + upN + " unreadable line(s) in " +
+           "Zoho Purchase Description (see ⚠ UNPARSED rows in Kit Registry)")
+        : "Kit has no components in registry",
+      kitSku: sku
+    };
   }
 
   var dq = parseInt(deployQty);
@@ -107,7 +115,11 @@ function expandKit(kitSku, deployQty) {
     kitEngine:        kit.engine,
     salesDescription: kit.salesDescription || "",
     deployQty:        dq,
-    components:       components
+    components:       components,
+    // PD lines the registry parser couldn't read ("⚠ UNPARSED" rows).
+    // NOT expandable — surfaced as a warning banner in the modal so the
+    // picker knows the checklist below may be incomplete.
+    unparsedLines:    (kit.unparsedLines || []).slice()
   };
 }
 
@@ -261,7 +273,8 @@ function previewSelectedKits(deployQty) {
         kitEngine:        plan.kitEngine,
         salesDescription: plan.salesDescription,
         deployQty:        plan.deployQty,
-        components:       enriched
+        components:       enriched,
+        unparsedLines:    plan.unparsedLines || []
       }
     });
   }
@@ -814,7 +827,8 @@ function openKitExpansionModal(deployQty) {
         kitLocation:      k.plan.kitLocation,
         kitEngine:        k.plan.kitEngine,
         salesDescription: k.plan.salesDescription || "",
-        components:       k.plan.components    // base qty (×1) — modal re-scales
+        components:       k.plan.components,   // base qty (×1) — modal re-scales
+        unparsedLines:    k.plan.unparsedLines || []
       });
     }
 
@@ -861,9 +875,13 @@ function openKitExpansionModal(deployQty) {
     template.kitJson     = JSON.stringify(firstKit).replace(/<\//g, "<\\/");
     template.kitIndex    = 0;
 
+    // 1080×680 (was 920×620, enlarged 2026-07-14 layout pass): more room for
+    // the components checklist on kits with long Sales Descriptions. Sheets
+    // clamps the dialog to the viewport on smaller screens, so this is safe
+    // on laptops.
     var html = template.evaluate()
-      .setWidth(920)
-      .setHeight(620);
+      .setWidth(1080)
+      .setHeight(680);
     SpreadsheetApp.getUi().showModalDialog(html, "Kit Expansion · " + queue.length + " kit" + (queue.length > 1 ? "s" : ""));
 
     return {
@@ -908,8 +926,10 @@ function openKitExpansionModal(deployQty) {
  *                                  pre-assembled K-* box reserved for eBay
  *                                  matters more than picker time. Stamps
  *                                  "READY · forced" in Activity Log DETAIL
- *                                  and "⚠ FORCED" in the component NOTE
- *                                  prefix for audit visibility.
+ *                                  for audit visibility. (No on-sheet NOTE
+ *                                  marker since 2026-07-14 — a picker read
+ *                                  "⚠ FORCED" as a problem; the kit row's
+ *                                  K-* location already tells the story.)
  * @returns {{
  *   ok: boolean,
  *   committed: { kitSku, componentsAdded, excludedSkus, extras, totalKits, rowQty, forced } | null,
@@ -1090,10 +1110,12 @@ function _saveKitModalSession(sessionId, state) {
  *                                   per-kit input, NOT the cached userMultiplier).
  *                                   Min 1.
  * @param {boolean}  [force]      — when true, expand even if kit is READY.
- *                                   Annotates the component NOTE prefix
- *                                   ("⚠ FORCED") and Activity Log DETAIL
- *                                   ("READY · forced") so the override is
- *                                   visible on the sheet and in the audit.
+ *                                   Annotates the Activity Log DETAIL
+ *                                   ("READY · forced") so the override stays
+ *                                   auditable. No on-sheet NOTE marker
+ *                                   (2026-07-14 — pickers misread "⚠ FORCED"
+ *                                   as a problem; the K-* location is the
+ *                                   floor's indicator).
  * @returns {{ok, reason, componentsAdded, excludedSkus, extras, totalKits, rowQty, forced}}
  */
 function _commitOneKitForModal(queueItem, excludedSkus, multiplier, force) {
@@ -1198,10 +1220,12 @@ function _commitOneKitForModal(queueItem, excludedSkus, multiplier, force) {
   // Build kit-expansion NOTE prefix + merge buyer note.
   // When extras > 0, append the breakdown so picker (and audit reader) can
   // see why the QTY column is higher than what the customer ordered.
-  // When forced (READY kit overridden), append "⚠ FORCED" so the sheet
-  // itself surfaces that this kit was expanded instead of shipped as a box.
+  // NO "⚠ FORCED" note on force-expanded READY kits (removed 2026-07-14):
+  // a picker read the warning glyph as "something is wrong with this order"
+  // — user's call: the kit row's K-* LOCATION already tells the floor this
+  // was a pre-assembled box expanded into components. The force override
+  // remains fully auditable via the Activity Log DETAIL "(READY · forced)".
   var notePrefix = "↳ from KIT-" + rowSku;
-  if (isReadyForced) notePrefix += " · ⚠ FORCED";
   if (extras > 0) {
     notePrefix += " · deploy " + totalKits + " total ("
                 + rowQty + " for customer + " + extras + " for us)";

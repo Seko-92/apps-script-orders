@@ -3632,8 +3632,9 @@ body.dark-theme .footer-version { border-color: #2c2c2c; }
       </div>
 
       <button class="btn-primary" onclick="run('openPrepQueue')">Open Queue</button>
+      <button class="btn-secondary" onclick="run('refreshPrepQueueLocations')">📍 Refresh Locations</button>
       <button class="btn-danger" onclick="confirmClearPrepQueue()">Clear Queue</button>
-      <div class="empty-hint">Your personal todo list. Quick-add above, or type SKUs directly in the sheet.</div>
+      <div class="empty-hint">Your personal todo list. Quick-add above, or type SKUs directly in the sheet. Locations re-mirror from Master Inventory hourly — the ⟳ chip on the sheet shows the last refresh.</div>
       <details class="card-more">
         <summary>More tools</summary>
         <div class="card-more-content">
@@ -3654,7 +3655,7 @@ body.dark-theme .footer-version { border-color: #2c2c2c; }
     <div class="card-body">
       <button class="btn-primary" onclick="run('openOutOfStock')">Open Sheet</button>
       <button class="btn-secondary" onclick="run('refreshOutOfStock')">Refresh Now</button>
-      <div class="empty-hint">SKUs at zero or below in Master Inventory. Auto-refreshes weekly (Mon 6am).</div>
+      <div class="empty-hint">SKUs at zero or below in Master Inventory. Auto-refreshes hourly during work hours (6am–6pm Houston) — the ⟳ chip on the sheet shows the last refresh.</div>
       <details class="card-more">
         <summary>More tools</summary>
         <div class="card-more-content">

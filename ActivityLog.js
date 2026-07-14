@@ -69,20 +69,20 @@ var ACTIVITY_LOG = {
   // 1-based column positions
   cols: {
     TIMESTAMP: 1,   // A — real Date
-    EVENT:     2,   // B
-    ORDER_ID:  3,   // C
-    SKU:       4,   // D
-    QTY:       5,   // E
-    SOURCE:    6,   // F
-    DETAIL:    7,   // G — structured info (e.g. "from PENDING", "DIRECT manual")
-    NOTE:      8,   // H — free-text NOTE field from the order row at event time
-    PICKER:    9    // I — Pick ID for Shipping at time of event (warehouse-side only)
+    EVENT: 2,   // B
+    ORDER_ID: 3,   // C
+    SKU: 4,   // D
+    QTY: 5,   // E
+    SOURCE: 6,   // F
+    DETAIL: 7,   // G — structured info (e.g. "from PENDING", "DIRECT manual")
+    NOTE: 8,   // H — free-text NOTE field from the order row at event time
+    PICKER: 9    // I — Pick ID for Shipping at time of event (warehouse-side only)
   },
 
-  idx: function(name) { return ACTIVITY_LOG.cols[name] - 1; },
+  idx: function (name) { return ACTIVITY_LOG.cols[name] - 1; },
 
-  dataWidth:    9,
-  headerRow:    1,
+  dataWidth: 9,
+  headerRow: 1,
   dataStartRow: 2,
 
   headers: ["⏱ TIMESTAMP", "EVENT", "ORDER ID", "◈ SKU", "# QTY", "SOURCE", "DETAIL", "NOTE", "👤 PICKER"],
@@ -132,18 +132,18 @@ function setupActivityLogSheet() {
 
   sheet.getRange(ACTIVITY_LOG.headerRow, 1, 1, ACTIVITY_LOG.dataWidth)
     .setBorder(null, null, true, null, null, null,
-               '#ffd966', SpreadsheetApp.BorderStyle.SOLID_THICK);
+      '#ffd966', SpreadsheetApp.BorderStyle.SOLID_THICK);
 
   // --- COLUMN WIDTHS ---
   sheet.setColumnWidth(ACTIVITY_LOG.cols.TIMESTAMP, 160);
-  sheet.setColumnWidth(ACTIVITY_LOG.cols.EVENT,     110);
-  sheet.setColumnWidth(ACTIVITY_LOG.cols.ORDER_ID,  150);
-  sheet.setColumnWidth(ACTIVITY_LOG.cols.SKU,       110);
-  sheet.setColumnWidth(ACTIVITY_LOG.cols.QTY,        60);
-  sheet.setColumnWidth(ACTIVITY_LOG.cols.SOURCE,    110);
-  sheet.setColumnWidth(ACTIVITY_LOG.cols.DETAIL,    220);
-  sheet.setColumnWidth(ACTIVITY_LOG.cols.NOTE,      260);
-  sheet.setColumnWidth(ACTIVITY_LOG.cols.PICKER,    130);
+  sheet.setColumnWidth(ACTIVITY_LOG.cols.EVENT, 110);
+  sheet.setColumnWidth(ACTIVITY_LOG.cols.ORDER_ID, 150);
+  sheet.setColumnWidth(ACTIVITY_LOG.cols.SKU, 110);
+  sheet.setColumnWidth(ACTIVITY_LOG.cols.QTY, 60);
+  sheet.setColumnWidth(ACTIVITY_LOG.cols.SOURCE, 110);
+  sheet.setColumnWidth(ACTIVITY_LOG.cols.DETAIL, 220);
+  sheet.setColumnWidth(ACTIVITY_LOG.cols.NOTE, 260);
+  sheet.setColumnWidth(ACTIVITY_LOG.cols.PICKER, 130);
 
   // --- DATA AREA: column-level formats ---
   var maxDataRow = 5000;
@@ -182,19 +182,19 @@ function setupActivityLogSheet() {
     .setVerticalAlignment('middle');
 
   // --- BANDING (cream alternation) ---
-  sheet.getBandings().forEach(function(b) { try { b.remove(); } catch (e) {} });
+  sheet.getBandings().forEach(function (b) { try { b.remove(); } catch (e) { } });
   var bandRange = sheet.getRange(1, 1, maxDataRow, ACTIVITY_LOG.dataWidth);
   var band = bandRange.applyRowBanding(SpreadsheetApp.BandingTheme.LIGHT_GREY, true, false);
   band.setHeaderRowColor('#1d1d1b')
-      .setFirstRowColor('#ffffff')
-      .setSecondRowColor('#fff8e7');
+    .setFirstRowColor('#ffffff')
+    .setSecondRowColor('#fff8e7');
 
   // --- EVENT-COLUMN CONDITIONAL FORMATTING ---
   // Different colors per event type so the log is scannable at a glance.
   var existingRules = sheet.getConditionalFormatRules();
-  var keptRules = existingRules.filter(function(r) {
+  var keptRules = existingRules.filter(function (r) {
     var ranges = r.getRanges();
-    return !ranges.some(function(rg) {
+    return !ranges.some(function (rg) {
       return rg.getColumn() === ACTIVITY_LOG.cols.EVENT;
     });
   });
@@ -206,18 +206,18 @@ function setupActivityLogSheet() {
       .setRanges([eventRange])
       .build();
   }
-  keptRules.push(eventRule('RECEIVED',  '#fff8e7', '#1d1d1b'));   // cream
+  keptRules.push(eventRule('RECEIVED', '#fff8e7', '#1d1d1b'));   // cream
   keptRules.push(eventRule('PREPARING', '#ffd966', '#1d1d1b'));   // brand yellow
-  keptRules.push(eventRule('SHIPPED',   '#e8f5e9', '#1b5e20'));   // green
-  keptRules.push(eventRule('CANCELED',  '#f0f0f0', '#5f5f5f'));   // gray
-  keptRules.push(eventRule('PRINTED',   '#e3f2fd', '#0d47a1'));   // soft blue — printed/processed
-  keptRules.push(eventRule('NOTE',      '#fff4b0', '#1d1d1b'));   // soft yellow — note added/changed
-  keptRules.push(eventRule('FAILURE',   '#ff6b6b', '#ffffff'));   // red
+  keptRules.push(eventRule('SHIPPED', '#e8f5e9', '#1b5e20'));   // green
+  keptRules.push(eventRule('CANCELED', '#f0f0f0', '#5f5f5f'));   // gray
+  keptRules.push(eventRule('PRINTED', '#e3f2fd', '#0d47a1'));   // soft blue — printed/processed
+  keptRules.push(eventRule('NOTE', '#fff4b0', '#1d1d1b'));   // soft yellow — note added/changed
+  keptRules.push(eventRule('FAILURE', '#ff6b6b', '#ffffff'));   // red
 
   // Also drop any prior PICKER-column rule, then add: soft yellow tint when populated
-  keptRules = keptRules.filter(function(r) {
+  keptRules = keptRules.filter(function (r) {
     var ranges = r.getRanges();
-    return !ranges.some(function(rg) { return rg.getColumn() === ACTIVITY_LOG.cols.PICKER; });
+    return !ranges.some(function (rg) { return rg.getColumn() === ACTIVITY_LOG.cols.PICKER; });
   });
   var pickerRange = sheet.getRange(ACTIVITY_LOG.dataStartRow, ACTIVITY_LOG.cols.PICKER, dataRows, 1);
   // PICKER is now col I (was col H before NOTE was added at col H). Use a
@@ -236,12 +236,12 @@ function setupActivityLogSheet() {
   // a supervisor removes the "Buyer Note:" prefix, the rule stops matching
   // and the cell returns to its banded baseline appearance.
   // Drop any prior buyer-note rule on the NOTE column before re-adding.
-  keptRules = keptRules.filter(function(r) {
+  keptRules = keptRules.filter(function (r) {
     var bc = r.getBooleanCondition();
     if (!bc) return true;
     var formula = (bc.getCriteriaValues() || [''])[0] || '';
-    var ranges  = r.getRanges();
-    var isNoteRange = ranges.some(function(rg) {
+    var ranges = r.getRanges();
+    var isNoteRange = ranges.some(function (rg) {
       return rg.getColumn() === ACTIVITY_LOG.cols.NOTE && rg.getNumColumns() === 1;
     });
     return !(isNoteRange && formula.toLowerCase().indexOf('buyer note') !== -1);
@@ -357,7 +357,7 @@ function logActivity(event, orderId, sku, qty, source, detail, picker, note) {
       pickerOut
     ]);
   } catch (err) {
-    try { Logger.log("logActivity error: " + err); } catch (_) {}
+    try { Logger.log("logActivity error: " + err); } catch (_) { }
   }
 }
 
@@ -393,7 +393,7 @@ function logActivityBatch(rows) {
     }
 
     var now = new Date();
-    var withTs = rows.map(function(r) {
+    var withTs = rows.map(function (r) {
       var src = String(r[4] || "");
       var pickerOut = (r.length >= 7 && typeof r[6] === "string") ? r[6] : pickerFor(src);
       var noteOut = (r.length >= 8) ? String(r[7] || "") : "";
@@ -413,7 +413,7 @@ function logActivityBatch(rows) {
     var startRow = sheet.getLastRow() + 1;
     sheet.getRange(startRow, 1, withTs.length, ACTIVITY_LOG.dataWidth).setValues(withTs);
   } catch (err) {
-    try { Logger.log("logActivityBatch error: " + err); } catch (_) {}
+    try { Logger.log("logActivityBatch error: " + err); } catch (_) { }
   }
 }
 
@@ -505,7 +505,7 @@ function getTodayMetrics() {
       }
     }
   } catch (err) {
-    try { Logger.log("getTodayMetrics error: " + err); } catch (_) {}
+    try { Logger.log("getTodayMetrics error: " + err); } catch (_) { }
   }
 
   return result;
@@ -554,21 +554,21 @@ function _floorOrderIsDirect(orderId) {
 
 function getDashboardSnapshot() {
   var result = {
-    shippedToday:         0,
-    receivedToday:        0,
-    receivedEbay:         0,    // today's intake split by channel (Received-card breakdown)
-    receivedDirect:       0,
+    shippedToday: 0,
+    receivedToday: 0,
+    receivedEbay: 0,    // today's intake split by channel (Received-card breakdown)
+    receivedDirect: 0,
     oldestPendingMinutes: null,
-    pastRedlineCount:     0,    // # of PENDING orders aged past the 3h redline
-    pendingCount:         0,
-    lastSyncMinutes:      null,
-    ebayPending:          0,
-    directPending:        0,
-    ebayGrab:             0,
-    directGrab:           0,
-    zohoPending:          0,
-    prepQueueCount:       0,
-    timeline:             []
+    pastRedlineCount: 0,    // # of PENDING orders aged past the 3h redline
+    pendingCount: 0,
+    lastSyncMinutes: null,
+    ebayPending: 0,
+    directPending: 0,
+    ebayGrab: 0,
+    directGrab: 0,
+    zohoPending: 0,
+    prepQueueCount: 0,
+    timeline: []
   };
 
   try {
@@ -595,10 +595,10 @@ function getDashboardSnapshot() {
         for (var i = 0; i < data.length; i++) {
           var ts = data[i][ACTIVITY_LOG.idx("TIMESTAMP")];
           if (!(ts instanceof Date)) continue;
-          var event   = String(data[i][ACTIVITY_LOG.idx("EVENT")]  || "").toUpperCase();
+          var event = String(data[i][ACTIVITY_LOG.idx("EVENT")] || "").toUpperCase();
           var orderId = String(data[i][ACTIVITY_LOG.idx("ORDER_ID")] || "").trim();
-          var sku     = String(data[i][ACTIVITY_LOG.idx("SKU")]    || "").trim();
-          var picker  = String(data[i][ACTIVITY_LOG.idx("PICKER")] || "").trim();
+          var sku = String(data[i][ACTIVITY_LOG.idx("SKU")] || "").trim();
+          var picker = String(data[i][ACTIVITY_LOG.idx("PICKER")] || "").trim();
 
           var eventDateStr = Utilities.formatDate(ts, "America/Chicago", "yyyy-MM-dd");
           var isToday = (eventDateStr === todayStr);
@@ -609,7 +609,7 @@ function getDashboardSnapshot() {
               // channel by order-id shape (mirrors the board's inferChannel);
               // anything not a clean eBay digit-dash id counts as Direct.
               if (_floorOrderIsDirect(orderId)) result.receivedDirect++;
-              else                              result.receivedEbay++;
+              else result.receivedEbay++;
             }
             else if (event === "SHIPPED") result.shippedToday++;
 
@@ -619,10 +619,10 @@ function getDashboardSnapshot() {
               var mm = parseInt(Utilities.formatDate(ts, "America/Chicago", "m"), 10);
               result.timeline.push({
                 hourFraction: hh + (mm / 60),
-                event:        event,
-                orderId:      orderId,
-                sku:          sku,
-                picker:       picker
+                event: event,
+                orderId: orderId,
+                sku: sku,
+                picker: picker
               });
             }
           }
@@ -671,7 +671,7 @@ function getDashboardSnapshot() {
           // Queue-strip counts: PENDING + PREPARING = "workload waiting"
           if (status === Schema.status.PENDING || status === Schema.status.PREPARING) {
             if (inDirect) result.directPending++;
-            else          result.ebayPending++;
+            else result.ebayPending++;
           }
 
           // PENDING-only counters: pendingCount + per-channel "to grab".
@@ -681,7 +681,7 @@ function getDashboardSnapshot() {
           if (status !== Schema.status.PENDING) continue;
           result.pendingCount++;
           if (inDirect) result.directGrab++;
-          else          result.ebayGrab++;
+          else result.ebayGrab++;
           var oid = String(mainData[j][Schema.idx("SALES_ORDER")] || "").trim();
           if (oid && receivedMap[oid]) {
             if (oldestMs === null || receivedMap[oid] < oldestMs) {
@@ -701,8 +701,8 @@ function getDashboardSnapshot() {
       var match = String(syncRaw || "").match(/(\d{1,2}):(\d{2})\s*(AM|PM)/i);
       if (match) {
         var hour = parseInt(match[1], 10);
-        var min  = parseInt(match[2], 10);
-        var mer  = match[3].toUpperCase();
+        var min = parseInt(match[2], 10);
+        var mer = match[3].toUpperCase();
         if (mer === "PM" && hour < 12) hour += 12;
         if (mer === "AM" && hour === 12) hour = 0;
         // E1 is wall-clock time in the SPREADSHEET timezone (America/Chicago).
@@ -711,8 +711,8 @@ function getDashboardSnapshot() {
         // produced bogus multi-hour "stale" readings (2026-06-02 fix). Pure
         // minutes-of-day diff, midnight-wrapped.
         var nowParts = Utilities.formatDate(new Date(), "America/Chicago", "H:m").split(":");
-        var nowMin   = parseInt(nowParts[0], 10) * 60 + parseInt(nowParts[1], 10);
-        var syncMin  = hour * 60 + min;
+        var nowMin = parseInt(nowParts[0], 10) * 60 + parseInt(nowParts[1], 10);
+        var syncMin = hour * 60 + min;
         var diff = nowMin - syncMin;
         if (diff < 0) diff += 1440;   // sync stamped before midnight, now after
         result.lastSyncMinutes = diff;
@@ -739,7 +739,7 @@ function getDashboardSnapshot() {
     } catch (e2) { /* swallow */ }
 
   } catch (err) {
-    try { Logger.log("getDashboardSnapshot error: " + err); } catch (_) {}
+    try { Logger.log("getDashboardSnapshot error: " + err); } catch (_) { }
   }
 
   return result;
@@ -775,18 +775,18 @@ function getRecentActivity(n) {
       var ts = rows[i][ACTIVITY_LOG.idx("TIMESTAMP")];
       out.push({
         timestamp: (ts instanceof Date) ? ts.getTime() : null,
-        event:     String(rows[i][ACTIVITY_LOG.idx("EVENT")] || ""),
-        orderId:   String(rows[i][ACTIVITY_LOG.idx("ORDER_ID")] || ""),
-        sku:       String(rows[i][ACTIVITY_LOG.idx("SKU")] || ""),
-        qty:       rows[i][ACTIVITY_LOG.idx("QTY")] || "",
-        source:    String(rows[i][ACTIVITY_LOG.idx("SOURCE")] || ""),
-        detail:    String(rows[i][ACTIVITY_LOG.idx("DETAIL")] || ""),
-        note:      String(rows[i][ACTIVITY_LOG.idx("NOTE")] || ""),
-        picker:    String(rows[i][ACTIVITY_LOG.idx("PICKER")] || "")
+        event: String(rows[i][ACTIVITY_LOG.idx("EVENT")] || ""),
+        orderId: String(rows[i][ACTIVITY_LOG.idx("ORDER_ID")] || ""),
+        sku: String(rows[i][ACTIVITY_LOG.idx("SKU")] || ""),
+        qty: rows[i][ACTIVITY_LOG.idx("QTY")] || "",
+        source: String(rows[i][ACTIVITY_LOG.idx("SOURCE")] || ""),
+        detail: String(rows[i][ACTIVITY_LOG.idx("DETAIL")] || ""),
+        note: String(rows[i][ACTIVITY_LOG.idx("NOTE")] || ""),
+        picker: String(rows[i][ACTIVITY_LOG.idx("PICKER")] || "")
       });
     }
   } catch (err) {
-    try { Logger.log("getRecentActivity error: " + err); } catch (_) {}
+    try { Logger.log("getRecentActivity error: " + err); } catch (_) { }
   }
   return out;
 }
@@ -915,7 +915,7 @@ function resetDailyPickIds() {
     sheet.getRange(Schema.cellAdjustmentId).setValue("Pick ID for Adjustment");
 
     Logger.log("Daily Pick IDs reset (" + Schema.cellEmployeeId + ", " +
-               Schema.cellAdjustmentId + ") at " + new Date().toISOString());
+      Schema.cellAdjustmentId + ") at " + new Date().toISOString());
     return "✅ Pick IDs reset.";
   } catch (err) {
     Logger.log("resetDailyPickIds error: " + err);

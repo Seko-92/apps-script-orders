@@ -1,0 +1,9 @@
+# Only Apps Script sources at the project ROOT get pushed.
+# Added 2026-07-13 after `clasp push` (skipSubdirectories: false, no ignore
+# file) swept Screenshots/Reports/ceo_report/findings_report.html into the
+# Apps Script project. Subfolders here (Screenshots/, Learning/, .claude/)
+# are workstation material, never project code.
+**/**
+!*.js
+!*.html
+!appsscript.json

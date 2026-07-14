@@ -43,9 +43,14 @@ function _isZohoSo(v)      { return /^SO-/i.test(v); }
 
 // On-brand link styling: brand ink (not link-blue) + a thin underline as the
 // subtle "this is clickable" cue. Matches the SKU link.
+// setFontSize(10) is LOAD-BEARING (2026-07-14): on SO-badge rows the CELL
+// font is raised to 14 so the badge glyph (a number-format prefix, which
+// renders at the cell's default font) reads large — the ID text must stay
+// pinned at the table's 10px via its run style or it would inherit the 14.
 var _ORDER_LINK_STYLE = SpreadsheetApp.newTextStyle()
   .setForegroundColor('#1d1d1b')
   .setUnderline(true)
+  .setFontSize(10)
   .build();
 
 /**

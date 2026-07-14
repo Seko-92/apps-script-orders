@@ -21,10 +21,16 @@
 //     - When a SKU is first written to a previously-empty row, stamp DATE ADDED.
 //
 // PUBLIC API
-//   setupPrepQueueSheet()  — one-time: create sheet, style, install validation
-//   openPrepQueue()        — switch the user's active sheet to Prep Queue (sidebar button)
-//   clearPrepQueue()       — wipe all data rows (sidebar danger button, two-step confirm)
-//   prepQueueOnEdit(e)     — onEdit dispatcher (called from Main.js)
+//   setupPrepQueueSheet()         — one-time: create sheet, style, install validation
+//   openPrepQueue()               — switch the user's active sheet to Prep Queue (sidebar button)
+//   clearPrepQueue()              — wipe all data rows (sidebar danger button, two-step confirm)
+//   prepQueueOnEdit(e)            — onEdit dispatcher (called from Main.js)
+//   refreshPrepQueueHand()        — rewrite HAND for every row (Zoho-first; runs every 2 min
+//                                   via the n8n writeZohoStock push + sidebar recompute)
+//   refreshPrepQueueLocations()   — re-mirror LOCATION from MI (hourly via
+//                                   runHourlyHousekeeping in Housekeeping.js + sidebar button);
+//                                   never overwrites with NOT FOUND, so hand-typed
+//                                   locations for non-eBay items survive
 // =======================================================================================
 
 // ---------- LOCAL SCHEMA (kept here, not in Schema.js — different sheet) ----------
@@ -151,6 +157,10 @@ function setupPrepQueueSheet() {
   // --- FREEZE HEADER ROW ---
   sheet.setFrozenRows(1);
 
+  // --- FRESHNESS PULSE CHIP (G1 chip / H1 stamp, right of the headers) ---
+  try { _installPulseChip(sheet, SHEET_PULSE.prepQueue); }
+  catch (e) { try { Logger.log("setupPrepQueueSheet: pulse chip error: " + e); } catch (_) {} }
+
   // Paint any existing duplicate SKUs (idempotent — clears stale highlights too)
   _refreshPrepQueueDuplicates(sheet);
 
@@ -246,7 +256,78 @@ function refreshPrepQueueHand() {
   }
 
   sheet.getRange(PREP_QUEUE.dataStartRow, PREP_QUEUE.cols.HAND, nRows, 1).setValues(out);
+
+  // Freshness chip. NOTE: when this runs via the n8n writeZohoStock doPost
+  // action (every 2 min), the pinned /exec version must be new enough to
+  // carry this line for the stamp to fire from that path — the editor,
+  // sidebar, and time-trigger paths stamp regardless (Gotcha #12).
+  stampSheetPulse(sheet, SHEET_PULSE.prepQueue.stamp);
+
   return "✅ Prep Queue HAND refreshed for " + updated + " row(s).";
+}
+
+
+/**
+ * Re-mirror LOCATION for every existing Prep Queue row from Master Inventory.
+ * The onEdit auto-fill stamps the location once at entry time; if the item
+ * moves shelves later, the row goes stale. This is the fix — run hourly by
+ * runHourlyHousekeeping (Housekeeping.js; MI's own location data only updates
+ * hourly via MAIN's Smart Sync, so refreshing more often would re-read the
+ * same data), plus a sidebar "Refresh Locations" escape hatch.
+ *
+ * OVERWRITE POLICY (user's call, 2026-07-13): mirror MI, but NEVER clobber a
+ * cell with NOT FOUND — rows whose SKU is unknown to MI (or known but with a
+ * blank location, which buildLocationAndInventoryMaps stores as "NOT FOUND")
+ * keep whatever the cell already says, so hand-typed locations for non-eBay
+ * items survive the hourly pass.
+ *
+ * Pass pre-built maps from a batch caller (housekeeping) or omit for a
+ * standalone run. Only LOCATION is written — QTY/HAND/NOTE/DATE untouched.
+ */
+function refreshPrepQueueLocations(maps) {
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  var sheet = ss.getSheetByName(PREP_QUEUE.sheetName);
+  if (!sheet) return "ℹ️ Prep Queue sheet not found.";
+
+  var lastRow = sheet.getLastRow();
+  if (lastRow < PREP_QUEUE.dataStartRow) {
+    stampSheetPulse(sheet, SHEET_PULSE.prepQueue.stamp);
+    return "ℹ️ Prep Queue empty — locations up to date.";
+  }
+
+  // Accept pre-built maps (shared MI read from housekeeping). Detect by
+  // shape, not presence — defensive against ever being wired to a trigger,
+  // which passes an event object as the first argument.
+  var locationMap = (maps && maps.locationMap) ? maps.locationMap
+                                               : buildLocationAndInventoryMaps().locationMap;
+
+  var nRows = lastRow - PREP_QUEUE.dataStartRow + 1;
+  var skuVals = sheet.getRange(PREP_QUEUE.dataStartRow, PREP_QUEUE.cols.SKU, nRows, 1).getValues();
+  var locVals = sheet.getRange(PREP_QUEUE.dataStartRow, PREP_QUEUE.cols.LOCATION, nRows, 1).getValues();
+
+  var out = [];
+  var updated = 0;
+  var kept = 0;
+  for (var i = 0; i < nRows; i++) {
+    var sku = String(skuVals[i][0] || "").trim();
+    var current = locVals[i][0];
+    if (!sku) { out.push([current]); continue; }   // blank rows pass through
+
+    var miLoc = locationMap.get(sku.toLowerCase());
+    if (miLoc && miLoc !== "NOT FOUND") {
+      if (String(current).trim() !== String(miLoc).trim()) updated++;
+      out.push([miLoc]);
+    } else {
+      out.push([current]);   // unknown to MI → keep the picker's value
+      kept++;
+    }
+  }
+
+  sheet.getRange(PREP_QUEUE.dataStartRow, PREP_QUEUE.cols.LOCATION, nRows, 1).setValues(out);
+  stampSheetPulse(sheet, SHEET_PULSE.prepQueue.stamp);
+
+  return "✅ Prep Queue locations refreshed — " + updated + " updated" +
+         (kept > 0 ? ", " + kept + " kept (not in MI)" : "") + ".";
 }
 
 

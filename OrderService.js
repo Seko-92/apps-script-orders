@@ -222,11 +222,25 @@ function doPost(e) {
       try {
         var zohoItem = payload.item || {};
         var zohoResult = refreshOneKitFromZohoPayload(zohoItem);
+
+        // A Zoho edit produced PD line(s) the parser couldn't read → ping the
+        // admin chat so the editor can fix the line while still in the item.
+        // Best-effort: the alert never fails the webhook response.
+        if (zohoResult.unparsedLines && zohoResult.unparsedLines.length > 0) {
+          try {
+            _sendKitParseAlert(zohoResult.kitSku, zohoResult.kitName || "",
+                               zohoResult.unparsedLines);
+          } catch (alertErr) {
+            console.log("zohoKitUpdated: parse alert error: " + alertErr);
+          }
+        }
+
         return ContentService.createTextOutput(JSON.stringify({
           status:            "success",
           kitSku:            zohoResult.kitSku || "",
           actionTaken:       zohoResult.actionTaken || "none",
           componentsWritten: zohoResult.componentsWritten || 0,
+          unparsedLines:     (zohoResult.unparsedLines || []).length,
           reason:            zohoResult.reason || ""
         })).setMimeType(ContentService.MimeType.JSON);
       } catch (zohoErr) {
@@ -542,6 +556,17 @@ function doPost(e) {
         Schema.dataStartRow, Schema.dataStartRow + newRows.length - 1
       );
 
+      // F2. Neutralize inherited SO-badge formats (2026-07-14). Step F copies
+      // EVERY format from the template row — including the col-D badge number
+      // format ('"1️⃣ "@') whenever the template row belongs to a multi-item
+      // group, which put a false badge on every row of two consecutive syncs.
+      // New rows must start badge-free NO MATTER WHAT; the painter call below
+      // re-derives real badges afterwards. This makes inserts immune even if
+      // that repaint fails — same fix class as the setBackground(null)
+      // anti-bleed on Zoho inserts (2026-05-23).
+      sheet.getRange(Schema.dataStartRow, Schema.cols.SALES_ORDER, newRows.length, 1)
+        .setNumberFormat('@');
+
       updateOrderStatsInSheet();
       updateLastSyncTimestamp();
 
@@ -565,6 +590,17 @@ function doPost(e) {
       // so enrich the newly-inserted rows here (col A → listing, col D → order).
       try { refreshAllOrdersEnrichment(); } catch (enrErr) {
         console.log("doPost: enrichment refresh error: " + enrErr);
+      }
+
+      // SO badges + duplicate grouping — CRITICAL after inserts (added
+      // 2026-07-14 after the incident where every synced batch wore a wrong
+      // badge): insertRowsBefore + copyFormatToRange makes new rows INHERIT
+      // the col-D badge number format from the template row, and nothing
+      // else repaints on this path (onEdit doesn't fire for setValues).
+      // Without this call, every n8n sync mints false badges that persist
+      // until some editor-side repaint.
+      try { setupDuplicateSalesOrderHighlighting(); } catch (dupErr) {
+        console.log("doPost: dup-SO badge refresh error: " + dupErr);
       }
     }
 

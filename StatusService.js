@@ -185,6 +185,27 @@ function updateOrderStatus(target, newStatus, options) {
       console.log("updateOrderStatus: activity log error: " + e);
     }
 
+    // 6c. KIT-PARENT AUTO-FOLLOW (2026-07-14). A kit parent row is a logical
+    // line — pickers flip the physical component rows (tagged "↳ from KIT-")
+    // and nothing used to flip the parent unless the whole SO was swept in
+    // one call, which partial shipping can delay indefinitely (the 8-kit
+    // incident: every component SHIPPED, parents stuck PREPARING for the
+    // user to fix by hand). Rule: when ALL of a kit's component rows on this
+    // SO are terminal, the parent follows — SHIPPED if any component
+    // shipped, CANCELED only if every component was canceled. Runs BEFORE
+    // the sort (row numbers must stay valid) and writes cells directly (we
+    // already hold the script lock; re-entering updateOrderStatus would
+    // block on it). Whole-order flips (Telegram, n8n S-chain, Zoho sweep)
+    // make this a no-op — the parent was already in targetRows. Best-effort:
+    // a follow-up failure never breaks the primary transition.
+    if (Schema.isTerminal(newStatus)) {
+      try {
+        _kitParentFollowUp(sheet, Object.keys(ordersToSync), lastRow);
+      } catch (kfErr) {
+        console.log("updateOrderStatus: kit-parent follow error: " + kfErr);
+      }
+    }
+
     // 7. Refresh sheet stats
     try { updateOrderStatsInSheet(); } catch (e) {
       console.log("updateOrderStatus: stats refresh error: " + e);
@@ -314,6 +335,109 @@ function _resolveStatusTargetRows(sheet, target, lastRow) {
   }
 
   return [];
+}
+
+
+/**
+ * KIT-PARENT AUTO-FOLLOW — see call site in updateOrderStatus (step 6c).
+ *
+ * For each order id whose rows just transitioned, group that order's
+ * component rows by their "↳ from KIT-<sku>" NOTE tag (written exclusively
+ * by KitExpansion's component inserter, so the signal is reliable), find
+ * each kit's parent row (same SO, SKU equals the tag, NOT itself a
+ * component row), and when every component is terminal flip the still-open
+ * parent:
+ *   - any component SHIPPED   → parent SHIPPED
+ *   - all components CANCELED → parent CANCELED
+ * Writes the STATUS cell directly (the caller holds the script lock) and
+ * logs each flip to the Activity Log with source "kit-follow" + detail
+ * "all N components shipped" so the audit trail explains itself. Telegram
+ * deliberately untouched: eBay orders flip whole-order and never reach here
+ * with an open parent; DIRECT rows have no Telegram cards.
+ *
+ * Partial kits hold their parent (any non-terminal component → no flip).
+ * Modal-excluded components were never inserted as rows, so they can't
+ * block the follow. Returns the number of parents flipped.
+ */
+function _kitParentFollowUp(sheet, orderIds, lastRow) {
+  if (!orderIds || orderIds.length === 0) return 0;
+
+  // The reads below must see the status writes the caller just made.
+  SpreadsheetApp.flush();
+
+  var flips = 0;
+  var logEntries = [];
+
+  for (var oi = 0; oi < orderIds.length; oi++) {
+    var orderId = orderIds[oi];
+    var rows = _resolveStatusTargetRows(sheet, orderId, lastRow);
+    if (rows.length < 2) continue;   // a kit group needs parent + components
+
+    var minRow = rows[0];
+    var maxRow = rows[rows.length - 1];
+    var span = sheet.getRange(minRow, 1, maxRow - minRow + 1, Schema.cols.STATUS).getValues();
+
+    // Group component rows by parent kit SKU; collect candidate parent rows.
+    var kitGroups = {};   // parentSku → [componentStatus, ...]
+    var parentRows = {};  // sku → {row, status, qty, note}
+    for (var ri = 0; ri < rows.length; ri++) {
+      var rr     = span[rows[ri] - minRow];
+      var sku    = String(rr[Schema.idx("SKU")]).trim();
+      var note   = String(rr[Schema.idx("NOTE")] || "");
+      var status = String(rr[Schema.idx("STATUS")]).trim().toUpperCase();
+      var tag    = /^↳ from KIT-(\S+)/.exec(note);
+      if (tag) {
+        if (!kitGroups[tag[1]]) kitGroups[tag[1]] = [];
+        kitGroups[tag[1]].push(status);
+      } else if (sku) {
+        parentRows[sku] = {
+          row:    rows[ri],
+          status: status,
+          qty:    parseInt(rr[Schema.idx("QTY")]) || 0,
+          note:   note.trim()
+        };
+      }
+    }
+
+    for (var pKit in kitGroups) {
+      var parent = parentRows[pKit];
+      if (!parent) continue;                            // parent row gone
+      if (Schema.isTerminal(parent.status)) continue;   // already done
+      var comps = kitGroups[pKit];
+      var allTerminal = true;
+      var anyShipped  = false;
+      for (var ci = 0; ci < comps.length; ci++) {
+        if (!Schema.isTerminal(comps[ci])) { allTerminal = false; break; }
+        if (comps[ci] === Schema.status.SHIPPED) anyShipped = true;
+      }
+      if (!allTerminal) continue;
+
+      var followStatus = anyShipped ? Schema.status.SHIPPED : Schema.status.CANCELED;
+      sheet.getRange(parent.row, Schema.cols.STATUS).setValue(followStatus);
+      flips++;
+      logEntries.push([
+        followStatus,
+        orderId,
+        pKit,
+        parent.qty,
+        "kit-follow",
+        "all " + comps.length + " components " + (anyShipped ? "shipped" : "canceled") +
+          " (parent was " + parent.status + ")",
+        undefined,
+        parent.note
+      ]);
+    }
+  }
+
+  if (logEntries.length > 0) {
+    try { logActivityBatch(logEntries); } catch (e) {
+      console.log("_kitParentFollowUp: activity log error: " + e);
+    }
+  }
+  if (flips > 0) {
+    console.log("_kitParentFollowUp: " + flips + " kit parent(s) auto-followed");
+  }
+  return flips;
 }
 
 

@@ -29,6 +29,31 @@ function preparePrintSheet() {
 
   var data = sheet.getDataRange().getValues();
 
+  // SO badge exactly as painted on the sheet — read from column D's number
+  // formats (the badge lives in the DISPLAY layer; values stay clean).
+  // Reading the sheet's own assignment guarantees the printed badge matches
+  // what the picker sees on screen. Format shape: '"1️⃣ "@'.
+  // The GLYPH is mapped to its plain NUMBER here — the print renders it as
+  // a drawn ink circle-digit (.so-badge), because emoji keycaps print as
+  // gray mush on B&W printers. Legacy filled-circle glyphs (❶…⓴, from the
+  // first badge iteration) are mapped too, in case a print happens before
+  // the painter has repainted the sheet.
+  var soBadgeFormats = sheet.getRange(1, Schema.cols.SALES_ORDER, data.length, 1)
+                            .getNumberFormats();
+  var LEGACY_BADGE_GLYPHS = ["❶","❷","❸","❹","❺","❻","❼","❽","❾","❿",
+                             "⓫","⓬","⓭","⓮","⓯","⓰","⓱","⓲","⓳","⓴"];
+  function _badgeFromFormat(fmt) {
+    var bm = /^"(.+) "@$/.exec(String(fmt || ""));
+    if (!bm) return "";
+    var glyph = bm[1];
+    var digits = /^\d+/.exec(glyph);          // keycap "1️⃣" starts with a plain digit char
+    if (digits) return digits[0];
+    if (glyph === "🔟") return "10";
+    var li = LEGACY_BADGE_GLYPHS.indexOf(glyph);
+    if (li >= 0) return String(li + 1);
+    return "";
+  }
+
   // Pull operational identifiers from the banner.
   // G2 = Pick ID for Shipping (dropdown), I2 = Pick ID for Adjustment (dropdown).
   // _extractPickIdData strips the "Shipping - " / "Adjustments - " prefix and
@@ -68,7 +93,8 @@ function preparePrintSheet() {
         row[Schema.idx("HAND")] || "",     // 5: HAND
         row[Schema.idx("LEFT")] || "",     // 6: LEFT
         row[Schema.idx("SHIPPING")] || "", // 7: SHIPPING
-        row[Schema.idx("SHIP_COST")] || "" // 8: SHIP_COST
+        row[Schema.idx("SHIP_COST")] || "",// 8: SHIP_COST
+        _badgeFromFormat(soBadgeFormats[i][0]) // 9: SO badge glyph ("" if none)
       ];
 
       if (isDirectSection) {
@@ -84,28 +110,10 @@ function preparePrintSheet() {
     throw new Error("No items found with status '" + Schema.status.PREPARING + "' in the STATUS column.");
   }
 
-  // Build duplicate Sales Order border color map for print highlighting
-  var allOrders = {};
-  var allItems = ebayItems.concat(directItems);
-  for (var j = 0; j < allItems.length; j++) {
-    var so = String(allItems[j][3]).trim();
-    if (so) allOrders[so] = (allOrders[so] || 0) + 1;
-  }
-  // Assign border colors only to duplicates (matches ORDER_BORDER_COLORS in RowManagement)
-  var ORDER_PRINT_BORDER_COLORS = [
-    "#1a73e8", "#e53935", "#43a047", "#fb8c00", "#8e24aa",
-    "#00acc1", "#d81b60", "#6d4c41", "#3949ab", "#00897b",
-    "#c0ca33", "#f4511e", "#5e35b1", "#039be5", "#7cb342",
-    "#ffb300", "#1e88e5", "#e91e63", "#26a69a", "#546e7a"
-  ];
-  var orderColorMap = {};
-  var colorIdx = 0;
-  for (var so in allOrders) {
-    if (allOrders[so] > 1) {
-      orderColorMap[so] = ORDER_PRINT_BORDER_COLORS[colorIdx % ORDER_PRINT_BORDER_COLORS.length];
-      colorIdx++;
-    }
-  }
+  // (Print border-color map removed 2026-07-14 — multi-item order grouping
+  // is carried by the SO badge glyph read from the sheet's col-D number
+  // formats [itemData[9]], which survives B&W printing. Git history has the
+  // old orderColorMap if ever wanted back.)
 
   // Format print timestamp in Houston timezone
   var now = new Date();
@@ -136,7 +144,6 @@ function preparePrintSheet() {
   htmlTemplate.employeeId = employeeId;            // back-compat
   htmlTemplate.pickIdShipping = pickIdShipping;
   htmlTemplate.pickIdAdjustment = pickIdAdjustment;
-  htmlTemplate.orderColorMap = orderColorMap;
   htmlTemplate.printDate = printDate;
   htmlTemplate.printTime = printTime;
   htmlTemplate.printDay = printDay;

@@ -38,8 +38,14 @@
 // ARCHITECTURE
 //   - Standalone sheet ("Out of Stock") with its own minimal schema
 //     (separate from the main `Schema` — different columns, different sheet).
-//   - `refreshOutOfStock()` smart-merges from Master Inventory.
-//     Scheduled to run weekly via an installable trigger (Monday 6am).
+//   - `refreshOutOfStock(maps)` smart-merges from Master Inventory.
+//     Runs HOURLY during work hours (6am–6pm Houston) via runHourlyHousekeeping
+//     in Housekeeping.js (replaced the weekly Monday-6am trigger 2026-07-13 —
+//     workers kept forgetting the manual button between weekly runs). The
+//     optional `maps` param lets housekeeping share one MI read across jobs.
+//   - The "⟳ last refreshed" pulse chip lives at I1 (stamp J1) — installed by
+//     _installPulseChip (Housekeeping.js), stamped at the end of every
+//     completed refresh.
 //   - The alert in the sidebar reads the *count* of OOS rows in this sheet — it
 //     does NOT re-scan Master Inventory on every poll. Cheap.
 //
@@ -147,12 +153,19 @@ function setupOutOfStockSheet() {
   sheet.getRange(OUT_OF_STOCK.dataStartRow, OUT_OF_STOCK.cols.AVAILABLE, dataRows, 1)
     .setFontFamily('Oswald').setFontWeight('bold').setFontSize(13)
     .setHorizontalAlignment('center');
+  // FIRST SEEN + LAST CHECKED are PLAIN TEXT ('@') on purpose: the code
+  // writes "M/d/yy" strings, and without this format Sheets auto-coerces
+  // them into real Date values — which the next refresh read turned into
+  // "Thu Apr 30 2026 08:00:00 GMT+0300 (…)" dumps that broke the DAYS OUT
+  // DATEVALUE parse (bug fixed 2026-07-13; see _normalizeOosFirstSeen).
   sheet.getRange(OUT_OF_STOCK.dataStartRow, OUT_OF_STOCK.cols.FIRST_SEEN, dataRows, 1)
     .setFontFamily('Roboto Mono').setFontSize(9)
-    .setFontColor('#434343').setHorizontalAlignment('center');
+    .setFontColor('#434343').setHorizontalAlignment('center')
+    .setNumberFormat('@');
   sheet.getRange(OUT_OF_STOCK.dataStartRow, OUT_OF_STOCK.cols.LAST_CHECKED, dataRows, 1)
     .setFontFamily('Roboto Mono').setFontSize(9)
-    .setFontColor('#434343').setHorizontalAlignment('center');
+    .setFontColor('#434343').setHorizontalAlignment('center')
+    .setNumberFormat('@');
   sheet.getRange(OUT_OF_STOCK.dataStartRow, OUT_OF_STOCK.cols.DAYS_OUT, dataRows, 1)
     .setFontFamily('Oswald').setFontWeight('bold').setFontSize(13)
     .setFontColor('#1d1d1b').setHorizontalAlignment('center');
@@ -202,18 +215,57 @@ function setupOutOfStockSheet() {
   // --- DAYS OUT formula (col H) ---
   // Single ARRAYFORMULA in H2 spills into the rest of the column. TODAY()
   // recalculates daily, so DAYS OUT is always accurate without rerunning the
-  // weekly refresh. IFERROR guards against unparseable FIRST SEEN strings.
+  // refresh. IFERROR guards against unparseable FIRST SEEN strings.
+  // ISNUMBER branch (added 2026-07-13): a FIRST SEEN cell that Sheets
+  // already coerced into a real Date is a serial number — DATEVALUE errors
+  // on those, so use the value directly; text dates go through DATEVALUE.
   // Clear the column first so the spill isn't blocked by any stale values.
   sheet.getRange(OUT_OF_STOCK.dataStartRow, OUT_OF_STOCK.cols.DAYS_OUT, dataRows, 1).clearContent();
   sheet.getRange(OUT_OF_STOCK.dataStartRow, OUT_OF_STOCK.cols.DAYS_OUT).setFormula(
     "=ARRAYFORMULA(IF(F" + OUT_OF_STOCK.dataStartRow + ":F=\"\", \"\", " +
-    "IFERROR(TODAY()-DATEVALUE(F" + OUT_OF_STOCK.dataStartRow + ":F), \"\")))"
+    "IFERROR(TODAY()-IF(ISNUMBER(F" + OUT_OF_STOCK.dataStartRow + ":F), " +
+    "F" + OUT_OF_STOCK.dataStartRow + ":F, " +
+    "DATEVALUE(F" + OUT_OF_STOCK.dataStartRow + ":F)), \"\")))"
   );
 
   // --- FREEZE HEADER ROW ---
   sheet.setFrozenRows(1);
 
+  // --- FRESHNESS PULSE CHIP (I1 chip / J1 stamp, right of the headers) ---
+  try { _installPulseChip(sheet, SHEET_PULSE.outOfStock); }
+  catch (e) { try { Logger.log("setupOutOfStockSheet: pulse chip error: " + e); } catch (_) {} }
+
   return "✅ Out of Stock sheet ready.";
+}
+
+
+/**
+ * Normalize a FIRST SEEN cell value to the canonical "M/d/yy" string.
+ *
+ * WHY (bug found 2026-07-13, surfaced by the hourly refresh): Sheets
+ * auto-coerces written "4/30/26" strings into real Date values. The next
+ * refresh read then got a Date object, and String(date) produced the JS
+ * dump "Thu Apr 30 2026 08:00:00 GMT+0300 (GMT+03:00)" — which got written
+ * back, and which DATEVALUE can't parse, so the DAYS OUT column went blank
+ * for every row. This helper repairs all three shapes on read:
+ *   real Date            → format as M/d/yy
+ *   legacy JS date-dump  → re-parse, format as M/d/yy
+ *   clean "M/d/yy" text  → passthrough
+ * Belt-and-suspenders with the plain-text ('@') format setupOutOfStockSheet
+ * now applies to the FIRST SEEN / LAST CHECKED columns, which stops the
+ * coercion at the source.
+ */
+function _normalizeOosFirstSeen(val, fallback) {
+  if (val instanceof Date) {
+    return Utilities.formatDate(val, "America/Chicago", "M/d/yy");
+  }
+  var s = String(val || "").trim();
+  if (!s) return fallback;
+  if (/GMT[+-]/.test(s)) {
+    var d = new Date(s);
+    if (!isNaN(d.getTime())) return Utilities.formatDate(d, "America/Chicago", "M/d/yy");
+  }
+  return s;
 }
 
 
@@ -232,7 +284,7 @@ function setupOutOfStockSheet() {
  *   - Re-sort by LOCATION asc → SKU asc
  *   - Write back
  */
-function refreshOutOfStock() {
+function refreshOutOfStock(maps) {
   var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   var sheet = ss.getSheetByName(OUT_OF_STOCK.sheetName);
   if (!sheet) {
@@ -240,7 +292,10 @@ function refreshOutOfStock() {
     sheet = ss.getSheetByName(OUT_OF_STOCK.sheetName);
   }
 
-  var maps = buildLocationAndInventoryMaps();
+  // Accept pre-built maps from runHourlyHousekeeping (shared MI read).
+  // Detect by shape, not presence — the legacy weekly trigger (and any
+  // future direct trigger) passes a time-event object as the first arg.
+  if (!maps || !maps.inventoryMap) maps = buildLocationAndInventoryMaps();
   if (maps.inventoryMap.size === 0) {
     return "⚠️ Master Inventory empty or headers missing.";
   }
@@ -299,7 +354,7 @@ function refreshOutOfStock() {
       // typed a SKU that was in stock at the time, presumably as a watch
       // or lookup. Respect that: refresh values, preserve FIRST SEEN, keep.
       var locationKept  = maps.locationMap.get(skuLower) || row[OUT_OF_STOCK.idx("LOCATION")] || "";
-      var firstSeenKept = String(row[OUT_OF_STOCK.idx("FIRST_SEEN")] || "").trim() || todayStr;
+      var firstSeenKept = _normalizeOosFirstSeen(row[OUT_OF_STOCK.idx("FIRST_SEEN")], todayStr);
       merged.push([
         rawSku,
         locationKept,
@@ -316,7 +371,7 @@ function refreshOutOfStock() {
 
     // (a) Still OOS — refresh values, preserve FIRST SEEN
     var location  = maps.locationMap.get(skuLower) || row[OUT_OF_STOCK.idx("LOCATION")] || "";
-    var firstSeen = String(row[OUT_OF_STOCK.idx("FIRST_SEEN")] || "").trim() || todayStr;
+    var firstSeen = _normalizeOosFirstSeen(row[OUT_OF_STOCK.idx("FIRST_SEEN")], todayStr);
 
     merged.push([
       rawSku,
@@ -377,6 +432,10 @@ function refreshOutOfStock() {
 
   // Refresh duplicate-SKU highlights (after data has been written)
   _refreshOutOfStockDuplicates(sheet);
+
+  // Freshness chip — stamped only on a COMPLETED refresh, so the chip's
+  // staleness tiers double as the "refresh trigger is dead" alarm.
+  stampSheetPulse(sheet, SHEET_PULSE.outOfStock.stamp);
 
   return "✅ Out of Stock refreshed — " +
          added + " new, " +
@@ -445,11 +504,16 @@ function getOutOfStockCount() {
 // =======================================================================================
 
 /**
- * Run this ONCE from the Apps Script Editor to install the weekly refresh.
- * Schedule: every Monday at 6am (America/Chicago, the script's project time zone).
+ * ⚠️ SUPERSEDED 2026-07-13 — the weekly Monday-6am cadence was replaced by the
+ * hourly work-hours pass in Housekeeping.js (runHourlyHousekeeping refreshes
+ * this sheet AND Prep Queue locations from one shared MI read). Run
+ * setupHousekeeping() instead — it also REMOVES any trigger this function
+ * installed. Kept only as a manual fallback if the housekeeping layer is
+ * ever ripped out. Do not run both: refreshOutOfStock is idempotent so a
+ * double schedule wouldn't corrupt data, but it doubles the quota burn.
  *
- * Idempotent — removes any existing refreshOutOfStock trigger before creating
- * the new one, so re-running won't pile up duplicates.
+ * (Original behavior: installs a weekly Monday 6am refreshOutOfStock trigger;
+ * idempotent — removes any existing refreshOutOfStock trigger first.)
  */
 function setupOutOfStockTrigger() {
   var triggers = ScriptApp.getProjectTriggers();
@@ -563,9 +627,10 @@ function outOfStockOnEdit(e) {
       var sold  = (found && inv) ? inv.sold      : "";
       var avail = (found && inv) ? inv.available : "";
 
-      // Preserve existing FIRST SEEN if non-empty; otherwise stamp today
-      var existingFirstSeen = String(sheet.getRange(row, OUT_OF_STOCK.cols.FIRST_SEEN).getValue() || "").trim();
-      var firstSeen = existingFirstSeen || todayStr;
+      // Preserve existing FIRST SEEN if non-empty (normalized — see
+      // _normalizeOosFirstSeen); otherwise stamp today
+      var firstSeen = _normalizeOosFirstSeen(
+        sheet.getRange(row, OUT_OF_STOCK.cols.FIRST_SEEN).getValue(), todayStr);
 
       sheet.getRange(row, OUT_OF_STOCK.cols.LOCATION).setValue(location);
       sheet.getRange(row, OUT_OF_STOCK.cols.QTY).setValue(qty);
