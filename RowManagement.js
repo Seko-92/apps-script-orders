@@ -336,6 +336,14 @@ function clearAllDuplicateHighlights() {
 // Numbering restarts per TABLE (eBay / DIRECT) and cycles past 10 — a badge
 // only needs to be unique among the currently-visible multi-item orders of
 // its own table.
+//
+// STICKY NUMBERING (2026-07-16): a group KEEPS the digit it already wears
+// across every repaint — numbers are no longer positional (top-to-bottom
+// renumbering made every n8n arrival shift ALL badges, so paper printed an
+// hour earlier disagreed with the sheet). The persistent store is the sheet
+// itself (the col-D number formats — cloud-side, identical for every device
+// and for the print template); a digit frees only when its group leaves the
+// sheet or shrinks to one row, and new groups draw the lowest free digit.
 var SO_BADGE_GLYPHS = ["1️⃣","2️⃣","3️⃣","4️⃣","5️⃣","6️⃣","7️⃣","8️⃣","9️⃣","🔟"];
 
 /**
@@ -347,6 +355,10 @@ var SO_BADGE_GLYPHS = ["1️⃣","2️⃣","3️⃣","4️⃣","5️⃣","6️�
  * keycap's salience comes from the glyph itself, not font size. (The
  * colored left-border tabs this replaced were dropped 2026-07-14; the
  * band-wide border clear remains so legacy bars self-wipe.)
+ * Badge digits are STICKY per Sales Order (2026-07-16): each repaint first
+ * reads the digit a group already wears from the current formats and keeps
+ * it, so printed pick lists stay consistent with the sheet when new orders
+ * land on top. Only new groups draw a fresh (lowest free) digit.
  * Clears stale borders AND stale badge formats first, then re-applies for
  * current duplicates. Skips DIRECT boundary row and its header.
  * Called from onOpen(), auto-refreshed on edits/inserts, and re-run by
@@ -415,13 +427,32 @@ function setupDuplicateSalesOrderHighlighting() {
   // duplicates — that's what erases the last badge when a group shrinks to
   // one row.
   var bandFormats = fullRange.getNumberFormats();
+
+  // STICKY BADGES — capture the digit each group CURRENTLY wears before the
+  // band is reset. The formats themselves are the persistent store (no
+  // Script Properties, no helper sheet — cloud-side, identical for every
+  // device and the print). First badged row of a group wins; a format that
+  // doesn't parse to a known glyph counts as unbadged (that group re-draws).
+  var BADGE_FMT_RE = /^"(.+) "@$/;
+  var existingBadge = {};   // order → index into SO_BADGE_GLYPHS
+  for (var e = 0; e < duplicateOrders.length; e++) {
+    var eOrd = duplicateOrders[e];
+    var eRows = orderRows[eOrd];
+    for (var r = 0; r < eRows.length; r++) {
+      var em = BADGE_FMT_RE.exec(bandFormats[eRows[r] - Schema.dataStartRow][0]);
+      if (!em) continue;
+      var eIdx = SO_BADGE_GLYPHS.indexOf(em[1]);
+      if (eIdx >= 0) { existingBadge[eOrd] = eIdx; break; }
+    }
+  }
+
   for (var f = 0; f < bandFormats.length; f++) {
     var fRow = Schema.dataStartRow + f;
     if (boundary > 0 && (fRow === boundary || fRow === boundary + 1)) continue;
     bandFormats[f][0] = '@';
   }
 
-  // Per-table sequences, numbered top-to-bottom by each group's first row.
+  // Per-table sequences (numbering is independent per table, eBay / DIRECT).
   var ebaySeq = [];
   var directSeq = [];
   for (var d = 0; d < duplicateOrders.length; d++) {
@@ -433,9 +464,34 @@ function setupDuplicateSalesOrderHighlighting() {
   ebaySeq.sort(byFirstRow);
   directSeq.sort(byFirstRow);
   [ebaySeq, directSeq].forEach(function(seq) {
+    // Pass 1 — keepers: a group that already wears a digit keeps it. On a
+    // collision (two groups claiming the same digit — only possible via >10
+    // concurrent groups cycling, or a hand-pasted format) the topmost group
+    // keeps it and the other re-draws as new.
+    var used = {};       // glyph index → true
+    var assigned = {};   // order → glyph index
+    var newcomers = [];
     for (var s = 0; s < seq.length; s++) {
-      var glyph = SO_BADGE_GLYPHS[s % SO_BADGE_GLYPHS.length];
-      var gRows = orderRows[seq[s]];
+      var kIdx = existingBadge.hasOwnProperty(seq[s]) ? existingBadge[seq[s]] : -1;
+      if (kIdx >= 0 && !used[kIdx]) { used[kIdx] = true; assigned[seq[s]] = kIdx; }
+      else newcomers.push(seq[s]);
+    }
+    // Pass 2 — newcomers (top-to-bottom) draw the lowest FREE digit; when
+    // all 10 are worn, cycle positionally (same overflow rule as before —
+    // a badge only needs to be unique among currently-visible groups).
+    var overflow = 0;
+    for (var n = 0; n < newcomers.length; n++) {
+      var free = -1;
+      for (var fi = 0; fi < SO_BADGE_GLYPHS.length; fi++) {
+        if (!used[fi]) { free = fi; break; }
+      }
+      if (free >= 0) { used[free] = true; assigned[newcomers[n]] = free; }
+      else assigned[newcomers[n]] = (overflow++) % SO_BADGE_GLYPHS.length;
+    }
+    // Write every row of every group with its assigned digit.
+    for (var w = 0; w < seq.length; w++) {
+      var glyph = SO_BADGE_GLYPHS[assigned[seq[w]]];
+      var gRows = orderRows[seq[w]];
       for (var g = 0; g < gRows.length; g++) {
         bandFormats[gRows[g] - Schema.dataStartRow][0] = '"' + glyph + ' "@';
       }

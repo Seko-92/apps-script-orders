@@ -3626,15 +3626,21 @@ body.dark-theme .footer-version { border-color: #2c2c2c; }
           </div>
         </div>
 
+        <label style="display:flex;align-items:center;gap:6px;font-size:11px;margin:6px 0 2px;cursor:pointer;opacity:0.85;">
+          <input type="checkbox" id="qaIncoming" style="margin:0;flex-shrink:0;" />
+          <span>Add to <strong>INCOMING</strong> (future / arriving)</span>
+        </label>
+
         <button class="btn-success qa-submit" onclick="quickAddPrepQueue()">
           Add to Queue
         </button>
       </div>
 
       <button class="btn-primary" onclick="run('openPrepQueue')">Open Queue</button>
+      <button class="btn-secondary" onclick="confirmClearDonePrep()">✔ Clear Done Rows</button>
       <button class="btn-secondary" onclick="run('refreshPrepQueueLocations')">📍 Refresh Locations</button>
       <button class="btn-danger" onclick="confirmClearPrepQueue()">Clear Queue</button>
-      <div class="empty-hint">Your personal todo list. Quick-add above, or type SKUs directly in the sheet. Locations re-mirror from Master Inventory hourly — the ⟳ chip on the sheet shows the last refresh.</div>
+      <div class="empty-hint">Two tables: <strong>CURRENT</strong> on top, <strong>INCOMING</strong> (future prep) below the yellow divider. The current table grows on its own — type in the blank rows and the divider slides down. Tick a row's ✔ box to strike it through; <strong>Clear Done</strong> sweeps ticked rows out of both tables. Locations re-mirror hourly — the ⟳ chip shows the last refresh.</div>
       <details class="card-more">
         <summary>More tools</summary>
         <div class="card-more-content">
@@ -5521,9 +5527,14 @@ function openSnakeGame() {
  * blowing away deferred items.
  */
 function confirmClearPrepQueue() {
-  if (!confirm('Clear ALL items from the Prep Queue? This cannot be undone.')) return;
+  if (!confirm('Clear ALL items from BOTH Prep Queue tables (CURRENT + INCOMING)? This cannot be undone.')) return;
   if (!confirm('Are you sure? Final warning — this will erase every queued row.')) return;
   run('clearPrepQueue');
+}
+
+function confirmClearDonePrep() {
+  if (!confirm('Delete all checked-off (struck-through) rows from both Prep tables?')) return;
+  run('clearDonePrepItems');
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -5593,6 +5604,7 @@ function quickAddPrepQueue() {
   var sku  = (qaSku.value  || '').trim();
   var qty  = parseInt(qaQty.value) || 1;
   var note = (qaNote.value || '').trim();
+  var incoming = !!(document.getElementById('qaIncoming') || {}).checked;
 
   if (!sku) {
     qaSku.focus();
@@ -5621,6 +5633,7 @@ function quickAddPrepQueue() {
       qaSku.focus();
 
       var msg = '✅ Queued ' + result.sku;
+      if (result.incoming) msg += ' → INCOMING';
       if (result.found) msg += ' · ' + result.location;
       else              msg += ' (NOT FOUND — queued anyway)';
       status.className = 'success';
@@ -5636,7 +5649,7 @@ function quickAddPrepQueue() {
       status.className = 'error';
       status.textContent = 'Error: ' + err.message;
     })
-    .addPrepQueueItem(sku, qty, note);
+    .addPrepQueueItem(sku, qty, note, incoming);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════

@@ -124,6 +124,7 @@ function applySkuLinksToColumn(sheet, skuCol, startRow, endRow, map) {
     var raw = String(values[i][0] || '').trim();
     if (!raw) continue;                                       // empty — no link
     if (raw.toUpperCase() === Schema.boundaryMarker) continue; // DIRECT divider — leave
+    if (raw.toUpperCase() === PREP_QUEUE.boundaryMarker) continue; // Prep INCOMING divider — leave
     if (raw.charAt(0) === '◈') continue;                      // header glyph — leave
 
     var rec = map.get(raw.toLowerCase()) || null;

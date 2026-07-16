@@ -65,7 +65,14 @@
 // has no cross-file load-order dependency at init time.
 var SHEET_PULSE = {
   outOfStock: { sheetName: "Out of Stock", chip: "I1", stamp: "J1" },
-  prepQueue:  { sheetName: "Prep Queue",   chip: "G1", stamp: "H1" }
+  // Prep chip FINAL home (2026-07-16, after the two-table + title-band
+  // passes): F1, INSIDE the ▌ CURRENT band (inBand style — quiet ink on
+  // yellow; a dark chip cell beside the band read as a floating island).
+  // Stamp stays I1 (hidden col) — the pinned /exec 2-min writer targets it,
+  // so the DISPLAY cell can move freely without a New Version.
+  // setupPrepQueueSheet's chip migration cleans the older homes
+  // (G1/H1 → H1/I1 → H2/I2 → H1 dark → F1 in-band).
+  prepQueue:  { sheetName: "Prep Queue",   chip: "F1", stamp: "I1", inBand: true }
 };
 
 // Work-hours gate (America/Chicago). 6am start so the sheets are fresh
@@ -219,24 +226,41 @@ function _installPulseChip(sheet, cfg) {
     'ROUND(NOW()-' + stampAbs + ',1)&"d ago")))'
   );
 
-  // --- Styling: extend the dark header band through the chip ---
-  // The thick yellow BOTTOM border matters: every real header cell carries it
-  // (setup functions apply it A1:<last>1), so without it the band visibly
-  // "breaks" at the chip — that was the first-screenshot feedback (2026-07-13).
-  chip.setBackground('#1d1d1b')
-      .setFontColor('#81c784')          // fresh-green base; CF overrides below
-      .setFontFamily('Oswald')
-      .setFontWeight('bold')
-      .setFontSize(10)
-      .setHorizontalAlignment('center')
-      .setVerticalAlignment('middle')
-      .setBorder(null, null, true, null, null, null,
-                 '#ffd966', SpreadsheetApp.BorderStyle.SOLID_THICK);
+  // --- Styling: two variants ---
+  if (cfg.inBand) {
+    // IN-BAND (Prep Queue, 2026-07-16): the chip lives INSIDE the sheet's
+    // yellow ▌ title band — quiet band-ink text at the band's right edge.
+    // A separate dark chip cell next to the yellow band read as a floating
+    // island (user feedback); in-band, the sync time is part of the design
+    // and only turns loud (dark red/amber CF tiers below) when stale.
+    // No own border or column width: the band's row styling rules the look.
+    chip.setBackground('#ffd400')
+        .setFontColor('#1d1d1b')
+        .setFontFamily('Oswald')
+        .setFontWeight('bold')
+        .setFontSize(9)
+        .setHorizontalAlignment('right')
+        .setVerticalAlignment('middle');
+  } else {
+    // DARK: extends the dark header band through the chip. The thick yellow
+    // BOTTOM border matters: every real header cell carries it (setup
+    // functions apply it A1:<last>1), so without it the band visibly
+    // "breaks" at the chip — first-screenshot feedback (2026-07-13).
+    chip.setBackground('#1d1d1b')
+        .setFontColor('#81c784')          // fresh-green base; CF overrides below
+        .setFontFamily('Oswald')
+        .setFontWeight('bold')
+        .setFontSize(10)
+        .setHorizontalAlignment('center')
+        .setVerticalAlignment('middle')
+        .setBorder(null, null, true, null, null, null,
+                   '#ffd966', SpreadsheetApp.BorderStyle.SOLID_THICK);
+    sheet.setColumnWidth(chip.getColumn(), 180);
+  }
   chip.setNote(
     "Last full refresh of this sheet.\n" +
-    "Green < 2h · amber 2–26h (normal overnight) · red > 26h or never (refresh trigger is dead)."
+    "Quiet color < 2h · amber 2–26h (normal overnight) · red > 26h or never (refresh trigger is dead)."
   );
-  sheet.setColumnWidth(chip.getColumn(), 180);
 
   // Stamp cell: real Date (not a formatted string) so the chip formula and
   // the CF tiers can do date math on it directly. The whole COLUMN is hidden
@@ -249,10 +273,13 @@ function _installPulseChip(sheet, cfg) {
   try { sheet.hideColumns(stamp.getColumn()); } catch (e) {}
 
   // --- CF tiers on the chip (font color only; bg stays the dark band) ---
+  // Strip prior rules on the chip's OWN cell (row from cfg, not hardcoded 1 —
+  // the Prep chip lives on row 2 since the 2026-07-16 title-band layout).
   var chipCol = chip.getColumn();
+  var chipRow = chip.getRow();
   var rules = sheet.getConditionalFormatRules().filter(function (r) {
     return !r.getRanges().some(function (rg) {
-      return rg.getRow() === 1 && rg.getNumRows() === 1 && rg.getColumn() === chipCol;
+      return rg.getRow() === chipRow && rg.getNumRows() === 1 && rg.getColumn() === chipCol;
     });
   });
 
@@ -265,10 +292,14 @@ function _installPulseChip(sheet, cfg) {
   }
 
   // Order matters — first match wins. Red (never / dead trigger), then amber
-  // (aging — expected overnight), else the base green set above shows through.
-  rules.push(chipRule('=' + stampAbs + '=""', '#ff6b6b'));
-  rules.push(chipRule('=AND(' + stampAbs + '<>"",NOW()-' + stampAbs + '>=26/24)', '#ff6b6b'));
-  rules.push(chipRule('=AND(' + stampAbs + '<>"",NOW()-' + stampAbs + '>=2/24)', '#ffd966'));
+  // (aging — expected overnight), else the base color set above shows
+  // through. In-band chips sit on brand yellow, so their alert tiers use
+  // DARK red/amber (the light palette is invisible on yellow).
+  var tierRed   = cfg.inBand ? '#b71c1c' : '#ff6b6b';
+  var tierAmber = cfg.inBand ? '#7a5c00' : '#ffd966';
+  rules.push(chipRule('=' + stampAbs + '=""', tierRed));
+  rules.push(chipRule('=AND(' + stampAbs + '<>"",NOW()-' + stampAbs + '>=26/24)', tierRed));
+  rules.push(chipRule('=AND(' + stampAbs + '<>"",NOW()-' + stampAbs + '>=2/24)', tierAmber));
   sheet.setConditionalFormatRules(rules);
 }
 

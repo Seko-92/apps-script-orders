@@ -137,7 +137,13 @@ function _getPrepQueueSize() {
 
   var count = 0;
   for (var i = 0; i < skus.length; i++) {
-    if (String(skus[i][0]).trim()) count++;
+    var v = String(skus[i][0]).trim();
+    if (!v) continue;
+    // Two-table layout (2026-07-16): the INCOMING divider + its header row
+    // hold text in col A but are structure, not items. Both tables' real
+    // rows count toward the queue size (total prep workload).
+    if (v.toUpperCase() === PREP_QUEUE.boundaryMarker || v.charAt(0) === '◈') continue;
+    count++;
   }
   return count;
 }
