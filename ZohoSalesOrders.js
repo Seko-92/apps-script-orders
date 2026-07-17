@@ -848,6 +848,16 @@ function _insertAddedItemsToDirect(sheet, soNumber, lineItems, noteOverride, det
     newRowsRange.setFontLine('none');
   } catch (e) { /* no-op */ }
 
+  // Neutralize inherited SO-badge formats (2026-07-17) — mirror of doPost
+  // step F2. copyFormatToRange above copies the col-D badge number format
+  // ('"1️⃣ "@') whenever the template row (topmost old DIRECT row) belongs to
+  // a multi-item group. The STICKY painter then reads that inherited digit
+  // as the NEW group's claim, the legitimate owner collides and re-draws —
+  // DIRECT numbering visibly reshuffled on every pull. New rows must start
+  // badge-free NO MATTER WHAT; the painter call below re-derives real badges.
+  sheet.getRange(insertRow, Schema.cols.SALES_ORDER, newRows.length, 1)
+    .setNumberFormat('@');
+
   try { logActivityBatch(activityLogBatch); }
   catch (e) { console.log("_insertAddedItemsToDirect: log error: " + e); }
 
