@@ -886,6 +886,143 @@ function clearDonePrepItems() {
 
 
 // =======================================================================================
+// PER-TABLE SORT + COMPACT (2026-07-20)
+// =======================================================================================
+//
+// The two-table layout drifts over a workday: employees move items between
+// CURRENT and INCOMING, delete rows, and leave scattered blank gaps — and
+// _ensurePrepBuffer only ever ADDS rows above the divider (never trims), so
+// dead space accumulates right before the divider (see the 2026-07-20
+// screenshot). These two sidebar buttons re-tidy each table on demand:
+//   - sort real rows by LOCATION (aisle-walk order), NOT FOUND/blank last
+//   - blanks fall out → rows become contiguous (gaps closed)
+//   - CURRENT trims to exactly bufferRows blank typing rows above the divider
+//     (dead space gone; divider slides up); INCOMING compacts to its reals
+//
+// MANUAL, not auto-on-edit: reordering rows while someone is mid-typing yanks
+// the sheet around (the same reason All Orders / Location Update sort on a
+// button, never onEdit). The picker chooses when to tidy.
+//
+// Preserves everything on the surviving rows: the DONE checked state (written
+// values carried through, then requireCheckbox re-plants validation WITHOUT
+// resetting the value — insertCheckboxes would reset to unchecked), and the
+// SKU → eBay rich-text links (rebuilt via applySkuLinksToColumn after).
+
+/**
+ * Compare two Prep row value-arrays: LOCATION asc (blank / NOT FOUND last),
+ * then SKU asc — the aisle order a picker walks.
+ */
+function _comparePrepRows(a, b) {
+  var L = PREP_QUEUE.idx('LOCATION'), S = PREP_QUEUE.idx('SKU');
+  var la = String(a[L] || '').trim(), lb = String(b[L] || '').trim();
+  var ae = (la === '' || la.toUpperCase() === 'NOT FOUND');
+  var be = (lb === '' || lb.toUpperCase() === 'NOT FOUND');
+  if (ae !== be) return ae ? 1 : -1;                 // location-less rows last
+  if (!ae && la !== lb) return la.localeCompare(lb); // both real → by aisle
+  return String(a[S]).localeCompare(String(b[S]));   // same aisle, or both blank → by SKU
+}
+
+/**
+ * Read a segment block [segStart, segStart+blockCount-1], drop blank rows,
+ * sort the rest by _comparePrepRows, resize the block to (reals + bufferBelow)
+ * by deleting/inserting blank rows at the BOTTOM of the block (so a divider
+ * below slides up), rewrite the sorted reals, re-plant DONE checkboxes
+ * preserving checked state, and rebuild SKU links. Returns the real-row count.
+ *
+ * All values are captured into memory BEFORE any structural delete, so
+ * deleting rows that currently hold scattered data is safe — they're rewritten
+ * from the in-memory sorted set. deleteRows only ever removes rows strictly
+ * inside the block (never the divider/header below it).
+ */
+function _sortCompactPrepSegment(sheet, segStart, blockCount, bufferBelow) {
+  if (blockCount <= 0) return 0;
+  var W = PREP_QUEUE.dataWidth;
+  var SKU_I = PREP_QUEUE.idx('SKU');
+
+  var values = sheet.getRange(segStart, 1, blockCount, W).getValues();
+  var reals = [];
+  for (var i = 0; i < blockCount; i++) {
+    if (String(values[i][SKU_I]).trim() !== "") reals.push(values[i]);
+  }
+  var realCount = reals.length;
+  reals.sort(_comparePrepRows);
+
+  var targetCount = realCount + bufferBelow;
+  var diff = blockCount - targetCount;          // >0 delete blanks, <0 grow
+  if (diff > 0) {
+    sheet.deleteRows(segStart + targetCount, diff);
+  } else if (diff < 0) {
+    sheet.insertRowsAfter(segStart + blockCount - 1, -diff);
+  }
+
+  // Clear the resized block, drop all checkboxes, then write the sorted reals.
+  sheet.getRange(segStart, 1, targetCount, W).clearContent();
+  try { sheet.getRange(segStart, PREP_QUEUE.cols.DONE, targetCount, 1).removeCheckboxes(); } catch (e) {}
+
+  if (realCount > 0) {
+    sheet.getRange(segStart, 1, realCount, W).setValues(reals);
+    // requireCheckbox re-plants validation WITHOUT touching the just-written
+    // TRUE/FALSE — so a checked-off row stays checked through the sort.
+    var cbRule = SpreadsheetApp.newDataValidation().requireCheckbox().build();
+    sheet.getRange(segStart, PREP_QUEUE.cols.DONE, realCount, 1).setDataValidation(cbRule);
+    // Rebuild SKU → eBay listing links on the reordered rows.
+    try {
+      applySkuLinksToColumn(sheet, PREP_QUEUE.cols.SKU,
+                            segStart, segStart + realCount - 1, buildSkuEnrichmentMap());
+    } catch (e) {}
+  }
+  return realCount;
+}
+
+/**
+ * Sidebar "⇅ Sort Current": sort + compact the CURRENT table by location and
+ * trim the dead space above the divider to bufferRows blank typing rows.
+ */
+function sortPrepQueueCurrent() {
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  var sheet = ss.getSheetByName(PREP_QUEUE.sheetName);
+  if (!sheet) return "ℹ️ Prep Queue sheet not found.";
+
+  var segStart = PREP_QUEUE.dataStartRow;
+  var boundary = _getPrepBoundaryRow(sheet);
+  var blockCount = (boundary > 0)
+    ? boundary - segStart                                   // rows above divider
+    : sheet.getLastRow() - segStart + 1;                    // legacy single table
+  if (blockCount <= 0) return "ℹ️ CURRENT table is empty — nothing to sort.";
+
+  var n = _sortCompactPrepSegment(sheet, segStart, blockCount, PREP_QUEUE.bufferRows);
+  _refreshPrepQueueDuplicates(sheet);
+  SpreadsheetApp.flush();
+  return n === 0
+    ? "✅ CURRENT tidied — no items to sort."
+    : "✅ CURRENT sorted by location — " + n + " item(s), gaps closed.";
+}
+
+/**
+ * Sidebar "⇅ Sort Incoming": sort + compact the INCOMING table by location.
+ * No trailing buffer needed — the sheet's own blank rows below serve as
+ * typing space (there's no divider under INCOMING to protect).
+ */
+function sortPrepQueueIncoming() {
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  var sheet = ss.getSheetByName(PREP_QUEUE.sheetName);
+  if (!sheet) return "ℹ️ Prep Queue sheet not found.";
+
+  var boundary = _getPrepBoundaryRow(sheet);
+  if (boundary <= 0) return "ℹ️ No INCOMING table yet — run Re-style Sheet first.";
+
+  var segStart = boundary + 2;                              // divider + header
+  var blockCount = sheet.getLastRow() - segStart + 1;
+  if (blockCount <= 0) return "ℹ️ INCOMING table is empty — nothing to sort.";
+
+  var n = _sortCompactPrepSegment(sheet, segStart, blockCount, 0);
+  _refreshPrepQueueDuplicates(sheet);
+  SpreadsheetApp.flush();
+  return "✅ INCOMING sorted by location — " + n + " item(s), gaps closed.";
+}
+
+
+// =======================================================================================
 // onEdit DISPATCHER — called from Main.js's onEdit(e)
 // =======================================================================================
 

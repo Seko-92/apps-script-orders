@@ -3637,10 +3637,14 @@ body.dark-theme .footer-version { border-color: #2c2c2c; }
       </div>
 
       <button class="btn-primary" onclick="run('openPrepQueue')">Open Queue</button>
+      <div class="btn-group">
+        <button class="btn-secondary" onclick="run('sortPrepQueueCurrent')" title="Sort the CURRENT table by location (aisle order) and close the empty gaps between rows">⇅ Sort Current</button>
+        <button class="btn-secondary" onclick="run('sortPrepQueueIncoming')" title="Sort the INCOMING table by location and close the empty gaps between rows">⇅ Sort Incoming</button>
+      </div>
       <button class="btn-secondary" onclick="confirmClearDonePrep()">✔ Clear Done Rows</button>
       <button class="btn-secondary" onclick="run('refreshPrepQueueLocations')">📍 Refresh Locations</button>
       <button class="btn-danger" onclick="confirmClearPrepQueue()">Clear Queue</button>
-      <div class="empty-hint">Two tables: <strong>CURRENT</strong> on top, <strong>INCOMING</strong> (future prep) below the yellow divider. The current table grows on its own — type in the blank rows and the divider slides down. Tick a row's ✔ box to strike it through; <strong>Clear Done</strong> sweeps ticked rows out of both tables. Locations re-mirror hourly — the ⟳ chip shows the last refresh.</div>
+      <div class="empty-hint">Two tables: <strong>CURRENT</strong> on top, <strong>INCOMING</strong> (future prep) below the yellow divider. The current table grows on its own — type in the blank rows and the divider slides down. <strong>⇅ Sort</strong> re-orders each table by location and closes the empty gaps that build up as items are moved or cleared (checkmarks survive the sort). Tick a row's ✔ box to strike it through; <strong>Clear Done</strong> sweeps ticked rows out of both tables. Locations re-mirror hourly — the ⟳ chip shows the last refresh.</div>
       <details class="card-more">
         <summary>More tools</summary>
         <div class="card-more-content">
@@ -3661,7 +3665,11 @@ body.dark-theme .footer-version { border-color: #2c2c2c; }
     <div class="card-body">
       <button class="btn-primary" onclick="run('openOutOfStock')">Open Sheet</button>
       <button class="btn-secondary" onclick="run('refreshOutOfStock')">Refresh Now</button>
-      <div class="empty-hint">SKUs at zero or below in Master Inventory. Auto-refreshes hourly during work hours (6am–6pm Houston) — the ⟳ chip on the sheet shows the last refresh.</div>
+      <div class="btn-group">
+        <button class="btn-secondary" onclick="run('sortOutOfStockMain')" title="Re-sort the top restock list by location (aisle walk order)">⇅ Sort Restock</button>
+        <button class="btn-secondary" onclick="run('sortOutOfStockKits')" title="Re-sort the OOS kits table by buildable count (most-openable first)">⇅ Sort Kits</button>
+      </div>
+      <div class="empty-hint">Two tables: <strong>restock list</strong> on top (Active listings at zero or below), <strong>OOS KITS</strong> below the yellow divider with a live BUILDABLE count from components. <strong>⇅ Sort</strong> re-orders each table on demand (restock by location, kits by buildable). Auto-refreshes hourly during work hours (6am–6pm Houston) — the ⟳ chip on the sheet shows the last refresh. A row shown struck-through gray with "⟳ Zoho: N" means Zoho already sees stock — Master Inventory just hasn't caught up yet (drops within the hour).</div>
       <details class="card-more">
         <summary>More tools</summary>
         <div class="card-more-content">

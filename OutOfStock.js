@@ -1,93 +1,130 @@
 // =======================================================================================
-// OUT_OF_STOCK.gs — "Out of Stock" sheet + alert
+// OUT_OF_STOCK.gs — "Out of Stock" sheet + alert  ·  TWO-TABLE LAYOUT (2026-07-18)
 // =======================================================================================
 //
 // PURPOSE
-//   A weekly tracker of every SKU in Master Inventory whose available stock
-//   has dropped to zero (or negative). Lives as its own sheet so the warehouse
-//   can scan it once a week, decide what to restock, and check it off — without
-//   having to scroll the much larger Master Inventory sheet.
+//   The restock decision surface. One sheet, two stacked tables (the Prep
+//   Queue pattern):
 //
-//   The "out of stock count" feeds the sidebar's Alerts card. Click the alert
-//   row → the user is dropped onto this sheet.
+//     Row 1        ▌ OUT OF STOCK yellow title band (sync chip in-band at H1)
+//     Row 2        main-table headers (frozen rows = 2)
+//     Row 3+       MAIN TABLE — plain SKUs to REORDER from the supplier
+//     ▌ KITS       divider (col A value EXACTLY "KITS" — same exact-marker
+//                  contract as All Orders' DIRECT / Prep Queue's INCOMING)
+//     next row     kit-table headers
+//     below        KIT TABLE — out-of-stock KITS with a BUILDABLE count, so
+//                  the decision "open this kit from components?" is one glance
 //
-// DEFINITION
-//   Out of stock = `quantity - quantitySold <= 0` in Master Inventory.
-//   This is regardless of whether the SKU has open orders committing it
-//   further into negative — if Master Inventory says we have nothing left,
-//   it goes on the list.
+//   The two tables answer the two different restock actions: the main table
+//   is "order more from the supplier"; the kit table is "we may already OWN
+//   this — as components." A kit SKU never appears in both.
 //
-// SMART-MERGE REFRESH (added 2026-04-30)
-//   The weekly refresh is a MERGE, not a wipe-and-rewrite. This preserves the
-//   FIRST SEEN date for SKUs that have been chronically out of stock — so you
-//   can see at a glance whether a SKU just hit zero or has been out for weeks.
+// DEFINITION (both tables)
+//   Out of stock = `quantity - quantitySold <= 0` in Master Inventory
+//   AND `listingStatus == "Active"` (added 2026-07-18: deleted/ended eBay
+//   listings get flipped to "Completed"/"Ended" by the n8n sync but their MI
+//   rows are never removed — without the filter they lingered here forever as
+//   phantom restock candidates; 15 of 112 rows at the time of the fix).
 //
-//   On each refresh:
-//     - SKU still OOS → update QTY/SOLD/AVAILABLE/LAST CHECKED, keep FIRST SEEN
-//     - SKU newly OOS → append, FIRST SEEN = today
-//     - SKU restocked (Master Inventory now > 0) → drop the row
-//     - SKU not in Master Inventory at all (manual lookup, NOT FOUND) → leave alone
+// KIT TABLE MATH
+//   For each OOS kit (SKU present in the Kit Registry):
+//     BUILDABLE  = min over components of floor(available ÷ qty-per-kit)
+//                  — the number of complete kits the shelf can assemble.
+//     LIMITED BY = the bottleneck component ("167517 · has 12 / needs 6").
+//     COMPONENTS = health ("5 ok", or a loud "⚠ …" when the registry has
+//                  unparsed PD lines / unknown components — an untrustable
+//                  number is never shown, same honesty rule as the Kit
+//                  Expansion modal).
+//   Component availability is ZOHO-FIRST (Zoho Stock sheet, ≤2 min stale via
+//   the n8n push) with MI fallback — the same routing every other kit surface
+//   uses. Zero new API calls: both sources are sheets already in the file.
+//   READY kits are included too (their K-* LOCATION identifies them) — for a
+//   READY kit the number reads "how many more boxes could be assembled".
 //
-// MANUAL ENTRY
-//   Type a SKU into column A → outOfStockOnEdit (installable trigger) auto-fills
-//   LOCATION, QTY, SOLD, AVAILABLE, LAST CHECKED, and stamps FIRST SEEN if empty.
-//   Useful as a quick stock-check tool. Manually-added rows that are currently
-//   IN STOCK get cleaned out on the next weekly refresh — by design, this sheet
-//   is for tracking out-of-stock items, not a watch list.
+// DAYS OUT IS WRITTEN, NOT A FORMULA (changed 2026-07-18)
+//   The old col-H ARRAYFORMULA would be #REF!-blocked by the kit table's
+//   second header row (an array spill cannot expand over a value). The hourly
+//   refresh now writes DAYS OUT as plain numbers — day-granular data refreshed
+//   hourly loses nothing, and the whole DATEVALUE/date-coercion fragility
+//   class (see _normalizeOosFirstSeen) stops mattering for display.
 //
-// ARCHITECTURE
-//   - Standalone sheet ("Out of Stock") with its own minimal schema
-//     (separate from the main `Schema` — different columns, different sheet).
-//   - `refreshOutOfStock(maps)` smart-merges from Master Inventory.
-//     Runs HOURLY during work hours (6am–6pm Houston) via runHourlyHousekeeping
-//     in Housekeeping.js (replaced the weekly Monday-6am trigger 2026-07-13 —
-//     workers kept forgetting the manual button between weekly runs). The
-//     optional `maps` param lets housekeeping share one MI read across jobs.
-//   - The "⟳ last refreshed" pulse chip lives at I1 (stamp J1) — installed by
-//     _installPulseChip (Housekeeping.js), stamped at the end of every
-//     completed refresh.
-//   - The alert in the sidebar reads the *count* of OOS rows in this sheet — it
-//     does NOT re-scan Master Inventory on every poll. Cheap.
+// SMART-MERGE REFRESH
+//   Still a MERGE, not a wipe: FIRST SEEN survives across refreshes — and
+//   across SEGMENTS (a kit that sat in the main table before the two-table
+//   layout keeps its date when it moves to the kit table). On each refresh:
+//     - still OOS + Active → refresh values, keep FIRST SEEN
+//     - restocked          → drop
+//     - listing not Active → drop (phantom)
+//     - kit SKU            → kit table (never the main table)
+//     - not in MI at all   → preserved as-is in the main table (manual entry)
+//   The divider slides via insertRowsAfter/deleteRows so band formatting
+//   travels with it; ~3 blank buffer rows above it stay typable for manual
+//   SKU checks.
+//
+// MANUAL ENTRY (main table + buffer rows only)
+//   Type a SKU into col A above the divider → outOfStockOnEdit auto-fills
+//   LOCATION/QTY/SOLD/AVAILABLE/DAYS OUT + stamps FIRST SEEN if empty. The
+//   kit table is machine-owned: edits at/below the divider are ignored.
 //
 // PUBLIC API
-//   setupOutOfStockSheet()      — one-time: create sheet, brand styling, headers
-//   refreshOutOfStock()         — scan Master Inventory, smart-merge data rows
-//   openOutOfStock()            — switch the user's active sheet to Out of Stock
-//   getOutOfStockCount()        — count of rows where AVAILABLE ≤ 0 (for the alert)
-//   setupOutOfStockTrigger()    — install weekly Mon 6am refresh trigger
-//   removeOutOfStockTrigger()   — uninstall the weekly trigger (manual cleanup)
+//   setupOutOfStockSheet()      — idempotent setup + LAYOUT MIGRATOR (old
+//                                 single-table sheets get the title band, the
+//                                 KITS divider, and the in-band chip)
+//   refreshOutOfStock(maps)     — smart-merge both tables from MI + Kit
+//                                 Registry + Zoho Stock (hourly via
+//                                 runHourlyHousekeeping, or sidebar button)
+//   openOutOfStock()            — activate the sheet
+//   getOutOfStockCount()        — main OOS rows + kit rows (for the alert)
 //   outOfStockOnEdit(e)         — onEdit dispatcher (called from Main.js)
+//   setupOutOfStockTrigger()    — ⚠ superseded weekly trigger (see below)
+//   removeOutOfStockTrigger()   — uninstall the weekly trigger
 // =======================================================================================
 
 // ---------- LOCAL SCHEMA (kept here, not in Schema.js — different sheet) ----------
 var OUT_OF_STOCK = {
   sheetName: "Out of Stock",
 
-  // 1-based column positions
+  // 1-based column positions — MAIN table (plain SKUs to reorder)
   cols: {
     SKU:          1,   // A
     LOCATION:     2,   // B
     QTY:          3,   // C — Master Inventory `quantity`
     SOLD:         4,   // D — Master Inventory `quantitySold`
     AVAILABLE:    5,   // E — qty - sold (will be ≤ 0 for real OOS)
-    FIRST_SEEN:   6,   // F — date this SKU first appeared as OOS (preserved across refreshes)
+    FIRST_SEEN:   6,   // F — date this SKU first appeared as OOS (preserved)
     LAST_CHECKED: 7,   // G — timestamp of latest refresh that confirmed state
-    DAYS_OUT:     8    // H — derived: TODAY() - FIRST_SEEN. ARRAYFORMULA, never written by code.
+    DAYS_OUT:     8    // H — TODAY - FIRST SEEN, WRITTEN by refresh (no formula)
+  },
+
+  // The KIT table reuses the same 8-col grid with different meanings in A..E:
+  kitCols: {
+    KIT_SKU:      1,   // A
+    LOCATION:     2,   // B — kit's own shelf (K-* = READY pre-assembled box)
+    BUILDABLE:    3,   // C — min over components of floor(avail / qty-per-kit)
+    LIMITED_BY:   4,   // D — bottleneck component + its numbers
+    COMPONENTS:   5,   // E — "N ok" or "⚠ …" health
+    FIRST_SEEN:   6,   // F
+    LAST_CHECKED: 7,   // G
+    DAYS_OUT:     8    // H
   },
 
   idx: function(name) { return OUT_OF_STOCK.cols[name] - 1; },
 
-  // dataWidth      = full visible width including the formula column
-  // writableWidth  = how many cols the code actually writes/reads/clears.
-  //                  DAYS_OUT lives in col 8 as an ARRAYFORMULA; if we wrote
-  //                  there we'd erase the formula, so refresh/onEdit/clear
-  //                  only touch cols 1..7.
-  dataWidth:      8,
-  writableWidth:  7,
-  headerRow:      1,
-  dataStartRow:   2,
+  dataWidth: 8,
 
-  headers: ["◈ SKU", "LOCATION", "# QTY", "# SOLD", "AVAILABLE", "FIRST SEEN", "LAST CHECKED", "DAYS OUT"]
+  titleRow:     1,   // ▌ OUT OF STOCK band (chip in-band at H1, stamp J1 hidden)
+  headerRow:    2,
+  dataStartRow: 3,
+
+  // Divider contract — col A value must be EXACTLY this (▌ dressing is a
+  // number-format display prefix; Gotcha #1 discipline).
+  boundaryMarker: "KITS",
+
+  // Blank typable rows kept above the divider for manual SKU checks.
+  bufferRows: 3,
+
+  headers:    ["◈ SKU", "LOCATION", "# QTY", "# SOLD", "AVAILABLE", "FIRST SEEN", "LAST CHECKED", "DAYS OUT"],
+  kitHeaders: ["📦 KIT SKU", "LOCATION", "BUILDABLE", "LIMITED BY", "COMPONENTS", "FIRST SEEN", "LAST CHECKED", "DAYS OUT"]
 };
 
 
@@ -96,9 +133,10 @@ var OUT_OF_STOCK = {
 // =======================================================================================
 
 /**
- * One-time setup: creates "Out of Stock" sheet if missing, applies brand
- * styling, banding, and conditional formatting on the AVAILABLE column.
- * Idempotent — safe to re-run.
+ * Idempotent setup + layout migrator. Safe to re-run any time (sidebar
+ * "Re-style Sheet" button). Migrates pre-2026-07-18 single-table sheets:
+ * inserts the row-1 title band, moves the sync chip in-band (H1, stamp stays
+ * J1), removes the legacy DAYS OUT ARRAYFORMULA, and creates the KITS divider.
  */
 function setupOutOfStockSheet() {
   var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
@@ -108,27 +146,54 @@ function setupOutOfStockSheet() {
     sheet = ss.insertSheet(OUT_OF_STOCK.sheetName);
   }
 
-  // --- HEADERS ---
-  sheet.getRange(OUT_OF_STOCK.headerRow, 1, 1, OUT_OF_STOCK.dataWidth)
-    .setValues([OUT_OF_STOCK.headers])
-    .setBackground('#1d1d1b')
-    .setFontColor('#ffd966')
-    .setFontFamily('Oswald')
-    .setFontWeight('bold')
-    .setFontSize(10)
-    .setHorizontalAlignment('center')
-    .setVerticalAlignment('middle')
-    .setWrap(true);
+  // --- TITLE-BAND MIGRATION ---
+  // Old layouts have the column headers on row 1. Shift everything down one
+  // so row 1 becomes the ▌ OUT OF STOCK title band (Prep Queue pattern).
+  var a1 = String(sheet.getRange(1, 1).getValue()).trim();
+  if (a1.charAt(0) === '◈') {
+    sheet.insertRowsBefore(1, 1);
+  }
 
-  sheet.getRange(OUT_OF_STOCK.headerRow, 1, 1, OUT_OF_STOCK.dataWidth)
-    .setBorder(null, null, true, null, null, null,
-               '#ffd966', SpreadsheetApp.BorderStyle.SOLID_THICK);
+  // --- CHIP MIGRATION (dark I1 chip / J1 stamp era → H1 in-band / J1) ---
+  // After the title insert the old chip sits at I2 and the old stamp at J2.
+  // Carry the stamp Date back to J1, wipe the dark-chip leftovers, and strip
+  // stale chip CF rules (they shifted to row 2 with the insert).
+  try {
+    var stampCell = sheet.getRange(SHEET_PULSE.outOfStock.stamp);   // J1
+    if (!(stampCell.getValue() instanceof Date)) {
+      var carried = sheet.getRange("J2").getValue();
+      if (carried instanceof Date) stampCell.setValue(carried);
+    }
+    sheet.getRange("J2").clearContent();
+    ["I1", "I2"].forEach(function(oldHome) {
+      sheet.getRange(oldHome).clearContent()
+           .setBackground(null).setFontColor(null)
+           .setBorder(false, false, false, false, false, false);
+    });
+    sheet.getRange(1, 8, 2, 3).clearNote();   // chip notes, rows 1-2 × H..J
+    sheet.setColumnWidth(9, 40);              // col I was 180 for the dark chip
+    var cfMigrated = sheet.getConditionalFormatRules().filter(function(r) {
+      return !r.getRanges().some(function(rg) {
+        return rg.getRow() <= 2 && rg.getNumRows() === 1 &&
+               rg.getColumn() >= 9 && rg.getColumn() <= 10;
+      });
+    });
+    sheet.setConditionalFormatRules(cfMigrated);
+  } catch (mErr) { try { Logger.log("setupOutOfStockSheet: chip migration: " + mErr); } catch (_) {} }
+
+  // --- LEGACY DAYS OUT ARRAYFORMULA REMOVAL ---
+  // DAYS OUT is written by refresh now — the kit table's second header row
+  // would block an array spill in col H with #REF!.
+  try {
+    var h3 = sheet.getRange(OUT_OF_STOCK.dataStartRow, OUT_OF_STOCK.cols.DAYS_OUT);
+    if (String(h3.getFormula()).indexOf("=ARRAYFORMULA") === 0) h3.clearContent();
+  } catch (fErr) { try { Logger.log("setupOutOfStockSheet: formula cleanup: " + fErr); } catch (_) {} }
 
   // --- COLUMN WIDTHS ---
   sheet.setColumnWidth(OUT_OF_STOCK.cols.SKU,          120);
   sheet.setColumnWidth(OUT_OF_STOCK.cols.LOCATION,     110);
   sheet.setColumnWidth(OUT_OF_STOCK.cols.QTY,           70);
-  sheet.setColumnWidth(OUT_OF_STOCK.cols.SOLD,          70);
+  sheet.setColumnWidth(OUT_OF_STOCK.cols.SOLD,         140);  // doubles as LIMITED BY in the kit table
   sheet.setColumnWidth(OUT_OF_STOCK.cols.AVAILABLE,     90);
   sheet.setColumnWidth(OUT_OF_STOCK.cols.FIRST_SEEN,   120);
   sheet.setColumnWidth(OUT_OF_STOCK.cols.LAST_CHECKED, 140);
@@ -137,105 +202,111 @@ function setupOutOfStockSheet() {
   // --- DATA AREA: column-level formats so new rows inherit ---
   var maxDataRow = 1000;
   var dataRows = maxDataRow - OUT_OF_STOCK.dataStartRow + 1;
-
-  sheet.getRange(OUT_OF_STOCK.dataStartRow, OUT_OF_STOCK.cols.SKU, dataRows, 1)
-    .setFontFamily('Roboto Mono').setFontWeight('bold').setFontSize(10)
-    .setHorizontalAlignment('center');
-  sheet.getRange(OUT_OF_STOCK.dataStartRow, OUT_OF_STOCK.cols.LOCATION, dataRows, 1)
-    .setFontFamily('Roboto Mono').setFontWeight('bold').setFontSize(10)
-    .setHorizontalAlignment('center');
-  sheet.getRange(OUT_OF_STOCK.dataStartRow, OUT_OF_STOCK.cols.QTY, dataRows, 1)
-    .setFontFamily('Oswald').setFontWeight('bold').setFontSize(13)
-    .setHorizontalAlignment('center');
-  sheet.getRange(OUT_OF_STOCK.dataStartRow, OUT_OF_STOCK.cols.SOLD, dataRows, 1)
-    .setFontFamily('Oswald').setFontWeight('bold').setFontSize(13)
-    .setHorizontalAlignment('center');
-  sheet.getRange(OUT_OF_STOCK.dataStartRow, OUT_OF_STOCK.cols.AVAILABLE, dataRows, 1)
-    .setFontFamily('Oswald').setFontWeight('bold').setFontSize(13)
-    .setHorizontalAlignment('center');
-  // FIRST SEEN + LAST CHECKED are PLAIN TEXT ('@') on purpose: the code
-  // writes "M/d/yy" strings, and without this format Sheets auto-coerces
-  // them into real Date values — which the next refresh read turned into
-  // "Thu Apr 30 2026 08:00:00 GMT+0300 (…)" dumps that broke the DAYS OUT
-  // DATEVALUE parse (bug fixed 2026-07-13; see _normalizeOosFirstSeen).
-  sheet.getRange(OUT_OF_STOCK.dataStartRow, OUT_OF_STOCK.cols.FIRST_SEEN, dataRows, 1)
-    .setFontFamily('Roboto Mono').setFontSize(9)
-    .setFontColor('#434343').setHorizontalAlignment('center')
-    .setNumberFormat('@');
-  sheet.getRange(OUT_OF_STOCK.dataStartRow, OUT_OF_STOCK.cols.LAST_CHECKED, dataRows, 1)
-    .setFontFamily('Roboto Mono').setFontSize(9)
-    .setFontColor('#434343').setHorizontalAlignment('center')
-    .setNumberFormat('@');
-  sheet.getRange(OUT_OF_STOCK.dataStartRow, OUT_OF_STOCK.cols.DAYS_OUT, dataRows, 1)
-    .setFontFamily('Oswald').setFontWeight('bold').setFontSize(13)
-    .setFontColor('#1d1d1b').setHorizontalAlignment('center');
-
-  sheet.getRange(OUT_OF_STOCK.dataStartRow, 1, dataRows, OUT_OF_STOCK.dataWidth)
-    .setVerticalAlignment('middle');
+  _applyOosDataRowFormats(sheet, OUT_OF_STOCK.dataStartRow, dataRows);
 
   // --- BANDING (cream alternation) ---
+  // Range starts at the HEADER row (2), NOT row 1 — the banding header slot
+  // paints over manual fills, and it would black out the row-1 title band
+  // (Prep Queue rollout lesson 2026-07-16). Row 1 stays OUTSIDE the banding,
+  // and the band/header manual styling below runs AFTER this step.
   sheet.getBandings().forEach(function(b) { try { b.remove(); } catch (e) {} });
-  var bandRange = sheet.getRange(1, 1, maxDataRow, OUT_OF_STOCK.dataWidth);
+  var bandRange = sheet.getRange(OUT_OF_STOCK.headerRow, 1,
+                                 maxDataRow - OUT_OF_STOCK.headerRow + 1, OUT_OF_STOCK.dataWidth);
   var band = bandRange.applyRowBanding(SpreadsheetApp.BandingTheme.LIGHT_GREY, true, false);
   band.setHeaderRowColor('#1d1d1b')
       .setFirstRowColor('#ffffff')
       .setSecondRowColor('#fff8e7');
 
-  // --- AVAILABLE: red when ≤ 0 (CF rule) ---
-  // Every populated row gets it; the rule keeps the visual unambiguous even if
-  // someone hand-types an in-stock SKU.
-  // Strip any prior rules that target AVAILABLE (this rule) or SKU (legacy
-  // CF-based dupe rule from a prior version — duplicates are now JS-painted).
-  var existingRules = sheet.getConditionalFormatRules();
-  var keptRules = existingRules.filter(function(r) {
-    var ranges = r.getRanges();
-    return !ranges.some(function(rg) {
-      return rg.getColumn() === OUT_OF_STOCK.cols.AVAILABLE
-          || rg.getColumn() === OUT_OF_STOCK.cols.SKU;
+  // --- TITLE BAND + MAIN HEADERS (after banding, so manual styling wins) ---
+  _styleOosBand(sheet, OUT_OF_STOCK.titleRow, "OUT OF STOCK", "RESTOCK LIST · ACTIVE LISTINGS");
+  _styleOosHeaderRow(sheet, OUT_OF_STOCK.headerRow, OUT_OF_STOCK.headers);
+
+  // --- KITS DIVIDER + KIT HEADERS ---
+  // Create below existing data (with typing buffer) on first run; re-style in
+  // place on every re-run.
+  var boundary = _getOosBoundaryRow(sheet);
+  if (boundary < 0) {
+    var lastContent = Math.max(sheet.getLastRow(), OUT_OF_STOCK.headerRow);
+    boundary = lastContent + OUT_OF_STOCK.bufferRows + 1;
+    sheet.getRange(boundary, 1).setValue(OUT_OF_STOCK.boundaryMarker);
+  }
+  _styleOosBand(sheet, boundary, OUT_OF_STOCK.boundaryMarker, "OOS KITS · BUILDABLE FROM COMPONENTS");
+  _styleOosHeaderRow(sheet, boundary + 1, OUT_OF_STOCK.kitHeaders);
+
+  // --- CONDITIONAL FORMATTING (wipe ours in cols A..E, rebuild) ---
+  // Rule ORDER is load-bearing — Sheets applies the FIRST matching rule per
+  // cell (Prep Queue DONE-strike lesson). Chip rules (col H) are untouched.
+  var keptRules = sheet.getConditionalFormatRules().filter(function(r) {
+    return !r.getRanges().some(function(rg) {
+      return rg.getColumn() <= OUT_OF_STOCK.cols.AVAILABLE &&
+             rg.getRow() >= OUT_OF_STOCK.headerRow;
     });
   });
-  var availRange = sheet.getRange(OUT_OF_STOCK.dataStartRow, OUT_OF_STOCK.cols.AVAILABLE, dataRows, 1);
-  var availRule = SpreadsheetApp.newConditionalFormatRule()
-    .whenFormulaSatisfied(
-      "=AND(ISNUMBER(E" + OUT_OF_STOCK.dataStartRow + "), E" + OUT_OF_STOCK.dataStartRow + "<=0)"
-    )
-    .setBackground('#ff6b6b').setFontColor('#ffffff').setBold(true)
-    .setRanges([availRange])
-    .build();
-  keptRules.push(availRule);
-  sheet.setConditionalFormatRules(keptRules);
 
-  // --- Duplicate SKU highlight ---
-  // Done JS-side (not via CF) — Apps Script CF formulas with COUNTIF on a
-  // 1000-row range have been unreliable in this codebase. This mirrors the
-  // setupDuplicateSalesOrderHighlighting pattern: scan column A, draw a thick
-  // amber border on any SKU that appears more than once.
+  // Kit-table guard: a cell is "in the kit table" when its row is below the
+  // KITS divider. MATCH is exact — the divider's underlying value is bare
+  // "KITS" (the ▌ is number-format dressing).
+  var kitsGuard = 'ROW()>IFERROR(MATCH("KITS",$A$1:$A,0),100000)';
+  var dsr = OUT_OF_STOCK.dataStartRow;
+
+  // Zoho-resolved mute (2026-07-20): MI still says OOS but Zoho's OWN entry
+  // for this SKU already shows stock — a restock (or an "open this kit"
+  // decision) that hasn't reached MI yet via the hourly eBay sync. refresh
+  // stamps "⟳ Zoho: N" into LAST CHECKED (col G) for exactly these rows —
+  // main-table restocks AND a kit's own SKU — so a picker reads "already
+  // handled, MI is catching up" instead of "still broken." Applies to BOTH
+  // tables from one full-width rule. ORDERED FIRST — Sheets applies the
+  // first matching rule per cell, so a resolved row reads muted gray instead
+  // of still-red/still-green (same rule-order discipline as Prep Queue's
+  // DONE-strike, 2026-07-16). MI stays the decider on whether the row is
+  // still listed at all — this rule only changes how a resolved row LOOKS
+  // while it waits its turn; annotate, never override (same philosophy as
+  // the queued eBay-row Zoho divergence flag).
+  var muteRange = sheet.getRange(dsr, 1, dataRows, OUT_OF_STOCK.dataWidth);
+  var muteRule = SpreadsheetApp.newConditionalFormatRule()
+    .whenFormulaSatisfied('=REGEXMATCH($G' + dsr + ',"⟳ Zoho")')
+    .setBackground('#e0e0e0').setFontColor('#757575').setStrikethrough(true)
+    .setRanges([muteRange]).build();
+
+  var buildableRange = sheet.getRange(dsr, OUT_OF_STOCK.kitCols.BUILDABLE, dataRows, 1);
+  var buildableGreen = SpreadsheetApp.newConditionalFormatRule()
+    .whenFormulaSatisfied("=AND(ISNUMBER($C" + dsr + "),$C" + dsr + ">0," + kitsGuard + ")")
+    .setBackground('#c8e6c9').setFontColor('#1b5e20').setBold(true)
+    .setRanges([buildableRange]).build();
+  var buildableRed = SpreadsheetApp.newConditionalFormatRule()
+    .whenFormulaSatisfied("=AND(ISNUMBER($C" + dsr + "),$C" + dsr + "<=0," + kitsGuard + ")")
+    .setBackground('#ff6b6b').setFontColor('#ffffff').setBold(true)
+    .setRanges([buildableRange]).build();
+
+  // ⚠ warning cells (kit table C..E: unparsed PD / missing components)
+  var warnRange = sheet.getRange(dsr, OUT_OF_STOCK.kitCols.BUILDABLE, dataRows, 3);
+  var warnRule = SpreadsheetApp.newConditionalFormatRule()
+    .whenFormulaSatisfied('=LEFT(C' + dsr + ',1)="⚠"')
+    .setBackground('#fff3b0').setFontColor('#7a5c00').setBold(true)
+    .setRanges([warnRange]).build();
+
+  // Main table: AVAILABLE red when ≤ 0. ISNUMBER keeps it off the kit table
+  // (kit col E holds text) and off hand-typed in-stock lookups.
+  var availRange = sheet.getRange(dsr, OUT_OF_STOCK.cols.AVAILABLE, dataRows, 1);
+  var availRule = SpreadsheetApp.newConditionalFormatRule()
+    .whenFormulaSatisfied("=AND(ISNUMBER(E" + dsr + "), E" + dsr + "<=0)")
+    .setBackground('#ff6b6b').setFontColor('#ffffff').setBold(true)
+    .setRanges([availRange]).build();
+
+  sheet.setConditionalFormatRules(
+    [muteRule, buildableGreen, buildableRed, warnRule, availRule].concat(keptRules));
+
+  // --- Duplicate SKU highlight (JS-side, structure-aware) ---
   _refreshOutOfStockDuplicates(sheet);
 
-  // --- DAYS OUT formula (col H) ---
-  // Single ARRAYFORMULA in H2 spills into the rest of the column. TODAY()
-  // recalculates daily, so DAYS OUT is always accurate without rerunning the
-  // refresh. IFERROR guards against unparseable FIRST SEEN strings.
-  // ISNUMBER branch (added 2026-07-13): a FIRST SEEN cell that Sheets
-  // already coerced into a real Date is a serial number — DATEVALUE errors
-  // on those, so use the value directly; text dates go through DATEVALUE.
-  // Clear the column first so the spill isn't blocked by any stale values.
-  sheet.getRange(OUT_OF_STOCK.dataStartRow, OUT_OF_STOCK.cols.DAYS_OUT, dataRows, 1).clearContent();
-  sheet.getRange(OUT_OF_STOCK.dataStartRow, OUT_OF_STOCK.cols.DAYS_OUT).setFormula(
-    "=ARRAYFORMULA(IF(F" + OUT_OF_STOCK.dataStartRow + ":F=\"\", \"\", " +
-    "IFERROR(TODAY()-IF(ISNUMBER(F" + OUT_OF_STOCK.dataStartRow + ":F), " +
-    "F" + OUT_OF_STOCK.dataStartRow + ":F, " +
-    "DATEVALUE(F" + OUT_OF_STOCK.dataStartRow + ":F)), \"\")))"
-  );
+  // --- FREEZE TITLE BAND + HEADER ---
+  sheet.setFrozenRows(2);
 
-  // --- FREEZE HEADER ROW ---
-  sheet.setFrozenRows(1);
-
-  // --- FRESHNESS PULSE CHIP (I1 chip / J1 stamp, right of the headers) ---
+  // --- FRESHNESS PULSE CHIP (H1 in-band / J1 hidden stamp) ---
   try { _installPulseChip(sheet, SHEET_PULSE.outOfStock); }
   catch (e) { try { Logger.log("setupOutOfStockSheet: pulse chip error: " + e); } catch (_) {} }
 
-  return "✅ Out of Stock sheet ready.";
+  return "✅ Out of Stock sheet ready (two tables: RESTOCK + KITS).";
 }
 
 
@@ -246,14 +317,9 @@ function setupOutOfStockSheet() {
  * auto-coerces written "4/30/26" strings into real Date values. The next
  * refresh read then got a Date object, and String(date) produced the JS
  * dump "Thu Apr 30 2026 08:00:00 GMT+0300 (GMT+03:00)" — which got written
- * back, and which DATEVALUE can't parse, so the DAYS OUT column went blank
- * for every row. This helper repairs all three shapes on read:
- *   real Date            → format as M/d/yy
- *   legacy JS date-dump  → re-parse, format as M/d/yy
- *   clean "M/d/yy" text  → passthrough
- * Belt-and-suspenders with the plain-text ('@') format setupOutOfStockSheet
- * now applies to the FIRST SEEN / LAST CHECKED columns, which stops the
- * coercion at the source.
+ * back and broke downstream parsing. This helper repairs all three shapes on
+ * read; the '@' plain-text format on the FIRST SEEN / LAST CHECKED columns
+ * stops the coercion at the source.
  */
 function _normalizeOosFirstSeen(val, fallback) {
   if (val instanceof Date) {
@@ -270,19 +336,16 @@ function _normalizeOosFirstSeen(val, fallback) {
 
 
 /**
- * Smart-merge refresh from Master Inventory. Preserves FIRST SEEN dates so
- * chronic out-of-stock items can be identified at a glance.
+ * Smart-merge refresh of BOTH tables.
  *
- * Logic:
- *   - Build the OOS set from Master Inventory (qty - sold ≤ 0)
- *   - Index existing sheet rows by SKU
- *   - Walk existing rows and decide:
- *       a) SKU still OOS → KEEP, refresh QTY/SOLD/AVAILABLE/LAST CHECKED, preserve FIRST SEEN
- *       b) SKU restocked (Master Inventory now > 0) → DROP
- *       c) SKU not in Master Inventory at all (NOT FOUND / typo) → KEEP as-is
- *   - For each newly-OOS SKU not seen above → APPEND with FIRST SEEN = today
- *   - Re-sort by LOCATION asc → SKU asc
- *   - Write back
+ *   MAIN table: plain Active-listing SKUs with available ≤ 0 (reorder list).
+ *   KIT table:  Active OOS SKUs found in the Kit Registry, enriched with
+ *               BUILDABLE / LIMITED BY / COMPONENTS from Kit Registry ×
+ *               Zoho Stock (MI fallback), sorted most-buildable first.
+ *
+ * FIRST SEEN is preserved per SKU across refreshes AND across segments.
+ * The KITS divider slides (insert/delete rows) so band formatting travels;
+ * OUT_OF_STOCK.bufferRows blank rows above it stay typable.
  */
 function refreshOutOfStock(maps) {
   var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
@@ -293,144 +356,221 @@ function refreshOutOfStock(maps) {
   }
 
   // Accept pre-built maps from runHourlyHousekeeping (shared MI read).
-  // Detect by shape, not presence — the legacy weekly trigger (and any
-  // future direct trigger) passes a time-event object as the first arg.
+  // Detect by shape, not presence — a time trigger passes an event object.
   if (!maps || !maps.inventoryMap) maps = buildLocationAndInventoryMaps();
   if (maps.inventoryMap.size === 0) {
     return "⚠️ Master Inventory empty or headers missing.";
   }
 
+  // Self-heal the two-table layout: legacy header-on-row-1 sheets and lost
+  // dividers (paste-over) both route through the setup migrator.
+  var boundary = _getOosBoundaryRow(sheet);
+  if (boundary < 0 || String(sheet.getRange(1, 1).getValue()).trim().charAt(0) === '◈') {
+    setupOutOfStockSheet();
+    boundary = _getOosBoundaryRow(sheet);
+    if (boundary < 0) return "⚠️ Out of Stock: KITS divider missing after setup.";
+  }
+
+  // Kit + Zoho lookups (best-effort — an unavailable registry degrades to
+  // "no kit table rows", never blocks the main refresh).
+  var kitLookup = new Map();   // sku lower → kit object
+  try {
+    buildKitMap().forEach(function(kit, kitSku) {
+      kitLookup.set(String(kitSku).trim().toLowerCase(), kit);
+    });
+  } catch (ke) { try { console.log("refreshOutOfStock: kit map unavailable: " + ke); } catch (_) {} }
+  var zohoMap = new Map();
+  try { zohoMap = buildZohoStockMap(); }
+  catch (ze) { try { console.log("refreshOutOfStock: zoho map unavailable: " + ze); } catch (_) {} }
+  var resolveAvail = _oosResolveAvailFactory(zohoMap, maps.inventoryMap);
+
   var todayStr = Utilities.formatDate(new Date(), "America/Chicago", "M/d/yy");
   var nowStr   = Utilities.formatDate(new Date(), "America/Chicago", "M/d/yy h:mm a");
 
-  // ---- Read existing rows ----
-  // Read only the writable columns (1..7). Column 8 (DAYS_OUT) is a formula
-  // that we must not touch.
+  // ---- Read existing rows (both segments) ----
+  var FS = OUT_OF_STOCK.idx("FIRST_SEEN");
+  var mainExisting = [];
+  var mainSlots = boundary - OUT_OF_STOCK.dataStartRow;
+  if (mainSlots > 0) {
+    mainExisting = sheet.getRange(OUT_OF_STOCK.dataStartRow, 1, mainSlots, 7).getValues();
+  }
+  var kitExisting = [];
   var lastRow = sheet.getLastRow();
-  var existingRows = [];
-  if (lastRow >= OUT_OF_STOCK.dataStartRow) {
-    existingRows = sheet.getRange(
-      OUT_OF_STOCK.dataStartRow, 1,
-      lastRow - OUT_OF_STOCK.dataStartRow + 1,
-      OUT_OF_STOCK.writableWidth
-    ).getValues();
+  if (lastRow >= boundary + 2) {
+    kitExisting = sheet.getRange(boundary + 2, 1, lastRow - boundary - 1, 7).getValues();
   }
 
-  // ---- Build merged row set ----
-  var keptSkus = {};   // skus already accounted for from existing rows
-  var merged = [];     // final rows array
-  var dropped = 0;
-  var refreshed = 0;
-  var preserved = 0;   // manually-added NOT FOUND rows kept as-is
+  // FIRST SEEN index across BOTH segments — a SKU keeps its date when it
+  // moves between tables (e.g. first two-table refresh moves kits down).
+  var firstSeenBySku = {};
+  [mainExisting, kitExisting].forEach(function(rows) {
+    for (var i = 0; i < rows.length; i++) {
+      var s = String(rows[i][0] || "").trim().toLowerCase();
+      if (!s || s === OUT_OF_STOCK.boundaryMarker.toLowerCase()) continue;
+      var fs = _normalizeOosFirstSeen(rows[i][FS], "");
+      if (fs && !firstSeenBySku[s]) firstSeenBySku[s] = fs;
+    }
+  });
 
-  for (var i = 0; i < existingRows.length; i++) {
-    var row = existingRows[i];
+  // ---- Build MAIN rows ----
+  var keptSkus = {};
+  var mainRows = [];
+  var dropped = 0, refreshed = 0, preserved = 0, inactiveDropped = 0, zohoResolvedCount = 0;
+
+  for (var i = 0; i < mainExisting.length; i++) {
+    var row = mainExisting[i];
     var rawSku = String(row[OUT_OF_STOCK.idx("SKU")] || "").trim();
-    if (!rawSku) continue;  // skip empty rows
+    if (!rawSku) continue;   // buffer / empty rows
     var skuLower = rawSku.toLowerCase();
 
     var inv = maps.inventoryMap.get(skuLower);
 
     if (!inv) {
-      // (c) SKU not in Master Inventory — leave row exactly as the user wrote it
-      merged.push(row);
+      // Not in MI — leave the row exactly as the user wrote it (manual entry)
+      mainRows.push(row.slice(0, 7).concat([_oosDaysOut(_normalizeOosFirstSeen(row[FS], ""))]));
       keptSkus[skuLower] = true;
       preserved++;
+      continue;
+    }
+
+    if (!_oosIsActive(inv)) {
+      // Listing deleted/ended on eBay — phantom, drop it.
+      inactiveDropped++;
+      continue;
+    }
+
+    if (inv.available <= 0 && kitLookup.has(skuLower)) {
+      // OOS kit — the kit table owns it now.
       continue;
     }
 
     if (inv.available > 0) {
-      // SKU is currently in stock per Master Inventory. Two sub-cases —
-      // distinguished by what AVAILABLE was already in the sheet:
       var sheetAvail = row[OUT_OF_STOCK.idx("AVAILABLE")];
       if (typeof sheetAvail === 'number' && sheetAvail <= 0) {
-        // Sheet treated this as OOS (auto-added by a prior refresh, or hand-
-        // typed when it was zero). Master Inventory now says it's restocked.
-        // Drop the row — the OOS list shouldn't show in-stock items.
+        // Was OOS, MI says restocked → drop.
         dropped++;
         continue;
       }
-      // Sheet's own AVAILABLE was already > 0 — i.e., the user manually
-      // typed a SKU that was in stock at the time, presumably as a watch
-      // or lookup. Respect that: refresh values, preserve FIRST SEEN, keep.
+      // User deliberately typed an in-stock SKU (watch/lookup row) — keep,
+      // refresh values, preserve FIRST SEEN.
       var locationKept  = maps.locationMap.get(skuLower) || row[OUT_OF_STOCK.idx("LOCATION")] || "";
-      var firstSeenKept = _normalizeOosFirstSeen(row[OUT_OF_STOCK.idx("FIRST_SEEN")], todayStr);
-      merged.push([
-        rawSku,
-        locationKept,
-        inv.quantity,
-        inv.sold,
-        inv.available,
-        firstSeenKept,
-        nowStr
-      ]);
+      var firstSeenKept = _normalizeOosFirstSeen(row[FS], todayStr);
+      mainRows.push([rawSku, locationKept, inv.quantity, inv.sold, inv.available,
+                     firstSeenKept, nowStr, _oosDaysOut(firstSeenKept)]);
       keptSkus[skuLower] = true;
       preserved++;
       continue;
     }
 
-    // (a) Still OOS — refresh values, preserve FIRST SEEN
+    // Still OOS — refresh values, preserve FIRST SEEN
     var location  = maps.locationMap.get(skuLower) || row[OUT_OF_STOCK.idx("LOCATION")] || "";
-    var firstSeen = _normalizeOosFirstSeen(row[OUT_OF_STOCK.idx("FIRST_SEEN")], todayStr);
-
-    merged.push([
-      rawSku,
-      location,
-      inv.quantity,
-      inv.sold,
-      inv.available,
-      firstSeen,
-      nowStr
-    ]);
+    var firstSeen = _normalizeOosFirstSeen(row[FS], todayStr);
+    var zohoR1 = _oosZohoResolved(skuLower, zohoMap);
+    if (zohoR1 !== null) zohoResolvedCount++;
+    mainRows.push([rawSku, location, inv.quantity, inv.sold, inv.available,
+                   firstSeen, _oosLastCheckedText(nowStr, zohoR1), _oosDaysOut(firstSeen)]);
     keptSkus[skuLower] = true;
     refreshed++;
   }
 
-  // ---- Append newly-OOS SKUs not already represented ----
+  // Append newly-OOS plain SKUs (Active only, kits excluded)
   var added = 0;
   maps.inventoryMap.forEach(function(inv, skuLower) {
     if (inv.available > 0) return;
+    if (!_oosIsActive(inv)) return;
     if (keptSkus[skuLower]) return;
+    if (kitLookup.has(skuLower)) return;
 
     var location = maps.locationMap.get(skuLower) || "";
-    merged.push([
-      skuLower,
-      location,
-      inv.quantity,
-      inv.sold,
-      inv.available,
-      todayStr,   // FIRST SEEN
-      nowStr      // LAST CHECKED
-    ]);
+    var zohoR2 = _oosZohoResolved(skuLower, zohoMap);
+    if (zohoR2 !== null) zohoResolvedCount++;
+    mainRows.push([skuLower, location, inv.quantity, inv.sold, inv.available,
+                   todayStr, _oosLastCheckedText(nowStr, zohoR2), 0]);
     added++;
   });
 
-  // ---- Sort: LOCATION asc (empty last), then SKU asc ----
-  merged.sort(function(a, b) {
-    var la = String(a[OUT_OF_STOCK.idx("LOCATION")] || "");
-    var lb = String(b[OUT_OF_STOCK.idx("LOCATION")] || "");
-    if (la === "" && lb !== "") return 1;
-    if (lb === "" && la !== "") return -1;
-    if (la !== lb) return la.localeCompare(lb);
-    return String(a[OUT_OF_STOCK.idx("SKU")]).localeCompare(String(b[OUT_OF_STOCK.idx("SKU")]));
+  mainRows.sort(_oosMainRowCompare);
+
+  // ---- Build KIT rows ----
+  var kitRows = [];
+  var kitBuildableNow = 0;
+  maps.inventoryMap.forEach(function(inv, skuLower) {
+    if (inv.available > 0) return;
+    if (!_oosIsActive(inv)) return;
+    var kit = kitLookup.get(skuLower);
+    if (!kit) return;
+
+    var build = _oosComputeKitBuild(kit, resolveAvail);
+    if (typeof build.buildable === 'number' && build.buildable > 0) kitBuildableNow++;
+
+    // System-wide convention (user ruling 2026-07-18): an item with no
+    // location shows the literal "NOT FOUND" — same as every other surface.
+    // locationMap already stores "NOT FOUND" for MI rows with a blank
+    // location (typical for MANUAL kits — no pre-assembled box on a shelf);
+    // READY kits carry their real K-* aisle. Registry KIT LOC is the
+    // fallback for the theoretical MI-absent case.
+    var kitLoc = maps.locationMap.get(skuLower) || kit.location || "NOT FOUND";
+
+    var kitFirstSeen = firstSeenBySku[skuLower] || todayStr;
+    // Mute check on the KIT'S OWN sku (not its components) — same "MI still
+    // says OOS but Zoho already shows stock" signal as the main table. Fires
+    // e.g. right after the floor opens a kit and adjusts its qty in Zoho.
+    var zohoR3 = _oosZohoResolved(skuLower, zohoMap);
+    if (zohoR3 !== null) zohoResolvedCount++;
+    kitRows.push([kit.sku, kitLoc, build.buildable, build.limitedBy, build.components,
+                  kitFirstSeen, _oosLastCheckedText(nowStr, zohoR3), _oosDaysOut(kitFirstSeen)]);
   });
+  kitRows.sort(_oosKitRowCompare);
 
-  // ---- Wipe and write ----
-  // Only touch writable cols (1..7). Leaving col 8 (DAYS_OUT formula) alone.
-  if (lastRow >= OUT_OF_STOCK.dataStartRow) {
-    sheet.getRange(
-      OUT_OF_STOCK.dataStartRow, 1,
-      lastRow - OUT_OF_STOCK.dataStartRow + 1,
-      OUT_OF_STOCK.writableWidth
-    ).clearContent();
+  // ---- Structural write ----
+  // Slide the divider so the main segment is exactly mainRows + buffer.
+  var targetSlots = mainRows.length + OUT_OF_STOCK.bufferRows;
+  var currentSlots = boundary - OUT_OF_STOCK.dataStartRow;
+  if (targetSlots > currentSlots) {
+    var addN = targetSlots - currentSlots;
+    sheet.insertRowsAfter(boundary - 1, addN);
+    if (currentSlots === 0) {
+      // Degenerate case: the inheritance source row was the HEADER — reset
+      // the inserted rows to a data-row look (Prep Queue buffer lesson).
+      var fresh = sheet.getRange(OUT_OF_STOCK.dataStartRow, 1, addN, OUT_OF_STOCK.dataWidth);
+      fresh.setBackground(null).setFontColor(null).setFontLine('none')
+           .setBorder(false, false, false, false, false, false);
+      _applyOosDataRowFormats(sheet, OUT_OF_STOCK.dataStartRow, addN);
+    }
+  } else if (targetSlots < currentSlots) {
+    sheet.deleteRows(OUT_OF_STOCK.dataStartRow + targetSlots, currentSlots - targetSlots);
+  }
+  boundary = OUT_OF_STOCK.dataStartRow + targetSlots;
+
+  // Main segment: clear + write
+  sheet.getRange(OUT_OF_STOCK.dataStartRow, 1, targetSlots, OUT_OF_STOCK.dataWidth).clearContent();
+  if (mainRows.length > 0) {
+    sheet.getRange(OUT_OF_STOCK.dataStartRow, 1, mainRows.length, OUT_OF_STOCK.dataWidth)
+      .setValues(mainRows);
   }
 
-  if (merged.length > 0) {
-    sheet.getRange(OUT_OF_STOCK.dataStartRow, 1, merged.length, OUT_OF_STOCK.writableWidth)
-      .setValues(merged);
+  // Kit segment: clear + write (content-only — nothing lives below it)
+  var kitStart = boundary + 2;
+  var clearTo = Math.max(sheet.getLastRow(), kitStart + kitRows.length - 1);
+  if (clearTo >= kitStart) {
+    sheet.getRange(kitStart, 1, clearTo - kitStart + 1, OUT_OF_STOCK.dataWidth).clearContent();
+  }
+  if (kitRows.length > 0) {
+    sheet.getRange(kitStart, 1, kitRows.length, OUT_OF_STOCK.dataWidth).setValues(kitRows);
+    // LIMITED BY + COMPONENTS are prose-ish — compact mono instead of the
+    // main table's big Oswald digits (re-asserted every refresh; the whole
+    // segment is rewritten anyway).
+    sheet.getRange(kitStart, OUT_OF_STOCK.kitCols.LIMITED_BY, kitRows.length, 2)
+      .setFontFamily('Roboto Mono').setFontWeight('normal').setFontSize(9)
+      .setFontColor('#434343');
   }
 
-  // Refresh duplicate-SKU highlights (after data has been written)
+  // Divider + kit header self-heal (cheap, keeps the KITS band styled even
+  // after a stray paste-over; mirrors the Prep Queue re-style discipline)
+  _styleOosBand(sheet, boundary, OUT_OF_STOCK.boundaryMarker, "OOS KITS · BUILDABLE FROM COMPONENTS");
+  _styleOosHeaderRow(sheet, boundary + 1, OUT_OF_STOCK.kitHeaders);
+
+  // Duplicate-SKU highlights (structure-aware)
   _refreshOutOfStockDuplicates(sheet);
 
   // Freshness chip — stamped only on a COMPLETED refresh, so the chip's
@@ -440,7 +580,11 @@ function refreshOutOfStock(maps) {
   return "✅ Out of Stock refreshed — " +
          added + " new, " +
          refreshed + " still out, " +
-         dropped + " restocked" +
+         dropped + " restocked, " +
+         kitRows.length + " OOS kit(s)" +
+         (kitBuildableNow > 0 ? " (" + kitBuildableNow + " buildable now)" : "") +
+         (inactiveDropped > 0 ? ", " + inactiveDropped + " inactive dropped" : "") +
+         (zohoResolvedCount > 0 ? ", " + zohoResolvedCount + " zoho-resolved (MI catching up)" : "") +
          (preserved > 0 ? ", " + preserved + " manual" : "") + ".";
 }
 
@@ -466,10 +610,71 @@ function openOutOfStock() {
 
 
 /**
- * Fast count for the sidebar alert: counts only rows where AVAILABLE ≤ 0
- * (i.e. genuinely out of stock). Manual lookups for in-stock SKUs (which the
- * onEdit handler may have populated with AVAILABLE > 0) and NOT FOUND rows
- * are deliberately excluded.
+ * Manual re-sort of the MAIN table — LOCATION asc (empty last), then SKU
+ * asc: the exact rule the hourly refresh already applies. Useful right
+ * after typing several SKUs into the buffer rows without waiting for the
+ * next refresh. Pure in-place reorder (getValues → sort → setValues, no
+ * MI/Kit Registry/Zoho reads) — instant. Column-level fonts and the '@'
+ * text format are uniform per column, so they travel automatically with
+ * the values; only the position-dependent duplicate-SKU highlight needs a
+ * repaint after (same reasoning as All Orders' sort — see Gotcha #3 — minus
+ * the per-cell NUMBER FORMAT complication, since nothing here varies it
+ * row-by-row).
+ */
+function sortOutOfStockMain() {
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  var sheet = ss.getSheetByName(OUT_OF_STOCK.sheetName);
+  if (!sheet) return "⚠️ Out of Stock sheet not found.";
+
+  var boundary = _getOosBoundaryRow(sheet);
+  if (boundary < 0) return "⚠️ KITS divider missing — run Re-style Sheet first.";
+
+  var n = boundary - OUT_OF_STOCK.dataStartRow;
+  if (n <= 0) return "Nothing to sort — the restock list is empty.";
+
+  var range = sheet.getRange(OUT_OF_STOCK.dataStartRow, 1, n, OUT_OF_STOCK.dataWidth);
+  var rows = range.getValues();
+  rows.sort(_oosMainRowCompare);
+  range.setValues(rows);
+
+  _refreshOutOfStockDuplicates(sheet);
+  return "✅ Restock list sorted by location.";
+}
+
+/**
+ * Manual re-sort of the KIT table — BUILDABLE desc ("⚠" rows last), then kit
+ * SKU asc. The kit table is fully rewritten in this order on every refresh
+ * already; this button is for re-asserting the order on demand (e.g. right
+ * after eyeballing the sheet) without kicking off a full MI/Kit Registry/
+ * Zoho refresh cycle.
+ */
+function sortOutOfStockKits() {
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  var sheet = ss.getSheetByName(OUT_OF_STOCK.sheetName);
+  if (!sheet) return "⚠️ Out of Stock sheet not found.";
+
+  var boundary = _getOosBoundaryRow(sheet);
+  if (boundary < 0) return "⚠️ KITS divider missing — run Re-style Sheet first.";
+
+  var kitStart = boundary + 2;
+  var lastRow = sheet.getLastRow();
+  var n = lastRow - kitStart + 1;
+  if (n <= 0) return "Nothing to sort — no OOS kits right now.";
+
+  var range = sheet.getRange(kitStart, 1, n, OUT_OF_STOCK.dataWidth);
+  var rows = range.getValues();
+  rows.sort(_oosKitRowCompare);
+  range.setValues(rows);
+
+  _refreshOutOfStockDuplicates(sheet);
+  return "✅ Kit table sorted by buildable count.";
+}
+
+
+/**
+ * Fast count for the sidebar alert. Main table: rows where AVAILABLE ≤ 0
+ * (manual in-stock lookups and NOT FOUND rows excluded, as before). Kit
+ * table: every row counts — kit rows are OOS by construction.
  *
  * Reads the snapshot — does NOT re-scan Master Inventory.
  */
@@ -481,7 +686,7 @@ function getOutOfStockCount() {
   var lastRow = sheet.getLastRow();
   if (lastRow < OUT_OF_STOCK.dataStartRow) return 0;
 
-  // Read SKU + AVAILABLE in one range (cols A:E, dropping the rightmost two)
+  var boundary = _getOosBoundaryRow(sheet);
   var data = sheet.getRange(
     OUT_OF_STOCK.dataStartRow, 1,
     lastRow - OUT_OF_STOCK.dataStartRow + 1,
@@ -490,8 +695,11 @@ function getOutOfStockCount() {
 
   var count = 0;
   for (var i = 0; i < data.length; i++) {
+    var rowNum = OUT_OF_STOCK.dataStartRow + i;
+    if (_isOosStructureRow(rowNum, boundary)) continue;
     var sku = String(data[i][OUT_OF_STOCK.idx("SKU")]).trim();
     if (!sku) continue;
+    if (boundary > 0 && rowNum > boundary) { count++; continue; }   // kit table
     var avail = data[i][OUT_OF_STOCK.idx("AVAILABLE")];
     if (typeof avail === 'number' && avail <= 0) count++;
   }
@@ -562,14 +770,16 @@ function removeOutOfStockTrigger() {
 // =======================================================================================
 
 /**
- * SKU edit on Out of Stock → auto-fill LOCATION + QTY + SOLD + AVAILABLE +
- * stamp FIRST SEEN (only if currently empty) + LAST CHECKED.
+ * SKU edit on Out of Stock (MAIN table + buffer rows only) → auto-fill
+ * LOCATION + QTY + SOLD + AVAILABLE + DAYS OUT + stamp FIRST SEEN (only if
+ * currently empty) + LAST CHECKED.
+ *
+ * Edits at/below the KITS divider are ignored — the kit table is machine-
+ * owned and rewritten wholesale by every refresh.
  *
  * Mirrors prepQueueOnEdit. Lives on the INSTALLABLE trigger because the
  * Master Inventory lookup goes through openById which simple triggers can't
- * call reliably.
- *
- * Defensive try/catch — never blocks other edit handlers.
+ * call reliably. Defensive try/catch — never blocks other edit handlers.
  */
 function outOfStockOnEdit(e) {
   try {
@@ -579,12 +789,17 @@ function outOfStockOnEdit(e) {
     if (e.range.getColumn() !== OUT_OF_STOCK.cols.SKU) return;
     if (e.range.getRow() < OUT_OF_STOCK.dataStartRow) return;
 
-    var edits = e.range.getValues();
+    var boundary = _getOosBoundaryRow(sheet);
     var startRow = e.range.getRow();
+    if (boundary > 0 && startRow >= boundary) return;   // kit table is machine-owned
+
+    var edits = e.range.getValues();
+    // Clamp a multi-row paste so it never spills into the divider/kit table
+    var rowCount = (boundary > 0) ? Math.min(edits.length, boundary - startRow) : edits.length;
 
     // Pre-build inventory + location maps if multi-row paste, otherwise
     // single-row lookups are cheaper.
-    var useMap = edits.length > 3;
+    var useMap = rowCount > 3;
     var locationMap = null;
     var inventoryMap = null;
     if (useMap) {
@@ -596,19 +811,14 @@ function outOfStockOnEdit(e) {
     var todayStr = Utilities.formatDate(new Date(), "America/Chicago", "M/d/yy");
     var nowStr   = Utilities.formatDate(new Date(), "America/Chicago", "M/d/yy h:mm a");
 
-    for (var i = 0; i < edits.length; i++) {
+    for (var i = 0; i < rowCount; i++) {
       var row = startRow + i;
       var rawSku = String(edits[i][0]).trim();
       var skuLower = rawSku.toLowerCase();
 
       if (skuLower === "") {
-        // SKU cleared — wipe the row's lookup fields so it reads as empty
-        sheet.getRange(row, OUT_OF_STOCK.cols.LOCATION).setValue("");
-        sheet.getRange(row, OUT_OF_STOCK.cols.QTY).setValue("");
-        sheet.getRange(row, OUT_OF_STOCK.cols.SOLD).setValue("");
-        sheet.getRange(row, OUT_OF_STOCK.cols.AVAILABLE).setValue("");
-        sheet.getRange(row, OUT_OF_STOCK.cols.FIRST_SEEN).setValue("");
-        sheet.getRange(row, OUT_OF_STOCK.cols.LAST_CHECKED).setValue("");
+        // SKU cleared — wipe the row's lookup fields (B..H) so it reads empty
+        sheet.getRange(row, OUT_OF_STOCK.cols.LOCATION, 1, 7).clearContent();
         continue;
       }
 
@@ -627,17 +837,23 @@ function outOfStockOnEdit(e) {
       var sold  = (found && inv) ? inv.sold      : "";
       var avail = (found && inv) ? inv.available : "";
 
-      // Preserve existing FIRST SEEN if non-empty (normalized — see
-      // _normalizeOosFirstSeen); otherwise stamp today
+      // Preserve existing FIRST SEEN if non-empty (normalized); else today
       var firstSeen = _normalizeOosFirstSeen(
         sheet.getRange(row, OUT_OF_STOCK.cols.FIRST_SEEN).getValue(), todayStr);
 
-      sheet.getRange(row, OUT_OF_STOCK.cols.LOCATION).setValue(location);
-      sheet.getRange(row, OUT_OF_STOCK.cols.QTY).setValue(qty);
-      sheet.getRange(row, OUT_OF_STOCK.cols.SOLD).setValue(sold);
-      sheet.getRange(row, OUT_OF_STOCK.cols.AVAILABLE).setValue(avail);
-      sheet.getRange(row, OUT_OF_STOCK.cols.FIRST_SEEN).setValue(firstSeen);
-      sheet.getRange(row, OUT_OF_STOCK.cols.LAST_CHECKED).setValue(nowStr);
+      sheet.getRange(row, OUT_OF_STOCK.cols.LOCATION, 1, 7).setValues([[
+        location, qty, sold, avail, firstSeen, nowStr, _oosDaysOut(firstSeen)
+      ]]);
+    }
+
+    // Keep typable blank rows above the divider (light version of the Prep
+    // Queue buffer machinery — the hourly refresh re-normalizes to exactly
+    // OUT_OF_STOCK.bufferRows anyway).
+    if (boundary > 0) {
+      var lastEdited = startRow + rowCount - 1;
+      if (boundary - lastEdited <= 2) {
+        sheet.insertRowsAfter(lastEdited, OUT_OF_STOCK.bufferRows);
+      }
     }
 
     // Refresh duplicate highlights — every SKU edit could create or clear a dupe
@@ -645,6 +861,303 @@ function outOfStockOnEdit(e) {
   } catch (err) {
     try { Logger.log("outOfStockOnEdit error: " + err); } catch (_) {}
   }
+}
+
+
+// =======================================================================================
+// PRIVATE: two-table structure helpers
+// =======================================================================================
+
+/**
+ * Find the KITS divider row — exact-match contract on col A from the data
+ * band down (same discipline as All Orders' getBoundaryRow / Prep Queue's
+ * INCOMING). Returns the 1-based row number, or -1 when the sheet has no
+ * divider yet (legacy single-table layout).
+ */
+function _getOosBoundaryRow(sheet) {
+  var lastRow = sheet.getLastRow();
+  if (lastRow < OUT_OF_STOCK.dataStartRow) return -1;
+  var vals = sheet.getRange(OUT_OF_STOCK.dataStartRow, 1,
+                            lastRow - OUT_OF_STOCK.dataStartRow + 1, 1).getValues();
+  for (var i = 0; i < vals.length; i++) {
+    if (String(vals[i][0]).trim().toUpperCase() === OUT_OF_STOCK.boundaryMarker) {
+      return OUT_OF_STOCK.dataStartRow + i;
+    }
+  }
+  return -1;
+}
+
+/** True for the two structural rows every walker must skip: divider + kit header. */
+function _isOosStructureRow(row, boundary) {
+  return boundary > 0 && (row === boundary || row === boundary + 1);
+}
+
+/**
+ * Style a brand-yellow ▌ band (row-1 title + KITS divider — both wear the
+ * same identity, mirroring Prep Queue). markerText lands as the cell VALUE
+ * (the ▌ is number-format dressing), so for the divider it MUST be exactly
+ * OUT_OF_STOCK.boundaryMarker to keep _getOosBoundaryRow's strict match.
+ */
+function _styleOosBand(sheet, row, markerText, rightLabel) {
+  sheet.getRange(row, 1, 1, OUT_OF_STOCK.dataWidth)
+    .setBackground('#ffd400')   // brand action yellow
+    .setFontColor('#1d1d1b')
+    .setFontFamily('Oswald')
+    .setFontWeight('bold')
+    .setFontSize(12)
+    .setFontLine('none')
+    .setFontStyle('normal')
+    .setVerticalAlignment('middle')
+    .setBorder(true, null, true, null, null, null,
+               '#1d1d1b', SpreadsheetApp.BorderStyle.SOLID_THICK);
+  sheet.getRange(row, 1)
+    .setValue(markerText)
+    .setNumberFormat('"▌  "@')
+    .setHorizontalAlignment('left');
+  // Right label sits in col E, right-aligned — it overflows LEFT over the
+  // empty band cells. F..H stay empty (H1 is the in-band chip's home on the
+  // title row; the chip installer restyles that one cell after this runs).
+  sheet.getRange(row, OUT_OF_STOCK.cols.AVAILABLE)
+    .setValue(rightLabel)
+    .setHorizontalAlignment('right')
+    .setFontSize(9);
+  sheet.setRowHeight(row, 36);
+}
+
+/**
+ * Style one header row — dark brand band, yellow Oswald text, thick yellow
+ * underline. Used for the main headers (row 2) and the kit-table header
+ * (divider + 1), which carry DIFFERENT header sets on the same 8-col grid.
+ */
+function _styleOosHeaderRow(sheet, row, headers) {
+  sheet.getRange(row, 1, 1, OUT_OF_STOCK.dataWidth)
+    .setValues([headers])
+    .setBackground('#1d1d1b')
+    .setFontColor('#ffd966')
+    .setFontFamily('Oswald')
+    .setFontWeight('bold')
+    .setFontSize(10)
+    .setFontLine('none')
+    .setHorizontalAlignment('center')
+    .setVerticalAlignment('middle')
+    .setWrap(true);
+  sheet.getRange(row, 1, 1, OUT_OF_STOCK.dataWidth)
+    .setBorder(null, null, true, null, null, null,
+               '#ffd966', SpreadsheetApp.BorderStyle.SOLID_THICK);
+}
+
+/**
+ * Column-level data formats for a run of rows. Used by setup for the whole
+ * band and by refresh's degenerate insert case (rows inserted when the main
+ * segment was empty inherit the HEADER's format and need a reset).
+ */
+function _applyOosDataRowFormats(sheet, startRow, numRows) {
+  sheet.getRange(startRow, OUT_OF_STOCK.cols.SKU, numRows, 1)
+    .setFontFamily('Roboto Mono').setFontWeight('bold').setFontSize(10)
+    .setHorizontalAlignment('center');
+  sheet.getRange(startRow, OUT_OF_STOCK.cols.LOCATION, numRows, 1)
+    .setFontFamily('Roboto Mono').setFontWeight('bold').setFontSize(10)
+    .setHorizontalAlignment('center');
+  sheet.getRange(startRow, OUT_OF_STOCK.cols.QTY, numRows, 1)
+    .setFontFamily('Oswald').setFontWeight('bold').setFontSize(13)
+    .setHorizontalAlignment('center');
+  sheet.getRange(startRow, OUT_OF_STOCK.cols.SOLD, numRows, 1)
+    .setFontFamily('Oswald').setFontWeight('bold').setFontSize(13)
+    .setHorizontalAlignment('center');
+  sheet.getRange(startRow, OUT_OF_STOCK.cols.AVAILABLE, numRows, 1)
+    .setFontFamily('Oswald').setFontWeight('bold').setFontSize(13)
+    .setHorizontalAlignment('center');
+  // FIRST SEEN + LAST CHECKED are PLAIN TEXT ('@') on purpose: the code
+  // writes "M/d/yy" strings, and without this format Sheets auto-coerces
+  // them into real Date values (date-corruption bug fixed 2026-07-13; see
+  // _normalizeOosFirstSeen).
+  sheet.getRange(startRow, OUT_OF_STOCK.cols.FIRST_SEEN, numRows, 1)
+    .setFontFamily('Roboto Mono').setFontSize(9)
+    .setFontColor('#434343').setHorizontalAlignment('center')
+    .setNumberFormat('@');
+  sheet.getRange(startRow, OUT_OF_STOCK.cols.LAST_CHECKED, numRows, 1)
+    .setFontFamily('Roboto Mono').setFontSize(9)
+    .setFontColor('#434343').setHorizontalAlignment('center')
+    .setNumberFormat('@');
+  // Explicit '0' number format is LOAD-BEARING: the retired TODAY()-minus
+  // ARRAYFORMULA left a stale DATE format on this column, which rendered the
+  // newly WRITTEN day counts as "1/13/1900"-style dates (serial N = N days —
+  // values were right, display was garbage; caught in the 2026-07-18 live
+  // audit). Converting a formula column to written values must always reset
+  // the number format (sibling of the clearContent-keeps-formats gotcha).
+  sheet.getRange(startRow, OUT_OF_STOCK.cols.DAYS_OUT, numRows, 1)
+    .setFontFamily('Oswald').setFontWeight('bold').setFontSize(13)
+    .setFontColor('#1d1d1b').setHorizontalAlignment('center')
+    .setNumberFormat('0');
+
+  sheet.getRange(startRow, 1, numRows, OUT_OF_STOCK.dataWidth)
+    .setVerticalAlignment('middle');
+}
+
+
+// =======================================================================================
+// PRIVATE: pure decision/compute helpers (Node-validated 2026-07-18)
+// =======================================================================================
+
+/**
+ * Active-listing test. Blank status fails OPEN (treated as Active) so a
+ * renamed/missing listingStatus column in MI can never make the whole
+ * catalog read as inactive and empty the sheet.
+ */
+function _oosIsActive(inv) {
+  var s = String((inv && inv.status) || "").trim();
+  return s === "" || s === "Active";
+}
+
+/**
+ * Component-availability resolver: Zoho Stock first (fresh every 2 min,
+ * covers DIRECT-side items not listed on eBay), Master Inventory fallback,
+ * null when neither knows the SKU. Same routing rule as the Kit Expansion
+ * modal and recomputeHand.
+ */
+function _oosResolveAvailFactory(zohoMap, inventoryMap) {
+  return function(skuLower) {
+    var z = zohoMap && zohoMap.get(skuLower);
+    if (z) return z.available;
+    var mi = inventoryMap && inventoryMap.get(skuLower);
+    if (mi) return mi.available;
+    return null;
+  };
+}
+
+/**
+ * Zoho-resolved check for a SKU MI already judges OOS. DIRECT zohoMap lookup
+ * — deliberately NO MI fallback (the whole point is comparing the two
+ * sources against each other, not resolving one from the other). Returns
+ * the Zoho `available` number (rounded to 2dp) when Zoho's OWN entry for
+ * this exact SKU already shows stock — a restock (or an "open this kit"
+ * qty adjustment) that hasn't reached MI yet via the hourly eBay sync.
+ * Returns null when there's nothing to report (Zoho doesn't carry the SKU,
+ * or Zoho agrees it's still out).
+ */
+function _oosZohoResolved(skuLower, zohoMap) {
+  var z = zohoMap && zohoMap.get(skuLower);
+  if (!z || !(z.available > 0)) return null;
+  return Math.round(z.available * 100) / 100;
+}
+
+/**
+ * LAST CHECKED cell text: the plain timestamp, or the timestamp plus a
+ * "⟳ Zoho: N" tag when _oosZohoResolved found a pending restock. The mute
+ * CF rule (setupOutOfStockSheet) keys off this EXACT tag via
+ * REGEXMATCH($G,"⟳ Zoho") — the two must stay in sync if either changes.
+ */
+function _oosLastCheckedText(nowStr, zohoResolvedValue) {
+  return zohoResolvedValue === null ? nowStr : (nowStr + "  ⟳ Zoho: " + zohoResolvedValue);
+}
+
+/**
+ * The kit table's headline math.
+ *
+ *   BUILDABLE = min over components of floor(available ÷ qty-per-kit)
+ *   — the number of COMPLETE kits assemblable right now; ≥1 only when every
+ *   single component covers at least one full kit.
+ *
+ * Untrustable states never show a number (buildable = "⚠", painted amber by
+ * CF): unparsed PD lines in the registry, zero registered components, or a
+ * component unknown to both Zoho Stock and MI.
+ *
+ * @param {Object} kit          buildKitMap() entry ({components, unparsedLines, …})
+ * @param {Function} resolveAvail  skuLower → available (number) or null
+ * @return {{buildable: (number|string), limitedBy: string, components: string}}
+ */
+function _oosComputeKitBuild(kit, resolveAvail) {
+  var unparsed = (kit.unparsedLines || []).length;
+  if (unparsed > 0) {
+    return {
+      buildable: "⚠",
+      limitedBy: "⚠ PD unreadable — fix in Zoho",
+      components: "⚠ " + unparsed + " unparsed"
+    };
+  }
+
+  var comps = kit.components || [];
+  if (comps.length === 0) {
+    return {
+      buildable: "⚠",
+      limitedBy: "⚠ no components registered",
+      components: "⚠ none"
+    };
+  }
+
+  var missing = [];
+  var minBuild = Infinity;
+  var limiter = null;
+
+  for (var i = 0; i < comps.length; i++) {
+    var comp = comps[i];
+    var qtyPer = (comp.qty > 0) ? comp.qty : 1;
+    var avail = resolveAvail(String(comp.sku).trim().toLowerCase());
+    if (avail === null) {
+      missing.push(String(comp.sku));
+      continue;
+    }
+    var can = Math.floor(avail / qtyPer);
+    if (can < minBuild) {
+      minBuild = can;
+      limiter = { sku: String(comp.sku), avail: avail, qtyPer: qtyPer };
+    }
+  }
+
+  if (missing.length > 0) {
+    return {
+      buildable: "⚠",
+      limitedBy: "⚠ not found: " + missing.join(", "),
+      components: "⚠ " + missing.length + " of " + comps.length + " missing"
+    };
+  }
+
+  var availDisp = Math.round(limiter.avail * 100) / 100;
+  return {
+    buildable: minBuild,
+    limitedBy: limiter.sku + " · has " + availDisp + " / needs " + limiter.qtyPer,
+    components: comps.length + " ok"
+  };
+}
+
+/**
+ * DAYS OUT from a "M/d/yy" FIRST SEEN string (today in America/Chicago).
+ * Returns "" for unparseable input or future dates. Written as a plain value
+ * by refresh/onEdit — see the file header for why the ARRAYFORMULA died.
+ */
+function _oosDaysOut(firstSeenStr) {
+  var m = /^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/.exec(String(firstSeenStr || "").trim());
+  if (!m) return "";
+  var y = parseInt(m[3], 10);
+  if (y < 100) y += 2000;
+  var first = new Date(y, parseInt(m[1], 10) - 1, parseInt(m[2], 10));
+  var t = Utilities.formatDate(new Date(), "America/Chicago", "M/d/yyyy").split("/");
+  var today = new Date(parseInt(t[2], 10), parseInt(t[0], 10) - 1, parseInt(t[1], 10));
+  var days = Math.round((today.getTime() - first.getTime()) / 86400000);
+  return days >= 0 ? days : "";
+}
+
+/** Main-table sort: LOCATION asc (empty last), then SKU asc. */
+function _oosMainRowCompare(a, b) {
+  var la = String(a[1] || "");
+  var lb = String(b[1] || "");
+  if (la === "" && lb !== "") return 1;
+  if (lb === "" && la !== "") return -1;
+  if (la !== lb) return la.localeCompare(lb);
+  return String(a[0]).localeCompare(String(b[0]));
+}
+
+/**
+ * Kit-table sort: BUILDABLE desc (what can be opened NOW on top), "⚠" rows
+ * after all numbers, kit SKU asc as the tiebreak.
+ */
+function _oosKitRowCompare(a, b) {
+  var ba = a[2], bb = b[2];
+  var na = (typeof ba === 'number');
+  var nb = (typeof bb === 'number');
+  if (na && nb && ba !== bb) return bb - ba;
+  if (na !== nb) return na ? -1 : 1;
+  return String(a[0]).localeCompare(String(b[0]));
 }
 
 
@@ -657,6 +1170,10 @@ function outOfStockOnEdit(e) {
  * SKU cell with a soft-amber background + thick yellow border so duplicates
  * stand out from both the cream banding and the red AVAILABLE highlight.
  *
+ * STRUCTURE-AWARE (2026-07-18): the KITS divider and the kit header row are
+ * never counted OR painted/cleared — clearing them would strip the yellow
+ * band / dark header styling. Both tables' data rows participate.
+ *
  * Cleared cells (no SKU) get reset to default. Run after any change that
  * could affect column A: setupOutOfStockSheet, refreshOutOfStock, outOfStockOnEdit.
  */
@@ -666,13 +1183,15 @@ function _refreshOutOfStockDuplicates(sheet) {
   var lastRow = sheet.getLastRow();
   if (lastRow < OUT_OF_STOCK.dataStartRow) return;
 
+  var boundary = _getOosBoundaryRow(sheet);
   var dataRows = lastRow - OUT_OF_STOCK.dataStartRow + 1;
   var skuRange = sheet.getRange(OUT_OF_STOCK.dataStartRow, OUT_OF_STOCK.cols.SKU, dataRows, 1);
   var skus = skuRange.getValues();
 
-  // Count occurrences (case-insensitive, trimmed)
+  // Count occurrences (case-insensitive, trimmed), skipping structure rows
   var counts = {};
   for (var i = 0; i < skus.length; i++) {
+    if (_isOosStructureRow(OUT_OF_STOCK.dataStartRow + i, boundary)) continue;
     var k = String(skus[i][0]).trim().toLowerCase();
     if (!k) continue;
     counts[k] = (counts[k] || 0) + 1;
@@ -685,8 +1204,10 @@ function _refreshOutOfStockDuplicates(sheet) {
   // same pass instead of relying on the range reset to fully take effect
   // before the conditional paint.
   for (var i = 0; i < skus.length; i++) {
+    var rowNum = OUT_OF_STOCK.dataStartRow + i;
+    if (_isOosStructureRow(rowNum, boundary)) continue;   // never touch band styling
     var k = String(skus[i][0]).trim().toLowerCase();
-    var cell = sheet.getRange(OUT_OF_STOCK.dataStartRow + i, OUT_OF_STOCK.cols.SKU);
+    var cell = sheet.getRange(rowNum, OUT_OF_STOCK.cols.SKU);
     if (k && counts[k] >= 2) {
       cell.setBackground('#fff3b0');
       cell.setBorder(true, true, true, true, false, false,

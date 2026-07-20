@@ -111,6 +111,7 @@ function buildLocationAndInventoryMaps() {
   var locCol = headers.indexOf(DB_LOCATION_HEADER);
   var qtyCol = headers.indexOf(DB_QUANTITY_HEADER);
   var soldCol = headers.indexOf(DB_QUANTITY_SOLD_HEADER);
+  var statusCol = headers.indexOf(DB_LISTING_STATUS_HEADER);
   
   if (skuCol === -1) {
     return {
@@ -138,11 +139,15 @@ function buildLocationAndInventoryMaps() {
         var qty = parseInt(data[i][qtyCol]) || 0;
         var sold = parseInt(data[i][soldCol]) || 0;
         var available = qty - sold;
-        
+
         inventoryMap.set(sku, {
           quantity: qty,
           sold: sold,
-          available: available
+          available: available,
+          // "" when the listingStatus column is missing — consumers treat
+          // blank as Active (fail-open: a header rename must never make the
+          // whole catalog read as inactive).
+          status: statusCol !== -1 ? String(data[i][statusCol] || "").trim() : ""
         });
       }
     }

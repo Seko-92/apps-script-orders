@@ -84,13 +84,20 @@ function preparePrintSheet() {
 
     if (status === Schema.status.PREPARING) {
       if (String(row[Schema.idx("SKU")]).trim().toUpperCase().indexOf('SKU') !== -1) continue;
+      // HAND: keep a real 0 visible (the picker needs to see "nothing on the
+      // shelf" as an explicit 0, not a blank cell). Only genuinely-empty HAND
+      // — a SKU unknown to MI/Zoho, stored as "" — stays blank. Plain `|| ""`
+      // collapsed 0 → "" (falsy-zero bug, fixed 2026-07-20).
+      var handRaw = row[Schema.idx("HAND")];
+      var handDisplay = (handRaw === "" || handRaw === null || handRaw === undefined) ? "" : handRaw;
+
       var itemData = [
         row[Schema.idx("SKU")],            // 0: SKU
         row[Schema.idx("QTY")],            // 1: QTY
         row[Schema.idx("LOCATION")],       // 2: LOCATION
         row[Schema.idx("SALES_ORDER")],    // 3: SALES_ORDER
         row[Schema.idx("NOTE")] || "",     // 4: NOTE
-        row[Schema.idx("HAND")] || "",     // 5: HAND
+        handDisplay,                       // 5: HAND (0 shown; blank only when empty)
         row[Schema.idx("LEFT")] || "",     // 6: LEFT
         row[Schema.idx("SHIPPING")] || "", // 7: SHIPPING
         row[Schema.idx("SHIP_COST")] || "",// 8: SHIP_COST

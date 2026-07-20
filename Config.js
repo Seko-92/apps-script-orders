@@ -39,6 +39,11 @@ var DB_SKU_HEADER           = "sku";
 var DB_LOCATION_HEADER      = "C:Model Year";
 var DB_QUANTITY_HEADER      = "quantity";
 var DB_QUANTITY_SOLD_HEADER = "quantitySold";
+// listingStatus: "Active" for live listings; the n8n sync flips ended/deleted
+// listings to "Completed"/"Ended" (MI rows are never deleted — Gotcha, see
+// Price Audit INACTIVE CANDIDATE work 2026-05-25). Out of Stock filters on it
+// (2026-07-18) so deleted listings can't linger as phantom restock candidates.
+var DB_LISTING_STATUS_HEADER = "listingStatus";
 // SKU enrichment (title-on-hover + clickable listing link). Looked up by name,
 // live from MI — no cache (title/URL are effectively immutable per listing).
 var DB_TITLE_HEADER         = "title";          // human-readable item title

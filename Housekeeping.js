@@ -64,7 +64,13 @@
 // Sheet names are literals (not OUT_OF_STOCK.sheetName etc.) so this global
 // has no cross-file load-order dependency at init time.
 var SHEET_PULSE = {
-  outOfStock: { sheetName: "Out of Stock", chip: "I1", stamp: "J1" },
+  // OOS chip moved IN-BAND 2026-07-18 (two-table overhaul): H1, the right edge
+  // of the row-1 ▌ OUT OF STOCK band (was a dark chip at I1 outside the
+  // table). Stamp stays J1 — same cell as the old layout, hidden column.
+  // setupOutOfStockSheet's chip migration wipes the old I1/I2 dark-chip homes.
+  // Nothing on the pinned /exec writes this stamp (hourly trigger + sidebar
+  // only), so the move needs no New Version.
+  outOfStock: { sheetName: "Out of Stock", chip: "H1", stamp: "J1", inBand: true },
   // Prep chip FINAL home (2026-07-16, after the two-table + title-band
   // passes): F1, INSIDE the ▌ CURRENT band (inBand style — quiet ink on
   // yellow; a dark chip cell beside the band read as a floating island).
