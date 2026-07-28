@@ -3337,6 +3337,28 @@ body.dark-theme .footer-version { border-color: #2c2c2c; }
           <span class="alert-label">New from Zoho</span>
           <span class="alert-arrow">›</span>
         </div>
+        <!-- Price Diffs: subtle Zoho-vs-eBay drift count from the weekly audit.
+             Deliberately last + NOT in the hero attention-pulse set — it's an
+             ambient "there's drift to look at sometime" nudge, not urgent. -->
+        <div class="alert-row empty" id="alertPriceDrift" onclick="jumpToAlert('priceDrift')">
+          <span class="alert-count" id="alertCountPriceDrift">0</span>
+          <span class="alert-label">Price Diffs</span>
+          <span class="alert-arrow">›</span>
+        </div>
+        <!-- Kit Price Diffs: subtle count of UNDERPRICED/OVERPRICED kits from the
+             weekly Kit Health audit. Same non-hero treatment as Price Diffs. -->
+        <div class="alert-row empty" id="alertKitPriceDrift" onclick="jumpToAlert('kitPriceDrift')">
+          <span class="alert-count" id="alertCountKitPriceDrift">0</span>
+          <span class="alert-label">Kit Price Diffs</span>
+          <span class="alert-arrow">›</span>
+        </div>
+        <!-- Open Cases: orders with an unresolved investigation. Non-hero (not a
+             floor urgency), but a standing "don't forget these" nudge. -->
+        <div class="alert-row empty" id="alertOpenCases" onclick="jumpToAlert('openCases')">
+          <span class="alert-count" id="alertCountOpenCases">0</span>
+          <span class="alert-label">Open Cases</span>
+          <span class="alert-arrow">›</span>
+        </div>
       </div>
     </div>
   </div>
@@ -3353,16 +3375,43 @@ body.dark-theme .footer-version { border-color: #2c2c2c; }
       <div class="card-toggle">▼</div>
     </div>
     <div class="card-body">
+      <!-- Every lookup opens the roomy Order Case CONSOLE (Investigation.js modal):
+           rows + full timeline + one-click jumps to eBay/Zoho + an in-window
+           search bar (look up order after order) + documentation. The cramped
+           inline sidebar timeline was retired 2026-07-28 — 310px can't hold it. -->
       <div class="ol-search">
         <input type="text" id="olQuery" placeholder="Order ID or sales order…" autocomplete="off" spellcheck="false" />
-        <button class="btn-primary ol-go" onclick="lookupOrderNow()">🔍 FIND</button>
+        <button class="btn-primary ol-go" id="olCaseBtn" onclick="openOrderCaseFromSidebar()">🔍 Look Up →</button>
       </div>
-
-      <div class="ol-result" id="olResult"></div>
 
       <div class="empty-hint">
-        Customer-service lookup. Pulls the order's row(s) + full Activity Log timeline (received, prepared, shipped, picker) into one panel. Press <strong>Enter</strong> to search. Click any row to jump to it on the sheet.
+        Opens the <strong>Order Case console</strong> — the order's rows + full timeline + one-click jumps to eBay/Zoho, in a roomy window where you can <strong>search order after order</strong> and document findings (saved to the permanent Investigations sheet). Press <strong>Enter</strong> to open.
       </div>
+    </div>
+  </div>
+
+  <!--
+    Investigations (2026-07-28) — permanent case-note log for order investigations.
+    Written by the Order Case modal; opened here for review. applyZones puts it in
+    TODAY'S WORK next to Order Lookup.
+  -->
+  <div class="card collapsed" data-id="investigations" draggable="true">
+    <div class="card-header" onclick="toggleCollapse(this)">
+      <div class="drag-handle" title="Drag to reorder">☰</div>
+      <div class="card-title"><div class="card-icon">📁</div><h3>Investigations</h3></div>
+      <div class="card-toggle">▼</div>
+    </div>
+    <div class="card-body">
+      <button class="btn-secondary" onclick="run('openInvestigations')">Open Sheet</button>
+      <div class="empty-hint">
+        The permanent record of order investigations — Category · Findings · Resolution · Status · Investigator. Written from an order's <strong>📂 Case</strong>; never purged. Open cases surface in the Alerts card.
+      </div>
+      <details class="card-more">
+        <summary>More tools</summary>
+        <div class="card-more-content">
+          <button class="btn-info" onclick="run('setupInvestigationsSheet')">Setup / Re-style Sheet</button>
+        </div>
+      </details>
     </div>
   </div>
 
@@ -3432,6 +3481,29 @@ body.dark-theme .footer-version { border-color: #2c2c2c; }
           </button>
         </div>
       </details>
+    </div>
+  </div>
+
+  <!--
+    Kit Pricing (2026-07-24). Opens the Kit Price Calculator modal:
+    Σ(component price × qty) × (1 − discount), rounded. eBay-first pricing,
+    unpriced parts flagged (never guessed). Decision-support only — no writes.
+    applyZones relocates this into the INVENTORY zone (next to Price Audit).
+  -->
+  <div class="card collapsed" data-id="kit-pricing" draggable="true">
+    <div class="card-header" onclick="toggleCollapse(this)">
+      <div class="drag-handle" title="Drag to reorder">☰</div>
+      <div class="card-title"><div class="card-icon">🧮</div><h3>Kit Pricing</h3></div>
+      <div class="card-toggle">▼</div>
+    </div>
+    <div class="card-body">
+      <button class="btn-primary" onclick="openKitPriceCalc()">🧮 Kit Price Calculator</button>
+      <div class="empty-hint">
+        Price a new kit before listing, or re-check an existing one:
+        <strong>Σ(component price × qty) × (1 − discount)</strong>, rounded to the nearest dollar.
+        eBay is the price source; unpriced parts are flagged, never guessed. Pick an existing kit
+        or paste a BOM. Decision-support only — nothing is written.
+      </div>
     </div>
   </div>
 
@@ -3703,6 +3775,86 @@ body.dark-theme .footer-version { border-color: #2c2c2c; }
     </div>
   </div>
 
+  <!--
+    Kit Health (2026-07-25) — unified per-kit cockpit: price drift + buildability.
+    Runs computeKitPrice + the OOS buildable math over every registry kit. One row
+    answers "priced right AND can I build it now?". UNDERPRICED = money leak (sorted
+    top). Implied-discount column tells intentional-discount from stale-price drift.
+    Decision-support only — no writes. applyZones puts it in INVENTORY.
+  -->
+  <div class="card collapsed" data-id="kit-health" draggable="true">
+    <div class="card-header" onclick="toggleCollapse(this)">
+      <div class="drag-handle" title="Drag to reorder">☰</div>
+      <div class="card-title"><div class="card-icon">🩺</div><h3>Kit Health</h3></div>
+      <div class="card-toggle">▼</div>
+    </div>
+    <div class="card-body">
+      <button class="btn-primary" id="khRunBtn" onclick="runKitHealthNow()">🩺 Run Kit Health</button>
+      <button class="btn-secondary" onclick="run('openKitHealth')">Open Sheet</button>
+      <div id="khResult" class="empty-hint">
+        One row per kit: <strong>computed</strong> price (Σ parts × 0.9) vs its <strong>listed</strong> price,
+        plus how many you can <strong>build now</strong> from component stock. UNDERPRICED kits sort to the top;
+        the <strong>DISC %</strong> column separates an intentional discount from a stale-part money leak.
+        Reuses the pricing + buildable engines — decision-support only, nothing written.
+      </div>
+      <details class="card-more">
+        <summary>More tools</summary>
+        <div class="card-more-content">
+          <button class="btn-info" onclick="run('setupKitHealthSheet')">Re-style Sheet</button>
+          <div class="empty-hint" style="margin:0;">Needs the <strong>Kit Registry</strong> imported + MI <code>currentPrice</code> populated. Kits with unparsed PD or unpriced parts show <strong>⚠ INCOMPLETE</strong> (computed left blank — never a wrong number) and park at the bottom. A weekly Mon ~4am auto-run needs a one-time <code>setupKitHealthTrigger()</code> from the editor.</div>
+        </div>
+      </details>
+    </div>
+  </div>
+
+  <!--
+    Part Console (2026-07-29) — one window for a SKU (part OR kit): stock · price ·
+    location · IMAGES · which KITS use it (buildable + what it blocks) · OOS · open
+    demand. The JOIN across MI/Zoho/Kit Registry/Kit Health/OOS/orders. In-window
+    search like the Order Case console. Decision-support only.
+  -->
+  <div class="card collapsed" data-id="part-console" draggable="true">
+    <div class="card-header" onclick="toggleCollapse(this)">
+      <div class="drag-handle" title="Drag to reorder">☰</div>
+      <div class="card-title"><div class="card-icon">🧩</div><h3>Part Console</h3></div>
+      <div class="card-toggle">▼</div>
+    </div>
+    <div class="card-body">
+      <div class="ol-search">
+        <input type="text" id="pcQuery" placeholder="SKU — a part or a kit…" autocomplete="off" spellcheck="false" />
+        <button class="btn-primary ol-go" id="pcBtn" onclick="openPartConsoleFromSidebar()">🧩 Open →</button>
+      </div>
+      <div class="empty-hint">
+        One window for a part: <strong>stock · price · location · images</strong>, which <strong>kits use it</strong> (with each kit's buildable + what this part <strong>blocks</strong>), OOS + open demand. Search part after part in-window. Press <strong>Enter</strong>.
+      </div>
+    </div>
+  </div>
+
+  <!--
+    Floor Board link helper (2026-07-29) — open OR grab the standalone board URL
+    from inside the sheet, so getting the link onto the warehouse tablet is one
+    click (no more "send the link to the picker"). URL fetched on load via
+    getFloorBoardUrl. applyZones → DIAGNOSTICS.
+  -->
+  <div class="card collapsed" data-id="floor-board" draggable="true">
+    <div class="card-header" onclick="toggleCollapse(this)">
+      <div class="drag-handle" title="Drag to reorder">☰</div>
+      <div class="card-title"><div class="card-icon">📺</div><h3>Floor Board</h3></div>
+      <div class="card-toggle">▼</div>
+    </div>
+    <div class="card-body">
+      <a class="btn-primary" id="fbOpenLink" href="#" target="_blank" rel="noopener"
+         onclick="return fbLinkReady();"
+         style="display:block;text-align:center;text-decoration:none;">📺 Open Floor Board ↗</a>
+      <input type="text" id="fbUrl" readonly onclick="this.select();" placeholder="loading link…"
+             style="width:100%;margin-top:6px;padding:6px 8px;font-family:monospace;font-size:11px;" />
+      <button class="btn-info" onclick="copyFloorBoardLink()">📋 Copy link</button>
+      <div class="empty-hint">
+        Opens the live board in a new tab. On the warehouse <strong>tablet</strong>: open it once → browser menu → <strong>Add to Home Screen</strong> for a one-tap icon, then tap <strong>⛶</strong> on the board for fullscreen (it keeps the screen awake). <em>Fullscreen-via-meta-tags isn't reliable for Apps Script web apps — the board's own ⛶ button is the way.</em>
+      </div>
+    </div>
+  </div>
+
   <div class="card collapsed" data-id="location-update" draggable="true">
     <div class="card-header" onclick="toggleCollapse(this)">
       <div class="drag-handle" title="Drag to reorder">☰</div>
@@ -3743,8 +3895,8 @@ body.dark-theme .footer-version { border-color: #2c2c2c; }
       <div class="card-toggle">▼</div>
     </div>
     <div class="card-body">
-      <button class="btn-primary" onclick="openSnakeGame()">Launch Snake</button>
-      <div class="empty-hint">Quick break — same hands, different game.</div>
+      <button class="btn-primary" onclick="openHQArcadeGame()">🕹️ Open HQ Arcade</button>
+      <div class="empty-hint">☕ Break time — <strong>Tetris · Flappy · Breakout · Invaders · Pac-Man · Snake</strong>, all in one pop-up cabinet. Touch-friendly for the tablet; high scores saved on the device.</div>
     </div>
   </div>
 
@@ -4761,7 +4913,7 @@ function _flashCard(dataId) {
 // ALERTS — actionable counts (paid shipping, intl, low stock, not found, queue)
 // ═══════════════════════════════════════════════════════════════════════════════
 
-var ALERT_KEYS = ['PaidShipping', 'Intl', 'LowStock', 'NotFound', 'OutOfStock', 'QueueSize', 'NewFromZoho'];
+var ALERT_KEYS = ['PaidShipping', 'Intl', 'LowStock', 'NotFound', 'OutOfStock', 'QueueSize', 'NewFromZoho', 'PriceDrift', 'KitPriceDrift', 'OpenCases'];
 var ALERT_KEY_MAP = {
   PaidShipping: 'paidShipping',
   Intl:         'intl',
@@ -4769,7 +4921,10 @@ var ALERT_KEY_MAP = {
   NotFound:     'notFound',
   OutOfStock:   'outOfStock',
   QueueSize:    'queueSize',
-  NewFromZoho:  'newFromZoho'
+  NewFromZoho:  'newFromZoho',
+  PriceDrift:   'priceDrift',
+  KitPriceDrift:'kitPriceDrift',
+  OpenCases:    'openCases'
 };
 
 /**
@@ -5223,6 +5378,97 @@ function runPriceAuditNow() {
     .runPriceAudit();
 }
 
+/* runKitHealthNow() — fires the Kit Health audit (KitHealth.js → runKitHealthAudit).
+   Foreground call with spinner. Mirrors runPriceAuditNow. Runs computeKitPrice +
+   the OOS buildable math over every registry kit (~229) — a few seconds.
+
+   Result inline below the button:
+     OK   → "4 underpriced ($312) · 2 overpriced · 6 unlisted · 3 ⚠"
+     Fail → "✗ <reason>"
+*/
+var isKitHealthRunning = false;
+function runKitHealthNow() {
+  if (isKitHealthRunning) {
+    status.className = 'error';
+    status.textContent = 'Kit Health already running…';
+    return;
+  }
+  if (typeof google === 'undefined' || !google.script) return;
+
+  var btn  = document.getElementById('khRunBtn');
+  var slot = document.getElementById('khResult');
+
+  isKitHealthRunning = true;
+  if (btn) { btn.classList.add('spinning'); btn.disabled = true; btn.textContent = '⏳ Checking kits…'; }
+  if (slot) {
+    slot.className = 'empty-hint';
+    slot.innerHTML = 'Pricing + buildability over every registry kit… <br/><span style="font-size:0.85em;color:var(--text-muted);">(a few seconds)</span>';
+  }
+  status.className = 'syncing';
+  status.textContent = 'Running Kit Health…';
+
+  google.script.run
+    .withSuccessHandler(function(result) {
+      isKitHealthRunning = false;
+      if (btn) { btn.classList.remove('spinning'); btn.disabled = false; btn.textContent = '🩺 Run Kit Health'; }
+
+      if (result && result.ok) {
+        status.className = 'success';
+        status.textContent = '✓ ' + result.message;
+        if (typeof playSound === 'function') { try { playSound('syncDone'); } catch (e) {} }
+
+        if (slot) {
+          var underBy = '$' + Math.abs(result.totalUnderBy || 0).toFixed(0);
+          var calPct = (result.medianDiscount != null)
+            ? (result.medianDiscount * 100).toFixed(1) + '%' : '—';
+          var lines = [
+            '<div style="background:#1d1d1b;color:#ffd966;padding:3px 6px;border-radius:3px;margin-bottom:3px;font-weight:600;">'
+              + '📉 calibrated to your catalog: ' + calPct + ' median discount</div>',
+            '<div style="font-weight:700;font-size:1.05em;margin-bottom:2px;">'
+              + result.underpriced + ' underpriced vs your norm · ' + underBy + '</div>',
+            '<div>· Overpriced: <strong>' + result.overpriced + '</strong>  '
+              + '· In line: <strong>' + result.inLine + '</strong></div>',
+            '<div style="color:#37474f;background:#cfd8dc;padding:3px 6px;border-radius:3px;margin-top:3px;font-weight:600;">'
+              + result.noListed + ' unlisted (computed = suggested price)</div>',
+            '<div style="color:var(--text-muted);font-size:0.92em;">'
+              + result.buildableNow + ' buildable now · '
+              + '<strong>' + (result.inStockBlocked || 0) + ' in-stock blocked</strong> · '
+              + result.incomplete + ' ⚠ incomplete</div>',
+            '<div style="color:var(--text-muted);font-size:0.85em;">'
+              + result.totalKits + ' kits · took ' + result.durationSec + 's · '
+              + 'sheet order: underpriced → overpriced → in line → unlisted → ⚠</div>'
+          ];
+          slot.className = '';
+          slot.innerHTML = lines.join('');
+        }
+
+        setTimeout(function() { status.className = ''; status.textContent = 'Ready'; }, 4000);
+      } else {
+        if (slot) {
+          slot.className = 'empty-hint';
+          slot.innerHTML = '<span style="color:var(--danger);font-weight:700;">✗ '
+            + ((result && result.message) || 'Kit Health failed') + '</span>';
+        }
+        status.className = 'error';
+        status.textContent = (result && result.message) || 'Kit Health failed';
+        if (typeof playSound === 'function') { try { playSound('error'); } catch (e) {} }
+      }
+    })
+    .withFailureHandler(function(err) {
+      isKitHealthRunning = false;
+      if (btn) { btn.classList.remove('spinning'); btn.disabled = false; btn.textContent = '🩺 Run Kit Health'; }
+      var em = err && err.message ? err.message : String(err);
+      if (slot) {
+        slot.className = 'empty-hint';
+        slot.innerHTML = '<span style="color:var(--danger);font-weight:700;">✗ Server error: ' + em + '</span>';
+      }
+      status.className = 'error';
+      status.textContent = 'Kit Health error: ' + em;
+      if (typeof playSound === 'function') { try { playSound('error'); } catch (e) {} }
+    })
+    .runKitHealthAudit();
+}
+
 /**
  * Reads the last-sync cell from the All Orders sheet (E1 — Schema.cellSyncTime)
  * and displays it in the eBay card. Truth source: the actual sheet, not localStorage.
@@ -5672,7 +5918,7 @@ function quickAddPrepQueue() {
   var olInput = document.getElementById('olQuery');
   if (!olInput) return;
   olInput.addEventListener('keydown', function(e) {
-    if (e.key === 'Enter') { e.preventDefault(); lookupOrderNow(); }
+    if (e.key === 'Enter') { e.preventDefault(); openOrderCaseFromSidebar(); }
   });
 })();
 
@@ -5715,6 +5961,131 @@ function lookupOrderNow() {
     .lookupOrder(query);
 }
 
+/* openOrderCaseFromSidebar() — opens the full investigation dossier modal
+   (Investigation.js → openOrderCase) for the ID in the lookup input. The modal
+   does the heavy display; this is just the trigger. */
+function openOrderCaseFromSidebar() {
+  var input = document.getElementById('olQuery');
+  if (!input) return;
+  var query = (input.value || '').trim();
+  if (!query) {
+    input.focus();
+    status.className = 'error';
+    status.textContent = 'Type an order ID first';
+    return;
+  }
+  if (typeof google === 'undefined' || !google.script) return;
+
+  var btn = document.getElementById('olCaseBtn');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Opening case…'; }
+  status.className = 'running';
+  status.textContent = 'Opening case for ' + query + '…';
+
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (btn) { btn.disabled = false; btn.textContent = '🔍 Look Up →'; }
+      if (res && res.ok) {
+        status.className = 'success';
+        status.textContent = res.found
+          ? '📂 Console · ' + res.rows + ' row(s) · ' + res.notes + ' note(s)'
+          : '📂 Console opened · no match — search inside';
+      } else {
+        status.className = 'error';
+        status.textContent = (res && res.reason) || 'Could not open case';
+      }
+      setTimeout(function() { status.className = ''; status.textContent = 'Ready'; }, 3000);
+    })
+    .withFailureHandler(function(err) {
+      if (btn) { btn.disabled = false; btn.textContent = '🔍 Look Up →'; }
+      status.className = 'error';
+      status.textContent = 'Case error: ' + (err && err.message ? err.message : String(err));
+    })
+    .openOrderCase(query);
+}
+
+/* openPartConsoleFromSidebar() — opens the Part/SKU console (PartConsole.js →
+   openPartConsole) for the SKU in the input. The modal does the heavy display. */
+function openPartConsoleFromSidebar() {
+  var input = document.getElementById('pcQuery');
+  if (!input) return;
+  var query = (input.value || '').trim();
+  if (!query) { input.focus(); status.className = 'error'; status.textContent = 'Type a SKU first'; return; }
+  if (typeof google === 'undefined' || !google.script) return;
+
+  var btn = document.getElementById('pcBtn');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Opening…'; }
+  status.className = 'running';
+  status.textContent = 'Opening part console for ' + query + '…';
+
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (btn) { btn.disabled = false; btn.textContent = '🧩 Open →'; }
+      if (res && res.ok) {
+        status.className = 'success';
+        status.textContent = '🧩 Part console' + (res.isKit ? ' · KIT' : '')
+          + (res.usedIn ? ' · used in ' + res.usedIn + ' kit(s)' : '');
+      } else {
+        status.className = 'error';
+        status.textContent = (res && res.reason) || 'Could not open part console';
+      }
+      setTimeout(function() { status.className = ''; status.textContent = 'Ready'; }, 3000);
+    })
+    .withFailureHandler(function(err) {
+      if (btn) { btn.disabled = false; btn.textContent = '🧩 Open →'; }
+      status.className = 'error';
+      status.textContent = 'Part console error: ' + (err && err.message ? err.message : String(err));
+    })
+    .openPartConsole(query);
+}
+(function() {
+  var pcInput = document.getElementById('pcQuery');
+  if (pcInput) pcInput.addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') { e.preventDefault(); openPartConsoleFromSidebar(); }
+  });
+})();
+
+/* Floor Board link helper — fetch the standalone /exec URL on load so the
+   operator can open OR copy it from inside the sheet (get it onto the tablet). */
+var FLOOR_BOARD_URL = '';
+(function() {
+  if (typeof google === 'undefined' || !google.script) return;
+  google.script.run.withSuccessHandler(function(url) {
+    FLOOR_BOARD_URL = url || '';
+    var a = document.getElementById('fbOpenLink');
+    var i = document.getElementById('fbUrl');
+    if (a && FLOOR_BOARD_URL) a.href = FLOOR_BOARD_URL;
+    if (i) i.value = FLOOR_BOARD_URL;
+  }).getFloorBoardUrl();
+})();
+function fbLinkReady() {
+  if (!FLOOR_BOARD_URL) { status.className = 'error'; status.textContent = 'Board link still loading…'; return false; }
+  return true;
+}
+function copyFloorBoardLink() {
+  if (!FLOOR_BOARD_URL) { status.className = 'error'; status.textContent = 'Board link still loading…'; return; }
+  var i = document.getElementById('fbUrl');
+  var done = function() { status.className = 'success'; status.textContent = '📋 Floor Board link copied'; setTimeout(function() { status.className = ''; status.textContent = 'Ready'; }, 2500); };
+  var fallback = function() {
+    if (i) { i.focus(); i.select(); }
+    try { document.execCommand('copy'); done(); }
+    catch (e) { status.className = 'error'; status.textContent = 'Copy blocked — tap the link box to select, then copy'; }
+  };
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(FLOOR_BOARD_URL).then(done, fallback);
+    else fallback();
+  } catch (e) { fallback(); }
+}
+
+/* openHQArcadeGame() — opens the HQ Arcade cabinet modal (Main.js → openHQArcade). */
+function openHQArcadeGame() {
+  if (typeof google === 'undefined' || !google.script) return;
+  status.className = 'running'; status.textContent = 'Loading HQ Arcade…';
+  google.script.run
+    .withSuccessHandler(function() { status.className = 'success'; status.textContent = '🕹️ HQ Arcade — have fun'; setTimeout(function() { status.className = ''; status.textContent = 'Ready'; }, 2000); })
+    .withFailureHandler(function(err) { status.className = 'error'; status.textContent = 'Arcade error: ' + (err && err.message ? err.message : String(err)); })
+    .openHQArcade();
+}
+
 function renderLookupResult(result) {
   var panel = document.getElementById('olResult');
   if (!panel) return;
@@ -5735,6 +6106,12 @@ function renderLookupResult(result) {
   html += '<div class="ol-summary">';
   html += '<div class="ol-summary-id">' + _olEsc(result.query) + '</div>';
   html += '<div class="ol-summary-meta">';
+
+  // Open-case flag — don't let someone re-investigate what's already in flight.
+  if (s.openCases > 0) {
+    html += '<div style="background:#fff4b0;color:#7d5d00;font-weight:700;padding:2px 6px;border-radius:4px;margin-bottom:3px;">'
+          + '⚠ open case — open 📂 Case to see the findings</div>';
+  }
 
   if (s.statuses && s.statuses.length) {
     html += '<div>';
@@ -6291,6 +6668,30 @@ function saveCardOrder() {
 //   TABLE TOOLS  — All Orders sheet plumbing (steel)
 //   INVENTORY    — stock-facing cards (amber)
 //   DIAGNOSTICS  — rare admin / debugging (slate) + Arcade (special-case pink)
+// Kit Price Calculator — opens the modal server-side (showModalDialog), same
+// pattern as previewKits → openKitExpansionModal. The modal owns the rest.
+function openKitPriceCalc() {
+  if (typeof google === 'undefined' || !google.script) return;
+  status.className = 'running';
+  status.textContent = 'Opening Kit Price Calculator…';
+  google.script.run
+    .withSuccessHandler(function (res) {
+      if (res && res.ok) {
+        status.className = 'success';
+        status.textContent = 'Calculator open · ' + (res.kits || 0) + ' kits loaded';
+      } else {
+        status.className = 'error';
+        status.textContent = 'Failed: ' + ((res && res.reason) || 'unknown');
+      }
+      setTimeout(function () { status.className = ''; status.textContent = 'Ready'; }, 1800);
+    })
+    .withFailureHandler(function (err) {
+      status.className = 'error';
+      status.textContent = 'Open failed: ' + (err && err.message ? err.message : err);
+    })
+    .openKitPriceCalculator();
+}
+
 function applyZones() {
   const modules = document.getElementById('modules');
   if (!modules) return;
@@ -6298,10 +6699,10 @@ function applyZones() {
   // [zone-key, label, [card-ids]]
   // zone-key drives data-zone attribute → CSS accent
   const zones = [
-    ['today',        "TODAY'S WORK", ['alerts', 'order-lookup', 'zoho-pull', 'kit-expand', 'fulfill']],
+    ['today',        "TODAY'S WORK", ['alerts', 'order-lookup', 'investigations', 'zoho-pull', 'kit-expand', 'fulfill']],
     ['table-tools',  'TABLE TOOLS',  ['ebay', 'direct', 'live', 'location-update']],
-    ['inventory',    'INVENTORY',    ['prep-queue', 'out-of-stock', 'stock-highlight', 'price-audit']],
-    ['diagnostics',  'DIAGNOSTICS',  ['duplicates', 'sheet-protect', 'api-monitor', 'arcade']]
+    ['inventory',    'INVENTORY',    ['part-console', 'prep-queue', 'out-of-stock', 'stock-highlight', 'price-audit', 'kit-pricing', 'kit-health']],
+    ['diagnostics',  'DIAGNOSTICS',  ['floor-board', 'duplicates', 'sheet-protect', 'api-monitor', 'arcade']]
   ];
 
   // Snapshot all cards by id before we move anything

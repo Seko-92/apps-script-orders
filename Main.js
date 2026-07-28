@@ -19,9 +19,10 @@ function onOpen() {
     .addItem('Open Control Panel', 'showSidebar')
     .addToUi();
 
-  // 2. Create the NEW Arcade Menu
+  // 2. Arcade menu — a single door into the cabinet (Snake now lives INSIDE it
+  //    alongside Tetris/Flappy/Breakout/Invaders/Pac-Man).
   ui.createMenu('🕹️ HQ ARCADE')
-    .addItem('Launch HQ Snake', 'showSnakeSidebar')
+    .addItem('Open HQ Arcade', 'openHQArcade')
     .addToUi();
 
   // 2b. Floor Board — the warehouse monitor. Opens in-sheet for a quick look;
@@ -50,6 +51,17 @@ function showSnakeSidebar() {
     .setTitle('HQ COMMAND CENTER: SNAKE')
     .setWidth(300);
   SpreadsheetApp.getUi().showSidebar(html);
+}
+
+/**
+ * Opens the HQ Arcade cabinet — a break-room pop-up with Tetris / Flappy /
+ * Breakout / Invaders (touch + keyboard, high scores on-device). Pure fun,
+ * zero data. Called from the HQ ARCADE menu + the sidebar Arcade card.
+ */
+function openHQArcade() {
+  var html = HtmlService.createHtmlOutputFromFile('HQArcadeModal')
+    .setWidth(1100).setHeight(860);   // clamps to viewport; bigger playfield
+  SpreadsheetApp.getUi().showModalDialog(html, '🕹️ HQ Arcade');
 }
 
 function autoEnableLiveSync() {

@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html>
+<head>
+<base target="_top">
+<style>
+  /* Part / SKU console — one window that knows everything about a part.
+     Brand-aligned (cream paper, brand yellow, Oswald/Roboto Mono). Scoped .pc-*.
+     Top = images + facts; then the kit view (if it's a kit) + the ripple
+     (which kits use it). In-window search like the Order Case console. */
+  * { box-sizing: border-box; }
+  body { margin:0; background:#fff8e7; color:#1d1d1b; font-family:'Roboto',Arial,sans-serif; font-size:13px; }
+  .pc-wrap { display:flex; flex-direction:column; height:100vh; }
+
+  .pc-head { background:#1d1d1b; color:#fff; padding:10px 18px; display:flex; align-items:center; gap:14px; flex-wrap:wrap; }
+  .pc-head h1 { margin:0; font-family:'Oswald',sans-serif; font-weight:600; font-size:16px; letter-spacing:.05em; color:#ffd400; white-space:nowrap; }
+  .pc-searchwrap { display:flex; gap:6px; flex:1; min-width:220px; max-width:460px; }
+  #pcSearch { flex:1; padding:7px 10px; border:1px solid #4a4a46; border-radius:6px; background:#2a2a27; color:#fff; font-family:'Roboto Mono',monospace; font-size:13px; }
+  #pcSearch::placeholder { color:#8a8a84; }
+  .pc-searchbtn { padding:7px 14px; border:none; border-radius:6px; cursor:pointer; background:#ffd400; color:#1d1d1b; font-family:'Oswald',sans-serif; font-weight:600; text-transform:uppercase; letter-spacing:.05em; font-size:12px; white-space:nowrap; }
+  .pc-searchbtn:disabled { opacity:.5; cursor:default; }
+
+  .pc-context { background:#2a2a27; color:#eee; padding:7px 18px; display:flex; align-items:center; gap:10px; flex-wrap:wrap; min-height:34px; }
+  .pc-ctx-sku { font-family:'Roboto Mono',monospace; font-weight:700; font-size:14px; color:#fff; }
+  .pc-ctx-title { color:#cfcfca; font-size:12px; }
+  .pc-badge { font-family:'Oswald',sans-serif; font-size:10px; letter-spacing:.05em; text-transform:uppercase; padding:2px 8px; border-radius:10px; background:#444; color:#ffd966; }
+  .pc-badge.kit { background:#5a3d91; color:#fff; }
+  .pc-badge.oos { background:#b71c1c; color:#fff; }
+  .pc-badge.active { background:#1b5e20; color:#c8e6c9; }
+  .pc-badge.ended { background:#555; color:#ddd; }
+  .pc-links { margin-left:auto; display:flex; gap:8px; }
+  .pc-jump { display:inline-flex; align-items:center; gap:5px; text-decoration:none; background:#ffd400; color:#1d1d1b; font-family:'Oswald',sans-serif; font-weight:600; text-transform:uppercase; letter-spacing:.04em; font-size:11px; padding:5px 11px; border-radius:6px; }
+
+  .pc-body { flex:1; overflow-y:auto; padding:16px 18px; }
+
+  /* top: images + facts */
+  .pc-top { display:flex; gap:16px; flex-wrap:wrap; }
+  .pc-images { width:240px; flex-shrink:0; }
+  .pc-mainimg { width:240px; height:240px; border:1px solid #e5ddc7; border-radius:10px; background:#fff; object-fit:contain; display:block; }
+  .pc-noimg { width:240px; height:240px; border:1px dashed #cdba7f; border-radius:10px; background:#fffdf6; display:flex; align-items:center; justify-content:center; color:#b6a875; font-family:'Oswald',sans-serif; letter-spacing:.05em; font-size:12px; text-align:center; }
+  .pc-thumbs { display:flex; gap:6px; margin-top:8px; flex-wrap:wrap; }
+  .pc-thumb { width:44px; height:44px; border:1px solid #e5ddc7; border-radius:6px; object-fit:cover; cursor:pointer; background:#fff; }
+  .pc-thumb.sel { border:2px solid #ffd400; }
+
+  .pc-facts { flex:1; min-width:280px; display:flex; flex-wrap:wrap; gap:12px; align-content:flex-start; }
+  .pc-card { background:#fff; border:1px solid #e5ddc7; border-radius:10px; padding:12px 14px; min-width:150px; flex:1; }
+  .pc-card-label { font-family:'Oswald',sans-serif; text-transform:uppercase; letter-spacing:.06em; font-size:10px; color:#8a8a80; margin-bottom:5px; }
+  .pc-big { font-family:'Oswald',sans-serif; font-weight:700; font-size:30px; line-height:1; }
+  .pc-big.oos { color:#b71c1c; }
+  .pc-big.ok { color:#1b5e20; }
+  .pc-sub { font-size:11px; color:#5f5f5f; margin-top:4px; }
+  .pc-money { font-family:'Roboto Mono',monospace; font-weight:700; font-size:20px; }
+  .pc-drift { font-size:11px; margin-top:3px; }
+  .pc-drift.low { color:#7a3d00; }
+  .pc-drift.high { color:#b71c1c; }
+  .pc-loc { font-family:'Roboto Mono',monospace; font-weight:700; font-size:22px; }
+  .pc-loc.nf { color:#b06a00; font-size:15px; }
+
+  /* section headings */
+  .pc-sec { font-family:'Oswald',sans-serif; text-transform:uppercase; letter-spacing:.06em; font-size:12px; color:#5f5f5f; margin:20px 0 8px; border-bottom:1px solid #e5ddc7; padding-bottom:5px; display:flex; align-items:center; gap:8px; }
+  .pc-sec .pc-count { color:#9a9a90; font-weight:normal; }
+
+  /* insight banner */
+  .pc-insight { background:#e8f5e9; border:1px solid #a5d6a7; color:#1b5e20; border-radius:8px; padding:9px 12px; margin:8px 0; font-size:13px; }
+  .pc-insight b { font-family:'Oswald',sans-serif; }
+
+  /* tables (kit components + ripple) */
+  table.pc-tbl { width:100%; border-collapse:collapse; font-size:12.5px; background:#fff; border:1px solid #e5ddc7; border-radius:8px; overflow:hidden; }
+  .pc-tbl th { background:#1d1d1b; color:#ffd966; font-family:'Oswald',sans-serif; font-weight:600; text-transform:uppercase; letter-spacing:.03em; font-size:10px; padding:6px 9px; text-align:left; }
+  .pc-tbl td { padding:6px 9px; border-bottom:1px solid #eee4c8; }
+  .pc-tbl tr:last-child td { border-bottom:none; }
+  .pc-tbl tr.blocked td { background:#fff0f0; }
+  .pc-mono { font-family:'Roboto Mono',monospace; }
+  .pc-pill { font-family:'Oswald',sans-serif; font-size:9.5px; text-transform:uppercase; letter-spacing:.03em; padding:1px 6px; border-radius:8px; }
+  .pc-pill.build { background:#c8e6c9; color:#1b5e20; }
+  .pc-pill.zero { background:#ffcdd2; color:#b71c1c; }
+  .pc-pill.warn { background:#fff3b0; color:#7a5c00; }
+  .pc-pill.blocked { background:#b71c1c; color:#fff; }
+  .pc-pill.UNDERPRICED { background:#ffcdd2; color:#b71c1c; }
+  .pc-pill.OVERPRICED { background:#ffd699; color:#7a3d00; }
+  .pc-pill.status { background:#eee; color:#555; }
+
+  .pc-kitprice { display:flex; gap:20px; flex-wrap:wrap; margin:8px 0; }
+  .pc-kitprice > div { }
+  .pc-kitprice .l { font-family:'Oswald',sans-serif; font-size:10px; text-transform:uppercase; color:#8a8a80; letter-spacing:.05em; }
+  .pc-kitprice .v { font-family:'Roboto Mono',monospace; font-weight:700; font-size:16px; }
+
+  .pc-empty { color:#9a9a90; font-style:italic; padding:8px 0; }
+
+  /* loading overlay */
+  .pc-overlay { display:none; position:fixed; inset:0; background:rgba(20,20,18,.55); align-items:center; justify-content:center; flex-direction:column; z-index:50; }
+  .pc-overlay.on { display:flex; }
+  .pc-spin { width:40px; height:40px; border:4px solid #ffd400; border-top-color:transparent; border-radius:50%; animation:pcspin .8s linear infinite; }
+  @keyframes pcspin { to { transform:rotate(360deg); } }
+  .pc-overlay-txt { color:#ffd400; font-family:'Oswald',sans-serif; margin-top:12px; letter-spacing:.05em; }
+</style>
+</head>
+<body>
+  <div class="pc-wrap">
+    <div class="pc-head">
+      <h1>🧩 PART CONSOLE</h1>
+      <div class="pc-searchwrap">
+        <input type="text" id="pcSearch" placeholder="Look up a SKU (part or kit)…" autocomplete="off" spellcheck="false" />
+        <button class="pc-searchbtn" id="pcSearchBtn" onclick="doSearch()">🔍 Look up</button>
+      </div>
+    </div>
+
+    <div class="pc-context" id="pcContext"></div>
+
+    <div class="pc-body">
+      <div class="pc-top">
+        <div class="pc-images" id="pcImages"></div>
+        <div class="pc-facts" id="pcFacts"></div>
+      </div>
+      <div id="pcKit"></div>
+      <div id="pcRipple"></div>
+    </div>
+  </div>
+
+  <div class="pc-overlay" id="pcOverlay">
+    <div class="pc-spin"></div>
+    <div class="pc-overlay-txt" id="pcOverlayTxt">Loading…</div>
+  </div>
+
+  <script>
+    var current = <?!= dossierJson ?>;   // force-unescaped JSON (Gotcha 2)
+
+    function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+    function money(n){ return (n==null||isNaN(n)) ? '—' : '$' + Number(n).toFixed(2); }
+    function num(n){ return (n==null||n==='') ? '—' : n; }
+
+    function renderImages(part) {
+      var host = document.getElementById('pcImages');
+      var imgs = (part && part.images) || [];
+      if (!imgs.length) { host.innerHTML = '<div class="pc-noimg">no image<br/>on file</div>'; return; }
+      var main = '<img class="pc-mainimg" id="pcMainImg" src="' + esc(imgs[0]) + '" '
+               + 'onerror="this.style.display=\'none\';this.insertAdjacentHTML(\'afterend\',\'<div class=\\\'pc-noimg\\\'>image<br/>unavailable</div>\');" '
+               + 'alt="item image" />';
+      var thumbs = '';
+      if (imgs.length > 1) {
+        thumbs = '<div class="pc-thumbs">' + imgs.map(function(u,i){
+          return '<img class="pc-thumb' + (i===0?' sel':'') + '" src="' + esc(u) + '" '
+               + 'onclick="swapImg(this,\'' + esc(u).replace(/'/g,"\\'") + '\')" '
+               + 'onerror="this.style.display=\'none\';" />';
+        }).join('') + '</div>';
+      }
+      host.innerHTML = main + thumbs;
+    }
+    function swapImg(el, url) {
+      var m = document.getElementById('pcMainImg'); if (m){ m.src = url; m.style.display='block'; }
+      var t = document.querySelectorAll('.pc-thumb'); for (var i=0;i<t.length;i++) t[i].classList.remove('sel');
+      el.classList.add('sel');
+    }
+
+    function renderFacts(part) {
+      var host = document.getElementById('pcFacts');
+      if (!part || part.available == null && part.ebayPrice == null && !part.title) {
+        host.innerHTML = '<div class="pc-empty">Not in Master Inventory / Zoho Stock.</div>'; return;
+      }
+      var availCls = part.oos ? 'oos' : (part.available > 0 ? 'ok' : '');
+      var srcBits = [];
+      if (part.zohoAvailable != null) srcBits.push('Zoho ' + part.zohoAvailable);
+      if (part.miAvailable != null)   srcBits.push('MI ' + part.miAvailable);
+      var stock = '<div class="pc-card"><div class="pc-card-label">◫ On hand</div>'
+        + '<div class="pc-big ' + availCls + '">' + num(part.available) + '</div>'
+        + '<div class="pc-sub">' + (srcBits.join(' · ') || '—')
+        + (part.sold != null ? ' · ' + part.sold + ' sold' : '') + '</div></div>';
+
+      // price + drift
+      var drift = '';
+      if (part.ebayPrice != null && part.zohoPrice != null) {
+        var d = part.zohoPrice - part.ebayPrice;
+        if (Math.abs(d) >= 1) drift = '<div class="pc-drift ' + (d>0?'high':'low') + '">Zoho ' + (d>0?'+':'') + money(d) + ' vs eBay</div>';
+      }
+      var price = '<div class="pc-card"><div class="pc-card-label">💲 Price</div>'
+        + '<div class="pc-money">' + money(part.ebayPrice) + '</div>'
+        + '<div class="pc-sub">eBay' + (part.zohoPrice!=null?' · Zoho ' + money(part.zohoPrice):'') + '</div>'
+        + drift + '</div>';
+
+      var locCls = (part.location === 'NOT FOUND') ? 'nf' : '';
+      var where = '<div class="pc-card"><div class="pc-card-label">📍 Location</div>'
+        + '<div class="pc-loc ' + locCls + '">' + esc(part.location || '—') + '</div>'
+        + '<div class="pc-sub">' + (part.listingStatus ? esc(part.listingStatus) : '') + '</div></div>';
+
+      var demand = '<div class="pc-card"><div class="pc-card-label">📋 Open demand</div>'
+        + '<div class="pc-big">' + (part.committed || 0) + '</div>'
+        + '<div class="pc-sub">committed to open orders</div></div>';
+
+      host.innerHTML = stock + price + where + demand;
+    }
+
+    function renderKit(D) {
+      var host = document.getElementById('pcKit');
+      if (!D.isKit || !D.kit) { host.innerHTML = ''; return; }
+      var k = D.kit;
+      var html = '<div class="pc-sec">🧰 This SKU is a KIT <span class="pc-count">· ' + esc(k.type) + (k.engine?' · '+esc(k.engine):'') + '</span></div>';
+
+      // price line
+      var pstat = k.priceStatus ? '<span class="pc-pill ' + esc(k.priceStatus.replace(/[^A-Z]/gi,'')) + '">' + esc(k.priceStatus) + '</span>' : '';
+      html += '<div class="pc-kitprice">'
+        + '<div><div class="l">Parts value</div><div class="v">' + money(k.partsValue) + '</div></div>'
+        + '<div><div class="l">Computed</div><div class="v">' + money(k.computed) + '</div></div>'
+        + '<div><div class="l">Listed</div><div class="v">' + money(k.listed) + '</div></div>'
+        + '<div><div class="l">Buildable now</div><div class="v">' + num(k.buildable) + '</div></div>'
+        + (pstat ? '<div><div class="l">Kit Health</div><div class="v">' + pstat + '</div></div>' : '')
+        + '</div>';
+      if (!k.complete) html += '<div class="pc-insight" style="background:#fff3b0;border-color:#e0c96a;color:#7a5c00;">⚠ Incomplete — unparsed PD or unpriced parts; computed price is not trustworthy. See Kit Health.</div>';
+      if (k.limitedBy) html += '<div class="pc-sub" style="margin:2px 0 8px;">Bottleneck: ' + esc(k.limitedBy) + '</div>';
+
+      // components
+      html += '<table class="pc-tbl"><tr><th>Component</th><th>Needs</th><th>Name</th><th>On hand</th></tr>';
+      (k.components||[]).forEach(function(c){
+        var av = c.available;
+        var avCls = (av != null && av <= 0) ? 'zero' : (av>0?'build':'warn');
+        html += '<tr><td class="pc-mono">' + esc(c.sku) + '</td><td class="pc-mono">×' + esc(c.qty) + '</td>'
+          + '<td>' + esc(c.name) + '</td><td><span class="pc-pill ' + avCls + '">' + (av==null?'?':av) + '</span></td></tr>';
+      });
+      html += '</table>';
+      host.innerHTML = html;
+    }
+
+    function renderRipple(D) {
+      var host = document.getElementById('pcRipple');
+      var used = D.usedIn || [];
+      if (!used.length) { host.innerHTML = D.found ? '<div class="pc-sec">🔧 Used in kits</div><div class="pc-empty">Not a component of any registered kit.</div>' : ''; return; }
+      var html = '<div class="pc-sec">🔧 Used in ' + used.length + ' kit' + (used.length===1?'':'s') + '</div>';
+      if (D.unblock && D.unblock.length) {
+        html += '<div class="pc-insight">💡 Restocking this part <b>unblocks ' + D.unblock.length + ' kit' + (D.unblock.length===1?'':'s') + '</b> — ' + esc(D.unblock.join(', ')) + '</div>';
+      }
+      html += '<table class="pc-tbl"><tr><th>Kit</th><th>Name</th><th>Needs</th><th>Buildable</th><th>Kit Health</th></tr>';
+      used.forEach(function(u){
+        var bCls = (u.buildable===0)?'zero':(typeof u.buildable==='number'&&u.buildable>0?'build':'warn');
+        var blockTag = u.blocked ? ' <span class="pc-pill blocked">← this part</span>' : '';
+        var ps = u.priceStatus ? '<span class="pc-pill status ' + esc(u.priceStatus.replace(/[^A-Z]/gi,'')) + '">' + esc(u.priceStatus) + '</span>' : '<span style="color:#bbb;">—</span>';
+        html += '<tr class="' + (u.blocked?'blocked':'') + '">'
+          + '<td class="pc-mono">' + esc(u.kitSku) + '</td>'
+          + '<td>' + esc(u.kitName) + '</td>'
+          + '<td class="pc-mono">×' + esc(u.qtyPer) + '</td>'
+          + '<td><span class="pc-pill ' + bCls + '">' + (typeof u.buildable==='number'?u.buildable:'⚠') + '</span>' + blockTag + '</td>'
+          + '<td>' + ps + '</td></tr>';
+      });
+      html += '</table>';
+      host.innerHTML = html;
+    }
+
+    function renderDossier(D) {
+      current = D;
+      // context
+      var ctx = document.getElementById('pcContext');
+      var html = '<span class="pc-ctx-sku">' + esc(D.sku) + '</span>';
+      if (D.part && D.part.title) html += '<span class="pc-ctx-title">' + esc(D.part.title) + '</span>';
+      if (D.isKit) html += '<span class="pc-badge kit">KIT</span>';
+      if (D.part && D.part.oos) html += '<span class="pc-badge oos">OOS</span>';
+      if (D.part && D.part.listingStatus) {
+        var st = String(D.part.listingStatus);
+        html += '<span class="pc-badge ' + (st.toLowerCase()==='active'?'active':'ended') + '">' + esc(st) + '</span>';
+      }
+      var links = '';
+      if (D.ebayUrl) links = '<a class="pc-jump" href="' + esc(D.ebayUrl) + '" target="_blank" rel="noopener">↗ eBay</a>';
+      html += '<span class="pc-links">' + links + '</span>';
+      ctx.innerHTML = html;
+
+      if (!D.found) {
+        document.getElementById('pcImages').innerHTML = '';
+        document.getElementById('pcFacts').innerHTML = '<div class="pc-empty">No part found for “' + esc(D.sku) + '”. Check the SKU, or search again above.</div>';
+        document.getElementById('pcKit').innerHTML = '';
+        document.getElementById('pcRipple').innerHTML = '';
+      } else {
+        renderImages(D.part);
+        renderFacts(D.part);
+        renderKit(D);
+        renderRipple(D);
+      }
+      document.getElementById('pcSearch').value = D.sku || '';
+    }
+
+    function doSearch() {
+      var q = (document.getElementById('pcSearch').value || '').trim();
+      if (!q) { document.getElementById('pcSearch').focus(); return; }
+      var btn = document.getElementById('pcSearchBtn'); btn.disabled = true;
+      document.getElementById('pcOverlayTxt').textContent = 'Looking up ' + q + '…';
+      document.getElementById('pcOverlay').classList.add('on');
+      google.script.run
+        .withSuccessHandler(function(res){
+          document.getElementById('pcOverlay').classList.remove('on'); btn.disabled = false;
+          if (res && res.ok) renderDossier(res.dossier);
+        })
+        .withFailureHandler(function(err){
+          document.getElementById('pcOverlay').classList.remove('on'); btn.disabled = false;
+          alert('Lookup failed: ' + (err && err.message ? err.message : String(err)));
+        })
+        .getPartData(q);
+    }
+    document.getElementById('pcSearch').addEventListener('keydown', function(e){ if (e.key==='Enter'){ e.preventDefault(); doSearch(); } });
+
+    renderDossier(current);
+  </script>
+</body>
+</html>

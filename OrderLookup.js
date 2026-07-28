@@ -91,6 +91,13 @@ function lookupOrder(query) {
   result.found = result.rows.length > 0 || result.events.length > 0;
   result.summary = _summarize(result.rows, result.events);
 
+  // Open-case flag — defensive cross-file call to Investigation.js so the sidebar
+  // can warn "⚠ open case" and nobody re-investigates something already in flight.
+  try {
+    result.summary.openCases = (typeof getOpenCasesForOrder === 'function')
+      ? getOpenCasesForOrder(normalized) : 0;
+  } catch (e) { result.summary.openCases = 0; }
+
   return result;
 }
 

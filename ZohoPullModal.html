@@ -449,6 +449,14 @@
       <!-- populated by renderLines() -->
     </div>
 
+    <!-- Optional operator note — written to the pulled rows' NOTE cell so it
+         travels with the order to the picker (only lands on inserted rows). -->
+    <div style="padding:8px 14px 0; background:#fff8e7;">
+      <input type="text" id="zpNote" maxlength="200" autocomplete="off"
+        placeholder="📝 Optional note for this order — rides to the picker (e.g. hold for payment · needs it Friday · call before shipping)"
+        style="width:100%; padding:7px 10px; border:1px solid #cdba7f; border-radius:6px; font-family:'Roboto',sans-serif; font-size:13px; background:#fffdf6; color:#1d1d1b;" />
+    </div>
+
     <div class="ftr" id="ftrEl">
       <span class="ftr-summary" id="summaryEl">Loading…</span>
       <div class="ftr-btns">
@@ -793,10 +801,13 @@
       showStatus('Applying ' + selections.length + ' change(s)…');
       showOverlay('Applying ' + selections.length + ' change(s)');
 
+      var noteEl = document.getElementById('zpNote');
+      var note = noteEl ? (noteEl.value || '').trim() : '';
+
       google.script.run
         .withSuccessHandler(onApplyOk)
         .withFailureHandler(onApplyFail)
-        .applyZohoPullSelection(DIFF.soNumber, selections);
+        .applyZohoPullSelection(DIFF.soNumber, selections, note);
     }
 
     function onApplyOk(res) {

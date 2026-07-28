@@ -379,7 +379,7 @@ function _formatDateCell(val) {
  *   summary: string            — human-readable for status bar
  * }}
  */
-function applyZohoPullSelection(query, selections) {
+function applyZohoPullSelection(query, selections, note) {
   var out = {
     ok: false,
     reason: "",
@@ -390,6 +390,11 @@ function applyZohoPullSelection(query, selections) {
   };
 
   var q = String(query || "").trim();
+  // Optional operator note captured in the Pull modal — written un-prefixed to
+  // the pulled rows' NOTE cell so it travels with the order to the picker (and
+  // into the Activity Log via the insert's RECEIVED events). Operator notes stay
+  // un-prefixed; only buyer notes get the "Buyer Note:" tag (existing convention).
+  var userNote = String(note || "").trim();
   if (!q) {
     out.reason = "Empty query.";
     return out;
@@ -487,18 +492,21 @@ function applyZohoPullSelection(query, selections) {
             sku:             line.sku,
             quantity:        line.zohoQty,
             name:            line.name,
-            _noteOverride:   "",   // per user policy: leave NOTE empty on Pull
+            // Operator's Pull note (blank if none) — travels with the order.
+            _noteOverride:   userNote,
             _detailOverride: "Pulled from Zoho · " + (diff.customerName || "no customer")
           });
           break;
         case "insert_delta":
-          // Qty increase — insert delta row with explanation in NOTE
+          // Qty increase — insert delta row with explanation in NOTE; append the
+          // operator note if one was given so it rides along here too.
           inserts.push({
             sku:             line.sku,
             quantity:        line.delta,
             name:            line.name,
             _noteOverride:   "↳ delta from Zoho · was " + line.directQty
-                             + " total, now " + line.zohoQty,
+                             + " total, now " + line.zohoQty
+                             + (userNote ? " · " + userNote : ""),
             _detailOverride: "Pull delta on existing SKU · was " + line.directQty
                              + ", now " + line.zohoQty
           });

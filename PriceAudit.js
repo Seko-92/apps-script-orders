@@ -479,3 +479,98 @@ function runPriceAudit() {
     };
   }
 }
+
+
+// =======================================================================================
+// SIDEBAR BADGE — cheap drift count (reads the Price Audit sheet, does NOT re-audit)
+// =======================================================================================
+//
+// Mirrors the getOutOfStockCount() pattern: the Alerts card reads this snapshot on
+// every 30s poll, so it MUST be a light sheet read — never a re-scan of MI or a Zoho
+// pull. Counts only the actionable price-drift rows (ZOHO HIGH / ZOHO LOW). INACTIVE
+// CANDIDATE and OOS / NO REF rows are deliberately excluded — they're a different,
+// lower-priority (non-price-push) concern and would inflate the badge.
+//
+// Returns 0 when the sheet is missing/empty so a fresh install degrades quietly.
+// =======================================================================================
+
+function getPriceDriftCount() {
+  try {
+    var ss = SpreadsheetApp.getActive() || SpreadsheetApp.openById(SPREADSHEET_ID);
+    var sheet = ss.getSheetByName(PRICE_AUDIT.sheetName);
+    if (!sheet) return 0;
+    var lastRow = sheet.getLastRow();
+    if (lastRow < PRICE_AUDIT.dataStartRow) return 0;
+
+    var dir = sheet.getRange(
+      PRICE_AUDIT.dataStartRow, PRICE_AUDIT.cols.DIRECTION,
+      lastRow - PRICE_AUDIT.dataStartRow + 1, 1
+    ).getValues();
+
+    var count = 0;
+    for (var i = 0; i < dir.length; i++) {
+      var d = String(dir[i][0]).trim().toUpperCase();
+      if (d === 'ZOHO HIGH' || d === 'ZOHO LOW') count++;
+    }
+    return count;
+  } catch (e) {
+    console.log("getPriceDriftCount error: " + e);
+    return 0;
+  }
+}
+
+
+// =======================================================================================
+// WEEKLY AUTO-AUDIT — Monday ~5am, off-hours by design
+// =======================================================================================
+//
+// Runs runPriceAudit() on a schedule so the drift picture is fresh at the start of
+// each week without anyone clicking the button. Fires at 5am (BEFORE the 6am work
+// gate) for one reason: runPriceAudit REWRITES and re-sorts the whole Price Audit
+// sheet, so firing while someone is mid-review (selecting rows to push) would yank
+// the sheet out from under them — the same reason All Orders / Prep / Location all
+// sort on a manual button. An off-hours run guarantees it never collides.
+//
+// Data staleness at 5am is immaterial: the Zoho Stock sheet last synced ~5pm and
+// prices don't move overnight — for a WEEKLY drift snapshot that's fine.
+//
+// The manual sidebar "Run Audit" button still works exactly as before; this just
+// adds a scheduled run on top. Editor-bound (time trigger runs head code) → deploy
+// is `clasp push` + one run of setupPriceAuditTrigger(); NO New Version needed.
+// =======================================================================================
+
+function runWeeklyPriceAudit() {
+  var res = runPriceAudit();
+  try {
+    console.log("runWeeklyPriceAudit: " + (res && res.message ? res.message : "(no message)"));
+  } catch (_) {}
+  return res;
+}
+
+/** EDITOR-RUN once: install the weekly (Monday ~5am) auto-audit trigger.
+ *  Idempotent — clears any existing runWeeklyPriceAudit trigger first. */
+function setupPriceAuditTrigger() {
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    if (t.getHandlerFunction() === 'runWeeklyPriceAudit') {
+      ScriptApp.deleteTrigger(t);
+    }
+  });
+  ScriptApp.newTrigger('runWeeklyPriceAudit')
+    .timeBased()
+    .onWeekDay(ScriptApp.WeekDay.MONDAY)
+    .atHour(5)
+    .create();
+  return "✅ Weekly price-audit trigger installed (Mondays ~5am).";
+}
+
+/** EDITOR-RUN: remove the weekly auto-audit trigger (the manual button is unaffected). */
+function removePriceAuditTrigger() {
+  var removed = 0;
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    if (t.getHandlerFunction() === 'runWeeklyPriceAudit') {
+      ScriptApp.deleteTrigger(t);
+      removed++;
+    }
+  });
+  return "✅ Removed " + removed + " weekly price-audit trigger(s).";
+}

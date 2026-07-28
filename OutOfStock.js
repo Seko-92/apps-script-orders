@@ -1100,7 +1100,7 @@ function _oosComputeKitBuild(kit, resolveAvail) {
     var can = Math.floor(avail / qtyPer);
     if (can < minBuild) {
       minBuild = can;
-      limiter = { sku: String(comp.sku), avail: avail, qtyPer: qtyPer };
+      limiter = { sku: String(comp.sku), name: String(comp.name || ""), avail: avail, qtyPer: qtyPer };
     }
   }
 
@@ -1116,6 +1116,11 @@ function _oosComputeKitBuild(kit, resolveAvail) {
   return {
     buildable: minBuild,
     limitedBy: limiter.sku + " · has " + availDisp + " / needs " + limiter.qtyPer,
+    // Structured limiter (added 2026-07-25 for the Kit Health cockpit). The
+    // `limitedBy` string above is BYTE-IDENTICAL to before, so OutOfStock's own
+    // reads are unaffected; Kit Health uses this to render the bottleneck's NAME
+    // (a reviewer shouldn't have to look up a bare SKU). Absent on the ⚠ returns.
+    limiter: { sku: limiter.sku, name: limiter.name, avail: availDisp, qtyPer: limiter.qtyPer },
     components: comps.length + " ok"
   };
 }

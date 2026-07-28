@@ -27,6 +27,18 @@
 //   7. newFromZoho  — Zoho direct-channel SOs in the Pending Sales Orders
 //                     sheet whose PULLED column is blank. Click → opens the
 //                     Pending sheet so the picker can decide which to pull.
+//   8. priceDrift   — Items whose Zoho selling_price drifted from eBay's price
+//                     (ZOHO HIGH / ZOHO LOW rows on the Price Audit sheet). Reads
+//                     the last audit's snapshot — refreshed weekly by
+//                     runWeeklyPriceAudit() (or the manual Run Audit button).
+//                     Subtle / non-urgent: deliberately OUT of the hero
+//                     "attention" pulse set. Click → opens the Price Audit sheet.
+//   9. kitPriceDrift — Kits whose listed price is out of line with their parts'
+//                     component-summed value (UNDERPRICED / OVERPRICED rows on the
+//                     Kit Health sheet). Reads the last Kit Health audit snapshot —
+//                     refreshed weekly by runWeeklyKitHealthAudit() (or the manual
+//                     Run button). Subtle / non-hero, same as priceDrift. Click →
+//                     opens the Kit Health sheet.
 //
 // PERFORMANCE
 //   _scanAlerts() reads the All Orders sheet ONCE and partitions rows in a
@@ -162,7 +174,10 @@ function getActionableAlerts() {
       notFound:     { count: alerts.notFound.length,     rows: alerts.notFound },
       queueSize:    { count: _getPrepQueueSize(),        rows: [] },
       outOfStock:   { count: getOutOfStockCount(),       rows: [] },
-      newFromZoho:  { count: _safeZohoCount(),           rows: [] }
+      newFromZoho:  { count: _safeZohoCount(),           rows: [] },
+      priceDrift:   { count: _safePriceDriftCount(),     rows: [] },
+      kitPriceDrift:{ count: _safeKitPriceDriftCount(),  rows: [] },
+      openCases:    { count: _safeOpenCaseCount(),       rows: [] }
     };
   } catch (e) {
     console.error("getActionableAlerts error: " + e);
@@ -173,7 +188,10 @@ function getActionableAlerts() {
       notFound:     { count: 0, rows: [] },
       queueSize:    { count: 0, rows: [] },
       outOfStock:   { count: 0, rows: [] },
-      newFromZoho:  { count: 0, rows: [] }
+      newFromZoho:  { count: 0, rows: [] },
+      priceDrift:   { count: 0, rows: [] },
+      kitPriceDrift:{ count: 0, rows: [] },
+      openCases:    { count: 0, rows: [] }
     };
   }
 }
@@ -190,6 +208,41 @@ function _safeZohoCount() {
   }
 }
 
+/** Defensive wrapper — getPriceDriftCount lives in PriceAudit.js. Returns the
+ *  count of ZOHO HIGH / ZOHO LOW drift rows on the Price Audit sheet, or 0 if
+ *  that file/sheet isn't available. Cheap sheet read; safe on every 30s poll.
+ *  This is a SNAPSHOT of the last audit — it does NOT re-run the audit. */
+function _safePriceDriftCount() {
+  try {
+    return (typeof getPriceDriftCount === "function") ? getPriceDriftCount() : 0;
+  } catch (e) {
+    return 0;
+  }
+}
+
+/** Defensive wrapper — getKitPriceDriftCount lives in KitHealth.js. Returns the
+ *  count of UNDERPRICED / OVERPRICED kit rows on the Kit Health sheet, or 0 if
+ *  that file/sheet isn't available. Cheap sheet read; safe on every 30s poll.
+ *  Snapshot of the last Kit Health audit — it does NOT re-run the audit. */
+function _safeKitPriceDriftCount() {
+  try {
+    return (typeof getKitPriceDriftCount === "function") ? getKitPriceDriftCount() : 0;
+  } catch (e) {
+    return 0;
+  }
+}
+
+/** Defensive wrapper — getOpenCaseCount lives in Investigation.js. Distinct
+ *  orders whose latest investigation note is still "Open". Cheap snapshot read,
+ *  safe on the 30s poll. Returns 0 if that file/sheet isn't available. */
+function _safeOpenCaseCount() {
+  try {
+    return (typeof getOpenCaseCount === "function") ? getOpenCaseCount() : 0;
+  } catch (e) {
+    return 0;
+  }
+}
+
 /**
  * Click handler: activate All Orders sheet (or Prep Queue for queueSize),
  * select all matching rows so the user can see the cluster at once.
@@ -198,10 +251,13 @@ function _safeZohoCount() {
  * ranges with a single visible selection.
  */
 function jumpToAlertRows(alertKey) {
-  // queueSize / outOfStock / newFromZoho jump to their own sheets (not All Orders)
+  // queueSize / outOfStock / newFromZoho / priceDrift jump to their own sheets (not All Orders)
   if (alertKey === 'queueSize')   return openPrepQueue();
   if (alertKey === 'outOfStock')  return openOutOfStock();
   if (alertKey === 'newFromZoho') return openPendingSalesOrders();
+  if (alertKey === 'priceDrift')  return openPriceAudit();
+  if (alertKey === 'kitPriceDrift') return openKitHealth();
+  if (alertKey === 'openCases')   return openInvestigations();
 
   var alerts = _scanAlerts();
   var rows = alerts[alertKey];

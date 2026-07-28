@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html>
+<head>
+<base target="_top">
+<style>
+  /* Order Case console — the investigation dossier + an in-window search bar so
+     you can look up order after order without closing. Brand-aligned (cream
+     paper, brand yellow, Oswald/Roboto Mono). All classes scoped .oc-*.
+     Left column = the story the system already wrote (rows + Activity Log
+     timeline); right column = the human case file (log a finding + prior notes). */
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: #fff8e7; color: #1d1d1b;
+    font-family: 'Roboto', Arial, sans-serif; font-size: 13px;
+  }
+  .oc-wrap { display: flex; flex-direction: column; height: 100vh; }
+
+  /* header + search bar */
+  .oc-head {
+    background: #1d1d1b; color: #fff; padding: 10px 18px;
+    display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+  }
+  .oc-head h1 {
+    margin: 0; font-family: 'Oswald', sans-serif; font-weight: 600;
+    font-size: 16px; letter-spacing: .05em; color: #ffd400; white-space: nowrap;
+  }
+  .oc-searchwrap { display: flex; gap: 6px; flex: 1; min-width: 220px; max-width: 460px; }
+  #ocSearch {
+    flex: 1; padding: 7px 10px; border: 1px solid #4a4a46; border-radius: 6px;
+    background: #2a2a27; color: #fff; font-family: 'Roboto Mono', monospace; font-size: 13px;
+  }
+  #ocSearch::placeholder { color: #8a8a84; }
+  .oc-searchbtn {
+    padding: 7px 14px; border: none; border-radius: 6px; cursor: pointer;
+    background: #ffd400; color: #1d1d1b; font-family:'Oswald',sans-serif; font-weight:600;
+    text-transform: uppercase; letter-spacing:.05em; font-size: 12px; white-space: nowrap;
+  }
+  .oc-searchbtn:disabled { opacity:.5; cursor:default; }
+
+  /* context strip (updates per order) */
+  .oc-context {
+    background: #2a2a27; color: #eee; padding: 7px 18px;
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap; min-height: 34px;
+  }
+  .oc-ctx-id { font-family:'Roboto Mono',monospace; font-weight:700; font-size:14px; color:#fff; }
+  .oc-badge {
+    font-family:'Oswald',sans-serif; font-size: 10px; letter-spacing:.05em;
+    text-transform: uppercase; padding: 2px 8px; border-radius: 10px; background:#444; color:#ffd966;
+  }
+  .oc-badge.ebay { background:#0a3d91; color:#fff; }
+  .oc-badge.direct { background:#7a5c00; color:#fff; }
+  .oc-badge.open { background:#b71c1c; color:#fff; }
+  .oc-status-chip {
+    font-family:'Oswald',sans-serif; font-size:10px; letter-spacing:.04em;
+    padding:2px 8px; border-radius:10px; background:#444; color:#fff;
+  }
+  /* Zoho authoritative-status chip (direct orders) — distinct teal so it reads
+     as "a second source," not the sheet's own status. */
+  .oc-zoho {
+    font-family:'Oswald',sans-serif; font-size:10px; letter-spacing:.03em;
+    padding:2px 9px; border-radius:10px; background:#0f3d3a; color:#7fe3d6;
+    border:1px solid #1c5c56;
+  }
+  .oc-links { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; }
+  .oc-jump {
+    display:inline-flex; align-items:center; gap:5px; text-decoration:none;
+    background:#ffd400; color:#1d1d1b; font-family:'Oswald',sans-serif; font-weight:600;
+    text-transform:uppercase; letter-spacing:.04em; font-size:11px; padding:5px 11px; border-radius:6px;
+  }
+  .oc-jump.muted { background:#3a3a38; color:#8a8a86; cursor:default; }
+
+  /* body — two columns */
+  .oc-body { flex: 1; overflow: hidden; display: flex; }
+  .oc-col { overflow-y: auto; padding: 14px 16px; }
+  .oc-left  { flex: 1.35; border-right: 1px solid #e5ddc7; }
+  .oc-right { flex: 1; min-width: 320px; background:#fffdf6; }
+
+  .oc-sec-title {
+    font-family:'Oswald',sans-serif; text-transform:uppercase; letter-spacing:.06em;
+    font-size: 11px; color:#5f5f5f; margin: 4px 0 8px; border-bottom:1px solid #e5ddc7; padding-bottom:4px;
+  }
+  .oc-sec-title:not(:first-child) { margin-top: 16px; }
+
+  /* rows table */
+  table.oc-tbl { width:100%; border-collapse: collapse; font-size:12px; }
+  .oc-tbl th {
+    background:#1d1d1b; color:#ffd966; font-family:'Oswald',sans-serif; font-weight:600;
+    text-transform:uppercase; letter-spacing:.03em; font-size:10px; padding:5px 7px; text-align:left;
+  }
+  .oc-tbl td { padding:5px 7px; border-bottom:1px solid #eee4c8; vertical-align: top; }
+  .oc-tbl tr:nth-child(even) td { background:#fffaf0; }
+  .oc-mono { font-family:'Roboto Mono', monospace; }
+  .oc-rowbadge { font-size:9px; font-family:'Oswald',sans-serif; padding:1px 5px; border-radius:8px; }
+  .oc-rowbadge.ebay { background:#e3ecfb; color:#0a3d91; }
+  .oc-rowbadge.direct { background:#fff4b0; color:#7a5c00; }
+
+  /* timeline */
+  .oc-timeline { border-left: 2px solid #e5ddc7; margin-left: 4px; }
+  .oc-ev { position: relative; padding: 6px 0 6px 16px; font-size:12px; }
+  .oc-ev::before {
+    content:''; position:absolute; left:-6px; top:11px; width:9px; height:9px;
+    border-radius:50%; background:#bbb; border:2px solid #fff8e7;
+  }
+  .oc-ev.RECEIVED::before  { background:#c9b458; }
+  .oc-ev.PREPARING::before { background:#ffd400; }
+  .oc-ev.NOTE::before      { background:#ffd400; }
+  .oc-ev.SHIPPED::before   { background:#2e7d32; }
+  .oc-ev.CANCELED::before  { background:#9e9e9e; }
+  .oc-ev.PRINTED::before   { background:#1565c0; }
+  .oc-ev-top { display:flex; gap:8px; align-items:baseline; flex-wrap:wrap; }
+  .oc-ev-when { font-family:'Roboto Mono',monospace; color:#5f5f5f; font-size:10.5px; }
+  .oc-ev-type { font-family:'Oswald',sans-serif; font-weight:600; letter-spacing:.03em; font-size:11px; }
+  .oc-ev-src  { font-size:10px; color:#8a7a3a; background:#fff4d6; padding:0 5px; border-radius:6px; }
+  .oc-ev-meta { color:#5f5f5f; font-size:11px; margin-top:1px; }
+  .oc-ev-sku  { font-family:'Roboto Mono',monospace; }
+
+  .oc-empty { color:#9a9a90; font-style: italic; font-size:12px; padding:6px 0; }
+
+  /* case-file form */
+  .oc-form { background:#fff; border:1px solid #e5ddc7; border-radius:8px; padding:12px; }
+  .oc-label { font-family:'Oswald',sans-serif; text-transform:uppercase; letter-spacing:.05em; font-size:10.5px; color:#5f5f5f; margin:8px 0 3px; }
+  .oc-label:first-child { margin-top:0; }
+  select.oc-input, textarea.oc-input, input.oc-input {
+    width:100%; padding:7px 9px; border:1px solid #cdba7f; border-radius:6px;
+    font-family:'Roboto', sans-serif; font-size:13px; background:#fffdf6; color:#1d1d1b;
+  }
+  textarea.oc-input { min-height:56px; resize:vertical; font-family:'Roboto',sans-serif; }
+  .oc-form-row { display:flex; gap:10px; }
+  .oc-form-row > div { flex:1; }
+  .oc-investigator { font-size:11px; color:#5f5f5f; margin-top:8px; }
+  .oc-investigator b { font-family:'Roboto Mono',monospace; color:#1d1d1b; }
+  .oc-save {
+    margin-top:10px; width:100%; padding:9px; border:none; border-radius:6px; cursor:pointer;
+    background:#ffd400; color:#1d1d1b; font-family:'Oswald',sans-serif; font-weight:600;
+    text-transform:uppercase; letter-spacing:.05em; font-size:13px;
+  }
+  .oc-save:disabled { opacity:.5; cursor:default; }
+  .oc-msg { font-size:11.5px; margin-top:8px; padding:6px 8px; border-radius:6px; display:none; }
+  .oc-msg.ok   { display:block; background:#e8f5e9; color:#1b5e20; }
+  .oc-msg.err  { display:block; background:#ffe5e5; color:#b71c1c; }
+
+  /* prior notes */
+  .oc-note { background:#fff; border:1px solid #e5ddc7; border-radius:8px; padding:10px; margin-bottom:9px; }
+  .oc-note-top { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:5px; }
+  .oc-cat { font-family:'Oswald',sans-serif; font-size:10px; text-transform:uppercase; letter-spacing:.04em; padding:2px 8px; border-radius:10px; background:#efe6c6; color:#5f4a00; }
+  .oc-st { font-family:'Oswald',sans-serif; font-size:10px; text-transform:uppercase; padding:2px 8px; border-radius:10px; }
+  .oc-st.open { background:#fff4b0; color:#7d5d00; }
+  .oc-st.resolved { background:#e8f5e9; color:#1b5e20; }
+  .oc-note-when { font-family:'Roboto Mono',monospace; font-size:10px; color:#8a8a80; margin-left:auto; }
+  .oc-note-find { font-size:12.5px; margin:3px 0; white-space: pre-wrap; }
+  .oc-note-res { font-size:12px; color:#37474f; margin:3px 0; white-space: pre-wrap; }
+  .oc-note-res b { font-family:'Oswald',sans-serif; font-size:10px; letter-spacing:.04em; color:#5f5f5f; }
+  .oc-note-by { font-family:'Roboto Mono',monospace; font-size:10px; color:#8a8a80; }
+
+  /* loading overlay */
+  .oc-overlay {
+    display:none; position:fixed; inset:0; background:rgba(20,20,18,.55);
+    align-items:center; justify-content:center; flex-direction:column; z-index:50;
+  }
+  .oc-overlay.on { display:flex; }
+  .oc-spin { width:40px; height:40px; border:4px solid #ffd400; border-top-color:transparent; border-radius:50%; animation: ocspin .8s linear infinite; }
+  @keyframes ocspin { to { transform: rotate(360deg); } }
+  .oc-overlay-txt { color:#ffd400; font-family:'Oswald',sans-serif; margin-top:12px; letter-spacing:.05em; }
+</style>
+</head>
+<body>
+  <div class="oc-wrap">
+    <div class="oc-head">
+      <h1>🔍 ORDER CASE</h1>
+      <div class="oc-searchwrap">
+        <input type="text" id="ocSearch" placeholder="Look up an order ID or SO…" autocomplete="off" spellcheck="false" />
+        <button class="oc-searchbtn" id="ocSearchBtn" onclick="doSearch()">🔍 Look up</button>
+      </div>
+    </div>
+
+    <div class="oc-context" id="ocContext"></div>
+
+    <div class="oc-body">
+      <!-- LEFT: the story -->
+      <div class="oc-col oc-left">
+        <div class="oc-sec-title">Rows on the sheet</div>
+        <div id="ocRows"></div>
+        <div class="oc-sec-title">Timeline</div>
+        <div id="ocTimeline"></div>
+      </div>
+
+      <!-- RIGHT: the case file -->
+      <div class="oc-col oc-right">
+        <div class="oc-sec-title">Log a finding</div>
+        <div class="oc-form">
+          <div class="oc-form-row">
+            <div>
+              <div class="oc-label">Category</div>
+              <select class="oc-input" id="ocCategory"></select>
+            </div>
+            <div style="max-width:120px;">
+              <div class="oc-label">Status</div>
+              <select class="oc-input" id="ocStatus"></select>
+            </div>
+          </div>
+          <div class="oc-label">Findings — what's wrong / what you found</div>
+          <textarea class="oc-input" id="ocFindings" placeholder="e.g. Buyer says box arrived without the gasket set (155394). Label shows 2 lb — kit weighs ~4 lb, so it likely shipped short."></textarea>
+          <div class="oc-label">Resolution — how it was handled (optional while Open)</div>
+          <textarea class="oc-input" id="ocResolution" placeholder="e.g. Shipped the missing gasket set via USPS, tracking 9400… Buyer notified."></textarea>
+          <div class="oc-investigator" id="ocInvestigator"></div>
+          <button class="oc-save" id="ocSaveBtn" onclick="saveNote()">Save finding</button>
+          <div class="oc-msg" id="ocMsg"></div>
+        </div>
+
+        <div class="oc-sec-title">Case notes <span id="ocNoteCount" style="color:#9a9a90;"></span></div>
+        <div id="ocNotes"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="oc-overlay" id="ocOverlay">
+    <div class="oc-spin"></div>
+    <div class="oc-overlay-txt" id="ocOverlayTxt">Loading…</div>
+  </div>
+
+  <script>
+    // Force-unescaped JSON injection (Gotcha 2) — the server </-guards it.
+    var current = <?!= dossierJson ?>;
+    var noteTotal = 0;
+
+    function esc(s) {
+      return String(s == null ? '' : s)
+        .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+        .replace(/"/g,'&quot;');
+    }
+    function fmtWhen(ms) {
+      if (!ms) return '—';
+      var d = new Date(ms);
+      var h = d.getHours(), m = d.getMinutes(), ap = h < 12 ? 'am' : 'pm';
+      h = h % 12; if (h === 0) h = 12;
+      return (d.getMonth()+1) + '/' + d.getDate() + ' ' + h + ':' + (m<10?'0':'') + m + ap;
+    }
+
+    /* ---------- one-time: category/status selects + investigator ---------- */
+    (function() {
+      var cat = document.getElementById('ocCategory');
+      (current.categories || []).forEach(function(c) {
+        var o = document.createElement('option'); o.value = c; o.textContent = c; cat.appendChild(o);
+      });
+      var st = document.getElementById('ocStatus');
+      (current.statusOptions || ['Open','Resolved']).forEach(function(s) {
+        var o = document.createElement('option'); o.value = s; o.textContent = s; st.appendChild(o);
+      });
+      var inv = document.getElementById('ocInvestigator');
+      inv.innerHTML = current.investigator
+        ? 'Logged as <b>' + esc(current.investigator) + '</b>'
+        : '<span style="color:#b06a00;">No picker set (G2) — this note will be logged without an investigator.</span>';
+    })();
+
+    /* ---------- render one note ---------- */
+    function renderNote(n, prepend) {
+      var host = document.getElementById('ocNotes');
+      var stClass = (String(n.status).toLowerCase() === 'resolved') ? 'resolved' : 'open';
+      var div = document.createElement('div');
+      div.className = 'oc-note';
+      div.innerHTML =
+          '<div class="oc-note-top">'
+        +   '<span class="oc-cat">' + esc(n.category) + '</span>'
+        +   '<span class="oc-st ' + stClass + '">' + esc(n.status) + '</span>'
+        +   '<span class="oc-note-when">' + fmtWhen(n.timestamp) + '</span>'
+        + '</div>'
+        + '<div class="oc-note-find">' + esc(n.findings) + '</div>'
+        + (n.resolution ? '<div class="oc-note-res"><b>Resolution:</b> ' + esc(n.resolution) + '</div>' : '')
+        + '<div class="oc-note-by">' + (n.investigator ? '👤 ' + esc(n.investigator) : '👤 —') + '</div>';
+      if (prepend && host.firstChild) host.insertBefore(div, host.firstChild);
+      else host.appendChild(div);
+    }
+
+    /* ---------- render the whole dossier (called on load AND on each search) ---------- */
+    function renderDossier(D) {
+      current = D;
+
+      // context strip
+      var ctx = document.getElementById('ocContext');
+      var html = '<span class="oc-ctx-id">' + esc(D.orderId) + '</span>';
+      if (D.channel) {
+        var cls = (String(D.channel).toUpperCase() === 'DIRECT') ? 'direct' : 'ebay';
+        html += '<span class="oc-badge ' + cls + '">' + esc(D.channel) + '</span>';
+      }
+      (D.statuses || []).forEach(function(s) { html += '<span class="oc-status-chip">' + esc(s) + '</span>'; });
+      // Zoho authoritative status (direct orders only — free sheet read; null for eBay)
+      if (D.zoho) {
+        var z = D.zoho, zp = [];
+        if (z.orderStatus) zp.push(esc(z.orderStatus));
+        if (z.payment)     zp.push('pay ' + esc(z.payment));
+        if (z.shipment)    zp.push('ship ' + esc(z.shipment));
+        var zTitle = 'From the Pending Sales Orders mirror'
+                   + (z.updatedMs ? ' · updated ' + fmtWhen(z.updatedMs) : '')
+                   + (z.pulled ? ' · pulled' : ' · not pulled yet');
+        html += '<span class="oc-zoho" title="' + zTitle + '">🔗 Zoho: ' + (zp.join(' · ') || '—') + '</span>';
+      }
+      // open-case chip (notes are newest-first)
+      if (D.notes && D.notes.length && String(D.notes[0].status).toLowerCase() === 'open') {
+        html += '<span class="oc-badge open">⚠ open case</span>';
+      }
+      var L = D.links || {};
+      var links = '';
+      if (L.ebay) links += '<a class="oc-jump" href="' + esc(L.ebay) + '" target="_blank" rel="noopener">↗ eBay order</a>';
+      if (L.zoho) links += '<a class="oc-jump" href="' + esc(L.zoho) + '" target="_blank" rel="noopener">↗ Zoho ' + esc(L.zohoLabel || 'SO') + '</a>';
+      if (!L.ebay && !L.zoho) links = '<span class="oc-jump muted">no external links</span>';
+      html += '<span class="oc-links">' + links + '</span>';
+      ctx.innerHTML = html;
+
+      // rows
+      var rowsHost = document.getElementById('ocRows');
+      var rows = D.rows || [];
+      if (!rows.length) {
+        rowsHost.innerHTML = D.found
+          ? '<div class="oc-empty">No current rows on All Orders.</div>'
+          : '<div class="oc-empty">No order found for “' + esc(D.orderId) + '”. Check the ID, or search again above. (Timeline retains 90 days; case notes are permanent.)</div>';
+      } else {
+        var rh = '<table class="oc-tbl"><tr><th>SKU</th><th>Qty</th><th>Loc</th><th>Status</th><th>Shipping</th><th>Note</th></tr>';
+        rows.forEach(function(r) {
+          var tb = (String(r.table).toUpperCase() === 'DIRECT') ? 'direct' : 'ebay';
+          rh += '<tr>'
+            + '<td class="oc-mono">' + esc(r.sku) + ' <span class="oc-rowbadge ' + tb + '">' + esc(r.table) + '</span></td>'
+            + '<td class="oc-mono">' + esc(r.qty) + '</td>'
+            + '<td class="oc-mono">' + esc(r.location) + '</td>'
+            + '<td>' + esc(r.status) + '</td>'
+            + '<td>' + esc(r.shipping) + (r.shipCost ? ' · ' + esc(r.shipCost) : '') + '</td>'
+            + '<td>' + esc(r.note) + '</td>'
+            + '</tr>';
+        });
+        rowsHost.innerHTML = rh + '</table>';
+      }
+
+      // timeline
+      var tlHost = document.getElementById('ocTimeline');
+      var evs = D.events || [];
+      if (!evs.length) {
+        tlHost.innerHTML = '<div class="oc-empty">No timeline events (older than 90 days, or never logged).</div>';
+      } else {
+        var th = '<div class="oc-timeline">';
+        evs.forEach(function(e) {
+          var type = String(e.event || '').toUpperCase();
+          th += '<div class="oc-ev ' + esc(type) + '"><div class="oc-ev-top">'
+            +   '<span class="oc-ev-when">' + fmtWhen(e.timestamp) + '</span>'
+            +   '<span class="oc-ev-type">' + esc(e.event) + '</span>'
+            +   (e.source ? '<span class="oc-ev-src">' + esc(e.source) + '</span>' : '')
+            +   (e.picker ? '<span class="oc-ev-src">👤 ' + esc(e.picker) + '</span>' : '')
+            + '</div>';
+          var meta = [];
+          if (e.sku)    meta.push('<span class="oc-ev-sku">' + esc(e.sku) + (e.qty ? ' ×' + esc(e.qty) : '') + '</span>');
+          if (e.detail) meta.push(esc(e.detail));
+          if (e.note)   meta.push('“' + esc(e.note) + '”');
+          if (meta.length) th += '<div class="oc-ev-meta">' + meta.join(' · ') + '</div>';
+          th += '</div>';
+        });
+        tlHost.innerHTML = th + '</div>';
+      }
+
+      // notes
+      var notesHost = document.getElementById('ocNotes');
+      notesHost.innerHTML = '';
+      var notes = D.notes || [];
+      if (!notes.length) notesHost.innerHTML = '<div class="oc-empty">No case notes yet. Log the first finding above.</div>';
+      else notes.forEach(function(n) { renderNote(n, false); });
+      noteTotal = notes.length;
+      document.getElementById('ocNoteCount').textContent = noteTotal ? '(' + noteTotal + ')' : '';
+
+      // fresh finding form for the new order
+      document.getElementById('ocFindings').value = '';
+      document.getElementById('ocResolution').value = '';
+      var msg = document.getElementById('ocMsg'); msg.className = 'oc-msg'; msg.textContent = '';
+      document.getElementById('ocSearch').value = D.orderId || '';
+    }
+
+    /* ---------- in-window search ---------- */
+    function doSearch() {
+      var q = (document.getElementById('ocSearch').value || '').trim();
+      if (!q) { document.getElementById('ocSearch').focus(); return; }
+      var btn = document.getElementById('ocSearchBtn');
+      btn.disabled = true;
+      document.getElementById('ocOverlayTxt').textContent = 'Looking up ' + q + '…';
+      document.getElementById('ocOverlay').classList.add('on');
+
+      google.script.run
+        .withSuccessHandler(function(res) {
+          document.getElementById('ocOverlay').classList.remove('on');
+          btn.disabled = false;
+          if (res && res.ok) renderDossier(res.dossier);
+          else {
+            var msg = document.getElementById('ocMsg');
+            msg.className = 'oc-msg err'; msg.textContent = '✗ ' + ((res && res.reason) || 'Lookup failed.');
+          }
+        })
+        .withFailureHandler(function(err) {
+          document.getElementById('ocOverlay').classList.remove('on');
+          btn.disabled = false;
+          var msg = document.getElementById('ocMsg');
+          msg.className = 'oc-msg err'; msg.textContent = '✗ ' + (err && err.message ? err.message : String(err));
+        })
+        .getOrderCaseData(q);
+    }
+
+    document.getElementById('ocSearch').addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') { e.preventDefault(); doSearch(); }
+    });
+
+    /* ---------- save a finding ---------- */
+    function saveNote() {
+      var findings = document.getElementById('ocFindings').value.trim();
+      var msg = document.getElementById('ocMsg');
+      if (!findings) { msg.className = 'oc-msg err'; msg.textContent = 'Add at least a finding before saving.'; return; }
+
+      var payload = {
+        orderId:    current.orderId,
+        category:   document.getElementById('ocCategory').value,
+        findings:   findings,
+        resolution: document.getElementById('ocResolution').value.trim(),
+        status:     document.getElementById('ocStatus').value
+      };
+      var btn = document.getElementById('ocSaveBtn');
+      btn.disabled = true;
+      document.getElementById('ocOverlayTxt').textContent = 'Saving finding…';
+      document.getElementById('ocOverlay').classList.add('on');
+      msg.className = 'oc-msg'; msg.textContent = '';
+
+      google.script.run
+        .withSuccessHandler(function(res) {
+          document.getElementById('ocOverlay').classList.remove('on');
+          btn.disabled = false;
+          if (res && res.ok) {
+            var host = document.getElementById('ocNotes');
+            if (host.querySelector('.oc-empty')) host.innerHTML = '';
+            renderNote(res.note, true);
+            noteTotal++;
+            document.getElementById('ocNoteCount').textContent = '(' + noteTotal + ')';
+            // keep current.notes fresh so the ⚠ open chip is right if re-rendered
+            (current.notes = current.notes || []).unshift(res.note);
+            document.getElementById('ocFindings').value = '';
+            document.getElementById('ocResolution').value = '';
+            msg.className = 'oc-msg ok'; msg.textContent = '✓ Finding saved to the case file.';
+          } else {
+            msg.className = 'oc-msg err'; msg.textContent = '✗ ' + ((res && res.reason) || 'Save failed.');
+          }
+        })
+        .withFailureHandler(function(err) {
+          document.getElementById('ocOverlay').classList.remove('on');
+          btn.disabled = false;
+          msg.className = 'oc-msg err'; msg.textContent = '✗ ' + (err && err.message ? err.message : String(err));
+        })
+        .logInvestigationNote(payload);
+    }
+
+    /* ---------- initial render ---------- */
+    renderDossier(current);
+  </script>
+</body>
+</html>

@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html>
+<head>
+<base target="_top">
+<style>
+  /* Kit Price Calculator modal — brand-aligned (cream paper, brand yellow, Oswald/Roboto Mono).
+     All classes scoped .kc-* to avoid collisions with other HtmlService modals. */
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: #fff8e7; color: #1d1d1b;
+    font-family: 'Roboto', Arial, sans-serif; font-size: 13px;
+  }
+  .kc-wrap { display: flex; flex-direction: column; height: 100vh; }
+
+  .kc-head {
+    background: #1d1d1b; color: #fff; padding: 12px 18px;
+    display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;
+  }
+  .kc-head h1 {
+    margin: 0; font-family: 'Oswald', sans-serif; font-weight: 600;
+    font-size: 17px; letter-spacing: .04em; color: #ffd400;
+  }
+  .kc-head .kc-sub { font-size: 11px; color: #bdbdbd; }
+
+  .kc-body { flex: 1; overflow-y: auto; padding: 16px 18px; }
+
+  /* input section */
+  .kc-inputs { background: #fff; border: 1px solid #e5ddc7; border-radius: 8px; padding: 14px; margin-bottom: 14px; }
+  .kc-modes { display: flex; gap: 6px; margin-bottom: 12px; }
+  .kc-mode-btn {
+    flex: 1; padding: 7px 10px; border: 1px solid #cdba7f; background: #fff;
+    font-family: 'Oswald', sans-serif; text-transform: uppercase; letter-spacing: .05em;
+    font-size: 12px; cursor: pointer; border-radius: 6px; color: #1d1d1b;
+  }
+  .kc-mode-btn.active { background: #ffd400; border-color: #1d1d1b; font-weight: 600; }
+  .kc-field { display: none; }
+  .kc-field.active { display: block; }
+  .kc-label { font-family:'Oswald',sans-serif; text-transform:uppercase; letter-spacing:.05em; font-size:11px; color:#5f5f5f; margin-bottom:4px; }
+  .kc-row { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
+  input.kc-input, textarea.kc-input {
+    width: 100%; padding: 7px 9px; border: 1px solid #cdba7f; border-radius: 6px;
+    font-family: 'Roboto Mono', monospace; font-size: 13px; background: #fffdf6;
+  }
+  textarea.kc-input { min-height: 120px; resize: vertical; white-space: pre; }
+  .kc-skuwrap { flex: 1; min-width: 180px; }
+  .kc-discwrap { width: 120px; }
+  .kc-btn {
+    padding: 8px 18px; border: none; border-radius: 6px; cursor: pointer;
+    background: #ffd400; color: #1d1d1b; font-family:'Oswald',sans-serif;
+    font-weight: 600; text-transform: uppercase; letter-spacing: .05em; font-size: 13px;
+  }
+  .kc-btn:disabled { opacity: .5; cursor: default; }
+
+  /* result section */
+  .kc-result { display: none; }
+  .kc-kitline { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+  .kc-kitsku { font-family:'Roboto Mono',monospace; font-weight:700; font-size:15px; }
+  .kc-kitname { font-size: 13px; color: #434343; }
+  .kc-engine { font-size: 11px; color: #7a5c00; font-style: italic; }
+
+  .kc-banner { border-radius: 6px; padding: 9px 12px; margin-bottom: 10px; font-size: 12.5px; }
+  .kc-banner.warn { background: #ffe5e5; border: 1px solid #e57373; color: #b71c1c; }
+  .kc-banner.warn b { font-family:'Oswald',sans-serif; }
+  .kc-banner.info { background: #e8f0fe; border: 1px solid #90b4f0; color: #274b8a; }
+
+  table.kc-tbl { width: 100%; border-collapse: collapse; font-size: 12.5px; margin-bottom: 6px; }
+  .kc-tbl th {
+    background: #1d1d1b; color: #ffd966; font-family:'Oswald',sans-serif; font-weight:600;
+    text-transform: uppercase; letter-spacing: .04em; font-size: 10.5px;
+    padding: 6px 8px; text-align: left;
+  }
+  .kc-tbl th.num, .kc-tbl td.num { text-align: right; }
+  .kc-tbl td { padding: 5px 8px; border-bottom: 1px solid #ece3cd; vertical-align: middle; }
+  .kc-tbl tr:nth-child(even) td { background: #fffdf6; }
+  .kc-tbl .c-sku { font-family:'Roboto Mono',monospace; font-weight:600; }
+  .kc-tbl .c-name { color: #434343; }
+  .kc-unit {
+    width: 78px; padding: 4px 6px; border: 1px solid #cdba7f; border-radius: 4px;
+    font-family:'Roboto Mono',monospace; font-size: 12px; text-align: right; background:#fffdf6;
+  }
+  .kc-src { font-size: 10px; text-transform: uppercase; letter-spacing:.03em; padding: 1px 5px; border-radius: 3px; }
+  .kc-src.ebay { background:#e8f5e9; color:#1b5e20; }
+  .kc-src.zoho { background:#fff4b0; color:#7d5d00; }
+  .kc-src.override { background:#e0e0e0; color:#37474f; }
+  .kc-src.unpriced { background:#ffcdd2; color:#b71c1c; }
+  tr.kc-unpriced td { background:#fff2f2 !important; }
+
+  /* totals */
+  .kc-totals { display: flex; justify-content: flex-end; gap: 24px; align-items: flex-end;
+               border-top: 2px solid #1d1d1b; padding-top: 10px; margin-top: 4px; flex-wrap: wrap; }
+  .kc-tot { text-align: right; }
+  .kc-tot .lbl { font-family:'Oswald',sans-serif; text-transform:uppercase; letter-spacing:.05em; font-size:10px; color:#5f5f5f; }
+  .kc-tot .val { font-family:'Roboto Mono',monospace; font-size: 15px; }
+  .kc-tot.final .val { font-size: 26px; font-weight: 700; color:#1d1d1b; }
+  .kc-tot.final .lbl { color:#7a5c00; }
+
+  .kc-compare { margin-top: 12px; padding: 10px 12px; border-radius: 6px; background:#fff; border:1px solid #e5ddc7; font-size:12.5px; }
+  .kc-drift { font-family:'Oswald',sans-serif; font-weight:600; padding: 2px 8px; border-radius:4px; margin-left:6px; }
+  .kc-drift.under { background:#fff4b0; color:#7d5d00; }
+  .kc-drift.over  { background:#ffd699; color:#7a3d00; }
+  .kc-drift.ok    { background:#e8f5e9; color:#1b5e20; }
+  .kc-drift.na    { background:#eee; color:#666; }
+
+  .kc-msg { padding: 10px 12px; border-radius: 6px; font-size: 13px; margin-top: 6px; }
+  .kc-msg.err { background:#ffe5e5; border:1px solid #e57373; color:#b71c1c; }
+
+  /* loading */
+  .kc-loading { display:none; align-items:center; gap:10px; color:#5f5f5f; font-size:12.5px; margin-top:8px; }
+  .kc-spin { width:16px; height:16px; border:2px solid #e5ddc7; border-top-color:#ffd400; border-radius:50%; animation:kcspin .8s linear infinite; }
+  @keyframes kcspin { to { transform: rotate(360deg); } }
+  .kc-foot { font-size: 10.5px; color:#8a7f63; padding: 8px 18px; border-top:1px solid #e5ddc7; }
+</style>
+</head>
+<body>
+<div class="kc-wrap">
+  <div class="kc-head">
+    <h1>🧮 Kit Price Calculator</h1>
+    <span class="kc-sub">Σ(component price × qty) × (1 − discount), rounded — decision support, nothing is written</span>
+  </div>
+
+  <div class="kc-body">
+    <div class="kc-inputs">
+      <div class="kc-modes">
+        <button class="kc-mode-btn active" id="modeKit" onclick="setMode('kit')">Existing kit</button>
+        <button class="kc-mode-btn" id="modeBom" onclick="setMode('bom')">Paste BOM</button>
+      </div>
+
+      <div class="kc-field active" id="fieldKit">
+        <div class="kc-label">Kit SKU</div>
+        <div class="kc-row">
+          <div class="kc-skuwrap">
+            <input class="kc-input" id="kitSku" list="kitList" placeholder="e.g. 217475" autocomplete="off">
+            <datalist id="kitList"></datalist>
+          </div>
+          <div class="kc-discwrap">
+            <div class="kc-label">Discount %</div>
+            <input class="kc-input" id="discKit" type="number" step="0.5" value="10">
+          </div>
+          <button class="kc-btn" id="goKit" onclick="compute()">Compute</button>
+        </div>
+      </div>
+
+      <div class="kc-field" id="fieldBom">
+        <div class="kc-label">Paste BOM (one component per line, each ending with its 6-digit SKU)</div>
+        <textarea class="kc-input" id="bomText" placeholder="-4 Pistons With Rings STD 195306&#10;-1 Full Gasket Set 165825&#10;-5 Main Bearing STD 167616"></textarea>
+        <div class="kc-row" style="margin-top:8px;">
+          <div class="kc-discwrap">
+            <div class="kc-label">Discount %</div>
+            <input class="kc-input" id="discBom" type="number" step="0.5" value="10">
+          </div>
+          <button class="kc-btn" id="goBom" onclick="compute()">Compute</button>
+        </div>
+      </div>
+
+      <div class="kc-loading" id="loading"><div class="kc-spin"></div><span id="loadingMsg">Fetching component prices…</span></div>
+      <div class="kc-msg err" id="errBox" style="display:none;"></div>
+    </div>
+
+    <div class="kc-result" id="result">
+      <div class="kc-kitline" id="kitLine"></div>
+      <div id="banners"></div>
+
+      <table class="kc-tbl">
+        <thead>
+          <tr>
+            <th>SKU</th><th>Component</th><th class="num">Qty</th>
+            <th class="num">Unit $</th><th>Source</th><th class="num">Line $</th>
+          </tr>
+        </thead>
+        <tbody id="tbody"></tbody>
+      </table>
+
+      <div class="kc-totals">
+        <div class="kc-tot"><div class="lbl">Parts Σ</div><div class="val" id="totRaw">—</div></div>
+        <div class="kc-tot"><div class="lbl">After <span id="discEcho">10</span>% off</div><div class="val" id="totDisc">—</div></div>
+        <div class="kc-tot final"><div class="lbl">List price (rounded)</div><div class="val" id="totFinal">—</div></div>
+      </div>
+
+      <div class="kc-compare" id="compare" style="display:none;"></div>
+    </div>
+  </div>
+
+  <div class="kc-foot">eBay price is the source of truth · unpriced parts are flagged, never guessed · edit any Unit $ to override</div>
+</div>
+
+<script>
+  var KITS = <?!= kitListJson ?>;
+  var MODE = 'kit';
+  var CURRENT = null;   // last server breakdown
+
+  // Populate autocomplete
+  (function () {
+    var dl = document.getElementById('kitList');
+    var html = '';
+    for (var i = 0; i < KITS.length; i++) {
+      html += '<option value="' + KITS[i].sku + '">' + (KITS[i].name || '').replace(/"/g, '&quot;') + '</option>';
+    }
+    dl.innerHTML = html;
+  })();
+
+  function money(x) {
+    if (x === null || x === undefined || isNaN(x)) return '—';
+    return '$' + Number(x).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+  function esc(s) { return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+  function setMode(m) {
+    MODE = m;
+    document.getElementById('modeKit').classList.toggle('active', m === 'kit');
+    document.getElementById('modeBom').classList.toggle('active', m === 'bom');
+    document.getElementById('fieldKit').classList.toggle('active', m === 'kit');
+    document.getElementById('fieldBom').classList.toggle('active', m === 'bom');
+  }
+
+  function discInput() { return document.getElementById(MODE === 'kit' ? 'discKit' : 'discBom'); }
+
+  function compute() {
+    var payload = { mode: MODE, discountPct: parseFloat(discInput().value) || 0 };
+    if (MODE === 'kit') {
+      payload.kitSku = document.getElementById('kitSku').value.trim();
+      if (!payload.kitSku) { return showErr('Enter a kit SKU.'); }
+    } else {
+      payload.bomText = document.getElementById('bomText').value;
+      if (!payload.bomText.trim()) { return showErr('Paste a BOM first.'); }
+    }
+    hideErr();
+    setLoading(true);
+    google.script.run
+      .withSuccessHandler(function (res) { setLoading(false); onResult(res); })
+      .withFailureHandler(function (err) { setLoading(false); showErr('Failed: ' + (err && err.message ? err.message : err)); })
+      .getKitPriceBreakdown(payload);
+  }
+
+  function onResult(res) {
+    if (!res || !res.ok) { document.getElementById('result').style.display = 'none'; return showErr((res && res.reason) || 'Could not compute.'); }
+    CURRENT = res;
+    renderKitLine(res);
+    renderBanners(res);
+    renderTable(res);
+    recompute();
+    document.getElementById('result').style.display = 'block';
+  }
+
+  function renderKitLine(res) {
+    var el = document.getElementById('kitLine');
+    if (res.mode === 'kit') {
+      el.innerHTML = '<span class="kc-kitsku">' + esc(res.kitSku) + '</span>' +
+        '<span class="kc-kitname">' + esc(res.kitName) + '</span>' +
+        (res.engine ? '<span class="kc-engine">' + esc(res.engine) + '</span>' : '') +
+        (res.kitType ? '<span class="kc-engine">· ' + esc(res.kitType) + '</span>' : '');
+    } else {
+      el.innerHTML = '<span class="kc-kitsku">New kit</span>' +
+        '<span class="kc-kitname">' + res.lines.length + ' component(s) from pasted BOM</span>' +
+        (res.engine ? '<span class="kc-engine">' + esc(res.engine) + '</span>' : '');
+    }
+  }
+
+  function renderBanners(res) {
+    var b = '';
+    if (res.unpricedComponents && res.unpricedComponents.length) {
+      b += '<div class="kc-banner warn"><b>⚠ ' + res.unpricedComponents.length +
+           ' component(s) have no price</b> — total is INCOMPLETE. Enter a Unit $ for each, or the parts aren\'t listed: ' +
+           esc(res.unpricedComponents.join(', ')) + '</div>';
+    }
+    if (res.unparsedLines && res.unparsedLines.length) {
+      b += '<div class="kc-banner warn"><b>⚠ ' + res.unparsedLines.length +
+           ' BOM line(s) could not be read</b> and were dropped — fix the wording (end each line with its 6-digit SKU): ' +
+           res.unparsedLines.map(function (l) { return '“' + esc(l) + '”'; }).join(' · ') + '</div>';
+    }
+    document.getElementById('banners').innerHTML = b;
+  }
+
+  function renderTable(res) {
+    var rows = '';
+    for (var i = 0; i < res.lines.length; i++) {
+      var l = res.lines[i];
+      var src = l.unpriced ? 'unpriced' : (l.overridden ? 'override' : (l.source === 'eBay' ? 'ebay' : (l.source === 'Zoho' ? 'zoho' : 'override')));
+      rows += '<tr class="' + (l.unpriced ? 'kc-unpriced' : '') + '" data-i="' + i + '">' +
+        '<td class="c-sku">' + esc(l.sku) + '</td>' +
+        '<td class="c-name">' + esc(l.name) + '</td>' +
+        '<td class="num" data-qty="' + l.qty + '">' + l.qty + '</td>' +
+        '<td class="num"><input class="kc-unit" type="number" step="0.01" min="0" value="' + (l.unitPrice == null ? '' : l.unitPrice) + '" oninput="recompute()"></td>' +
+        '<td><span class="kc-src ' + src + '" data-src>' + (l.unpriced ? 'UNPRICED' : (l.overridden ? 'OVERRIDE' : l.source.toUpperCase())) + '</span></td>' +
+        '<td class="num" data-line>—</td>' +
+        '</tr>';
+    }
+    document.getElementById('tbody').innerHTML = rows;
+  }
+
+  // Pure client arithmetic — recomputes from the live inputs. No server hop.
+  function recompute() {
+    var rows = document.querySelectorAll('#tbody tr');
+    var raw = 0, unpriced = 0;
+    for (var i = 0; i < rows.length; i++) {
+      var qty = parseInt(rows[i].children[2].getAttribute('data-qty'), 10) || 0;
+      var input = rows[i].querySelector('.kc-unit');
+      var v = parseFloat(input.value);
+      var lineCell = rows[i].querySelector('[data-line]');
+      var srcTag = rows[i].querySelector('[data-src]');
+      if (isNaN(v) || v <= 0) {
+        rows[i].classList.add('kc-unpriced');
+        srcTag.className = 'kc-src unpriced'; srcTag.textContent = 'UNPRICED';
+        lineCell.textContent = '—'; unpriced++;
+      } else {
+        var wasServer = CURRENT && CURRENT.lines[i] && !CURRENT.lines[i].unpriced && !CURRENT.lines[i].overridden &&
+                        Math.abs((CURRENT.lines[i].unitPrice || 0) - v) < 0.005;
+        rows[i].classList.remove('kc-unpriced');
+        if (wasServer) { srcTag.className = 'kc-src ' + (CURRENT.lines[i].source === 'eBay' ? 'ebay' : 'zoho'); srcTag.textContent = CURRENT.lines[i].source.toUpperCase(); }
+        else { srcTag.className = 'kc-src override'; srcTag.textContent = 'OVERRIDE'; }
+        var line = v * qty;
+        lineCell.textContent = money(line);
+        raw += line;
+      }
+    }
+    var pct = parseFloat(discInput().value) || 0;
+    var disc = raw * (1 - pct / 100);
+    var rounded = Math.round(disc);
+    document.getElementById('totRaw').textContent = money(raw);
+    document.getElementById('totDisc').textContent = money(disc);
+    document.getElementById('discEcho').textContent = (pct % 1 === 0) ? pct.toFixed(0) : pct;
+    var finalEl = document.getElementById('totFinal');
+    finalEl.textContent = unpriced > 0 ? '⚠ incomplete' : ('$' + rounded.toLocaleString());
+
+    renderCompare(rounded, unpriced);
+  }
+
+  function renderCompare(rounded, unpriced) {
+    var box = document.getElementById('compare');
+    if (!CURRENT || CURRENT.mode !== 'kit') { box.style.display = 'none'; return; }
+    var listed = CURRENT.listedPrice;
+    var html = 'Current listed price: <b>' + (listed == null ? '—' : money(listed)) + '</b>' +
+               '  →  computed list price: <b>' + (unpriced > 0 ? '⚠ incomplete' : ('$' + rounded.toLocaleString())) + '</b>';
+    if (listed != null && unpriced === 0) {
+      var d = rounded - listed;
+      var cls, txt;
+      if (Math.abs(d) <= Math.max(1, 0.01 * listed)) { cls = 'ok'; txt = 'IN LINE'; }
+      else if (d > 0) { cls = 'under'; txt = 'UNDERPRICED by $' + Math.abs(d).toLocaleString(); }
+      else { cls = 'over'; txt = 'OVERPRICED by $' + Math.abs(d).toLocaleString(); }
+      html += '<span class="kc-drift ' + cls + '">' + txt + '</span>';
+    } else if (unpriced > 0) {
+      html += '<span class="kc-drift na">can\'t compare — incomplete</span>';
+    }
+    box.innerHTML = html; box.style.display = 'block';
+  }
+
+  function setLoading(on) { document.getElementById('loading').style.display = on ? 'flex' : 'none'; document.getElementById('goKit').disabled = on; document.getElementById('goBom').disabled = on; }
+  function showErr(m) { var e = document.getElementById('errBox'); e.textContent = m; e.style.display = 'block'; }
+  function hideErr() { document.getElementById('errBox').style.display = 'none'; }
+
+  // Enter key in the SKU field triggers compute
+  document.getElementById('kitSku').addEventListener('keydown', function (e) { if (e.key === 'Enter') compute(); });
+</script>
+</body>
+</html>

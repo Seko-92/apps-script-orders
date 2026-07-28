@@ -11,6 +11,16 @@ function showSidebar() {
 }
 
 /**
+ * The Floor Board's standalone URL (the web-app /exec that doGet serves the
+ * board on). The sidebar's "📺 Floor Board" card fetches this so the operator
+ * can open OR copy the link from inside the sheet — no more hunting for it to
+ * send to the picker's tablet.
+ */
+function getFloorBoardUrl() {
+  return (typeof WEB_APP_URL !== 'undefined') ? WEB_APP_URL : '';
+}
+
+/**
  * Web app GET handler — serves the warehouse dashboard at the deployed URL.
  *
  * Opens in any browser at the Apps Script web app URL. Auto-refreshes every
