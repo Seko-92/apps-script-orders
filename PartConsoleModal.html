@@ -70,6 +70,9 @@
   .pc-tbl tr:last-child td { border-bottom:none; }
   .pc-tbl tr.blocked td { background:#fff0f0; }
   .pc-mono { font-family:'Roboto Mono',monospace; }
+  /* clickable SKU → surf to that part/kit in the same window */
+  .pc-link { color:#0a6ebd; cursor:pointer; text-decoration:underline; text-decoration-color:rgba(10,110,189,.45); }
+  .pc-link:hover { color:#083f6b; background:#eaf3fb; border-radius:3px; }
   .pc-pill { font-family:'Oswald',sans-serif; font-size:9.5px; text-transform:uppercase; letter-spacing:.03em; padding:1px 6px; border-radius:8px; }
   .pc-pill.build { background:#c8e6c9; color:#1b5e20; }
   .pc-pill.zero { background:#ffcdd2; color:#b71c1c; }
@@ -98,6 +101,8 @@
   <div class="pc-wrap">
     <div class="pc-head">
       <h1>🧩 PART CONSOLE</h1>
+      <button class="pc-searchbtn" id="pcBack" onclick="goBack()" title="Back to the previous SKU"
+              style="display:none;background:#3a3a34;color:#ffd400;">← Back</button>
       <div class="pc-searchwrap">
         <input type="text" id="pcSearch" placeholder="Look up a SKU (part or kit)…" autocomplete="off" spellcheck="false" />
         <button class="pc-searchbtn" id="pcSearchBtn" onclick="doSearch()">🔍 Look up</button>
@@ -211,7 +216,7 @@
       (k.components||[]).forEach(function(c){
         var av = c.available;
         var avCls = (av != null && av <= 0) ? 'zero' : (av>0?'build':'warn');
-        html += '<tr><td class="pc-mono">' + esc(c.sku) + '</td><td class="pc-mono">×' + esc(c.qty) + '</td>'
+        html += '<tr><td class="pc-mono pc-link" onclick="nav(\'' + esc(c.sku) + '\')" title="Open this part">' + esc(c.sku) + '</td><td class="pc-mono">×' + esc(c.qty) + '</td>'
           + '<td>' + esc(c.name) + '</td><td><span class="pc-pill ' + avCls + '">' + (av==null?'?':av) + '</span></td></tr>';
       });
       html += '</table>';
@@ -232,7 +237,7 @@
         var blockTag = u.blocked ? ' <span class="pc-pill blocked">← this part</span>' : '';
         var ps = u.priceStatus ? '<span class="pc-pill status ' + esc(u.priceStatus.replace(/[^A-Z]/gi,'')) + '">' + esc(u.priceStatus) + '</span>' : '<span style="color:#bbb;">—</span>';
         html += '<tr class="' + (u.blocked?'blocked':'') + '">'
-          + '<td class="pc-mono">' + esc(u.kitSku) + '</td>'
+          + '<td class="pc-mono pc-link" onclick="nav(\'' + esc(u.kitSku) + '\')" title="Open this kit">' + esc(u.kitSku) + '</td>'
           + '<td>' + esc(u.kitName) + '</td>'
           + '<td class="pc-mono">×' + esc(u.qtyPer) + '</td>'
           + '<td><span class="pc-pill ' + bCls + '">' + (typeof u.buildable==='number'?u.buildable:'⚠') + '</span>' + blockTag + '</td>'
@@ -271,11 +276,13 @@
         renderRipple(D);
       }
       document.getElementById('pcSearch').value = D.sku || '';
+      var bk = document.getElementById('pcBack'); if (bk) bk.style.display = navHist.length ? '' : 'none';
     }
 
-    function doSearch() {
-      var q = (document.getElementById('pcSearch').value || '').trim();
-      if (!q) { document.getElementById('pcSearch').focus(); return; }
+    var navHist = [];
+    function loadPart(sku) {
+      var q = String(sku || '').trim();
+      if (!q) return;
       var btn = document.getElementById('pcSearchBtn'); btn.disabled = true;
       document.getElementById('pcOverlayTxt').textContent = 'Looking up ' + q + '…';
       document.getElementById('pcOverlay').classList.add('on');
@@ -289,6 +296,18 @@
           alert('Lookup failed: ' + (err && err.message ? err.message : String(err)));
         })
         .getPartData(q);
+    }
+    // surf the system in-window: nav() records history so you can jump
+    // part → kit → its components → their kits, and back.
+    function nav(sku) {
+      if (current && current.sku && String(current.sku) !== String(sku)) navHist.push(current.sku);
+      loadPart(sku);
+    }
+    function goBack() { if (navHist.length) loadPart(navHist.pop()); }
+    function doSearch() {
+      var q = (document.getElementById('pcSearch').value || '').trim();
+      if (!q) { document.getElementById('pcSearch').focus(); return; }
+      nav(q);
     }
     document.getElementById('pcSearch').addEventListener('keydown', function(e){ if (e.key==='Enter'){ e.preventDefault(); doSearch(); } });
 
