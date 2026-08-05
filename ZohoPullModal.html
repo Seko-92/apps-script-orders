@@ -380,25 +380,43 @@
     /* ----- LOADING OVERLAY (during applyZohoPullSelection) ----- */
     /* Covers the modal while DIRECT rows are written — replaces the
        greyed-buttons-only feedback that read as a frozen window. */
+    /* Frosted veil + dual-ring brand spinner — matches Kit Expansion (2026-07-31). */
     .zp-overlay {
       position: fixed; inset: 0; z-index: 200;
-      background: rgba(26, 26, 26, 0.82);
-      display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px;
-      opacity: 0; pointer-events: none; transition: opacity 160ms;
+      background: rgba(24, 23, 21, 0.52);
+      -webkit-backdrop-filter: blur(3.5px) saturate(0.9);
+      backdrop-filter: blur(3.5px) saturate(0.9);
+      border-radius: 12px;
+      display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 20px;
+      opacity: 0; pointer-events: none; transition: opacity 180ms;
     }
     .zp-overlay.shown { opacity: 1; pointer-events: all; }
-    .zp-spinner {
-      width: 46px; height: 46px; border-radius: 50%;
-      border: 4px solid rgba(255, 212, 0, 0.22); border-top-color: var(--brand-yellow);
-      animation: zp-spin 0.8s linear infinite;
+    .zp-spinner { position: relative; width: 60px; height: 60px; }
+    .zp-spinner::before, .zp-spinner::after {
+      content: ''; position: absolute; border-radius: 50%; border: 3px solid transparent;
+    }
+    .zp-spinner::before {
+      inset: 0; border-top-color: var(--brand-yellow); border-right-color: rgba(255,212,0,0.30);
+      animation: zp-spin 0.85s linear infinite;
+    }
+    .zp-spinner::after {
+      inset: 12px; border-bottom-color: rgba(255,212,0,0.55);
+      animation: zp-spin 1.3s linear infinite reverse;
+    }
+    .zp-spinner-dot {
+      position: absolute; inset: 24px; border-radius: 50%; background: var(--brand-yellow);
+      box-shadow: 0 0 10px rgba(255,212,0,0.55); animation: zp-pulse 1.15s ease-in-out infinite;
     }
     @keyframes zp-spin { to { transform: rotate(360deg); } }
+    @keyframes zp-pulse { 0%,100%{ transform: scale(0.65); opacity:0.5; } 50%{ transform: scale(1); opacity:1; } }
     .zp-overlay-msg {
-      font-family: 'Oswald', sans-serif; font-size: 15px; font-weight: 700;
+      font-family: 'Oswald', sans-serif; font-size: 16px; font-weight: 700;
       letter-spacing: 0.08em; text-transform: uppercase; color: var(--brand-yellow);
       text-align: center; padding: 0 24px;
     }
-    .zp-overlay-sub { font-family: 'Roboto', sans-serif; font-size: 12px; color: #d0d0d0; margin-top: -6px; text-align: center; padding: 0 24px; }
+    .zp-overlay-msg::after { content: ''; animation: zp-dots 1.5s steps(1, end) infinite; }
+    @keyframes zp-dots { 0%{content:'';} 25%{content:'.';} 50%{content:'..';} 75%{content:'...';} 100%{content:'';} }
+    .zp-overlay-sub { font-family: 'Roboto', sans-serif; font-size: 12px; color: #d0d0d0; margin-top: -8px; text-align: center; padding: 0 24px; }
 
     /* ----- DONE SCREEN (after Apply succeeds) ----- */
     .done {
@@ -470,8 +488,8 @@
 
   <!-- LOADING OVERLAY — shown while applyZohoPullSelection writes DIRECT rows -->
   <div class="zp-overlay" id="zpOverlay">
-    <div class="zp-spinner"></div>
-    <div class="zp-overlay-msg" id="zpOverlayMsg">Applying changes…</div>
+    <div class="zp-spinner"><span class="zp-spinner-dot"></span></div>
+    <div class="zp-overlay-msg" id="zpOverlayMsg">Applying changes</div>
     <div class="zp-overlay-sub">Writing rows to the sheet — please don't close this window</div>
   </div>
 
@@ -877,7 +895,7 @@
     }
 
     function showOverlay(msg) {
-      document.getElementById('zpOverlayMsg').textContent = (msg || 'Working') + '…';
+      document.getElementById('zpOverlayMsg').textContent = (msg || 'Working');
       document.getElementById('zpOverlay').classList.add('shown');
     }
     function hideOverlay() {

@@ -1508,6 +1508,25 @@ function sortTableByStatusAndLocation(tableNumber) {
     return { values: row, formats: formats[i], rich: skuRich[i][0], soRich: soRich[i][0] };
   });
   indexed.sort(function(a, b) {
+    if (tableNumber === 2) {
+      // DIRECT is ORDER-CENTRIC: group by sales order, then location within the
+      // order (the picker fulfills one order at a time, walking its items by
+      // aisle). Empty-SO blank/buffer rows sink to the bottom. This keeps each
+      // order's items — INCLUDING its expanded kit components — together, which
+      // is exactly what the per-order divider (SO painter) relies on. NOTE:
+      // grouping by SO deliberately overrides status ordering for DIRECT so a
+      // half-shipped order's rows don't split apart.
+      var soA = String(a.values[Schema.idx("SALES_ORDER")] || '').trim();
+      var soB = String(b.values[Schema.idx("SALES_ORDER")] || '').trim();
+      if (soA !== soB) {
+        if (!soA) return 1;
+        if (!soB) return -1;
+        return soA.localeCompare(soB);
+      }
+      return String(a.values[Schema.idx("LOCATION")] || '').localeCompare(
+             String(b.values[Schema.idx("LOCATION")] || ''));
+    }
+    // eBay: aisle walk — status then location (unchanged).
     var sA = String(a.values[Schema.idx("STATUS")] || '').trim().toUpperCase();
     var sB = String(b.values[Schema.idx("STATUS")] || '').trim().toUpperCase();
     var cmp = (statusOrder[sA] || 4) - (statusOrder[sB] || 4);

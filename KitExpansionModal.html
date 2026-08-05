@@ -75,7 +75,7 @@
 
     /* --- KIT META BANNER --- */
     .kit-meta {
-      padding: 10px 16px;
+      padding: 8px 16px;
       background: var(--paper-warm);
       border-bottom: 1px solid var(--rule);
       flex-shrink: 0;
@@ -125,12 +125,12 @@
       background: #fff4e0;
       border: 1px solid #ffb84d;
       border-left: 4px solid #f57c00;
-      padding: 10px 14px;
-      margin: 10px 16px 0;
+      padding: 8px 14px;
+      margin: 8px 16px 0;
       border-radius: 4px;
       font-size: 12.5px;
       color: #5d3700;
-      line-height: 1.5;
+      line-height: 1.45;
     }
     .ready-banner-title {
       font-family: 'Oswald', sans-serif;
@@ -202,8 +202,8 @@
       display: flex;
       align-items: center;
       gap: 10px;
-      margin-top: 8px;
-      padding: 6px 10px;
+      margin-top: 6px;
+      padding: 5px 10px;
       background: var(--paper);
       border: 1px solid var(--rule);
       border-radius: 4px;
@@ -296,22 +296,35 @@
     }
 
     /* --- COMPONENTS CHECKLIST --- */
+    /* Component rows are subtle CARDS (2026-07-31): each SKU gets its own
+       light surface so the checklist reads with room rather than as a dense
+       list. The card wraps the label + its swap panel; the inner grid below
+       is unchanged. Excluded / swapped / added states dress the card. */
+    .comp-card {
+      background: #fff;
+      border: 1px solid var(--rule-soft);
+      border-radius: 8px;
+      margin-bottom: 8px;
+      overflow: hidden;
+      transition: box-shadow 130ms ease, border-color 130ms ease, opacity 130ms ease;
+    }
+    .comp-card:hover { box-shadow: 0 2px 9px rgba(0,0,0,0.07); border-color: #d8d2c4; }
+    .comp-card.excluded { opacity: 0.5; background: #faf9f7; }
+    .comp-card.swapped { border-left: 3px solid #7fb6e6; }
+    .comp-card.added-card { border-left: 3px solid #66bb6a; background: rgba(129,199,132,0.06); }
+
     .comp {
       display: grid;
-      grid-template-columns: 22px 36px 1fr;
+      grid-template-columns: 22px 40px 1fr;
       grid-template-rows: auto auto;
-      gap: 2px 8px;
-      padding: 8px 4px;
-      border-bottom: 1px solid var(--rule-soft);
+      gap: 3px 10px;
+      padding: 10px 12px;
       align-items: start;
       cursor: pointer;
-      transition: background 100ms;
+      background: transparent;
     }
-    .comp:hover { background: rgba(255, 217, 102, 0.08); }
-    .comp.excluded {
-      opacity: 0.45;
-      background: rgba(0,0,0,0.02);
-    }
+    /* The .comp-card owns the excluded dim (single 0.5) so we don't
+       double-dim; .comp.excluded stays as a hook for the qty-input rule. */
     .comp-cb {
       grid-row: 1 / 3;
       grid-column: 1;
@@ -535,6 +548,9 @@
     .outcome-chip.ready-box { background: #e0e0e0; color: #5f5f5f; border: 1px solid #bdbdbd; }
     .outcome-chip.manual    { background: var(--brand-yellow-soft); color: var(--ink); border: 1px solid var(--brand-yellow-rim); }
     .outcome-chip.excluded  { background: #fff4b0; color: #6b4500; border: 1px solid #ffd400; }
+    .outcome-chip.swapped   { background: #e3f0fb; color: #0a5a9c; border: 1px solid #7fb6e6; }
+    .outcome-chip.qtychg    { background: #eef4e6; color: #4a6b1f; border: 1px solid #b6cf8e; }
+    .outcome-chip.added-chip { background: #e6f6e9; color: #2e7d32; border: 1px solid #81c784; }
     .btn-cancel {
       background: transparent;
       color: var(--ink-mute);
@@ -569,33 +585,68 @@
     /* Covers the whole modal with a spinner while commitKitFromModal /
        skipKitFromModal runs — the button-disable was the only feedback
        before, which read as a frozen UI rather than "working". */
+    /* A soft FROSTED veil, not a solid dark box: you can see the (blurred)
+       content through it so it reads as "paused", and the rounded corners
+       nestle into the dialog frame instead of a hard rectangle. */
     .kx-overlay {
       position: fixed;
       inset: 0;
-      background: rgba(29, 29, 27, 0.80);
+      background: rgba(24, 23, 21, 0.52);
+      -webkit-backdrop-filter: blur(3.5px) saturate(0.9);
+      backdrop-filter: blur(3.5px) saturate(0.9);
+      border-radius: 12px;
       display: flex;
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      gap: 16px;
+      gap: 20px;
       z-index: 200;
       opacity: 0;
       pointer-events: none;
-      transition: opacity 160ms;
+      transition: opacity 180ms;
     }
     .kx-overlay.shown { opacity: 1; pointer-events: all; }
+    /* Dual-ring brand spinner with a pulsing core — on-theme for the
+       "assembling the kit" moment, still pure-CSS + lightweight. */
     .kx-spinner {
-      width: 46px;
-      height: 46px;
-      border: 4px solid rgba(255, 212, 0, 0.22);
-      border-top-color: var(--brand-yellow);
+      position: relative;
+      width: 60px;
+      height: 60px;
+    }
+    .kx-spinner::before,
+    .kx-spinner::after {
+      content: '';
+      position: absolute;
       border-radius: 50%;
-      animation: kx-spin 0.8s linear infinite;
+      border: 3px solid transparent;
+    }
+    .kx-spinner::before {
+      inset: 0;
+      border-top-color: var(--brand-yellow);
+      border-right-color: rgba(255, 212, 0, 0.30);
+      animation: kx-spin 0.85s linear infinite;
+    }
+    .kx-spinner::after {
+      inset: 12px;
+      border-bottom-color: rgba(255, 212, 0, 0.55);
+      animation: kx-spin 1.3s linear infinite reverse;
+    }
+    .kx-spinner-dot {
+      position: absolute;
+      inset: 24px;
+      border-radius: 50%;
+      background: var(--brand-yellow);
+      box-shadow: 0 0 10px rgba(255, 212, 0, 0.55);
+      animation: kx-pulse 1.15s ease-in-out infinite;
     }
     @keyframes kx-spin { to { transform: rotate(360deg); } }
+    @keyframes kx-pulse {
+      0%, 100% { transform: scale(0.65); opacity: 0.5; }
+      50%      { transform: scale(1);    opacity: 1;   }
+    }
     .kx-overlay-msg {
       font-family: 'Oswald', sans-serif;
-      font-size: 15px;
+      font-size: 16px;
       font-weight: 700;
       letter-spacing: 0.08em;
       text-transform: uppercase;
@@ -603,11 +654,23 @@
       text-align: center;
       padding: 0 24px;
     }
+    /* animated ellipsis — the message text is set WITHOUT a trailing "…" */
+    .kx-overlay-msg::after {
+      content: '';
+      animation: kx-dots 1.5s steps(1, end) infinite;
+    }
+    @keyframes kx-dots {
+      0%   { content: ''; }
+      25%  { content: '.'; }
+      50%  { content: '..'; }
+      75%  { content: '...'; }
+      100% { content: ''; }
+    }
     .kx-overlay-sub {
       font-family: 'Roboto', sans-serif;
       font-size: 12px;
       color: #d0d0d0;
-      margin-top: -6px;
+      margin-top: -8px;
     }
 
     /* --- DONE SCREEN --- */
@@ -652,6 +715,45 @@
     .done-result-line.committed { color: var(--green-ink); background: var(--green-bg); }
     .done-result-line.skipped { color: var(--ink-mute); font-style: italic; }
     .done-result-line.failed { color: var(--missing); background: var(--missing-bg); }
+    /* ---- Per-component ALTERATIONS (edit qty / swap SKU / add / remove) ---- */
+    .comp-qty-input {
+      grid-row: 1; grid-column: 2; width: 34px; padding: 2px 3px; text-align: right;
+      font-family: 'Oswald', sans-serif; font-weight: 700; font-size: 13px; color: var(--ink);
+      border: 1px solid var(--rule-soft); border-radius: 4px; background: #fff;
+    }
+    .comp.excluded .comp-qty-input { opacity: .5; }
+    .comp.swapped .comp-sku { color: #0a6ebd; }
+    .comp-swap-btn {
+      border: 1px solid var(--rule-soft); background: #fff; color: #0a6ebd; border-radius: 4px;
+      font-size: 12px; padding: 0 6px; margin-left: 6px; cursor: pointer; line-height: 18px;
+    }
+    .comp-swap-btn:hover { background: #eaf3fb; }
+    .comp-add-tag {
+      grid-row: 1; grid-column: 1; font-family: 'Oswald', sans-serif; font-size: 8px;
+      color: #2e7d32; font-weight: 700; align-self: center;
+    }
+    .swap-panel {
+      display: flex; gap: 6px; align-items: center; flex-wrap: wrap;
+      padding: 8px 10px 9px 32px; background: rgba(10,110,189,.05);
+      border-top: 1px solid var(--rule-soft);
+    }
+    .swap-in, .add-sku {
+      padding: 5px 8px; border: 1px solid var(--rule-soft); border-radius: 5px;
+      font-family: 'Roboto Mono', monospace; font-size: 12px; min-width: 120px;
+    }
+    .add-qty { width: 46px; padding: 5px 4px; border: 1px solid var(--rule-soft); border-radius: 5px; text-align: right; }
+    .swap-go, .add-go {
+      padding: 5px 10px; border: 1px solid var(--brand-yellow); background: var(--brand-yellow);
+      color: var(--ink); border-radius: 5px; font-family: 'Oswald', sans-serif; font-size: 11px;
+      cursor: pointer; text-transform: uppercase; letter-spacing: .03em;
+    }
+    .swap-clear { padding: 5px 9px; border: 1px solid var(--rule-soft); background: #fff; color: #b71c1c; border-radius: 5px; font-family: 'Oswald', sans-serif; font-size: 11px; cursor: pointer; }
+    .swap-res, .add-res { font-size: 11px; color: #5f5f5f; }
+    .swap-res .bad, .add-res .bad { color: #b71c1c; }
+    .add-comp-row {
+      display: flex; gap: 6px; align-items: center; flex-wrap: wrap;
+      padding: 10px 6px; margin-top: 4px; border-top: 1px dashed var(--rule-soft);
+    }
   </style>
 </head>
 <body>
@@ -707,8 +809,8 @@
 
   <!-- LOADING OVERLAY — shown while a commit/skip server call is in flight -->
   <div class="kx-overlay" id="kxOverlay">
-    <div class="kx-spinner"></div>
-    <div class="kx-overlay-msg" id="kxOverlayMsg">Working…</div>
+    <div class="kx-spinner"><span class="kx-spinner-dot"></span></div>
+    <div class="kx-overlay-msg" id="kxOverlayMsg">Working</div>
     <div class="kx-overlay-sub">Writing rows to the sheet — please don't close this window</div>
   </div>
 
@@ -725,12 +827,17 @@
     var excludedSkus = {};   // sku -> true (per-kit, reset on advance)
     var currentExtras = 0;   // spares-for-us count (additive, default 0 per kit)
     var busy = false;
+    // Per-kit alterations (customer customization) — all reset in renderKit.
+    var compQty  = {};       // origSku -> override qty (final row qty)
+    var compSwap = {};       // origSku -> { sku, name, location, available }
+    var addedItems = [];     // [{ sku, name, location, available, qty }] — custom adds
 
     // ----- INITIAL RENDER -----
     renderKit(currentKit, currentIndex);
 
     function renderKit(kit, index) {
       excludedSkus = {};
+      compQty = {}; compSwap = {}; addedItems = [];   // reset alterations per kit
       currentExtras = 0;   // always reset per kit
       busy = false;
 
@@ -848,51 +955,141 @@
 
     function renderComponents() {
       var kit = currentKit;
-      var compsHtml = '';
-      // Components in the queue carry BASE qty (one kit's worth, multiplied
-      // by rowQty already since previewSelectedKits(1) was called server-side
-      // when building the queue). Wait — actually previewSelectedKits(1) means
-      // `effectiveDeploy = 1 * rowQty = rowQty`, so the qty IS rowQty's worth.
-      // We need to scale to (rowQty + extras) / rowQty for display = (totalKits/rowQty).
+      // Queue components carry base × rowQty (previewSelectedKits(1)); display
+      // scales base-per-kit × totalKits. A per-component qty OVERRIDE (compQty)
+      // wins over the scaled value and survives re-render.
       var rowQty = parseInt(kit.sourceQty) || 1;
       var totalKits = rowQty + currentExtras;
-      // Display qty for each component = baseInQueue × (totalKits / rowQty)
-      // Equivalent: baseInQueue / rowQty × totalKits — but simpler to compute
-      // base-per-kit = baseInQueue / rowQty and multiply by totalKits.
+      var html = '';
+
       for (var i = 0; i < kit.components.length; i++) {
         var c = kit.components[i];
+        var origSku = c.sku;
+        var swap = compSwap[origSku];
         var missing = (c.missing || c.location === 'NOT FOUND') ? ' missing' : '';
-        var isExcluded = excludedSkus[c.sku] ? ' excluded' : '';
-        var checkedAttr = excludedSkus[c.sku] ? '' : 'checked';
+        var isExcluded = excludedSkus[origSku] ? ' excluded' : '';
+        var swappedCls = swap ? ' swapped' : '';
+        var checkedAttr = excludedSkus[origSku] ? '' : 'checked';
         var basePerKit = (parseInt(c.qty) || 1) / rowQty;
-        var displayQty = Math.round(basePerKit * totalKits);
-        // The qty cell shows ONLY the number ("12×") so it updates in place
-        // without reflowing the row (the old inline "(4 × 3 kits)" breakdown
-        // wrapped into a 3-line tower inside the 36px qty column — 2026-07-14
-        // layout feedback). The breakdown lives on the meta line instead,
-        // where there's horizontal room.
-        var breakdown = currentExtras > 0
-          ? ' · <span class="qty-breakdown">' + Math.round(basePerKit) + ' × ' + totalKits + ' kits</span>'
-          : '';
-        compsHtml += ''
-          + '<label class="comp' + missing + isExcluded + '" data-sku="' + esc(c.sku) + '">'
-          +   '<input type="checkbox" class="comp-cb" ' + checkedAttr + ' '
-          +     'data-sku="' + esc(c.sku) + '" '
-          +     'onchange="onToggle(this)">'
-          +   '<span class="comp-qty">' + displayQty + '×</span>'
+        var scaledQty = Math.round(basePerKit * totalKits);
+        var qtyVal = (compQty[origSku] != null) ? compQty[origSku] : scaledQty;
+        var showSku  = swap ? swap.sku : origSku;
+        var showName = swap ? (swap.name || c.name) : c.name;
+        var showLoc  = swap ? swap.location : (c.location || '—');
+        var showHand = swap ? swap.available : c.available;
+        var skuHtml  = swap
+          ? '<s style="color:#9a9a90;">' + esc(origSku) + '</s> → ' + esc(showSku)
+          : esc(showSku);
+        var cardCls = 'comp-card' + (excludedSkus[origSku] ? ' excluded' : '') + swappedCls;
+
+        html += ''
+          + '<div class="' + cardCls + '">'
+          + '<label class="comp' + missing + isExcluded + swappedCls + '" data-sku="' + esc(origSku) + '">'
+          +   '<input type="checkbox" class="comp-cb" ' + checkedAttr + ' data-sku="' + esc(origSku) + '" onchange="onToggle(this)">'
+          +   '<input type="number" class="comp-qty-input" min="1" value="' + qtyVal + '" data-sku="' + esc(origSku) + '" '
+          +         'onchange="onQtyEdit(this)" onclick="event.stopPropagation()" onmousedown="event.stopPropagation()">'
           +   '<span class="comp-main">'
-          +     '<span class="comp-sku">' + esc(c.sku) + '</span>'
-          +     '<span class="comp-name">' + esc(c.name) + '</span>'
+          +     '<span class="comp-sku">' + skuHtml + '</span>'
+          +     '<span class="comp-name">' + esc(showName) + '</span>'
           +   '</span>'
           +   '<span class="comp-meta">'
-          +     '<span class="loc">' + esc(c.location || '—') + '</span>'
-          +     (c.available != null ? ' · HAND ' + c.available : '')
-          +     breakdown
+          +     '<span class="loc">' + esc(showLoc || '—') + '</span>'
+          +     (showHand != null ? ' · HAND ' + showHand : '')
+          +     '<button type="button" class="comp-swap-btn" title="Swap this part for another SKU" '
+          +       'onclick="event.preventDefault();event.stopPropagation();toggleSwap(\'' + esc(origSku) + '\')">⇄ swap</button>'
           +   '</span>'
-          + '</label>';
+          + '</label>'
+          + '<div class="swap-panel" id="swap-' + esc(origSku) + '" style="display:none;">'
+          +   '<input type="text" class="swap-in" id="swapin-' + esc(origSku) + '" placeholder="replacement SKU…" autocomplete="off" '
+          +         'onkeydown="if(event.key===\'Enter\'){event.preventDefault();doSwapLookup(\'' + esc(origSku) + '\');}">'
+          +   '<button type="button" class="swap-go" onclick="doSwapLookup(\'' + esc(origSku) + '\')">look up</button>'
+          +   (swap ? '<button type="button" class="swap-clear" onclick="clearSwap(\'' + esc(origSku) + '\')">✕ undo swap</button>' : '')
+          +   '<span class="swap-res" id="swapres-' + esc(origSku) + '"></span>'
+          + '</div>'
+          + '</div>';
       }
-      document.getElementById('compsEl').innerHTML = compsHtml;
+
+      // custom-added components (not in the kit)
+      for (var ai = 0; ai < addedItems.length; ai++) {
+        var a = addedItems[ai];
+        html += ''
+          + '<div class="comp-card added-card">'
+          + '<div class="comp added">'
+          +   '<span class="comp-add-tag">+ADD</span>'
+          +   '<input type="number" class="comp-qty-input" min="1" value="' + (a.qty || 1) + '" data-idx="' + ai + '" onchange="onAddedQtyEdit(this)">'
+          +   '<span class="comp-main"><span class="comp-sku">' + esc(a.sku) + '</span><span class="comp-name">' + esc(a.name || '') + '</span></span>'
+          +   '<span class="comp-meta"><span class="loc">' + esc(a.location || 'NOT FOUND') + '</span>'
+          +     (a.available != null ? ' · HAND ' + a.available : '')
+          +     '<button type="button" class="comp-swap-btn" title="Remove this custom part" onclick="removeAdded(' + ai + ')">✕</button>'
+          +   '</span>'
+          + '</div>'
+          + '</div>';
+      }
+
+      // add-component control
+      html += ''
+        + '<div class="add-comp-row">'
+        +   '<input type="text" class="add-sku" id="addSku" placeholder="add a part not in the kit — SKU…" autocomplete="off" '
+        +         'onkeydown="if(event.key===\'Enter\'){event.preventDefault();addComponentLookup();}">'
+        +   '<input type="number" class="add-qty" id="addQty" min="1" value="1">'
+        +   '<button type="button" class="add-go" onclick="addComponentLookup()">+ add component</button>'
+        +   '<span class="add-res" id="addRes"></span>'
+        + '</div>';
+
+      document.getElementById('compsEl').innerHTML = html;
     }
+
+    /* ---- alteration handlers ---- */
+    function onQtyEdit(input) {
+      var sku = input.getAttribute('data-sku');
+      var v = parseInt(input.value);
+      if (isNaN(v) || v < 1) { v = 1; input.value = 1; }
+      compQty[sku] = v;
+      updateSummary();
+    }
+    function onAddedQtyEdit(input) {
+      var idx = parseInt(input.getAttribute('data-idx'));
+      var v = parseInt(input.value); if (isNaN(v) || v < 1) { v = 1; input.value = 1; }
+      if (addedItems[idx]) addedItems[idx].qty = v;
+    }
+    function toggleSwap(sku) {
+      var p = document.getElementById('swap-' + sku);
+      if (!p) return;
+      p.style.display = (p.style.display === 'none') ? 'flex' : 'none';
+      if (p.style.display === 'flex') { var inp = document.getElementById('swapin-' + sku); if (inp) inp.focus(); }
+    }
+    function doSwapLookup(sku) {
+      var inp = document.getElementById('swapin-' + sku);
+      var res = document.getElementById('swapres-' + sku);
+      var q = (inp && inp.value || '').trim();
+      if (!q) { if (res) res.textContent = 'Type a SKU'; return; }
+      if (res) res.textContent = 'looking up…';
+      google.script.run
+        .withSuccessHandler(function(r) {
+          compSwap[sku] = { sku: (r && r.sku) || q.toLowerCase(), name: (r && r.name) || '',
+                            location: (r && r.location) || 'NOT FOUND', available: (r && r.available != null) ? r.available : null };
+          renderComponents(); updateSummary();
+        })
+        .withFailureHandler(function() { if (res) res.innerHTML = '<span class="bad">lookup failed</span>'; })
+        .lookupSkuForKitAlter(q);
+    }
+    function clearSwap(sku) { delete compSwap[sku]; renderComponents(); updateSummary(); }
+    function addComponentLookup() {
+      var inp = document.getElementById('addSku'), qi = document.getElementById('addQty'), res = document.getElementById('addRes');
+      var q = (inp && inp.value || '').trim();
+      if (!q) { if (res) res.textContent = 'Type a SKU'; return; }
+      var qty = parseInt(qi && qi.value) || 1;
+      if (res) res.textContent = 'looking up…';
+      google.script.run
+        .withSuccessHandler(function(r) {
+          addedItems.push({ sku: (r && r.sku) || q.toLowerCase(), name: (r && r.name) || '',
+                            location: (r && r.location) || 'NOT FOUND', available: (r && r.available != null) ? r.available : null, qty: qty });
+          renderComponents(); updateSummary();
+        })
+        .withFailureHandler(function() { addedItems.push({ sku: q.toLowerCase(), name: '', location: 'NOT FOUND', available: null, qty: qty }); renderComponents(); updateSummary(); })
+        .lookupSkuForKitAlter(q);
+    }
+    function removeAdded(idx) { addedItems.splice(idx, 1); renderComponents(); updateSummary(); }
 
     function onExtrasChange() {
       var input = document.getElementById('deployInput');
@@ -925,12 +1122,15 @@
     function onToggle(cb) {
       var sku = cb.getAttribute('data-sku');
       var label = cb.closest('.comp');
+      var card = cb.closest('.comp-card');
       if (cb.checked) {
         delete excludedSkus[sku];
         label.classList.remove('excluded');
+        if (card) card.classList.remove('excluded');
       } else {
         excludedSkus[sku] = true;
         label.classList.add('excluded');
+        if (card) card.classList.add('excluded');
       }
       updateSummary();
     }
@@ -938,11 +1138,15 @@
     function updateSummary() {
       var totalComps = currentKit.components.length;
       var excluded = Object.keys(excludedSkus).length;
-      var willInsert = totalComps - excluded;
+      var swaps = Object.keys(compSwap).length;
+      var added = addedItems.length;
+      var willInsert = (totalComps - excluded) + added;
       var isReady = (currentKit.kitType === 'READY');
 
-      var bits = ['Will insert <strong>' + willInsert + ' of ' + totalComps + '</strong> components'];
+      var bits = ['Will insert <strong>' + willInsert + '</strong> component' + (willInsert === 1 ? '' : 's')];
       if (excluded > 0) bits.push(excluded + ' excluded');
+      if (swaps > 0)    bits.push(swaps + ' swapped');
+      if (added > 0)    bits.push(added + ' added');
 
       var msg = bits.join(' · ');
       var warn = (willInsert === 0);
@@ -989,7 +1193,26 @@
       google.script.run
         .withSuccessHandler(onCommitOk)
         .withFailureHandler(onCommitFail)
-        .commitKitFromModal(SESSION_ID, excluded, currentExtras, !!force);
+        .commitKitFromModal(SESSION_ID, excluded, currentExtras, !!force, buildAlterations());
+    }
+
+    /* Package the per-component alterations for the server. overrides is keyed
+     * by the ORIGINAL (lowercased) component SKU; added is a flat list. */
+    function buildAlterations() {
+      var overrides = {};
+      Object.keys(compSwap).forEach(function(s) {
+        var k = String(s).toLowerCase();
+        overrides[k] = overrides[k] || {};
+        overrides[k].swap = compSwap[s].sku;
+        overrides[k].swapName = compSwap[s].name;
+      });
+      Object.keys(compQty).forEach(function(s) {
+        var k = String(s).toLowerCase();
+        overrides[k] = overrides[k] || {};
+        overrides[k].qty = compQty[s];
+      });
+      var added = addedItems.map(function(a) { return { sku: a.sku, name: a.name, qty: a.qty }; });
+      return { overrides: overrides, added: added };
     }
 
     function onSkip() {
@@ -1036,6 +1259,9 @@
         if (res.committed.excludedSkus && res.committed.excludedSkus.length) {
           msg += ' · ' + res.committed.excludedSkus.length + ' excluded';
         }
+        if (res.committed.swapped)     msg += ' · ' + res.committed.swapped + ' swapped';
+        if (res.committed.qtyChanged)  msg += ' · ' + res.committed.qtyChanged + ' qty-edit';
+        if (res.committed.addedCustom) msg += ' · ' + res.committed.addedCustom + ' added';
         showStatus(msg);
       } else {
         showStatus('Kit skipped');
@@ -1129,6 +1355,9 @@
         if (hasExclusions) {
           chips += '<span class="outcome-chip excluded">EXCLUDED ' + r.excludedSkus.length + '</span>';
         }
+        if (r.swapped)     chips += '<span class="outcome-chip swapped">' + r.swapped + ' SWAPPED</span>';
+        if (r.qtyChanged)  chips += '<span class="outcome-chip qtychg">' + r.qtyChanged + ' QTY EDIT</span>';
+        if (r.addedCustom) chips += '<span class="outcome-chip added-chip">' + r.addedCustom + ' ADDED</span>';
 
         var cls = 'committed';
         if (r.forced)        cls += ' forced';
@@ -1203,7 +1432,8 @@
 
     // ----- LOADING OVERLAY -----
     function showOverlay(msg) {
-      document.getElementById('kxOverlayMsg').textContent = (msg || 'Working') + '…';
+      // NO trailing "…" — the .kx-overlay-msg::after animates the dots.
+      document.getElementById('kxOverlayMsg').textContent = (msg || 'Working');
       document.getElementById('kxOverlay').classList.add('shown');
     }
     function hideOverlay() {

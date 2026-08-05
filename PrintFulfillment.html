@@ -276,6 +276,27 @@
       letter-spacing: 0.14em; text-transform: uppercase;
       color: var(--yellow);
     }
+    /* Per-ORDER section header inside the DIRECT table — one band per sales
+       order so the picker fulfills one order at a time. A heavy top border +
+       bold text carry it on B&W even if the printer strips the light fill. It's
+       a real <tr>, so fillTableToPage counts it toward the page like any row. */
+    tr.order-head td {
+      border-top: 2px solid var(--ink);
+      border-bottom: 1px solid var(--ink);
+      background: #ededed;
+      padding: 4px 10px;
+      font-family: 'Oswald', sans-serif;
+      font-weight: 700;
+      font-size: 11px;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      color: var(--ink);
+    }
+    tr.order-head .oh-cust  { font-weight: 600; text-transform: none; }
+    tr.order-head .oh-count { font-family: 'Roboto Mono', monospace; font-size: 9px; font-weight: 400; letter-spacing: 0.1em; color: #555; }
+    @media print {
+      tr.order-head td { background: #ededed !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    }
 
     /* ===== TABLES ===== */
     table {
@@ -1141,10 +1162,31 @@
           </tr>
         </thead>
         <tbody>
-          <? for (var i = 0; i < directItems.length; i++) {
-               var dBadge = directItems[i][9] || '';
-               var dHand  = directItems[i][5];
-               var dHandLow = (String(dHand) !== '' && parseFloat(dHand) <= 20) ? ' low-stock' : '';
+          <?
+            // Pre-count PREPARING items per sales order so each order's header
+            // can show "N items". directItems is in sheet order (grouped by SO
+            // after the SO-aware DIRECT sort), so a header emits once per group.
+            var dCounts = {};
+            for (var dc = 0; dc < directItems.length; dc++) {
+              var dcSO = String(directItems[dc][3] || '').trim();
+              dCounts[dcSO] = (dCounts[dcSO] || 0) + 1;
+            }
+            var dPrevSO = null;
+            var dCustMap = (typeof directCustomers !== 'undefined' && directCustomers) ? directCustomers : {};
+            for (var i = 0; i < directItems.length; i++) {
+              var dBadge = directItems[i][9] || '';
+              var dHand  = directItems[i][5];
+              var dHandLow = (String(dHand) !== '' && parseFloat(dHand) <= 20) ? ' low-stock' : '';
+              var dSO   = String(directItems[i][3] || '').trim();
+              var dCust = dCustMap[dSO] ? String(dCustMap[dSO]) : '';
+              if (dSO && dSO !== dPrevSO) {
+          ?>
+            <tr class="order-head">
+              <td colspan="7">▌ <?= dSO ?><? if (dCust) { ?><span class="oh-cust"> · <?= dCust ?></span><? } ?><span class="oh-count"> · <?= dCounts[dSO] ?> item<?= dCounts[dSO] == 1 ? '' : 's' ?></span></td>
+            </tr>
+          <?
+                dPrevSO = dSO;
+              }
           ?>
             <tr>
               <td class="c-sku"><?= directItems[i][0] ?></td>

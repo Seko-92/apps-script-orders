@@ -123,6 +123,11 @@ function _housekeepingPass() {
   try { parts.push(refreshPrepQueueLocations(maps)); }
   catch (e) { parts.push("❌ Prep locations: " + e); console.log("Housekeeping Prep error: " + e); }
 
+  // NEEDS PHOTOS table — re-scan MI for items still at <=1 image (self-cleans as
+  // real photos land). Own MI read (needs pictureUrl1..5, not in `maps`).
+  try { parts.push(refreshPhotoQueue()); }
+  catch (e) { parts.push("❌ Photo queue: " + e); console.log("Housekeeping Photo error: " + e); }
+
   var summary = parts.join("  |  ");
   console.log("Housekeeping: " + summary);
   return summary;

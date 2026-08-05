@@ -875,13 +875,13 @@ function openKitExpansionModal(deployQty) {
     template.kitJson     = JSON.stringify(firstKit).replace(/<\//g, "<\\/");
     template.kitIndex    = 0;
 
-    // 1080×680 (was 920×620, enlarged 2026-07-14 layout pass): more room for
-    // the components checklist on kits with long Sales Descriptions. Sheets
-    // clamps the dialog to the viewport on smaller screens, so this is safe
-    // on laptops.
+    // 1180×820 (was 1080×680, enlarged 2026-07-31): the modal is a 100vh flex
+    // column, so the extra height flows straight into the components checklist
+    // (the actionable surface). Sheets clamps the dialog to the viewport on
+    // smaller screens, so this stays safe on laptops.
     var html = template.evaluate()
-      .setWidth(1080)
-      .setHeight(680);
+      .setWidth(1180)
+      .setHeight(820);
     SpreadsheetApp.getUi().showModalDialog(html, "Kit Expansion · " + queue.length + " kit" + (queue.length > 1 ? "s" : ""));
 
     return {
@@ -940,7 +940,7 @@ function openKitExpansionModal(deployQty) {
  *   queueLength: number
  * }}
  */
-function commitKitFromModal(sessionId, excludedSkus, extras, force) {
+function commitKitFromModal(sessionId, excludedSkus, extras, force, alterations) {
   var lock = LockService.getScriptLock();
   if (!lock.tryLock(30000)) {
     return { ok: false, reason: "Another operation in progress. Try again.",
@@ -965,7 +965,7 @@ function commitKitFromModal(sessionId, excludedSkus, extras, force) {
     var extrasNum = parseInt(extras);
     if (isNaN(extrasNum) || extrasNum < 0) extrasNum = 0;
 
-    var commitResult = _commitOneKitForModal(current, excludedSkus || [], extrasNum, !!force);
+    var commitResult = _commitOneKitForModal(current, excludedSkus || [], extrasNum, !!force, alterations);
 
     if (commitResult.ok) {
       state.results.committed.push({
@@ -976,7 +976,10 @@ function commitKitFromModal(sessionId, excludedSkus, extras, force) {
         extras:          commitResult.extras,
         totalKits:       commitResult.totalKits,
         rowQty:          commitResult.rowQty,
-        forced:          commitResult.forced
+        forced:          commitResult.forced,
+        swapped:         commitResult.swapped,
+        qtyChanged:      commitResult.qtyChanged,
+        addedCustom:     commitResult.addedCustom
       });
     } else {
       state.results.failed.push({
@@ -1001,7 +1004,10 @@ function commitKitFromModal(sessionId, excludedSkus, extras, force) {
         extras:          commitResult.extras,
         totalKits:       commitResult.totalKits,
         rowQty:          commitResult.rowQty,
-        forced:          commitResult.forced
+        forced:          commitResult.forced,
+        swapped:         commitResult.swapped,
+        qtyChanged:      commitResult.qtyChanged,
+        addedCustom:     commitResult.addedCustom
       } : null,
       done:        done,
       next:        done ? null : state.queue[state.currentIndex],
@@ -1016,6 +1022,27 @@ function commitKitFromModal(sessionId, excludedSkus, extras, force) {
   } finally {
     try { lock.releaseLock(); } catch (_) {}
   }
+}
+
+
+/**
+ * Modal → server: look up ONE SKU for the alteration UI (swap / add), so the
+ * picker can validate a substitution (name + location + on-hand) before
+ * committing it. Reuses the single-SKU helpers; Zoho-first stock, MI fallback.
+ * @returns {{ found, sku, name, location, available }}
+ */
+function lookupSkuForKitAlter(sku) {
+  var skuLower = String(sku || "").trim().toLowerCase();
+  if (!skuLower) return { found: false, sku: "", name: "", location: "NOT FOUND", available: null };
+  var location = "NOT FOUND", available = null, name = "";
+  try { var l = getSingleLocation(skuLower); if (l) location = l; } catch (e) {}
+  try { var z = getSingleZohoStock(skuLower); if (z && z.available != null) available = z.available; } catch (e) {}
+  if (available == null) {
+    try { var inv = getSingleInventory(skuLower); if (inv && inv.available != null) available = inv.available; } catch (e) {}
+  }
+  try { var en = getSingleSkuEnrichment(skuLower); if (en && en.title) name = String(en.title).substring(0, 60); } catch (e) {}
+  var found = (location && location !== "NOT FOUND") || available != null || !!name;
+  return { found: found, sku: skuLower, name: name, location: location, available: available };
 }
 
 
@@ -1118,7 +1145,7 @@ function _saveKitModalSession(sessionId, state) {
  *                                   floor's indicator).
  * @returns {{ok, reason, componentsAdded, excludedSkus, extras, totalKits, rowQty, forced}}
  */
-function _commitOneKitForModal(queueItem, excludedSkus, multiplier, force) {
+function _commitOneKitForModal(queueItem, excludedSkus, multiplier, force, alterations) {
   var ss = SpreadsheetApp.getActive();
   var sheet = ss.getSheetByName(MAIN_SHEET_NAME);
   if (!sheet) return { ok: false, reason: "All Orders sheet not found" };
@@ -1191,52 +1218,85 @@ function _commitOneKitForModal(queueItem, excludedSkus, multiplier, force) {
     return { ok: false, reason: "READY kit — use Force Expand to override" };
   }
 
-  // Apply exclusions
+  // Apply exclusions (keyed by original registry SKU, case-insensitive)
   var excludedSet = {};
   var capturedExclusions = [];
   for (var ex = 0; ex < (excludedSkus || []).length; ex++) {
-    excludedSet[String(excludedSkus[ex]).trim()] = true;
+    excludedSet[String(excludedSkus[ex]).trim().toLowerCase()] = true;
   }
-  var keptComponents = [];
+  var kept = [];
   for (var fc = 0; fc < plan.components.length; fc++) {
     var compSku = String(plan.components[fc].sku).trim();
-    if (excludedSet[compSku]) {
-      capturedExclusions.push(compSku);
-    } else {
-      keptComponents.push(plan.components[fc]);
-    }
+    if (excludedSet[compSku.toLowerCase()]) capturedExclusions.push(compSku);
+    else kept.push(plan.components[fc]);
   }
-  plan.components = keptComponents;
 
-  var N = plan.components.length;
+  // ---- Per-component ALTERATIONS (customer customization) ----
+  // The modal can swap a component's SKU, change its qty, and add extra
+  // components not in the kit — all before insert. Keyed by the ORIGINAL
+  // registry SKU. The Kit Registry stays the source of truth for what the kit
+  // IS; each change is annotated on the row NOTE + Activity Log so what
+  // SHIPPED (vs. the standard composition) is fully traceable.
+  var overrides  = (alterations && alterations.overrides) || {};
+  var addedItems = (alterations && alterations.added)     || [];
+  var swapCount = 0, qtyChangeCount = 0, addCount = 0;
+  var finalComps = [];
+  for (var ki = 0; ki < kept.length; ki++) {
+    var kc = kept[ki];
+    var fcx = { sku: String(kc.sku).trim(), qty: parseInt(kc.qty) || 1, name: kc.name || "",
+                swapFrom: null, qtyFrom: null, added: false };
+    var ov = overrides[fcx.sku.toLowerCase()];
+    if (ov) {
+      var sw = (ov.swap != null) ? String(ov.swap).trim() : "";
+      if (sw && sw.toLowerCase() !== fcx.sku.toLowerCase()) {
+        fcx.swapFrom = fcx.sku;
+        fcx.sku = sw;
+        if (ov.swapName) fcx.name = String(ov.swapName);
+        swapCount++;
+      }
+      var nq = parseInt(ov.qty);
+      if (!isNaN(nq) && nq > 0 && nq !== fcx.qty) { fcx.qtyFrom = fcx.qty; fcx.qty = nq; qtyChangeCount++; }
+    }
+    finalComps.push(fcx);
+  }
+  for (var aI = 0; aI < addedItems.length; aI++) {
+    var a = addedItems[aI]; var as = String(a.sku || "").trim();
+    if (!as) continue;
+    finalComps.push({ sku: as, qty: parseInt(a.qty) || 1, name: String(a.name || ""),
+                      swapFrom: null, qtyFrom: null, added: true });
+    addCount++;
+  }
+
+  var N = finalComps.length;
   if (N === 0) {
     return { ok: false,
-             reason: "All components excluded — nothing to insert. "
-                   + "(Excluded: " + capturedExclusions.join(", ") + ")",
+             reason: "Nothing to insert — all components excluded."
+                   + (capturedExclusions.length ? " (Excluded: " + capturedExclusions.join(", ") + ")" : ""),
              componentsAdded: 0,
              excludedSkus: capturedExclusions };
   }
 
-  // Build kit-expansion NOTE prefix + merge buyer note.
-  // When extras > 0, append the breakdown so picker (and audit reader) can
-  // see why the QTY column is higher than what the customer ordered.
-  // NO "⚠ FORCED" note on force-expanded READY kits (removed 2026-07-14):
-  // a picker read the warning glyph as "something is wrong with this order"
-  // — user's call: the kit row's K-* LOCATION already tells the floor this
-  // was a pre-assembled box expanded into components. The force override
-  // remains fully auditable via the Activity Log DETAIL "(READY · forced)".
+  // Base NOTE prefix + Activity Log detail. Per-component swap/qty/add
+  // annotations are appended per row below. (No "⚠ FORCED" note on READY
+  // force-expands — the kit's K-* LOCATION is the floor's tell; the override
+  // stays auditable via the Activity Log DETAIL "(READY · forced)".)
   var notePrefix = "↳ from KIT-" + rowSku;
   if (extras > 0) {
     notePrefix += " · deploy " + totalKits + " total ("
                 + rowQty + " for customer + " + extras + " for us)";
   }
-  var componentNote = rowNote ? (notePrefix + " · " + rowNote) : notePrefix;
+  var baseDetail = "kit expansion from " + rowSku;
+  if (isReadyForced) baseDetail += " (READY · forced)";
+  if (extras > 0) baseDetail += " (deploy " + totalKits + " total: " + rowQty + "+" + extras + ")";
+  if (capturedExclusions.length > 0) baseDetail += " · excluded: " + capturedExclusions.join(", ");
 
-  // Insert + populate
+  // Insert + populate — each row's NOTE + Activity Log DETAIL carries its own
+  // alteration annotation (swapped X → Y · qty A→B · custom add).
   sheet.insertRowsAfter(kitRow, N);
   var newRows = [];
+  var activityLog = [];
   for (var c = 0; c < N; c++) {
-    var comp = plan.components[c];
+    var comp = finalComps[c];
     var skuLower = comp.sku.toLowerCase();
     var loc = locInvMaps.locationMap.get(skuLower) || "NOT FOUND";
     var inv = locInvMaps.inventoryMap.get(skuLower);
@@ -1246,44 +1306,33 @@ function _commitOneKitForModal(queueItem, excludedSkus, multiplier, force) {
     var hand = zo ? zo.available
              : (inv && inv.available != null) ? inv.available : "";
 
+    var alter = "";
+    if (comp.added)           alter += " · custom add";
+    if (comp.swapFrom)        alter += " · swapped " + comp.swapFrom + " → " + comp.sku;
+    if (comp.qtyFrom != null) alter += " · qty " + comp.qtyFrom + "→" + comp.qty;
+    var noteBase = comp.added ? ("↳ added to KIT-" + rowSku) : notePrefix;
+    var rowNoteFinal = noteBase + alter + (rowNote ? " · " + rowNote : "");
+
     var row = new Array(Schema.dataWidth);
     row[Schema.idx("SKU")]         = comp.sku;
     row[Schema.idx("QTY")]         = comp.qty;
     row[Schema.idx("LOCATION")]    = loc;
     row[Schema.idx("SALES_ORDER")] = rowSo;
-    row[Schema.idx("NOTE")]        = componentNote;
+    row[Schema.idx("NOTE")]        = rowNoteFinal;
     row[Schema.idx("STATUS")]      = rowStatus;
     row[Schema.idx("HAND")]        = hand;
     row[Schema.idx("LEFT")]        = "";
     row[Schema.idx("SHIPPING")]    = rowShip;
     row[Schema.idx("SHIP_COST")]   = "";
     newRows.push(row);
+
+    activityLog.push([
+      "RECEIVED", rowSo, comp.sku, comp.qty, "sidebar",
+      baseDetail + alter, undefined, rowNoteFinal
+    ]);
   }
   sheet.getRange(kitRow + 1, 1, N, Schema.dataWidth).setValues(newRows);
   verifyAndRestoreHeaders(sheet, savedHeaders);
-
-  // Activity Log — one RECEIVED per inserted component, DETAIL carries
-  // exclusion + extras + force-override context when applicable
-  var baseDetail = "kit expansion from " + rowSku;
-  if (isReadyForced) baseDetail += " (READY · forced)";
-  if (extras > 0) baseDetail += " (deploy " + totalKits + " total: " + rowQty + "+" + extras + ")";
-  if (capturedExclusions.length > 0) {
-    baseDetail += " · excluded: " + capturedExclusions.join(", ");
-  }
-  var activityLog = [];
-  for (var c2 = 0; c2 < N; c2++) {
-    var comp2 = plan.components[c2];
-    activityLog.push([
-      "RECEIVED",
-      rowSo,                         // orderId
-      comp2.sku,                     // sku
-      comp2.qty,                     // qty
-      "sidebar",                     // source
-      baseDetail,                    // detail
-      undefined,                     // picker: resolved by logActivityBatch via G2
-      componentNote                  // note
-    ]);
-  }
   try { logActivityBatch(activityLog); }
   catch (logErr) { try { console.log("modal commit: activity log failed: " + logErr); } catch (_) {} }
 
@@ -1310,7 +1359,10 @@ function _commitOneKitForModal(queueItem, excludedSkus, multiplier, force) {
     extras:        extras,
     totalKits:     totalKits,
     rowQty:        rowQty,
-    forced:        isReadyForced
+    forced:        isReadyForced,
+    swapped:       swapCount,
+    qtyChanged:    qtyChangeCount,
+    addedCustom:   addCount
   };
 }
 

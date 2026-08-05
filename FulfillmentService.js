@@ -148,6 +148,9 @@ function preparePrintSheet() {
   var htmlTemplate = HtmlService.createTemplateFromFile('PrintFulfillment');
   htmlTemplate.ebayItems = ebayItems;
   htmlTemplate.directItems = directItems;
+  // SO → customer map (best-effort) so the print's per-order section headers can
+  // show the customer name, not just the SO number. Empty {} if Pending is absent.
+  htmlTemplate.directCustomers = _buildDirectCustomerMap();
   htmlTemplate.employeeId = employeeId;            // back-compat
   htmlTemplate.pickIdShipping = pickIdShipping;
   htmlTemplate.pickIdAdjustment = pickIdAdjustment;
@@ -267,6 +270,32 @@ function _estimatePageCount(ebayCount, directCount, firstCap, contCap) {
   var directPages = pagesFor(directCount);
   var total = ebayPages + directPages;
   return Math.max(1, total);
+}
+
+/**
+ * Builds a { "SO-24551": "Triple M Equipment", ... } map from the Pending Sales
+ * Orders mirror, so the print's per-order section headers can name the customer.
+ * Best-effort — any failure (sheet absent, read error) returns {} and the print
+ * headers fall back to SO + item-count only. Cheap: one two-column read.
+ */
+function _buildDirectCustomerMap() {
+  var map = {};
+  try {
+    if (typeof PENDING_SO === 'undefined') return map;
+    var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    var psh = ss.getSheetByName(PENDING_SO.sheetName);
+    if (!psh) return map;
+    var last = psh.getLastRow();
+    if (last < PENDING_SO.dataStartRow) return map;
+    var n = last - PENDING_SO.dataStartRow + 1;
+    var soVals   = psh.getRange(PENDING_SO.dataStartRow, PENDING_SO.cols.SO_NUMBER, n, 1).getValues();
+    var custVals = psh.getRange(PENDING_SO.dataStartRow, PENDING_SO.cols.CUSTOMER,  n, 1).getValues();
+    for (var i = 0; i < n; i++) {
+      var so = String(soVals[i][0]).trim();
+      if (so) map[so] = String(custVals[i][0] || '').trim();
+    }
+  } catch (e) { try { console.log("_buildDirectCustomerMap: " + e); } catch (_) {} }
+  return map;
 }
 
 /**

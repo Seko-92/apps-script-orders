@@ -139,7 +139,9 @@ function _getPrepQueueSize() {
   var ss = SpreadsheetApp.getActive() || SpreadsheetApp.openById(SPREADSHEET_ID);
   var sheet = ss.getSheetByName(PREP_QUEUE.sheetName);
   if (!sheet) return 0;
-  var lastRow = sheet.getLastRow();
+  // Stop at the NEEDS PHOTOS divider (2026-08-04) — photo items are their own
+  // worklist and must NOT inflate the prep-queue badge.
+  var lastRow = (typeof _prepWalkEnd === 'function') ? _prepWalkEnd(sheet) : sheet.getLastRow();
   if (lastRow < PREP_QUEUE.dataStartRow) return 0;
 
   var skus = sheet.getRange(
@@ -177,7 +179,8 @@ function getActionableAlerts() {
       newFromZoho:  { count: _safeZohoCount(),           rows: [] },
       priceDrift:   { count: _safePriceDriftCount(),     rows: [] },
       kitPriceDrift:{ count: _safeKitPriceDriftCount(),  rows: [] },
-      openCases:    { count: _safeOpenCaseCount(),       rows: [] }
+      openCases:    { count: _safeOpenCaseCount(),       rows: [] },
+      needPhotos:   { count: _safePhotoCount(),          rows: [] }
     };
   } catch (e) {
     console.error("getActionableAlerts error: " + e);
@@ -191,7 +194,8 @@ function getActionableAlerts() {
       newFromZoho:  { count: 0, rows: [] },
       priceDrift:   { count: 0, rows: [] },
       kitPriceDrift:{ count: 0, rows: [] },
-      openCases:    { count: 0, rows: [] }
+      openCases:    { count: 0, rows: [] },
+      needPhotos:   { count: 0, rows: [] }
     };
   }
 }
@@ -243,6 +247,17 @@ function _safeOpenCaseCount() {
   }
 }
 
+/** Defensive wrapper — getPhotoQueueCount lives in PhotoQueue.js. Count of items
+ *  in the Prep Queue's NEEDS PHOTOS section (ACTIVE listings still at <=1 image).
+ *  Cheap sheet read, safe on the 30s poll. Returns 0 if unavailable. */
+function _safePhotoCount() {
+  try {
+    return (typeof getPhotoQueueCount === "function") ? getPhotoQueueCount() : 0;
+  } catch (e) {
+    return 0;
+  }
+}
+
 /**
  * Click handler: activate All Orders sheet (or Prep Queue for queueSize),
  * select all matching rows so the user can see the cluster at once.
@@ -254,6 +269,7 @@ function jumpToAlertRows(alertKey) {
   // queueSize / outOfStock / newFromZoho / priceDrift jump to their own sheets (not All Orders)
   if (alertKey === 'queueSize')   return openPrepQueue();
   if (alertKey === 'outOfStock')  return openOutOfStock();
+  if (alertKey === 'needPhotos')  return openPhotoQueue();
   if (alertKey === 'newFromZoho') return openPendingSalesOrders();
   if (alertKey === 'priceDrift')  return openPriceAudit();
   if (alertKey === 'kitPriceDrift') return openKitHealth();

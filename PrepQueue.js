@@ -165,6 +165,13 @@ function setupPrepQueueSheet() {
   sheet.setColumnWidth(PREP_QUEUE.cols.DATE_ADDED, 130);
   sheet.setColumnWidth(PREP_QUEUE.cols.DONE,        55);
 
+  // HIDE the QTY / IMG column (col B) — 2026-08-04, user's call: the prep qty
+  // and the photo image-count don't matter. HIDING (not deleting) is deliberate:
+  // it shifts nothing, so LOCATION/HAND/NOTE/DATE/DONE — and every walker that
+  // references columns by name — are completely unaffected. The data still lives
+  // in col B (invisible); a physical delete would be a risky schema shift.
+  try { sheet.hideColumns(PREP_QUEUE.cols.QTY); } catch (e) {}
+
   // --- DATA AREA: column-level format (so new rows inherit) ---
   var maxDataRow = 1000;
   var dataRows = maxDataRow - PREP_QUEUE.dataStartRow + 1;
@@ -199,17 +206,26 @@ function setupPrepQueueSheet() {
   // was the "restyle works then gets messed up" bug (2026-07-16). Row 1 is
   // deliberately OUTSIDE the banding.
   sheet.getBandings().forEach(function(b) { try { b.remove(); } catch (e) {} });
-  var bandRange = sheet.getRange(PREP_QUEUE.headerRow, 1,
-                                 maxDataRow - PREP_QUEUE.headerRow + 1, PREP_QUEUE.dataWidth);
-  var band = bandRange.applyRowBanding(SpreadsheetApp.BandingTheme.LIGHT_GREY, true, false);
-  band.setHeaderRowColor('#1d1d1b')
-      .setFirstRowColor('#ffffff')
-      .setSecondRowColor('#fff8e7');
+  // Wrapped (2026-08-04): if applyRowBanding ever throws (e.g. an overlapping
+  // banding on a grown sheet), it must NOT abort setup before the band-LABEL
+  // styling below — that was the "re-style doesn't fix the swapped labels" bug.
+  try {
+    var bandRange = sheet.getRange(PREP_QUEUE.headerRow, 1,
+                                   maxDataRow - PREP_QUEUE.headerRow + 1, PREP_QUEUE.dataWidth);
+    var band = bandRange.applyRowBanding(SpreadsheetApp.BandingTheme.LIGHT_GREY, true, false);
+    band.setHeaderRowColor('#1d1d1b')
+        .setFirstRowColor('#ffffff')
+        .setSecondRowColor('#fff8e7');
+  } catch (bandErr) { try { Logger.log("setupPrepQueueSheet: banding: " + bandErr); } catch (_) {} }
 
   // --- CURRENT TITLE BAND + HEADERS ---
   // Styled AFTER the banding (same reason the INCOMING pair is): manual
   // styling must land on top, never under a banding re-apply.
-  _stylePrepBand(sheet, PREP_QUEUE.titleRow, "CURRENT", "TODAY'S PREP · WORK LIST");
+  // Top band = FUTURE PREP, second band = TODAY'S PREP (user's layout, 2026-08-04).
+  // NOTE: the col-A marker VALUES stay "CURRENT" (row 1) / "INCOMING" (divider) —
+  // they're STRUCTURAL (the divider marker is load-bearing for _getPrepBoundaryRow);
+  // only the descriptive right-side label reflects the user's preferred order.
+  _stylePrepBand(sheet, PREP_QUEUE.titleRow, "CURRENT", "FUTURE PREP · ARRIVING / TO ORDER");
   _stylePrepHeaderRow(sheet, PREP_QUEUE.headerRow);
 
   // --- TWO-TABLE DIVIDER + INCOMING HEADER ---
@@ -221,7 +237,7 @@ function setupPrepQueueSheet() {
     boundary = lastContent + PREP_QUEUE.bufferRows + 1;
     sheet.getRange(boundary, PREP_QUEUE.cols.SKU).setValue(PREP_QUEUE.boundaryMarker);
   }
-  _stylePrepBand(sheet, boundary, PREP_QUEUE.boundaryMarker, "FUTURE PREP · ARRIVING / TO ORDER");
+  _stylePrepBand(sheet, boundary, PREP_QUEUE.boundaryMarker, "TODAY'S PREP · WORK LIST");
   _stylePrepHeaderRow(sheet, boundary + 1);
 
   // --- DONE CHECKBOXES: plant on SKU rows, sweep off empty/structural rows ---
@@ -245,7 +261,11 @@ function setupPrepQueueSheet() {
     return !isStrike && !isHand;
   });
 
-  var strikeRange = sheet.getRange(PREP_QUEUE.dataStartRow, 1, dataRows, PREP_QUEUE.dataWidth - 1);
+  // CF ranges span the WHOLE data area (to maxRows) so they also cover the
+  // NEEDS PHOTOS section below (created after setup) — the ✔ DONE strike works
+  // for a photographed-pending item too.
+  var cfRows = Math.max(dataRows, sheet.getMaxRows() - PREP_QUEUE.dataStartRow + 1);
+  var strikeRange = sheet.getRange(PREP_QUEUE.dataStartRow, 1, cfRows, PREP_QUEUE.dataWidth - 1);
   var strikeRule = SpreadsheetApp.newConditionalFormatRule()
     .whenFormulaSatisfied("=$G" + PREP_QUEUE.dataStartRow + "=TRUE")
     .setStrikethrough(true)
@@ -253,7 +273,7 @@ function setupPrepQueueSheet() {
     .setRanges([strikeRange])
     .build();
 
-  var handRange = sheet.getRange(PREP_QUEUE.dataStartRow, PREP_QUEUE.cols.HAND, dataRows, 1);
+  var handRange = sheet.getRange(PREP_QUEUE.dataStartRow, PREP_QUEUE.cols.HAND, cfRows, 1);
   var handRule = SpreadsheetApp.newConditionalFormatRule()
     .whenFormulaSatisfied(
       "=AND(ISNUMBER(D" + PREP_QUEUE.dataStartRow + "), D" + PREP_QUEUE.dataStartRow + "<=20)"
@@ -264,8 +284,12 @@ function setupPrepQueueSheet() {
 
   sheet.setConditionalFormatRules([strikeRule, handRule].concat(keptRules));
 
-  // --- FREEZE TITLE BAND + HEADER (both stay visible while scrolling) ---
-  sheet.setFrozenRows(2);
+  // --- NO FROZEN ROWS (2026-08-04, user's call) ---
+  // On a MULTI-table sheet a frozen header lies: scroll into INCOMING / NEEDS
+  // PHOTOS and the frozen CURRENT header still reads "# QTY / NOTE" while you're
+  // actually looking at "IMG / TITLE". Better to let each table's own band +
+  // header scroll into view inline. Explicitly reset to 0 (undoes any prior 2).
+  sheet.setFrozenRows(0);
 
   // --- FRESHNESS PULSE CHIP (H1 chip / I1 stamp — top row, beside the
   //     ▌ CURRENT band, per the user's placement call 2026-07-16) ---
@@ -280,7 +304,13 @@ function setupPrepQueueSheet() {
   try { refreshPrepQueueSkuLinks(); }
   catch (e) { try { Logger.log("setupPrepQueueSheet: SKU link backfill error: " + e); } catch (_) {} }
 
-  return "✅ Prep Queue sheet ready (two tables: CURRENT + INCOMING).";
+  // --- THIRD TABLE: NEEDS PHOTOS (2026-08-04) — create the divider + populate
+  //     from Master Inventory. Machine-owned; the prep walkers stop above it via
+  //     _prepWalkEnd. Best-effort so a slow MI read never fails the setup.
+  try { refreshPhotoQueue(); }
+  catch (e) { try { Logger.log("setupPrepQueueSheet: photo queue error: " + e); } catch (_) {} }
+
+  return "✅ Prep Queue sheet ready (CURRENT + INCOMING + NEEDS PHOTOS).";
 }
 
 
@@ -371,7 +401,7 @@ function _stylePrepBand(sheet, row, markerText, rightLabel) {
  * it only runs where checkbox validation is missing.
  */
 function _normalizePrepCheckboxes(sheet, boundary) {
-  var lastRow = sheet.getLastRow();
+  var lastRow = _prepWalkEnd(sheet);   // photo section owns its own ✔ checkboxes
   if (lastRow < PREP_QUEUE.dataStartRow) return;
   var n = lastRow - PREP_QUEUE.dataStartRow + 1;
   var skus = sheet.getRange(PREP_QUEUE.dataStartRow, PREP_QUEUE.cols.SKU, n, 1).getValues();
@@ -505,7 +535,9 @@ function refreshPrepQueueHand() {
   var sheet = ss.getSheetByName(PREP_QUEUE.sheetName);
   if (!sheet) return "ℹ️ Prep Queue sheet not found.";
 
-  var lastRow = sheet.getLastRow();
+  // Stop at the NEEDS PHOTOS divider — that section is machine-owned by
+  // refreshPhotoQueue and must not be walked here.
+  var lastRow = _prepWalkEnd(sheet);
   if (lastRow < PREP_QUEUE.dataStartRow) return "ℹ️ Prep Queue empty.";
 
   var nRows = lastRow - PREP_QUEUE.dataStartRow + 1;
@@ -569,7 +601,7 @@ function refreshPrepQueueLocations(maps) {
   var sheet = ss.getSheetByName(PREP_QUEUE.sheetName);
   if (!sheet) return "ℹ️ Prep Queue sheet not found.";
 
-  var lastRow = sheet.getLastRow();
+  var lastRow = _prepWalkEnd(sheet);   // stop at the NEEDS PHOTOS divider (machine-owned)
   if (lastRow < PREP_QUEUE.dataStartRow) {
     stampSheetPulse(sheet, SHEET_PULSE.prepQueue.stamp);
     return "ℹ️ Prep Queue empty — locations up to date.";
@@ -660,7 +692,19 @@ function addPrepQueueItem(sku, qty, note, incoming) {
   var insertAt;
   var landedIncoming = false;
   if (boundary > 0 && incoming) {
-    insertAt = _findPrepAppendRow(sheet, boundary + 2, sheet.getMaxRows() + 1);
+    // INCOMING is bounded ABOVE the NEEDS PHOTOS section now — never append into it.
+    var photoDiv = _getPhotoBoundaryRow(sheet);
+    var incEnd = (photoDiv > 0) ? photoDiv : (sheet.getMaxRows() + 1);
+    insertAt = _findPrepAppendRow(sheet, boundary + 2, incEnd);
+    // If INCOMING has filled its gap (append lands on the divider or an occupied
+    // row), push the photo divider down to make typing room.
+    if (photoDiv > 0) {
+      var occupied = String(sheet.getRange(insertAt, PREP_QUEUE.cols.SKU).getValue() || "").trim() !== "";
+      if (insertAt >= photoDiv || occupied) {
+        sheet.insertRowsBefore(photoDiv, PREP_PHOTO.incomingGap);
+        insertAt = photoDiv;   // first freed blank row
+      }
+    }
     landedIncoming = true;
   } else if (boundary > 0) {
     boundary = _ensurePrepBuffer(sheet, boundary);   // may shift the divider down
@@ -812,7 +856,7 @@ function clearPrepQueue() {
   var sheet = ss.getSheetByName(PREP_QUEUE.sheetName);
   if (!sheet) return "ℹ️ Prep Queue sheet doesn't exist yet.";
 
-  var lastRow = sheet.getLastRow();
+  var lastRow = _prepWalkEnd(sheet);   // never wipe the machine-owned NEEDS PHOTOS section
   if (lastRow < PREP_QUEUE.dataStartRow) return "ℹ️ Queue already empty.";
 
   var boundary = _getPrepBoundaryRow(sheet);
@@ -852,7 +896,10 @@ function clearDonePrepItems() {
   var sheet = ss.getSheetByName(PREP_QUEUE.sheetName);
   if (!sheet) return "ℹ️ Prep Queue sheet doesn't exist yet.";
 
-  var lastRow = sheet.getLastRow();
+  // Stop at the NEEDS PHOTOS divider — a photographer's ✔ DONE ("shot it,
+  // pending upload") must NOT be deleted here; that section self-cleans when
+  // MI shows the new photo.
+  var lastRow = _prepWalkEnd(sheet);
   if (lastRow < PREP_QUEUE.dataStartRow) return "ℹ️ Queue is empty.";
 
   var boundary = _getPrepBoundaryRow(sheet);
@@ -1012,10 +1059,14 @@ function sortPrepQueueIncoming() {
   if (boundary <= 0) return "ℹ️ No INCOMING table yet — run Re-style Sheet first.";
 
   var segStart = boundary + 2;                              // divider + header
-  var blockCount = sheet.getLastRow() - segStart + 1;
+  // Bound at the NEEDS PHOTOS divider (INCOMING is no longer the last table).
+  var hasPhoto = _getPhotoBoundaryRow(sheet) > 0;
+  var blockCount = _prepWalkEnd(sheet) - segStart + 1;
   if (blockCount <= 0) return "ℹ️ INCOMING table is empty — nothing to sort.";
 
-  var n = _sortCompactPrepSegment(sheet, segStart, blockCount, 0);
+  // Keep the incoming-gap blanks below INCOMING so it has room to grow before
+  // the photo section (0 when there's no photo section yet).
+  var n = _sortCompactPrepSegment(sheet, segStart, blockCount, hasPhoto ? PREP_PHOTO.incomingGap : 0);
   _refreshPrepQueueDuplicates(sheet);
   SpreadsheetApp.flush();
   return "✅ INCOMING sorted by location — " + n + " item(s), gaps closed.";
@@ -1161,7 +1212,12 @@ function _refreshPrepQueueDuplicates(sheet) {
   // dropped off lastRow) keeps its yellow forever. We walk the full
   // data band so every row's background is set explicitly to either
   // "dupe-yellow" or "default (null)".
-  var maxScanRow = Math.min(sheet.getMaxRows(), 1000);
+  // Bound at the NEEDS PHOTOS divider (2026-08-04): the photo section is a
+  // different worklist — a SKU that both needs a photo AND is in prep is NOT a
+  // "duplicate" to flag. (Prep-vs-prep cross-table dupes still count.)
+  var photoBoundary = _getPhotoBoundaryRow(sheet);
+  var scanCap = (photoBoundary > 0) ? (photoBoundary - 1) : sheet.getMaxRows();
+  var maxScanRow = Math.min(scanCap, 1000);
   if (maxScanRow < PREP_QUEUE.dataStartRow) return;
 
   var totalRows = maxScanRow - PREP_QUEUE.dataStartRow + 1;

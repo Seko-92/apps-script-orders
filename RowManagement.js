@@ -517,8 +517,94 @@ function setupDuplicateSalesOrderHighlighting() {
   // border CLEAR above (step 2) stays so legacy bars wipe themselves on the
   // first repaint. Border-apply loop deleted; git history has it.
 
+  // 3d. DIRECT per-order DIVIDER — a heavy top rule at the start of each
+  // sales-order group in the DIRECT table (drawn wherever the SO changes from
+  // the row above), so multi-item direct orders separate visually WITHOUT
+  // blank rows. Pure formatting keyed to col D → survives sort / shipped-delete
+  // / kit expansion / manual edit because this painter re-runs on all those
+  // paths. DIRECT ONLY (the eBay table is location-sorted single-item orders —
+  // a rule per row would be noise).
+  if (boundary > 0) {
+    try { _paintDirectOrderDividers(sheet, boundary, allData, lastRow); }
+    catch (dividerErr) { console.log("SO divider paint error: " + dividerErr); }
+  }
+
   // Force the clear-then-apply sequence to land before any subsequent reads.
   SpreadsheetApp.flush();
+}
+
+/**
+ * Draws a heavy top border at the start of each sales-order group in the DIRECT
+ * table — the "divider between orders" that retires the manual blank-row habit.
+ * A border is drawn on any DIRECT data row whose SALES ORDER differs from the
+ * row directly above it. PURE FORMATTING (no rows added) — so it is immune to
+ * the sort, the shipped-delete workflow, kit expansion, and manual edits: this
+ * painter simply re-runs and re-derives the group starts from col D.
+ *
+ * @param {Sheet}  sheet     the main sheet
+ * @param {number} boundary  the DIRECT divider row
+ * @param {Array}  colDData  col-D values from Schema.dataStartRow (reused from the caller)
+ * @param {number} lastRow   sheet.getLastRow()
+ */
+function _paintDirectOrderDividers(sheet, boundary, colDData, lastRow) {
+  var firstData = boundary + 2;      // first DIRECT data row
+  var clearLast = Math.min(sheet.getMaxRows(), lastRow + 200);
+  if (clearLast < firstData) return;
+  var W = Schema.dataWidth;
+  var bandRows = clearLast - firstData + 1;
+  var dataN = lastRow - firstData + 1;
+
+  // ---- Restore the row BANDING under the DIRECT data (clears any prior
+  // per-order tint). The block-shade experiment was reverted 2026-08-03: with
+  // many small orders it just collapses back into per-row banding, and it
+  // overrode the banding (stickier to undo than a border). We keep the clean
+  // per-order DIVIDER below — it scales to any number of orders and is trivially
+  // reversible. SAFETY: Zoho ⚠-flagged rows keep their soft-red background;
+  // every other DIRECT row is set to null → the sheet's banding shows through.
+  var noteVals = (dataN > 0) ? sheet.getRange(firstData, Schema.cols.NOTE, dataN, 1).getValues() : [];
+  var curBg    = (dataN > 0) ? sheet.getRange(firstData, 1, dataN, W).getBackgrounds() : [];
+  var bg = [];
+  for (var r = 0; r < bandRows; r++) { var arr = new Array(W); for (var c = 0; c < W; c++) arr[c] = null; bg.push(arr); }
+  for (var row = firstData; row <= lastRow; row++) {
+    var di = row - firstData;
+    var note = String((noteVals[di] && noteVals[di][0]) || '');
+    if (note.indexOf('⚠') !== -1) {                  // Zoho flag → preserve its bg
+      for (var cf = 0; cf < W; cf++) bg[di][cf] = curBg[di][cf];
+    }
+    // else: leave bg[di] null → the sheet's banding shows (no tint)
+  }
+  sheet.getRange(firstData, 1, bandRows, W).setBackgrounds(bg);
+
+  // ---- GOLD BOX per order — box each sales-order group (top + left + right +
+  // bottom) in brand gold, so every order is its own contained block that ties
+  // into the yellow DIRECT band. Pure formatting; the shared edge between two
+  // adjacent orders reads as the divider between them.
+  //
+  // Clear the box borders across the band FIRST — but leave the range's OUTER
+  // TOP (= the header / first-data edge) untouched (top=null) so we never
+  // recolor the header's underline. (2026-08-03: on a multi-row range `top`
+  // clears only the outer edge; the per-row lines are inner horizontals, so we
+  // clear left/right/bottom/vertical/horizontal here.)
+  sheet.getRange(firstData, 1, bandRows, W).setBorder(null, false, false, false, false, false);
+
+  var boxColor = "#c9a227";                              // brand gold
+  var boxStyle = SpreadsheetApp.BorderStyle.SOLID_MEDIUM;
+  var boxW = Schema.cols.LEFT;                           // box the visible DIRECT columns (A..LEFT)
+  var gStart = -1, gSO = null;
+  for (var row2 = firstData; row2 <= lastRow + 1; row2++) {   // +1 flushes the final group
+    var bi = row2 - Schema.dataStartRow;
+    var bso = (row2 <= lastRow && bi >= 0 && bi < colDData.length)
+              ? String(colDData[bi][0]).trim() : "";
+    if (bso !== gSO) {
+      if (gSO && gStart > 0) {                           // close the previous order's box
+        var drawTop = (gStart !== firstData);            // first order: skip top → don't touch the header edge
+        sheet.getRange(gStart, 1, row2 - gStart, boxW)
+             .setBorder(drawTop ? true : null, true, true, true, false, false, boxColor, boxStyle);
+      }
+      gSO = bso;
+      gStart = bso ? row2 : -1;
+    }
+  }
 }
 
 function highlightAllDuplicateSalesOrders() {

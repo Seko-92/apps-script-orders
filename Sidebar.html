@@ -3327,6 +3327,11 @@ body.dark-theme .footer-version { border-color: #2c2c2c; }
           <span class="alert-label">Out of Stock</span>
           <span class="alert-arrow">›</span>
         </div>
+        <div class="alert-row empty" id="alertNeedPhotos" onclick="jumpToAlert('needPhotos')">
+          <span class="alert-count" id="alertCountNeedPhotos">0</span>
+          <span class="alert-label">Needs Photos</span>
+          <span class="alert-arrow">›</span>
+        </div>
         <div class="alert-row empty" id="alertQueueSize" onclick="jumpToAlert('queueSize')">
           <span class="alert-count" id="alertCountQueueSize">0</span>
           <span class="alert-label">In Prep Queue</span>
@@ -3715,8 +3720,9 @@ body.dark-theme .footer-version { border-color: #2c2c2c; }
       </div>
       <button class="btn-secondary" onclick="confirmClearDonePrep()">✔ Clear Done Rows</button>
       <button class="btn-secondary" onclick="run('refreshPrepQueueLocations')">📍 Refresh Locations</button>
+      <button class="btn-secondary" onclick="run('refreshPhotoQueue')" title="Re-scan Master Inventory for ACTIVE listings that still have only the logo (0–1 images) — items AND kits">📸 Refresh Photo Needs</button>
       <button class="btn-danger" onclick="confirmClearPrepQueue()">Clear Queue</button>
-      <div class="empty-hint">Two tables: <strong>CURRENT</strong> on top, <strong>INCOMING</strong> (future prep) below the yellow divider. The current table grows on its own — type in the blank rows and the divider slides down. <strong>⇅ Sort</strong> re-orders each table by location and closes the empty gaps that build up as items are moved or cleared (checkmarks survive the sort). Tick a row's ✔ box to strike it through; <strong>Clear Done</strong> sweeps ticked rows out of both tables. Locations re-mirror hourly — the ⟳ chip shows the last refresh.</div>
+      <div class="empty-hint">Three tables: <strong>CURRENT</strong> on top, <strong>INCOMING</strong> (future prep) below the yellow divider, then <strong>NEEDS PHOTOS</strong> at the bottom (auto — every ACTIVE listing still at 0–1 images, i.e. only the logo). The current table grows on its own — type in the blank rows and the divider slides down. <strong>⇅ Sort</strong> re-orders each table by location and closes gaps (checkmarks survive). Tick a row's ✔ box to strike it through; <strong>Clear Done</strong> sweeps ticked rows from CURRENT + INCOMING only. The <strong>NEEDS PHOTOS</strong> table is machine-owned — it self-cleans hourly as real photos land in MI; tick ✔ to mark "shot it, pending upload" (that survives). Locations + photo needs re-mirror hourly — the ⟳ chip shows the last refresh.</div>
       <details class="card-more">
         <summary>More tools</summary>
         <div class="card-more-content">
@@ -3851,6 +3857,35 @@ body.dark-theme .footer-version { border-color: #2c2c2c; }
       <button class="btn-info" onclick="copyFloorBoardLink()">📋 Copy link</button>
       <div class="empty-hint">
         Opens the live board in a new tab. On the warehouse <strong>tablet</strong>: open it once → browser menu → <strong>Add to Home Screen</strong> for a one-tap icon, then tap <strong>⛶</strong> on the board for fullscreen (it keeps the screen awake). <em>Fullscreen-via-meta-tags isn't reliable for Apps Script web apps — the board's own ⛶ button is the way.</em>
+      </div>
+    </div>
+  </div>
+
+  <!--
+    Weekly Digest (2026-07-31) — Monday ~8am ops digest to the admin Telegram
+    chat (roadmap #9). Reads snapshots (Kit Health / OOS / Investigations /
+    Price Audit) via WeeklyDigest.js. Preview = text only (no send); Send now =
+    posts once; Arm weekly = installs the Monday trigger (runs as the user, so
+    it can install the trigger without the editor). applyZones → DIAGNOSTICS.
+  -->
+  <div class="card collapsed" data-id="weekly-digest" draggable="true">
+    <div class="card-header" onclick="toggleCollapse(this)">
+      <div class="drag-handle" title="Drag to reorder">☰</div>
+      <div class="card-title"><div class="card-icon">📊</div><h3>Weekly Digest</h3></div>
+      <div class="card-toggle">▼</div>
+    </div>
+    <div class="card-body">
+      <button class="btn-primary" id="wdPreviewBtn" onclick="previewDigestNow()">👁 Preview (no send)</button>
+      <div class="btn-group">
+        <button class="btn-secondary" id="wdSendBtn" onclick="sendDigestNow()">📤 Send now</button>
+        <button class="btn-secondary" id="wdArmBtn" onclick="armDigestNow()">⏰ Arm weekly</button>
+      </div>
+      <div class="btn-group">
+        <button class="btn-secondary" id="wdReportBtn" onclick="generateReportNow()">📄 Report (PDF)</button>
+        <button class="btn-secondary" id="wdReportTgBtn" onclick="sendReportTgNow()">📄 → Telegram</button>
+      </div>
+      <div id="wdResult" class="empty-hint">
+        Monday ~8am ops digest → the admin <strong>Telegram</strong> chat: underpriced kits (+$), buildable-now, in-stock-blocked, OOS, open cases, price drift. <strong>Preview</strong> shows the exact text without sending; <strong>Send now</strong> posts it; <strong>Arm weekly</strong> installs the Monday schedule. Reads the last Kit Health / Price Audit run — decision-support only.
       </div>
     </div>
   </div>
@@ -4913,13 +4948,14 @@ function _flashCard(dataId) {
 // ALERTS — actionable counts (paid shipping, intl, low stock, not found, queue)
 // ═══════════════════════════════════════════════════════════════════════════════
 
-var ALERT_KEYS = ['PaidShipping', 'Intl', 'LowStock', 'NotFound', 'OutOfStock', 'QueueSize', 'NewFromZoho', 'PriceDrift', 'KitPriceDrift', 'OpenCases'];
+var ALERT_KEYS = ['PaidShipping', 'Intl', 'LowStock', 'NotFound', 'OutOfStock', 'NeedPhotos', 'QueueSize', 'NewFromZoho', 'PriceDrift', 'KitPriceDrift', 'OpenCases'];
 var ALERT_KEY_MAP = {
   PaidShipping: 'paidShipping',
   Intl:         'intl',
   LowStock:     'lowStock',
   NotFound:     'notFound',
   OutOfStock:   'outOfStock',
+  NeedPhotos:   'needPhotos',
   QueueSize:    'queueSize',
   NewFromZoho:  'newFromZoho',
   PriceDrift:   'priceDrift',
@@ -6692,6 +6728,145 @@ function openKitPriceCalc() {
     .openKitPriceCalculator();
 }
 
+/* ---- Weekly Digest (2026-07-31) — Preview (no send) / Send now / Arm weekly ---- */
+var isDigestBusy = false;
+function _wdPaintText(text) {
+  var el = document.getElementById('wdResult');
+  if (!el) return;
+  el.className = '';
+  el.style.whiteSpace = 'pre-wrap';
+  el.style.fontFamily = "'Roboto Mono', monospace";
+  el.style.fontSize = '11px';
+  el.textContent = text;
+}
+function previewDigestNow() {
+  if (isDigestBusy || typeof google === 'undefined' || !google.script) return;
+  var btn = document.getElementById('wdPreviewBtn');
+  isDigestBusy = true;
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Building…'; }
+  status.className = 'syncing'; status.textContent = 'Building digest preview…';
+  google.script.run
+    .withSuccessHandler(function(text) {
+      isDigestBusy = false;
+      if (btn) { btn.disabled = false; btn.textContent = '👁 Preview (no send)'; }
+      status.className = 'success'; status.textContent = '✓ Preview ready (not sent)';
+      _wdPaintText(text);
+    })
+    .withFailureHandler(function(err) {
+      isDigestBusy = false;
+      if (btn) { btn.disabled = false; btn.textContent = '👁 Preview (no send)'; }
+      status.className = 'error'; status.textContent = 'Preview failed: ' + err;
+    })
+    .previewWeeklyDigest();
+}
+function sendDigestNow() {
+  if (isDigestBusy || typeof google === 'undefined' || !google.script) return;
+  if (!confirm('Send the weekly digest to the admin Telegram chat right now?')) return;
+  var btn = document.getElementById('wdSendBtn');
+  isDigestBusy = true;
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Sending…'; }
+  status.className = 'syncing'; status.textContent = 'Sending digest to Telegram…';
+  google.script.run
+    .withSuccessHandler(function(res) {
+      isDigestBusy = false;
+      if (btn) { btn.disabled = false; btn.textContent = '📤 Send now'; }
+      if (res && res.sent) {
+        status.className = 'success'; status.textContent = '✓ Digest sent to Telegram';
+        if (typeof playSound === 'function') { try { playSound('syncDone'); } catch (e) {} }
+      } else {
+        status.className = 'error'; status.textContent = 'Not sent: ' + ((res && res.error) || 'unknown');
+      }
+      if (res && res.text) _wdPaintText(res.text);
+    })
+    .withFailureHandler(function(err) {
+      isDigestBusy = false;
+      if (btn) { btn.disabled = false; btn.textContent = '📤 Send now'; }
+      status.className = 'error'; status.textContent = 'Send failed: ' + err;
+    })
+    .sendWeeklyDigest();
+}
+function armDigestNow() {
+  if (isDigestBusy || typeof google === 'undefined' || !google.script) return;
+  if (!confirm('Install the weekly Monday ~8am auto-send to Telegram?')) return;
+  var btn = document.getElementById('wdArmBtn');
+  isDigestBusy = true;
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Arming…'; }
+  status.className = 'syncing'; status.textContent = 'Installing weekly trigger…';
+  google.script.run
+    .withSuccessHandler(function(msg) {
+      isDigestBusy = false;
+      if (btn) { btn.disabled = false; btn.textContent = '⏰ Arm weekly'; }
+      status.className = 'success'; status.textContent = '✓ ' + (msg || 'Weekly digest armed');
+    })
+    .withFailureHandler(function(err) {
+      isDigestBusy = false;
+      if (btn) { btn.disabled = false; btn.textContent = '⏰ Arm weekly'; }
+      status.className = 'error'; status.textContent = 'Arm failed: ' + err;
+    })
+    .setupWeeklyDigestTrigger();
+}
+function _wdEsc(s) {
+  return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+function generateReportNow() {
+  if (isDigestBusy || typeof google === 'undefined' || !google.script) return;
+  var btn = document.getElementById('wdReportBtn');
+  isDigestBusy = true;
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Building PDF…'; }
+  status.className = 'syncing'; status.textContent = 'Generating report PDF…';
+  google.script.run
+    .withSuccessHandler(function(res) {
+      isDigestBusy = false;
+      if (btn) { btn.disabled = false; btn.textContent = '📄 Report (PDF)'; }
+      var el = document.getElementById('wdResult');
+      if (res && res.ok) {
+        status.className = 'success'; status.textContent = '✓ Report ready';
+        if (typeof playSound === 'function') { try { playSound('syncDone'); } catch (e) {} }
+        if (el) {
+          el.className = ''; el.style.whiteSpace = ''; el.style.fontFamily = ''; el.style.fontSize = '';
+          el.innerHTML =
+            '<div style="margin-bottom:6px;">✓ <strong>' + _wdEsc(res.name) + '</strong> saved to Drive.</div>' +
+            '<a class="btn-primary" href="' + _wdEsc(res.url) + '" target="_blank" rel="noopener" ' +
+              'style="display:block;text-align:center;text-decoration:none;">📄 Open / download ↗</a>';
+        }
+      } else {
+        status.className = 'error'; status.textContent = 'Report failed: ' + ((res && res.error) || 'unknown');
+      }
+    })
+    .withFailureHandler(function(err) {
+      isDigestBusy = false;
+      if (btn) { btn.disabled = false; btn.textContent = '📄 Report (PDF)'; }
+      status.className = 'error'; status.textContent = 'Report failed: ' + err;
+    })
+    .generateReportPdf();
+}
+function sendReportTgNow() {
+  if (isDigestBusy || typeof google === 'undefined' || !google.script) return;
+  if (!confirm('Send the PDF report to the admin Telegram chat now?')) return;
+  var btn = document.getElementById('wdReportTgBtn');
+  isDigestBusy = true;
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Sending…'; }
+  status.className = 'syncing'; status.textContent = 'Sending report to Telegram…';
+  google.script.run
+    .withSuccessHandler(function(res) {
+      isDigestBusy = false;
+      if (btn) { btn.disabled = false; btn.textContent = '📄 → Telegram'; }
+      if (res && res.sent) {
+        status.className = 'success'; status.textContent = '✓ Report sent to Telegram';
+        if (typeof playSound === 'function') { try { playSound('syncDone'); } catch (e) {} }
+      } else {
+        status.className = 'error'; status.textContent = 'Not sent: ' + ((res && res.error) || 'unknown');
+      }
+    })
+    .withFailureHandler(function(err) {
+      isDigestBusy = false;
+      if (btn) { btn.disabled = false; btn.textContent = '📄 → Telegram'; }
+      status.className = 'error'; status.textContent = 'Send failed: ' + err;
+    })
+    .sendReportToTelegram('📄 HQ Weekly Operations Report');
+}
+
 function applyZones() {
   const modules = document.getElementById('modules');
   if (!modules) return;
@@ -6702,7 +6877,7 @@ function applyZones() {
     ['today',        "TODAY'S WORK", ['alerts', 'order-lookup', 'investigations', 'zoho-pull', 'kit-expand', 'fulfill']],
     ['table-tools',  'TABLE TOOLS',  ['ebay', 'direct', 'live', 'location-update']],
     ['inventory',    'INVENTORY',    ['part-console', 'prep-queue', 'out-of-stock', 'stock-highlight', 'price-audit', 'kit-pricing', 'kit-health']],
-    ['diagnostics',  'DIAGNOSTICS',  ['floor-board', 'duplicates', 'sheet-protect', 'api-monitor', 'arcade']]
+    ['diagnostics',  'DIAGNOSTICS',  ['floor-board', 'weekly-digest', 'duplicates', 'sheet-protect', 'api-monitor', 'arcade']]
   ];
 
   // Snapshot all cards by id before we move anything
