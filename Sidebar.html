@@ -3884,8 +3884,16 @@ body.dark-theme .footer-version { border-color: #2c2c2c; }
         <button class="btn-secondary" id="wdReportBtn" onclick="generateReportNow()">📄 Report (PDF)</button>
         <button class="btn-secondary" id="wdReportTgBtn" onclick="sendReportTgNow()">📄 → Telegram</button>
       </div>
+      <details class="card-more">
+        <summary>More tools</summary>
+        <div class="card-more-content">
+          <button class="btn-info" id="wdSnapBtn" onclick="snapshotKpisNow()">📈 Snapshot KPIs now</button>
+          <button class="btn-info" onclick="run('openKpiHistory','Opening KPI History…')">Open KPI History</button>
+        </div>
+      </details>
       <div id="wdResult" class="empty-hint">
-        Monday ~8am ops digest → the admin <strong>Telegram</strong> chat: underpriced kits (+$), buildable-now, in-stock-blocked, OOS, open cases, price drift. <strong>Preview</strong> shows the exact text without sending; <strong>Send now</strong> posts it; <strong>Arm weekly</strong> installs the Monday schedule. Reads the last Kit Health / Price Audit run — decision-support only.
+        Monday ~8am ops digest → the admin <strong>Telegram</strong> chat: underpriced kits (+$), buildable-now, in-stock-blocked, OOS, open cases, price drift. <strong>Preview</strong> shows the exact text without sending; <strong>Send now</strong> posts it; <strong>Arm weekly</strong> installs the Monday schedule. Reads the last Kit Health / Price Audit run — decision-support only.<br><br>
+        Every send also logs a row to <strong>KPI History</strong>, which is what the <strong>▲▼ vs last week</strong> arrows are computed from. Trends can't be backfilled, so take a snapshot early to seed the baseline.
       </div>
     </div>
   </div>
@@ -6808,6 +6816,35 @@ function armDigestNow() {
 function _wdEsc(s) {
   return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;')
     .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+/* Manual KPI snapshot — seeds the trend baseline without sending a digest.
+   Safe to click repeatedly: the server upserts by DATE, so same-day clicks
+   refresh today's row instead of piling up duplicates. */
+function snapshotKpisNow() {
+  if (isDigestBusy || typeof google === 'undefined' || !google.script) return;
+  var btn = document.getElementById('wdSnapBtn');
+  isDigestBusy = true;
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Snapshotting…'; }
+  status.className = 'syncing'; status.textContent = 'Recording KPI snapshot…';
+  google.script.run
+    .withSuccessHandler(function(res) {
+      isDigestBusy = false;
+      if (btn) { btn.disabled = false; btn.textContent = '📈 Snapshot KPIs now'; }
+      if (res && res.ok) {
+        status.className = 'success';
+        status.textContent = '✓ KPI snapshot ' + (res.action === 'updated' ? 'updated' : 'recorded');
+        playSound('syncDone');
+      } else {
+        status.className = 'error';
+        status.textContent = 'Snapshot failed: ' + ((res && res.message) || 'unknown');
+      }
+    })
+    .withFailureHandler(function(err) {
+      isDigestBusy = false;
+      if (btn) { btn.disabled = false; btn.textContent = '📈 Snapshot KPIs now'; }
+      status.className = 'error'; status.textContent = 'Snapshot failed: ' + err;
+    })
+    .recordKpiSnapshotNow();
 }
 function generateReportNow() {
   if (isDigestBusy || typeof google === 'undefined' || !google.script) return;
