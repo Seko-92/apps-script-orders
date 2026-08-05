@@ -61,6 +61,19 @@ function doPost(e) {
     if (payload.action === 'notifyShipped') return notifyTelegramShipped(payload.orderId);
     if (payload.callback_query) return handleTelegramCallback(payload);
 
+    // Telegram TEXT commands (/part, /status, …) — the command router, phase 1
+    // of the Telegram Layer. The n8n webhook already receives these updates; it
+    // just forwards any `message` carrying text here. Accepts the update either
+    // wrapped as {update:{…}} or merged alongside action/token, so the n8n node
+    // can be wired either way without a code change.
+    // NOTE: this path is token-authenticated like every other non-callback
+    // action above; the per-CHAT allowlist lives in handleTelegramCommand.
+    if (payload.action === 'telegramCommand') {
+      var tgResult = handleTelegramCommand(payload.update || payload);
+      return ContentService.createTextOutput(JSON.stringify(tgResult))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
     // --- STATUS UPDATES ---
     if (payload.action === 'updateOrderStatus') {
       var allowedSources = { "n8n": 1, "n8n-verify": 1, "n8n-direct": 1 };
