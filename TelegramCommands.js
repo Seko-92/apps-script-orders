@@ -403,6 +403,65 @@ function _tgFormatStatus() {
 
 
 // =======================================================================================
+// WEBHOOK SUBSCRIPTION
+// =======================================================================================
+
+/**
+ * EDITOR-RUN, ONCE: re-register the bot webhook with `message` updates ENABLED.
+ *
+ * WHY THIS EXISTS. `setWebhook()` in OrderService.js does not send
+ * `allowed_updates`, and Telegram's rule for that field is RETAIN-PREVIOUS, not
+ * reset-to-default. So if the subscription was ever narrowed to
+ * ["callback_query"] — which is exactly what you'd do for a buttons-only bot —
+ * typed commands would never reach n8n at all, with no error anywhere to show
+ * for it. This sets both types explicitly so the router can actually be fed.
+ *
+ * Points at the n8n webhook, NOT at WEB_APP_URL: Apps Script /exec always
+ * answers 302 and Telegram refuses redirects. That mistake killed every button
+ * after the 2026-05-31 VPS migration (fixed 2026-06-10) — do not "simplify" it.
+ *
+ * Verify afterwards with getWebhookInfo(): allowed_updates should list both,
+ * and last_error_message should be empty.
+ */
+function setWebhookWithCommands() {
+  var url = "https://api.telegram.org/bot" + TELEGRAM_BOT_TOKEN + "/setWebhook";
+  var res = UrlFetchApp.fetch(url, {
+    method: "post",
+    contentType: "application/json",
+    payload: JSON.stringify({
+      url: N8N_TELEGRAM_CALLBACK_WEBHOOK_URL,
+      allowed_updates: ["message", "callback_query"]
+    }),
+    muteHttpExceptions: true
+  });
+  var body = res.getContentText();
+  Logger.log(body);
+  return body;
+}
+
+/**
+ * EDITOR-RUN, optional: register the command list with Telegram so typing "/"
+ * in the chat shows an autocomplete menu. Cosmetic — the router works without
+ * it — but it makes the commands discoverable to anyone in the chat.
+ */
+function registerTelegramCommandMenu() {
+  var cmds = [];
+  Object.keys(TG_ROUTES).forEach(function (k) {
+    cmds.push({ command: k.replace(/^\//, ""), description: TG_ROUTES[k].help });
+  });
+  var res = UrlFetchApp.fetch("https://api.telegram.org/bot" + TELEGRAM_BOT_TOKEN + "/setMyCommands", {
+    method: "post",
+    contentType: "application/json",
+    payload: JSON.stringify({ commands: cmds }),
+    muteHttpExceptions: true
+  });
+  var body = res.getContentText();
+  Logger.log(body);
+  return body;
+}
+
+
+// =======================================================================================
 // EDITOR-RUN TEST WRAPPERS  (no Telegram send — safe to run from the editor)
 // =======================================================================================
 
