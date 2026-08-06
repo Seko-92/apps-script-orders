@@ -74,6 +74,67 @@ function doPost(e) {
         .setMimeType(ContentService.MimeType.JSON);
     }
 
+    // --- FLOOR BOARD (hosted off-platform) -------------------------------------
+    // The board used to live on /exec and reach these three functions through
+    // google.script.run, which only exists inside Google's HtmlService frame.
+    // Once the page is served from our own domain that channel is gone, so the
+    // same three calls are exposed here and reached over HTTP through the n8n
+    // proxy (which holds the token — the browser never sees it).
+    //
+    // EXPOSURE IS UNCHANGED: the board was already public on /exec, and
+    // boardSetStatus is still narrowed SERVER-SIDE to PENDING / PREPARING only.
+    // It cannot ship, cancel or delete no matter who calls it. That allow-list
+    // is the security boundary, exactly as it was before the move.
+    if (payload.action === 'boardTick') {
+      return ContentService.createTextOutput(JSON.stringify(getDashboardTick()))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+    if (payload.action === 'boardStatus') {
+      return ContentService.createTextOutput(JSON.stringify(
+        boardSetStatus(payload.orderId, payload.status)
+      )).setMimeType(ContentService.MimeType.JSON);
+    }
+    // --- HOSTED KIT EXPANSION (web-app slice 2) --------------------------------
+    // Two endpoints only: read the queue, commit one kit. The client sends
+    // IDENTIFIERS and CHOICES; commitKitFromWeb re-derives the kit from a fresh
+    // scan, so a stale page or tampered payload fails loudly instead of writing
+    // something wrong.
+    //
+    // ⚠ AUTH: unlike the board endpoints above, these WRITE inventory rows and
+    // must NOT be open. The n8n `hq-kits` workflow verifies the Telegram
+    // initData HMAC before forwarding — that check is the boundary, and it is
+    // deliberately a SEPARATE workflow from hq-board so the difference is
+    // structural rather than a conditional someone can get wrong later.
+    if (payload.action === 'kitsQueue' || payload.action === 'kitsCommit') {
+      // The shared token proves the call came through our proxy; it does NOT
+      // say who is asking, and every browser hitting the page would present the
+      // same one. initData is what identifies the human.
+      var who = authorizeWebAppUser(payload.initData);
+      if (!who.ok) {
+        try { console.log("web-app auth refused (" + payload.action + "): " + who.reason); } catch (_) {}
+        return ContentService.createTextOutput(JSON.stringify({
+          ok: false, authError: true, message: who.reason
+        })).setMimeType(ContentService.MimeType.JSON);
+      }
+
+      if (payload.action === 'kitsQueue') {
+        return ContentService.createTextOutput(JSON.stringify(getKitQueueForWeb()))
+          .setMimeType(ContentService.MimeType.JSON);
+      }
+      return ContentService.createTextOutput(JSON.stringify(commitKitFromWeb(
+        payload.kitSku, payload.salesOrder, payload.excludedSkus,
+        payload.extras, payload.force, payload.alterations
+      ))).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    if (payload.action === 'boardRadio') {
+      // getRadioNowPlaying returns a bare string; wrap it so every board
+      // endpoint answers with an object and the client can parse uniformly.
+      return ContentService.createTextOutput(JSON.stringify({
+        ok: true, nowPlaying: getRadioNowPlaying(payload.stationId)
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
     // --- STATUS UPDATES ---
     if (payload.action === 'updateOrderStatus') {
       var allowedSources = { "n8n": 1, "n8n-verify": 1, "n8n-direct": 1 };
@@ -398,6 +459,27 @@ function doPost(e) {
     }
 
     // --- IMPROVED BATCH ORDER INSERTION ---
+    // --- UNKNOWN ACTION: fail LOUDLY ------------------------------------------
+    // Anything with an `action` we don't recognise used to fall through to the
+    // orders-insert branch below and, with no `orders` array, return
+    // {status:"success", added:0}. That is a SILENT failure, and it bit us on
+    // 2026-08-05: the newly hosted Floor Board called `boardTick` against an
+    // /exec that predated the action, received a success-shaped object with no
+    // cockpit in it, and painted all-zeros while reporting LIVE. Nothing looked
+    // broken at any layer — Caddy fine, n8n execution green, Apps Script "ok".
+    //
+    // A caller that names an action it expects to exist deserves an error when
+    // it doesn't. The n8n order-insert path sends `orders` with NO action, so
+    // it is unaffected.
+    if (payload.action) {
+      console.log("doPost: unknown action '" + payload.action + "'");
+      return ContentService.createTextOutput(JSON.stringify({
+        status: "error",
+        message: "Unknown action: " + payload.action +
+                 " — this deployment may predate it; cut a New Version."
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
     var orders = payload.orders || [];
     var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
     var sheet = ss.getSheetByName(MAIN_SHEET_NAME);
@@ -587,6 +669,13 @@ function doPost(e) {
       // log sheet doesn't exist yet, the call returns silently).
       try { logActivityBatch(activityLogBatch); } catch (logErr) {
         console.log("doPost: activity log error: " + logErr);
+      }
+
+      // New orders just landed — drop the Floor Board's cached tick so the next
+      // poll shows them instead of waiting out the cache window. This is the
+      // whole point of the board: a picker seeing an arrival promptly.
+      try { _dashBustTickCache(); } catch (e) {
+        console.log("doPost: tick cache bust failed: " + e);
       }
 
       // Kit SKU markers — apply the ▣ glyph to any newly-inserted row whose

@@ -25,7 +25,37 @@
 // ---------- DASHBOARD CONSTANTS ----------
 var DASHBOARD = {
   sunriseHour: 7,    // start of the workday (pace baseline)
-  sunsetHour:  17    // end of the workday — 5pm (pace projection target)
+  sunsetHour:  17,   // end of the workday — 5pm (pace projection target)
+
+  // Pick-list cap. Applied AFTER the aisle sort (see _dashOpenOrders) so what
+  // gets dropped is the far end of the walk rather than an arbitrary slice of
+  // the sheet. The board shows "+N more" whenever it bites.
+  pickListCap: 60,
+
+  // Kit-SKU lookup cache — buildKitMap reads ~1,500 rows and this is on the
+  // 15-second poll. Kit composition changes rarely; minutes of staleness is fine.
+  kitCacheKey: 'dashKitSkus',
+  kitCacheSec: 300,
+
+  // WHOLE-TICK cache. Measured 2026-08-05: a cold tick took ~26s, and every
+  // device polling pays that independently. Apps Script gives a consumer
+  // account ~90 min of runtime a DAY, so uncached this cannot support even one
+  // board left open, let alone ten. A cache hit costs ~50ms instead.
+  //
+  // Lives HERE rather than only in n8n so the protection applies to every
+  // caller — the hosted board, the in-sheet modal, anything later.
+  // TTL must be COMFORTABLY LONGER than the board's poll interval (20s). Set
+  // equal, every poll arrives exactly as the cache expires and a lone board
+  // misses almost every time — paying the full build. At 45s roughly two polls
+  // in three are served from cache, so the real cost is ~1 build per minute
+  // instead of 3.
+  //
+  // Staleness is not a concern in practice: a WRITE busts the cache immediately
+  // (see _dashBustTickCache), so ✓ Pick still feels instant. Only inbound
+  // changes — a new order landing — can lag, and the Telegram ping is the
+  // real-time alert for those. The board is an ambient display.
+  tickCacheKey: 'dashTick',
+  tickCacheSec: 45
 };
 
 
@@ -63,13 +93,61 @@ function openFloorBoard() {
  * last-known values — same contract as the sidebar.
  */
 function getDashboardTick() {
-  var base;
+  var cache = null;
   try {
-    base = getSidebarTick();
-  } catch (e) {
-    console.error('getDashboardTick.base: ' + e);
-    base = { cockpit: null, lastSync: '', api: null, alerts: null, picker: '' };
-  }
+    cache = CacheService.getScriptCache();
+    var hit = cache.get(DASHBOARD.tickCacheKey);
+    if (hit) {
+      var cached = JSON.parse(hit);
+      cached._cached = true;
+      return cached;
+    }
+  } catch (e) { /* cache unavailable — just build it */ }
+
+  var tick = _buildDashboardTick();
+
+  try {
+    if (cache) {
+      var s = JSON.stringify(tick);
+      // CacheService caps a value at 100KB. A busy tick (60 pick rows + the
+      // day's timeline) runs ~20KB, but never let an oversize payload throw.
+      if (s.length < 95000) cache.put(DASHBOARD.tickCacheKey, s, DASHBOARD.tickCacheSec);
+    }
+  } catch (e) { /* not cacheable this time — harmless */ }
+
+  return tick;
+}
+
+
+/**
+ * Drop the cached tick so the next caller rebuilds.
+ *
+ * Called after a board write: without it, ✓ Pick would be followed by up to
+ * `tickCacheSec` of the board insisting the row is still PENDING.
+ */
+function _dashBustTickCache() {
+  try { CacheService.getScriptCache().remove(DASHBOARD.tickCacheKey); }
+  catch (e) { /* nothing to do */ }
+}
+
+
+/** The real work — everything getDashboardTick returns when the cache misses. */
+function _buildDashboardTick() {
+  // Deliberately NOT getSidebarTick(): that also fetches getLatestApiMetrics(),
+  // a whole sheet read the board never displays (zero references to tick.api in
+  // FloorBoard.html). The sidebar still uses getSidebarTick unchanged.
+  //
+  // getActionableAlerts() is ALSO skipped, and that is the bigger saving: it
+  // opens EIGHT sheets (All Orders, Prep Queue, Out of Stock, Pending Sales
+  // Orders, Price Audit, Kit Health, Investigations, Photo Queue) to build the
+  // sidebar's Alerts card — and the board renders exactly ONE number out of it,
+  // paidShipping.count, for the amber strip. That count is now produced by
+  // _dashOpenOrders inside a row scan that was happening anyway, so seven sheet
+  // reads per tick disappear.
+  var base = { cockpit: null, lastSync: '', picker: '' };
+  try { base.cockpit  = getDashboardSnapshot(); } catch (e) { console.error('tick.cockpit: '  + e); }
+  try { base.lastSync = getLastSyncFromSheet(); } catch (e) { console.error('tick.lastSync: ' + e); }
+  try { base.picker   = getCurrentPicker();     } catch (e) { console.error('tick.picker: '   + e); }
 
   var pace = null;
   var openOrders = [];
@@ -84,12 +162,21 @@ function getDashboardTick() {
   // marker) — no server store needed; openOrders already carries the note text.
   return {
     cockpit:    base.cockpit  || {},
-    alerts:     base.alerts   || {},
-    api:        base.api      || null,
+    // Shaped exactly like getActionableAlerts' paidShipping entry so the board's
+    // paintPaid() reads it unchanged. `rows` stays empty — the board never
+    // jumps to rows (that's a sidebar affordance), it only shows the count.
+    alerts:     { paidShipping: { count: (openOrders && openOrders.paidCount) || 0, rows: [] } },
+    api:        null,          // board never renders API quota; key kept for shape
+
     picker:     base.picker   || '',
     lastSync:   base.lastSync || '',
     paceCar:    pace,
     openOrders: openOrders,
+    // How many were open BEFORE the cap. The array carries `.total` as an own
+    // property, but that does NOT survive JSON serialisation of an array — so
+    // it has to be lifted onto the tick explicitly or the board can never tell
+    // it's showing a truncated walk.
+    openOrdersTotal: (openOrders && openOrders.total) || (openOrders || []).length,
     serverTime: new Date().toISOString()
   };
 }
@@ -119,6 +206,9 @@ function boardSetStatus(orderId, status) {
   }
   try {
     var res = updateOrderStatus(orderId, status, { source: 'board', syncTelegram: true });
+    // The board polls straight after a pick — without this it would be served a
+    // cached tick still showing PENDING.
+    _dashBustTickCache();
     return { ok: !!(res && res.count), count: (res && res.count) || 0, status: status };
   } catch (e) {
     console.error('boardSetStatus: ' + e);
@@ -207,10 +297,14 @@ function _dashOpenOrders() {
   var lastRow = sheet.getLastRow();
   if (lastRow < Schema.dataStartRow) return [];
 
+  // FULL width now (was up to HAND) so the paid-shipping count can be computed
+  // in this same pass — see the `paidCount` note below.
   var n = lastRow - Schema.dataStartRow + 1;
-  var data = sheet.getRange(Schema.dataStartRow, 1, n, Schema.cols.HAND).getValues();
+  var data = sheet.getRange(Schema.dataStartRow, 1, n, Schema.dataWidth).getValues();
 
+  var kitSkus = _dashKitSkuSet();     // cached — see helper
   var out = [];
+  var paidCount = 0;
   var inDirect = false;
   for (var i = 0; i < data.length; i++) {
     var sku = String(data[i][Schema.idx("SKU")] || "").trim();
@@ -218,7 +312,30 @@ function _dashOpenOrders() {
     if (sku.toUpperCase() === Schema.boundaryMarker) { inDirect = true; continue; }
     if (!sku) continue;
     var status = String(data[i][Schema.idx("STATUS")] || "").trim().toUpperCase();
+
+    // PAID SHIPPING — the ONLY alert the Floor Board renders (the amber strip).
+    // Computed here, inside a scan that was happening anyway, so the board no
+    // longer has to call getActionableAlerts() — which opens EIGHT sheets to
+    // produce seven numbers the board discards.
+    //
+    // Rule copied deliberately from Alerts.js (the 2026-04-30 fix): parse as a
+    // dollar amount and flag only when > 0. That rejects "FREE", "", zero AND
+    // the DIRECT header row, whose column J literally contains the text
+    // "SHIP COST" — the original false-positive. The header-glyph guards below
+    // mirror the same belt-and-suspenders check.
+    var skuUpper = sku.toUpperCase();
+    var headerish = (skuUpper.indexOf('◈') !== -1) || skuUpper === 'SKU' ||
+                    skuUpper === '# SKU' || skuUpper === '◈ SKU';
+    if (!headerish && !Schema.isTerminal(status)) {
+      var scStr = String(data[i][Schema.idx("SHIP_COST")] == null
+                           ? "" : data[i][Schema.idx("SHIP_COST")]).trim();
+      var scNum = parseFloat(scStr.replace(/[^0-9.\-]/g, ''));
+      if (!isNaN(scNum) && scNum > 0) paidCount++;
+    }
+
     if (status !== Schema.status.PENDING && status !== Schema.status.PREPARING) continue;
+
+    var note = String(data[i][Schema.idx("NOTE")] || "").trim();
     out.push({
       channel:  inDirect ? "DIRECT" : "EBAY",
       orderId:  String(data[i][Schema.idx("SALES_ORDER")] || "").trim(),
@@ -226,18 +343,67 @@ function _dashOpenOrders() {
       qty:      data[i][Schema.idx("QTY")],
       location: String(data[i][Schema.idx("LOCATION")] || "").trim(),
       status:   status,
-      note:     String(data[i][Schema.idx("NOTE")] || "").trim()
+      note:     note,
+      // A kit row that hasn't been expanded yet can't actually be picked from
+      // the shelf — its components aren't on the sheet. Flagging it stops a
+      // picker walking to a K-* aisle expecting a box. Components themselves
+      // (NOTE starts "↳ from KIT-") are normal pickable rows, so exclude them.
+      isKit: (note.indexOf("↳ from KIT-") !== 0) && kitSkus[sku] === 1
     });
-    if (out.length >= 60) break;            // hard cap — keep the paint cheap
   }
 
-  // Sort by LOCATION for a natural pick walk; NOT FOUND / blank sink to the end.
+  // SORT FIRST, THEN CAP.
+  // 2026-08-05: these were the other way round — the cap ran during the scan, so
+  // on a busy day the board kept the first 60 rows in SHEET order and sorted
+  // only those. The rows it dropped were whichever sat lowest in the sheet, not
+  // the last by aisle, so a picker could walk the whole list and still miss
+  // items. Capping after the sort makes the omission predictable (the far end of
+  // the walk) — and `openOrdersTotal` on the tick lets the board SAY it's
+  // truncated instead of looking complete.
+  //
+  // Aisle order is NATURAL, not lexical — compareLocations() in Helpers.js.
+  // A-9 must come before A-50 on a list whose entire job is the walk order.
   out.sort(function (a, b) {
     var la = String(a.location || ""), lb = String(b.location || "");
     var am = (!la || la.toUpperCase() === "NOT FOUND") ? 1 : 0;
     var bm = (!lb || lb.toUpperCase() === "NOT FOUND") ? 1 : 0;
     if (am !== bm) return am - bm;
-    return la.localeCompare(lb);
+    var byLoc = compareLocations(la, lb);
+    if (byLoc !== 0) return byLoc;
+    return String(a.sku).localeCompare(String(b.sku));
   });
-  return out;
+
+  var capped = out.length > DASHBOARD.pickListCap
+                 ? out.slice(0, DASHBOARD.pickListCap) : out;
+  capped.total     = out.length;    // both read by _buildDashboardTick before
+  capped.paidCount = paidCount;     // JSON serialisation drops these
+  return capped;
+}
+
+
+/**
+ * Kit SKUs as a lookup object, CACHED.
+ *
+ * buildKitMap() reads the whole Kit Registry (~1,500 rows) and this sits on the
+ * board's 15-second poll, so it must not run every tick. Kit composition changes
+ * rarely — a few minutes of staleness only means a freshly-added kit isn't
+ * flagged for a little while, which is harmless.
+ *
+ * @returns {Object} { "<sku>": 1 }
+ */
+function _dashKitSkuSet() {
+  try {
+    var cache = CacheService.getScriptCache();
+    var hit = cache.get(DASHBOARD.kitCacheKey);
+    if (hit) return JSON.parse(hit);
+
+    var set = {};
+    buildKitMap().forEach(function (_v, sku) { set[String(sku)] = 1; });
+    try { cache.put(DASHBOARD.kitCacheKey, JSON.stringify(set), DASHBOARD.kitCacheSec); }
+    catch (e) { /* over the 100KB cache-entry cap — just don't cache */ }
+    return set;
+  } catch (e) {
+    try { console.log("_dashKitSkuSet: " + e); } catch (_) {}
+    return {};    // degrade to "nothing is a kit" — never break the board
+  }
 }

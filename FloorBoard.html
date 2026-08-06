@@ -863,6 +863,24 @@
       white-space: nowrap;
     }
     .pick-loc.missing { color: var(--red-alert); font-weight: 500; }
+    /* Unexpanded kit — not pickable off a shelf until someone decides.
+       Outlined rather than filled so it reads as a NOTE on the SKU, not as a
+       third status competing with GRAB / PREP at the end of the row. */
+    .pick-kit {
+      display: inline-block;
+      font-family: 'Oswald', sans-serif;
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.12em;
+      line-height: 1;
+      padding: 2px 5px;
+      border: 1px solid var(--brand-yellow);
+      border-radius: 3px;
+      color: var(--brand-yellow);
+      vertical-align: 2px;
+      opacity: 0.9;
+    }
+
     .pick-sku {
       font-family: 'Roboto Mono', monospace;
       font-size: 17px;
@@ -1381,7 +1399,7 @@
         <span class="ftr-sound" id="themeBtn" title="Theme">🎨 theme</span>
         <span class="ftr-sound" id="breatheBtn" title="Ambient breath — a barely-there living calm">◌ breathe</span>
         <span id="footSync">sync —</span>
-        <span>FLOOR · v2.0 · console</span>
+        <span>FLOOR · v2.1 · hosted</span>
       </div>
     </div>
     <audio id="radioAudio" preload="none"></audio>
@@ -1398,7 +1416,8 @@
     // ===================================================================
     // HQ FLOOR BOARD — client (v1.0)
     // ===================================================================
-    var POLL_MS   = 15000;   // server tick cadence
+    var POLL_MS     = 20000;   // minimum gap between ticks
+    var POLL_MAX_MS = 90000;   // ceiling when the server is crawling
     var CLOCK_MS  = 1000;    // local clock cadence
     var TZ        = 'America/Chicago';  // Houston/Central — board always shows shop time
 
@@ -1457,8 +1476,8 @@
       setInterval(fetchPrayerTimes, 3 * 3600000);   // refresh prayer times every 3h
       tickClock();
       setInterval(tickClock, CLOCK_MS);
-      poll();
-      setInterval(poll, POLL_MS);
+      poll();   // self-rescheduling — see schedulePoll(). Deliberately NOT
+                // setInterval: a fixed clock is what caused the pile-up.
     });
 
     // ---------- weather (Open-Meteo · free · no key) ----------
@@ -1594,12 +1613,103 @@
       c.innerHTML = html;
     }
 
+    // ---------- server bridge ----------
+    // This board runs in TWO places and must work in both:
+    //
+    //   1. Apps Script /exec  — inside Google's HtmlService frame, where
+    //      google.script.run exists and is the fastest path.
+    //   2. Our own domain via Caddy — where that channel does NOT exist, so
+    //      calls go over HTTP to /api/board, which Caddy proxies to n8n. n8n
+    //      holds the shared token and forwards to Apps Script; the token never
+    //      reaches the browser.
+    //
+    // Detecting the host rather than hard-coding one keeps the move REVERSIBLE:
+    // the same file can be pointed back at /exec at any time, and both paths
+    // resolve the SAME shapes (see the radio case, which normalises a bare
+    // string into { nowPlaying } so callers never branch).
+    var HQ_API    = '/api/board';
+    var HQ_NATIVE = (typeof google !== 'undefined' && google.script && google.script.run);
+
+    function hqCall(action, body) {
+      var payload = body || {};
+
+      if (HQ_NATIVE) {
+        return new Promise(function (resolve, reject) {
+          var run = google.script.run.withFailureHandler(reject);
+          if (action === 'boardTick')   return run.withSuccessHandler(resolve).getDashboardTick();
+          if (action === 'boardStatus') return run.withSuccessHandler(resolve)
+                                                 .boardSetStatus(payload.orderId, payload.status);
+          if (action === 'boardRadio')  return run.withSuccessHandler(function (t) {
+                                                   resolve({ ok: true, nowPlaying: t || '' });
+                                                 }).getRadioNowPlaying(payload.stationId);
+          reject(new Error('unknown action ' + action));
+        });
+      }
+
+      payload.action = action;
+      return fetch(HQ_API, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify(payload)
+      }).then(function (r) {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.json();
+      });
+    }
+
     // ---------- poll ----------
+    // ---------- poll: NEVER let requests overlap ----------
+    // 2026-08-05: hosted off-platform, one round-trip takes ~19s (n8n hop +
+    // Apps Script). A fixed 15s interval therefore fired a new request while
+    // earlier ones were still in flight; Apps Script serialises concurrent runs
+    // of the same script, so they queued, got slower, and eventually exceeded
+    // the proxy's timeout — which returns an error object instead of a tick.
+    // The board flickered between real data and zeros with NOTHING logging an
+    // error anywhere. Five executions were running at once.
+    //
+    // In-process google.script.run was fast enough that this never showed up.
+    // Over HTTP the rule has to be explicit: at most ONE tick in flight, and
+    // the next one is scheduled from the END of the last, not on a fixed clock.
+    var pollBusy    = false;
+    var pollTimer   = null;
+    var pollLastMs  = 0;
+    var pollUrgent  = false;   // a write just happened — refresh at the first chance
+    var lastTick    = null;    // most recent good tick — optimistic picks repaint from it
+
     function poll() {
-      google.script.run
-        .withSuccessHandler(onTick)
-        .withFailureHandler(onFail)
-        .getDashboardTick();
+      if (pollBusy) return;              // previous tick still running — skip
+      pollBusy = true;
+      var started = Date.now();
+
+      hqCall('boardTick')
+        .then(function (t) { pollLastMs = Date.now() - started; onTick(t); })
+        .catch(function (e) { pollLastMs = Date.now() - started; onFail(e); })
+        .then(schedulePoll, schedulePoll);   // always reschedule, either way
+    }
+
+    function schedulePoll() {
+      pollBusy = false;
+      if (pollTimer) clearTimeout(pollTimer);
+      // Never hammer a slow server: wait at least POLL_MS, and if the last
+      // round-trip was slower than that, give it that long again before asking.
+      // EXCEPT right after a write — the picker just tapped something and needs
+      // to see it move, so jump the queue once.
+      var wait = pollUrgent ? 0 : Math.min(Math.max(POLL_MS, pollLastMs), POLL_MAX_MS);
+      pollUrgent = false;
+      pollTimer = setTimeout(poll, wait);
+    }
+
+    /**
+     * Refresh as soon as possible after a write. If nothing is in flight this
+     * polls immediately; if a tick is already running it flags the NEXT
+     * schedule to fire straight away instead of waiting out the interval.
+     * (Calling poll() directly here would be swallowed by the busy guard —
+     * which is what made a ✓ Pick appear to take ~30s.)
+     */
+    function pollSoon() {
+      if (pollBusy) { pollUrgent = true; return; }
+      if (pollTimer) clearTimeout(pollTimer);
+      poll();
     }
 
     function onFail(err) {
@@ -1611,10 +1721,25 @@
     }
 
     function onTick(tick) {
+      // A response is not the same as a USABLE response. If the server answered
+      // with something that isn't a tick — an older /exec that doesn't know the
+      // action, an error object, a proxy's own reply — painting it would show a
+      // confident wall of zeros while the indicator says LIVE. That happened on
+      // 2026-08-05 and looked healthy at every layer. Treat a tick with no
+      // cockpit as a failure so the board SAYS it lost the line.
+      if (!tick || typeof tick !== 'object' || !tick.cockpit) {
+        try {
+          console.warn('onTick: response is not a tick —',
+                       (tick && (tick.message || tick.status)) || tick);
+        } catch (e) {}
+        return onFail(tick && tick.message ? tick.message : 'bad tick');
+      }
+
       failCount = 0;
       document.getElementById('connLost').classList.remove('show');
       document.getElementById('board').classList.remove('booting');
-      if (!tick) return;
+
+      lastTick = tick;                   // optimistic picks re-paint from this
 
       var c = tick.cockpit || {};
       var a = tick.alerts  || {};
@@ -1623,7 +1748,9 @@
       paintMinis(c);
       paintPace(tick.paceCar);
       paintPaid(a);
-      paintPickList(tick.openOrders || []);
+      // Overlay any just-tapped rows the server hasn't confirmed yet — a tick
+      // served from n8n's 15s cache can still be showing the old status.
+      paintPickList(applyPickOverrides((tick.openOrders || []).slice()), tick.openOrdersTotal);
       paintRightColumn(tick);
       paintRest(tick, c);
       applyMode((tick.openOrders || []).length);
@@ -1972,11 +2099,18 @@
       return (r.channel || '') + '|' + (r.orderId || '') + '|' + (r.sku || '');
     }
 
-    function paintPickList(rows) {
+    function paintPickList(rows, total) {
       rows = rows || [];
       var list = document.getElementById('pickList');
+      // Say so when the walk is truncated. A pick list that looks complete but
+      // isn't is worse than one that admits it — the picker would finish the
+      // list believing the floor was clear.
+      var hidden = Math.max(0, (num(total) || rows.length) - rows.length);
       document.getElementById('pickCount').textContent =
-        rows.length ? (rows.length + (rows.length === 1 ? ' line' : ' lines')) : '';
+        rows.length
+          ? (rows.length + (rows.length === 1 ? ' line' : ' lines') +
+             (hidden ? '  ·  +' + hidden + ' more' : ''))
+          : '';
 
       // drop the empty placeholder once real rows arrive
       var emptyEl = list.querySelector('.feed-empty');
@@ -2048,6 +2182,18 @@
       sku.className = 'pick-sku';
       sku.textContent = r.sku || '';
 
+      // A kit row that hasn't been expanded yet CANNOT be picked off a shelf —
+      // its components aren't on the sheet. Without this the picker walks to a
+      // K-* aisle expecting a box and finds a decision instead.
+      if (r.isKit) {
+        var kb = document.createElement('span');
+        kb.className = 'pick-kit';
+        kb.textContent = 'KIT';
+        kb.title = 'Not expanded yet — decide: ship the box, or break it into components';
+        sku.appendChild(document.createTextNode(' '));
+        sku.appendChild(kb);
+      }
+
       var qty = document.createElement('span');
       qty.className = 'pick-qty';
       qty.textContent = '×' + (num(r.qty) || 1);
@@ -2092,19 +2238,87 @@
     }
 
     // ---------- CONSOLE: mark picked (PENDING → PREPARING) ----------
+    //
+    // OPTIMISTIC. The row flips the instant you tap, and the server confirms
+    // afterwards. Waiting for the round-trip meant several seconds of spinner
+    // for an outcome the picker already knows — on a warehouse floor that reads
+    // as a broken button and invites a second tap.
+    //
+    // The override has to SURVIVE STALE TICKS, which is the subtle part: the
+    // write is never cached, but the very next boardTick can be served from
+    // n8n's 15s cache and still say PENDING. Without this the row would flip,
+    // snap back, then flip again. So an override is held until a tick actually
+    // reports the new status (or the row leaves the list), with a TTL as the
+    // backstop if the server never agrees.
+    var pickOverride = {};                 // key -> { status, until }
+    var PICK_OVERRIDE_MS = 45000;
+
+    function applyPickOverrides(rows) {
+      var now = Date.now(), k;
+      for (k in pickOverride) {            // drop anything stale
+        if (pickOverride[k].until < now) delete pickOverride[k];
+      }
+      for (var i = 0; i < rows.length; i++) {
+        var ov = pickOverride[pickKey(rows[i])];
+        if (!ov) continue;
+        if (String(rows[i].status).toUpperCase() === ov.status) {
+          delete pickOverride[pickKey(rows[i])];   // server agrees — done
+        } else {
+          rows[i] = Object.assign({}, rows[i], { status: ov.status });
+          rows[i]._optimistic = true;
+        }
+      }
+      return rows;
+    }
+
+    function setPickOverride(orderId, status) {
+      // One tap can cover several rows of the same order (multi-line SOs).
+      var rows = (lastTick && lastTick.openOrders) || [];
+      var touched = false;
+      for (var i = 0; i < rows.length; i++) {
+        if (String(rows[i].orderId) !== String(orderId)) continue;
+        pickOverride[pickKey(rows[i])] = { status: status, until: Date.now() + PICK_OVERRIDE_MS };
+        touched = true;
+      }
+      if (touched) paintPickList(applyPickOverrides((rows || []).slice()),
+                                 lastTick && lastTick.openOrdersTotal);
+    }
+
+    function clearPickOverride(orderId) {
+      var rows = (lastTick && lastTick.openOrders) || [];
+      for (var i = 0; i < rows.length; i++) {
+        if (String(rows[i].orderId) === String(orderId)) delete pickOverride[pickKey(rows[i])];
+      }
+      paintPickList(applyPickOverrides((rows || []).slice()),
+                    lastTick && lastTick.openOrdersTotal);
+    }
+
     function markPicked(orderId, btn) {
       if (!orderId) return;
       if (btn) { btn.disabled = true; btn.textContent = '…'; }
-      google.script.run
-        .withSuccessHandler(function (r) {
-          if (r && r.ok) { showPickedToast(orderId); poll(); }
-          else if (btn)  { btn.disabled = false; btn.textContent = '✓ Pick'; }
+
+      setPickOverride(orderId, 'PREPARING');   // flip NOW
+      showPickedToast(orderId);                // and confirm NOW
+
+      hqCall('boardStatus', { orderId: orderId, status: 'PREPARING' })
+        .then(function (r) {
+          if (r && r.ok) { pollSoon(); return; }
+          clearPickOverride(orderId);          // server refused — put it back
+          hideToast();
+          if (btn) { btn.disabled = false; btn.textContent = '✓ Pick'; }
         })
-        .withFailureHandler(function () { if (btn) { btn.disabled = false; btn.textContent = '✓ Pick'; } })
-        .boardSetStatus(orderId, 'PREPARING');
+        .catch(function () {
+          clearPickOverride(orderId);
+          hideToast();
+          if (btn) { btn.disabled = false; btn.textContent = '✓ Pick'; }
+        });
     }
+
     function unpick(orderId) {
-      google.script.run.withSuccessHandler(function () { poll(); }).boardSetStatus(orderId, 'PENDING');
+      setPickOverride(orderId, 'PENDING');
+      hqCall('boardStatus', { orderId: orderId, status: 'PENDING' })
+        .then(function () { pollSoon(); })
+        .catch(function () { clearPickOverride(orderId); });
     }
     function showPickedToast(orderId) {
       var t = document.getElementById('ctoast');
@@ -2498,10 +2712,9 @@
       var id = radioStations[radioIdx].id;
       if (!id) { currentTrack = ''; paintRadio(); return; }   // non-SomaFM (e.g. Quran) — no track feed
       try {
-        google.script.run
-          .withSuccessHandler(function (t) { if (t) { currentTrack = t; paintRadio(); } })
-          .withFailureHandler(function () { /* leave station name only */ })
-          .getRadioNowPlaying(id);
+        hqCall('boardRadio', { stationId: id })
+          .then(function (r) { if (r && r.nowPlaying) { currentTrack = r.nowPlaying; paintRadio(); } })
+          .catch(function () { /* leave station name only */ });
       } catch (e) {}
     }
     // Earcon palette — each event has its own recognizable little motif.

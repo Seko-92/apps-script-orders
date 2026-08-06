@@ -151,7 +151,7 @@ function expandKit(kitSku, deployQty) {
  *   }>
  * }}
  */
-function previewSelectedKits(deployQty) {
+function previewSelectedKits(deployQty, rowsOverride) {
   var ss = SpreadsheetApp.getActive();
   if (!ss) {
     return { ok: false, message: "No active spreadsheet.", selectedCount: 0,
@@ -164,8 +164,15 @@ function previewSelectedKits(deployQty) {
              kitsFound: 0, nonKitRows: [], kitRows: [] };
   }
 
-  // --- Collect distinct row numbers from the selection ---
-  var selectedRows = _collectSelectedRows(sheet);
+  // --- Collect distinct row numbers ---
+  // `rowsOverride` lets a caller supply the rows explicitly instead of reading
+  // the sheet selection. Added 2026-08-05 for the hosted kit-expansion page,
+  // which has no selection to read — it scans for unexpanded kit rows instead.
+  // Everything downstream of this point is per-row and identical either way,
+  // so the web path reuses the whole enrichment pipeline rather than cloning it.
+  var selectedRows = (rowsOverride && rowsOverride.length)
+                       ? rowsOverride
+                       : _collectSelectedRows(sheet);
   if (selectedRows.length === 0) {
     return { ok: false, message: "No rows selected on the sheet.", selectedCount: 0,
              kitsFound: 0, nonKitRows: [], kitRows: [], debug: { selectedRows: [] } };

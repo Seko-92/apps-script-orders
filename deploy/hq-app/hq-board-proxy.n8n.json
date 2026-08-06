@@ -1,0 +1,80 @@
+{
+  "name": "HQ Board Proxy",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "hq-board",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "b1a10000-0000-4000-8000-000000000001",
+      "name": "1. Board Request",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "b1a10000-0000-4000-8000-000000000001"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// HQ Board proxy — cache reads, always pass writes straight through.\n//\n// WHY: every device polls independently, and each poll is its own Apps Script\n// execution. A consumer account has ~90 minutes of script runtime PER DAY, so\n// at ~4s a tick one board burns ~12 min/hour — ten boards would exhaust the\n// day's quota in under an hour, taking n8n inserts and Telegram down with it.\n// Caching here makes the Apps Script cost INDEPENDENT of how many devices are\n// watching: one board or fifty, the same handful of calls per minute.\n//\n// ⚠ READS ONLY. boardStatus is a WRITE (the ✓ Pick button) and must NEVER be\n// served from, or stored in, the cache.\n\nconst sd     = $getWorkflowStaticData('global');\nconst body   = ($input.first().json.body) || {};\nconst action = String(body.action || '');\n\nconst EXEC_URL  = '__APPS_SCRIPT_EXEC_URL__';\nconst TOKEN     = '__APP_SECRET_TOKEN__';\nconst CACHE_MS  = 15000;          // a board polls at 20s; 15s of staleness is invisible\nconst CACHEABLE = ['boardTick'];  // NOT boardStatus. Not ever.\n\nconst now      = Date.now();\nconst cacheable = CACHEABLE.includes(action);\n\n// --- serve from cache -------------------------------------------------------\nif (cacheable && sd.tick && sd.tickAt && (now - sd.tickAt) < CACHE_MS) {\n  const hit = JSON.parse(sd.tick);\n  hit._cached = true;\n  hit._ageMs  = now - sd.tickAt;\n  return [{ json: hit }];\n}\n\n// --- otherwise ask Apps Script ---------------------------------------------\nlet res;\ntry {\n  res = await this.helpers.httpRequest({\n    method:  'POST',\n    url:     EXEC_URL,\n    body:    Object.assign({}, body, { token: TOKEN }),\n    json:    true,\n    timeout: 45000\n  });\n} catch (err) {\n  // Never throw: a thrown Code node returns no body, and the board would see a\n  // dead socket instead of something it can report. Hand back a readable error.\n  return [{ json: { error: 'proxy: ' + (err.message || String(err)) } }];\n}\n\n// --- store, but ONLY a response that actually looks like a tick -------------\n// Caching an error would pin the board to it for the whole cache window.\nif (cacheable && res && res.cockpit) {\n  sd.tick   = JSON.stringify(res);\n  sd.tickAt = now;\n}\n\nreturn [{ json: res }];\n"
+      },
+      "id": "b1a10000-0000-4000-8000-000000000002",
+      "name": "2. Cache + Forward",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        0
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {}
+      },
+      "id": "b1a10000-0000-4000-8000-000000000003",
+      "name": "3. Respond to Board",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        440,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "1. Board Request": {
+      "main": [
+        [
+          {
+            "node": "2. Cache + Forward",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "2. Cache + Forward": {
+      "main": [
+        [
+          {
+            "node": "3. Respond to Board",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}

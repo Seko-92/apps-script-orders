@@ -552,6 +552,16 @@ function _floorOrderIsDirect(orderId) {
   return true;
 }
 
+/**
+ * How many trailing Activity Log rows getDashboardSnapshot reads.
+ *
+ * The log keeps 90 days; the dashboard only ever needs recent history (today's
+ * counts + today's timeline + the earliest RECEIVED of still-open orders), and
+ * this function sits on the Floor Board's poll. Reading the whole thing every
+ * time was costing ~19s per call. See the comment at the read site.
+ */
+var DASH_LOG_TAIL_ROWS = 2500;
+
 function getDashboardSnapshot() {
   var result = {
     shippedToday: 0,
@@ -586,10 +596,29 @@ function getDashboardSnapshot() {
     if (logSheet) {
       var lastLogRow = logSheet.getLastRow();
       if (lastLogRow >= ACTIVITY_LOG.dataStartRow) {
+        // READ THE TAIL, NOT THE WHOLE LOG.
+        // 2026-08-05: this read the entire 90-day retention window on EVERY
+        // call — and the Floor Board calls it on a poll. Once the board moved
+        // off-platform that showed up as ~19s round-trips, which stacked into a
+        // queue and made the board flicker between real data and zeros.
+        //
+        // The log is append-only and chronological, so the tail IS the recent
+        // history. Everything this function computes is recent by nature:
+        // today's counts, today's timeline, and the earliest RECEIVED for
+        // orders that are still PENDING.
+        //
+        // Trade-off, stated plainly: an order whose RECEIVED event falls
+        // outside the window is OMITTED from the oldest-pending calculation
+        // (the loop below skips ids with no receivedMap entry) — it is never
+        // reported with a wrong age. At normal volume this window covers weeks;
+        // an order pending longer than that is a straggler the watchdog already
+        // reports. Raise DASH_LOG_TAIL_ROWS if oldest-pending ever looks short.
+        var totalLogRows = lastLogRow - ACTIVITY_LOG.dataStartRow + 1;
+        var readRows     = Math.min(totalLogRows, DASH_LOG_TAIL_ROWS);
+        var firstReadRow = lastLogRow - readRows + 1;
+
         var data = logSheet.getRange(
-          ACTIVITY_LOG.dataStartRow, 1,
-          lastLogRow - ACTIVITY_LOG.dataStartRow + 1,
-          ACTIVITY_LOG.dataWidth
+          firstReadRow, 1, readRows, ACTIVITY_LOG.dataWidth
         ).getValues();
 
         for (var i = 0; i < data.length; i++) {

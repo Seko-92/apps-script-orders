@@ -185,6 +185,18 @@ function updateOrderStatus(target, newStatus, options) {
       console.log("updateOrderStatus: activity log error: " + e);
     }
 
+    // 6b-ii. Drop the Floor Board's cached tick.
+    // The board is a POLLING surface — it only learns about a change by asking,
+    // and a 45s cache sits in front of it, so a status flipped anywhere else
+    // could take over a minute to show up. Busting here (the canonical
+    // chokepoint EVERY status change flows through — manual edit, Telegram,
+    // n8n, sidebar bulk, the board itself) means the next poll rebuilds, cutting
+    // sheet→board lag to the poll interval without giving back the quota that
+    // the cache buys. Best-effort: never let it affect the status write.
+    try { _dashBustTickCache(); } catch (e) {
+      console.log("updateOrderStatus: tick cache bust failed: " + e);
+    }
+
     // 6c. KIT-PARENT AUTO-FOLLOW (2026-07-14). A kit parent row is a logical
     // line — pickers flip the physical component rows (tagged "↳ from KIT-")
     // and nothing used to flip the parent unless the whole SO was swept in

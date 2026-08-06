@@ -1,0 +1,65 @@
+# =====================================================================
+# HQ web app — one site, one directory, many pages
+# =====================================================================
+#
+#   hq.yassinqurabi.com/         → Floor Board   (public, as it is today)
+#   hq.yassinqurabi.com/kits     → Kit expansion (slice 2, Telegram-authed)
+#   hq.yassinqurabi.com/api/*    → n8n
+#
+# Named for the APP, not the page — the board is simply what lives at "/".
+# Decided before DNS on purpose: the tablet gets a home-screen icon pointing
+# at whatever hostname we pick, and changing it later means touching the device.
+#
+# DNS first: A record hq.yassinqurabi.com -> the server IP, DNS-ONLY (grey
+# cloud). An orange-cloud proxy breaks Caddy's HTTP-01 challenge — the same
+# trap as the original n8n setup.
+#
+# WHY /api IS PROXIED HERE rather than the page calling n8n directly:
+# it keeps the request SAME-ORIGIN, so there is no CORS preflight and no extra
+# round trip on every 15-second poll. It also means the page never has to know
+# n8n's hostname.
+
+hq.yassinqurabi.com {
+	encode zstd gzip
+
+	# API routes are declared EXPLICITLY, one per endpoint, rather than a
+	# blanket /api/*. An unknown /api/anything then 404s here instead of being
+	# forwarded to n8n — and it keeps the auth story visible in the config:
+	# the board endpoint is open (it always was), and /api/kits will sit behind
+	# Telegram initData verification in its own n8n workflow.
+	handle /api/board {
+		rewrite * /webhook/hq-board
+		reverse_proxy n8n:5678
+	}
+
+	# Slice 2 — uncomment when the kits workflow exists.
+	# handle /api/kits {
+	# 	rewrite * /webhook/hq-kits
+	# 	reverse_proxy n8n:5678
+	# }
+
+	# Everything else is the app's static files.
+	handle {
+		root * /opt/hq-app
+		try_files {path} {path}.html /index.html
+		file_server
+	}
+
+	header {
+		# Live operations display — never serve it stale.
+		Cache-Control "no-store, must-revalidate"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "same-origin"
+	}
+}
+
+# NO `log` directive on purpose. Writing to /var/log/caddy/ fails if that
+# directory doesn't exist in the container, and a bad directive makes the WHOLE
+# Caddyfile invalid — which would take n8n and tracker down too. None of the
+# existing site blocks use one. `docker compose logs caddy` is enough.
+#
+# ALWAYS validate before reloading, for the same reason:
+#   docker compose exec caddy caddy validate --config /etc/caddy/Caddyfile
+#
+# `reverse_proxy n8n:5678` works because Caddy and n8n share the external `web`
+# Docker network — the same way n8n.yassinqurabi.com is already served.
