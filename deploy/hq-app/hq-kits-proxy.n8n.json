@@ -1,0 +1,52 @@
+{
+  "name": "HQ Kits Proxy",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "hq-kits",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "c2b20000-0000-4000-8000-000000000001",
+      "name": "1. Kits Request",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 0],
+      "webhookId": "c2b20000-0000-4000-8000-000000000001"
+    },
+    {
+      "parameters": {
+        "jsCode": "// HQ Kits proxy — forward only. NO CACHE, EVER.\n//\n// This is a DELIBERATELY SEPARATE workflow from hq-board, not a branch inside\n// it. These endpoints WRITE inventory rows; the board's are open reads. Keeping\n// them in different workflows makes that difference STRUCTURAL rather than a\n// conditional somebody can get wrong later.\n//\n// ⚠ WHY NO CACHE HERE, when hq-board caches aggressively:\n//   kitsCommit  — a write. Caching a write is nonsense.\n//   kitsLookup  — a stock/shelf read whose whole job is to be current.\n//   kitsQueue   — looks cacheable and ISN'T. It is the list of kits still\n//                 awaiting a decision, and it changes the instant anyone\n//                 expands one (here, from the sidebar, or via the modal).\n//                 Serving a stale queue would show a picker a kit that no\n//                 longer needs doing. The server re-derives at commit time so\n//                 nothing would actually be written twice — it would fail\n//                 loudly instead — but sending someone to a shelf for work\n//                 that is already done is its own kind of wrong.\n//\n// Volume is a handful of calls per expansion session, not a 20s poll, so the\n// Apps Script quota argument that justifies the board's cache does not apply.\n\nconst body = ($input.first().json.body) || {};\n\nconst EXEC_URL = '__APPS_SCRIPT_EXEC_URL__';\nconst TOKEN    = '__APP_SECRET_TOKEN__';\n\n// The shared token proves the call came through this proxy. It does NOT say\n// who is asking — every browser opening the page would present the same one.\n// `initData` (Telegram's signed identity, forwarded untouched from the page)\n// is what identifies the human, and Apps Script verifies its HMAC. We pass it\n// straight through and never inspect it here.\nlet res;\ntry {\n  res = await this.helpers.httpRequest({\n    method:  'POST',\n    url:     EXEC_URL,\n    body:    Object.assign({}, body, { token: TOKEN }),\n    json:    true,\n    timeout: 60000\n  });\n} catch (err) {\n  // Never throw: a thrown Code node returns no body, and the page would see a\n  // dead socket instead of something it can show the picker.\n  return [{ json: { ok: false, message: 'proxy: ' + (err.message || String(err)) } }];\n}\n\nreturn [{ json: res }];"
+      },
+      "id": "c2b20000-0000-4000-8000-000000000002",
+      "name": "2. Forward to Apps Script",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [220, 0],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {}
+      },
+      "id": "c2b20000-0000-4000-8000-000000000003",
+      "name": "3. Respond to Page",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [440, 0]
+    }
+  ],
+  "connections": {
+    "1. Kits Request": {
+      "main": [[{ "node": "2. Forward to Apps Script", "type": "main", "index": 0 }]]
+    },
+    "2. Forward to Apps Script": {
+      "main": [[{ "node": "3. Respond to Page", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": { "executionOrder": "v1" },
+  "pinData": {}
+}

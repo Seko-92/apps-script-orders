@@ -32,11 +32,19 @@ hq.yassinqurabi.com {
 		reverse_proxy n8n:5678
 	}
 
-	# Slice 2 — uncomment when the kits workflow exists.
-	# handle /api/kits {
-	# 	rewrite * /webhook/hq-kits
-	# 	reverse_proxy n8n:5678
-	# }
+	# Slice 2 — kit expansion. Its own n8n workflow (hq-kits), NOT a branch of
+	# hq-board: these endpoints WRITE inventory rows and sit behind Telegram
+	# initData verification, so the difference stays structural.
+	# Longer timeout than the board: a commit inserts rows and takes the script
+	# lock, so it can legitimately run well past a read.
+	handle /api/kits {
+		rewrite * /webhook/hq-kits
+		reverse_proxy n8n:5678 {
+			transport http {
+				response_header_timeout 90s
+			}
+		}
+	}
 
 	# Everything else is the app's static files.
 	handle {

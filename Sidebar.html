@@ -3163,6 +3163,12 @@ body.dark-theme .footer-version { border-color: #2c2c2c; }
 @media (prefers-reduced-motion: reduce) {
   .boot-mark, .boot-bar::after { animation: none; }
 }
+    .ls-lbl { flex:1; display:flex; align-items:center; gap:6px;
+              font-size:11px; color:#8a8a80; letter-spacing:0.04em; }
+    .ls-in  { flex:1; min-width:0; width:100%; padding:6px 8px; border-radius:5px;
+              border:1px solid rgba(255,217,102,0.28); background:rgba(0,0,0,0.25);
+              color:#f5f5f2; font-family:'Roboto Mono',monospace; font-size:13px; }
+    .ls-in:focus { outline:none; border-color:#ffd966; }
 </style>
 </head>
 
@@ -3871,6 +3877,32 @@ body.dark-theme .footer-version { border-color: #2c2c2c; }
     posts once; Arm weekly = installs the Monday trigger (runs as the user, so
     it can install the trigger without the editor). applyZones → DIAGNOSTICS.
   -->
+  <div class="card collapsed" data-id="low-stock" draggable="true">
+    <div class="card-header" onclick="toggleCollapse(this)">
+      <div class="drag-handle" title="Drag to reorder">☰</div>
+      <div class="card-title"><div class="card-icon">📉</div><h3>Low Stock</h3></div>
+      <div class="card-toggle">▼</div>
+    </div>
+    <div class="card-body">
+      <div class="empty-hint">What <b>sold</b> in the window and is now at or below the
+        quantity. Ranked by days of cover, so the most urgent reorder is first.</div>
+      <div class="btn-group">
+        <label class="ls-lbl">Days
+          <input type="number" id="lsDays" class="ls-in" min="1" max="90" value="7">
+        </label>
+        <label class="ls-lbl">Qty &le;
+          <input type="number" id="lsQty" class="ls-in" min="0" max="999" value="5">
+        </label>
+      </div>
+      <button class="btn-primary" id="lsPreviewBtn" onclick="previewLowStockNow()">👁 Preview</button>
+      <div class="btn-group">
+        <button class="btn-secondary" id="lsPdfBtn" onclick="lowStockPdfNow()">📄 PDF</button>
+        <button class="btn-secondary" id="lsTgBtn" onclick="lowStockTgNow()">📄 → Telegram</button>
+      </div>
+      <div id="lsResult" class="wd-result" style="display:none;"></div>
+    </div>
+  </div>
+
   <div class="card collapsed" data-id="weekly-digest" draggable="true">
     <div class="card-header" onclick="toggleCollapse(this)">
       <div class="drag-handle" title="Drag to reorder">☰</div>
@@ -6866,6 +6898,127 @@ function _wdPaintText(text) {
   el.style.fontSize = '11px';
   el.textContent = text;
 }
+/* ================= LOW STOCK =================
+   Follows the digest card's conventions exactly: `status` is the global status
+   element (there is no setStatus helper), paint helpers target their OWN result
+   div, and every handler guards on a module-level busy flag.
+   NOTE: _wdPaintText() takes ONE argument and always writes to #wdResult, so
+   this card needs its own painter — do not call it with an element id. */
+var isLowStockBusy = false;
+
+function _lsPaint(text) {
+  var el = document.getElementById('lsResult');
+  if (!el) return;
+  el.style.display = 'block';
+  el.className = '';
+  el.style.whiteSpace = 'pre-wrap';
+  el.style.fontFamily = "'Roboto Mono', monospace";
+  el.style.fontSize = '11px';
+  el.textContent = text;
+}
+
+function _lsOpts() {
+  var dEl = document.getElementById('lsDays');
+  var qEl = document.getElementById('lsQty');
+  var d = dEl ? parseInt(dEl.value, 10) : NaN;
+  var q = qEl ? parseInt(qEl.value, 10) : NaN;
+  return { days: isNaN(d) ? 7 : d, threshold: isNaN(q) ? 5 : q };
+}
+
+function _lsBtn(id, on, busyLabel, idleLabel) {
+  var b = document.getElementById(id);
+  if (!b) return;
+  b.disabled = on;
+  b.textContent = on ? busyLabel : idleLabel;
+}
+
+function previewLowStockNow() {
+  if (isLowStockBusy || typeof google === 'undefined' || !google.script) return;
+  var o = _lsOpts();
+  isLowStockBusy = true;
+  _lsBtn('lsPreviewBtn', true, '⏳ Reading…', '👁 Preview');
+  status.className = 'syncing';
+  status.textContent = 'Reading what sold in the last ' + o.days + 'd…';
+  google.script.run
+    .withSuccessHandler(function (text) {
+      isLowStockBusy = false;
+      _lsBtn('lsPreviewBtn', false, '', '👁 Preview');
+      status.className = 'success'; status.textContent = '✓ Low-stock preview ready';
+      _lsPaint(text);
+      playSound('syncDone');
+    })
+    .withFailureHandler(function (err) {
+      isLowStockBusy = false;
+      _lsBtn('lsPreviewBtn', false, '', '👁 Preview');
+      status.className = 'error'; status.textContent = 'Preview failed: ' + err;
+      _lsPaint('Failed: ' + err);
+      playSound('error');
+    })
+    .previewLowStock(o.days, o.threshold);
+}
+
+function lowStockPdfNow() {
+  if (isLowStockBusy || typeof google === 'undefined' || !google.script) return;
+  var o = _lsOpts();
+  isLowStockBusy = true;
+  _lsBtn('lsPdfBtn', true, '⏳ Building…', '📄 PDF');
+  status.className = 'syncing'; status.textContent = 'Building low-stock PDF…';
+  google.script.run
+    .withSuccessHandler(function (r) {
+      isLowStockBusy = false;
+      _lsBtn('lsPdfBtn', false, '', '📄 PDF');
+      if (r && r.ok) {
+        var el = document.getElementById('lsResult');
+        el.style.display = 'block';
+        el.style.whiteSpace = 'normal';
+        el.innerHTML = '<a href="' + _wdEsc(r.url) + '" target="_blank" rel="noopener">📄 Open / download ↗</a>'
+                     + '<div style="opacity:.7;margin-top:4px;font-size:10px;">' + _wdEsc(r.name) + '</div>';
+        status.className = 'success'; status.textContent = '✓ Low-stock PDF ready';
+        playSound('syncDone');
+      } else {
+        _lsPaint('Failed: ' + ((r && r.error) || 'unknown error'));
+        status.className = 'error'; status.textContent = 'PDF failed';
+        playSound('error');
+      }
+    })
+    .withFailureHandler(function (err) {
+      isLowStockBusy = false;
+      _lsBtn('lsPdfBtn', false, '', '📄 PDF');
+      _lsPaint('Failed: ' + err);
+      status.className = 'error'; status.textContent = 'PDF failed: ' + err;
+      playSound('error');
+    })
+    .generateLowStockPdf(o.days, o.threshold);
+}
+
+function lowStockTgNow() {
+  if (isLowStockBusy || typeof google === 'undefined' || !google.script) return;
+  if (!confirm('Send the low-stock PDF to the admin Telegram chat now?')) return;
+  var o = _lsOpts();
+  isLowStockBusy = true;
+  _lsBtn('lsTgBtn', true, '⏳ Sending…', '📄 → Telegram');
+  status.className = 'syncing'; status.textContent = 'Sending low-stock PDF…';
+  google.script.run
+    .withSuccessHandler(function (r) {
+      isLowStockBusy = false;
+      _lsBtn('lsTgBtn', false, '', '📄 → Telegram');
+      var sent = !!(r && r.sent);
+      _lsPaint(sent ? ('Sent — ' + r.count + ' item(s) to reorder.')
+                    : ('Failed: ' + ((r && r.error) || 'unknown error')));
+      status.className = sent ? 'success' : 'error';
+      status.textContent = sent ? '✓ Low-stock PDF sent' : 'Send failed';
+      playSound(sent ? 'syncDone' : 'error');
+    })
+    .withFailureHandler(function (err) {
+      isLowStockBusy = false;
+      _lsBtn('lsTgBtn', false, '', '📄 → Telegram');
+      _lsPaint('Failed: ' + err);
+      status.className = 'error'; status.textContent = 'Send failed: ' + err;
+      playSound('error');
+    })
+    .sendLowStockToTelegram(o.days, o.threshold);
+}
+
 function previewDigestNow() {
   if (isDigestBusy || typeof google === 'undefined' || !google.script) return;
   var btn = document.getElementById('wdPreviewBtn');
@@ -7032,7 +7185,7 @@ function applyZones() {
   const zones = [
     ['today',        "TODAY'S WORK", ['alerts', 'order-lookup', 'investigations', 'zoho-pull', 'kit-expand', 'fulfill']],
     ['table-tools',  'TABLE TOOLS',  ['ebay', 'direct', 'live', 'location-update']],
-    ['inventory',    'INVENTORY',    ['part-console', 'prep-queue', 'out-of-stock', 'stock-highlight', 'price-audit', 'kit-pricing', 'kit-health']],
+    ['inventory',    'INVENTORY',    ['part-console', 'prep-queue', 'out-of-stock', 'low-stock', 'stock-highlight', 'price-audit', 'kit-pricing', 'kit-health']],
     ['diagnostics',  'DIAGNOSTICS',  ['floor-board', 'weekly-digest', 'watchdog', 'duplicates', 'sheet-protect', 'api-monitor', 'arcade']]
   ];
 

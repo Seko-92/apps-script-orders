@@ -105,7 +105,8 @@ function doPost(e) {
     // initData HMAC before forwarding — that check is the boundary, and it is
     // deliberately a SEPARATE workflow from hq-board so the difference is
     // structural rather than a conditional someone can get wrong later.
-    if (payload.action === 'kitsQueue' || payload.action === 'kitsCommit') {
+    if (payload.action === 'kitsQueue' || payload.action === 'kitsCommit' ||
+        payload.action === 'kitsLookup') {
       // The shared token proves the call came through our proxy; it does NOT
       // say who is asking, and every browser hitting the page would present the
       // same one. initData is what identifies the human.
@@ -121,6 +122,17 @@ function doPost(e) {
         return ContentService.createTextOutput(JSON.stringify(getKitQueueForWeb()))
           .setMimeType(ContentService.MimeType.JSON);
       }
+      // Component SWAP / custom ADD validation. The modal reaches
+      // lookupSkuForKitAlter over google.script.run, which the hosted page has
+      // no access to — without this endpoint the ⇄ swap and "+ add component"
+      // controls would look alive and silently do nothing. commitKitFromWeb
+      // already accepts `alterations`, so this is only the READ half.
+      // Read-only (name / shelf / on-hand) and behind the same initData gate.
+      if (payload.action === 'kitsLookup') {
+        return ContentService.createTextOutput(JSON.stringify(
+          lookupSkuForKitAlter(payload.sku)
+        )).setMimeType(ContentService.MimeType.JSON);
+      }
       return ContentService.createTextOutput(JSON.stringify(commitKitFromWeb(
         payload.kitSku, payload.salesOrder, payload.excludedSkus,
         payload.extras, payload.force, payload.alterations
@@ -133,6 +145,40 @@ function doPost(e) {
       return ContentService.createTextOutput(JSON.stringify({
         ok: true, nowPlaying: getRadioNowPlaying(payload.stationId)
       })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // --- TAP-TO-INSPECT (board drawer) -----------------------------------------
+    // Thin wrappers over dossiers that ALREADY EXIST and are already reachable
+    // from the sidebar consoles — the board simply had no way to ask for them.
+    // No new data, no new logic; the whole feature is a doorway.
+    //
+    // READ-ONLY, and deliberately ON-DEMAND (a tap), never folded into the 20s
+    // tick — putting this detail in the poll would undo the tick optimisation
+    // that got a board cycle from 26.5s down to 5.5s.
+    //
+    // ⚠ These inherit the board's OPEN posture. /exec is public by necessity
+    // (n8n posts to it unauthenticated) and the board has always been open, so
+    // this is the same exposure class as the pick list it sits behind — order
+    // ids, SKUs and shelf locations are already on that screen. They add stock
+    // figures, prices and an order's timeline. If that ever needs closing, the
+    // fix is a Caddy basic_auth on /api/board, which would also have to go on
+    // the tablet — a deliberate trade, not an obvious win.
+    // Stage 2 of the drawer's progressive load — one MI row + one Zoho row.
+    // The heavy dossier (boardPart) follows in the background.
+    if (payload.action === 'boardPartLite') {
+      return ContentService.createTextOutput(JSON.stringify(
+        getPartBasics(payload.sku)
+      )).setMimeType(ContentService.MimeType.JSON);
+    }
+    if (payload.action === 'boardPart') {
+      return ContentService.createTextOutput(JSON.stringify(
+        getPartData(payload.sku)
+      )).setMimeType(ContentService.MimeType.JSON);
+    }
+    if (payload.action === 'boardOrder') {
+      return ContentService.createTextOutput(JSON.stringify(
+        getOrderCaseData(payload.orderId)
+      )).setMimeType(ContentService.MimeType.JSON);
     }
 
     // --- STATUS UPDATES ---
@@ -469,9 +515,28 @@ function doPost(e) {
     // broken at any layer — Caddy fine, n8n execution green, Apps Script "ok".
     //
     // A caller that names an action it expects to exist deserves an error when
-    // it doesn't. The n8n order-insert path sends `orders` with NO action, so
-    // it is unaffected.
-    if (payload.action) {
+    // it doesn't.
+    //
+    // ⚠ 2026-08-06 — THIS GUARD BROKE ORDER INSERTS FOR A DAY. Read before
+    // touching it. The original version of this comment asserted "the n8n
+    // order-insert path sends `orders` with NO action, so it is unaffected."
+    // That was WRONG and never verified against the workflow: node
+    // "13. Insert Rows via App Script" sends `action: 'insertOrders'`. The
+    // guard therefore rejected every batch of new orders.
+    //
+    // It stayed invisible for the usual two reasons stacked:
+    //   1. Apps Script answers HTTP 200 even when the BODY says error, and
+    //      node 13 runs onError:continueRegularOutput — so n8n went green.
+    //   2. The guard only reached /exec when a New Version was cut (Gotcha
+    //      #12), so "worked yesterday, broke today" with no code change in
+    //      between.
+    //
+    // LESSON: a guard that rejects unknown callers must be built from the
+    // ACTUAL list of callers, read out of the workflow JSON — not from an
+    // assumption about them. The four actions the workflows really send are
+    // insertOrders / updateMiRows / updateOrderStatus / writeZohoStock.
+    var INSERT_ACTION = 'insertOrders';   // what n8n node 13 actually sends
+    if (payload.action && payload.action !== INSERT_ACTION) {
       console.log("doPost: unknown action '" + payload.action + "'");
       return ContentService.createTextOutput(JSON.stringify({
         status: "error",
@@ -703,6 +768,31 @@ function doPost(e) {
       // until some editor-side repaint.
       try { setupDuplicateSalesOrderHighlighting(); } catch (dupErr) {
         console.log("doPost: dup-SO badge refresh error: " + dupErr);
+      }
+
+      // PUBLISH THE TICK NOW — do not wait for the 5-minute trigger.
+      //
+      // A new order landing is the one change the board exists to show, and the
+      // only one where minutes of lag is actually felt on the floor. Everything
+      // else the timer covers fine.
+      //
+      // Inline is affordable HERE and nowhere else: this path is machine-facing
+      // (n8n is waiting, no human is), so the ~4s costs nobody anything. The
+      // same call on updateOrderStatus would add those seconds to every Telegram
+      // PREP tap, which a human very much does feel — which is why the dirty
+      // flag exists for that path instead.
+      //
+      // Cost scales with real order volume, not with viewers: ~50-100 arrivals a
+      // day, not 1,440 timer runs.
+      //
+      // LAST in the block on purpose — after enrichment and the badge repaint —
+      // so the published copy reflects fully-settled rows. Best-effort: a failed
+      // publish must never fail an insert, and the trigger will catch it anyway
+      // because _dashBustTickCache already marked it dirty.
+      try {
+        if (typeof publishBoardTick === 'function') publishBoardTick();
+      } catch (pubErr) {
+        console.log("doPost: tick publish failed (trigger will retry): " + pubErr);
       }
     }
 

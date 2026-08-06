@@ -82,7 +82,31 @@ var TG_COMMANDS = {
 
   // NOTE cells hold several appended segments; the board splits them on a
   // 3-space run, so that is the separator we must append with.
-  noteSep: "   "
+  noteSep: "   ",
+
+  // --- /kits — the hosted kit-expansion page --------------------------------
+  // The page identifies its user from Telegram's SIGNED initData, so it only
+  // works when Telegram launches it as a Mini App. A plain link opened in a
+  // browser tab arrives with empty initData and the server refuses — correct,
+  // but it means the BUTTON TYPE matters:
+  //
+  //   web_app button  — launches the Mini App directly, but Telegram only
+  //                     honours it in PRIVATE chats.
+  //   t.me/<bot>/<app> URL button — works EVERYWHERE, groups included. Requires
+  //                     creating the app once: BotFather -> /newapp.
+  //
+  // So: set miniAppLink once and /kits works for the whole team in the group.
+  // Leave it blank and /kits still works, but only in a private chat with the
+  // bot — it detects that and says so rather than sending a dead button.
+  webAppUrl:   "https://hq.yassinqurabi.com/kits",
+  // Named Mini App created via BotFather /newapp on 2026-08-06. A URL button
+  // pointing here works in EVERY chat type; a `web_app` button is private-chat
+  // only, which is why the group needed this.
+  miniAppLink: "https://t.me/HighQualityMotorServiceBot/kits",
+
+  // The Floor Board is a plain public page, so a normal URL button opens it in
+  // Telegram's in-app browser. No auth, exactly as on the wall tablet.
+  boardUrl: "https://hq.yassinqurabi.com"
 };
 
 
@@ -340,11 +364,21 @@ function _tgAnswerCallback(callbackQueryId, text) {
   });
 }
 
-/** Build an inline_keyboard, or null when there are no buttons. */
+/**
+ * Build an inline_keyboard, or null when there are no buttons.
+ *
+ * THREE button kinds, and a button is exactly ONE of them — Telegram rejects
+ * the whole keyboard if a button carries more than one action field:
+ *   { text, data }   -> callback_data, namespaced (the default, unchanged)
+ *   { text, url }    -> a link; works in every chat type
+ *   { text, webApp } -> launches a Mini App; PRIVATE chats only
+ */
 function _tgKeyboard(buttons) {
   if (!buttons || !buttons.length) return null;
   var rows = buttons.map(function (row) {
     return row.map(function (b) {
+      if (b.url)    return { text: b.text, url: b.url };
+      if (b.webApp) return { text: b.text, web_app: { url: b.webApp } };
       return { text: b.text, callback_data: TG_COMMANDS.callbackPrefix + b.data };
     });
   });
@@ -437,6 +471,80 @@ var TG_ROUTES = {
   "/ripple": {
     help: "which parts to restock first to unblock the most kits",
     run: function () { return previewRestockRipple(); }
+  },
+
+  // Reorder report, scoped to what actually MOVED in the window — not a
+  // catalogue sweep. `/lowstock` uses the defaults; `/lowstock 14 10` widens
+  // the window to 14 days and the threshold to 10.
+  "/lowstock": {
+    help:  "what sold recently and is now running out",
+    usage: "[days] [qty]",
+    run: function (argStr, args) {
+      var days = args && args[0] ? parseInt(args[0], 10) : undefined;
+      var thr  = args && args[1] ? parseInt(args[1], 10) : undefined;
+      return buildLowStockText(analyzeLowStock({ days: days, threshold: thr }));
+    }
+  },
+
+  // Opens the hosted kit-expansion page — the ONE workflow with no answer on a
+  // tablet, because the Sheets mobile app cannot render an Apps Script modal.
+  //
+  // Reports the queue COUNT in the message on purpose: the picker learns
+  // whether it is worth opening before they open it, which is most of the value
+  // of the command on a phone.
+  "/kits": {
+    help: "expand kits from the tablet",
+    run: function (argStr, args, msg) {
+      var count = null, kitLines = "";
+      try {
+        var q = getKitQueueForWeb();
+        if (q && q.ok) {
+          count = q.count;
+          var show = (q.kits || []).slice(0, 6);
+          for (var i = 0; i < show.length; i++) {
+            kitLines += "\n  · " + show[i].kitSku + "  " + (show[i].kitName || "") +
+                        (show[i].kitType === "READY" ? "  [READY]" : "");
+          }
+          if (q.count > show.length) kitLines += "\n  … +" + (q.count - show.length) + " more";
+        }
+      } catch (e) {
+        try { console.log("/kits queue read failed: " + e); } catch (_) {}
+      }
+
+      var head = (count === 0)
+        ? "📦 KIT EXPANSION\n\nNothing waiting — no kits need a decision."
+        : "📦 KIT EXPANSION\n\n" +
+          (count == null ? "Open the tablet page to see what's waiting."
+                         : count + " kit" + (count === 1 ? "" : "s") + " waiting:" + kitLines);
+
+      // The button is offered even on an EMPTY queue, deliberately. Suppressing
+      // it meant the very first /kits after wiring the link up — almost always
+      // on a quiet queue — came back bare, which reads as "the button is
+      // broken" rather than "there is nothing to do". The queue can also change
+      // between this reply and the tap.
+
+      // A URL button to the named Mini App works in EVERY chat type, so prefer
+      // it whenever it's configured. web_app buttons are private-chat only.
+      if (TG_COMMANDS.miniAppLink) {
+        return { text: head, buttons: [[{ text: "🔧 Open kit expansion",
+                                          url: TG_COMMANDS.miniAppLink }]] };
+      }
+
+      var isPrivate = msg && msg.chat && msg.chat.type === "private";
+      if (isPrivate) {
+        return { text: head, buttons: [[{ text: "🔧 Open kit expansion",
+                                          webApp: TG_COMMANDS.webAppUrl }]] };
+      }
+
+      // Group chat with no Mini App link configured. Say exactly why rather
+      // than sending a button Telegram will ignore — and note that pasting the
+      // URL into a browser genuinely will not work, since the page needs
+      // Telegram to sign the identity.
+      return head +
+        "\n\nOpen this in a PRIVATE chat with me to get the button" +
+        "\n(or set up a shareable link once: BotFather → /newapp)." +
+        "\n\nA plain browser link won't work — the page needs Telegram to prove who you are.";
+    }
   },
 
   "/pull": {
@@ -1089,4 +1197,48 @@ function testTelegramHelp() {
   var t = TG_ROUTES["/help"].run("");
   Logger.log(t);
   return t;
+}
+
+
+// =======================================================================================
+// PINNED CONTROL PANEL
+// =======================================================================================
+
+/**
+ * Post a small "HQ CONTROL" message with permanent buttons, then PIN it.
+ *
+ * WHY THIS EXISTS: Telegram has no persistent per-group bot button. The menu
+ * button from BotFather /setmenubutton is PRIVATE-CHAT ONLY, and `web_app`
+ * inline buttons are too. The only thing that stays visible at the top of a
+ * group is a PINNED MESSAGE — and a pinned message keeps its inline keyboard,
+ * so its buttons stay tappable forever.
+ *
+ * Both buttons are URL buttons on purpose: those work in every chat type, which
+ * is the whole reason the named Mini App (BotFather /newapp) was created.
+ *
+ * Run once from the editor, then pin the message by hand in Telegram
+ * (long-press / right-click the message -> Pin).
+ *
+ * @param {string|number} [chatId] defaults to the admin chat
+ */
+function sendHqControlPanel(chatId) {
+  var target = chatId || TELEGRAM_ADMIN_CHAT_ID;
+  var text =
+    "\u258C HQ CONTROL\n\n" +
+    "Tap to open \u2014 no typing needed.\n" +
+    "Pin this message so it stays at the top of the group.\n\n" +
+    "Kit expansion asks Telegram who you are, so only allowlisted people get in. " +
+    "Not on the list? Send /whoami and pass the id to Yassin.";
+
+  var buttons = [];
+  if (TG_COMMANDS.miniAppLink) {
+    buttons.push([{ text: "\uD83D\uDD27 Kit Expansion", url: TG_COMMANDS.miniAppLink }]);
+  }
+  if (TG_COMMANDS.boardUrl) {
+    buttons.push([{ text: "\uD83D\uDCFA Floor Board", url: TG_COMMANDS.boardUrl }]);
+  }
+  if (!buttons.length) return "No links configured - set TG_COMMANDS.miniAppLink first.";
+
+  _tgSend(target, text, buttons);
+  return "Sent to " + target + " - now PIN it in Telegram.";
 }

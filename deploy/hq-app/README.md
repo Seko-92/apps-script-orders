@@ -178,3 +178,160 @@ The one real change is **discoverability**: a short memorable hostname is easier
 to stumble on than an `AKfycb…` URL. If that ever matters, the fix is a Caddy
 `basic_auth` on `/api/board` — but it would also have to be added to the
 picker's tablet, so it's a deliberate trade, not an obvious win.
+
+---
+---
+
+# Kit expansion → `/kits`  (slice 2)
+
+**The one workflow with a hard platform wall.** The Google Sheets mobile app
+cannot render an Apps Script modal at all, so on the warehouse tablet the answer
+to "expand this kit" has literally been *you can't* — walk to a computer.
+Everything else on the wish-list already has a home that works. This is the piece
+that doesn't.
+
+```
+kits.html on Caddy ──fetch /api/kits──→ n8n (hq-kits) ──→ Apps Script doPost
+                                                          └─ verifies Telegram initData
+```
+
+## Identity is free, and it is the whole auth story
+
+Telegram signs `initData` with the bot token. The page forwards it untouched on
+every call; Apps Script verifies the HMAC and checks an allowlist. No login, no
+session, no passphrase — which was the single biggest objection to a plain
+phone-hosted page.
+
+> ⚠ **A normal link will NOT work.** Opened in a browser tab, `initData` is empty
+> and the server refuses. That is correct behaviour, not a bug — the page must be
+> launched *as a Telegram Mini App* so Telegram injects the signed identity.
+> The page detects this case and says so instead of failing cryptically.
+
+## Why a separate n8n workflow, and why NO cache
+
+`hq-board` caches hard because a wall display polls every 20s. `hq-kits` caches
+**nothing**, deliberately:
+
+| action | why not cached |
+|---|---|
+| `kitsCommit` | a write — caching a write is nonsense |
+| `kitsLookup` | a stock/shelf read whose entire job is to be current |
+| `kitsQueue` | *looks* cacheable, isn't — it changes the moment anyone expands a kit anywhere (sidebar, modal, another tablet) |
+
+A stale queue wouldn't corrupt anything — `commitKitFromWeb` re-derives from a
+fresh scan and fails loudly — but sending a picker to a shelf for work that's
+already done is its own kind of wrong. Volume is a handful of calls per session,
+not a poll, so the quota argument behind the board's cache simply doesn't apply.
+
+Keeping it in its own workflow makes the open-vs-authed split **structural**
+rather than a conditional someone edits wrong later.
+
+---
+
+# Steps
+
+### 1. Apps Script — cut ONE New Version
+`kitsQueue`, `kitsCommit`, `kitsLookup` and the `TelegramAuth` verification all
+live on `/exec`.
+
+> Manage Deployments → ⋮ → Edit → **New version** → Deploy
+
+Never "New Deployment". **`/ripple` is also waiting on a version cut — this one
+carries it too.**
+
+### 2. Allowlist yourself (once)
+Signature-valid only proves the call came from *our* bot; the verified user id
+must also be on the allowlist.
+
+1. Send **`/whoami`** to the bot → it reports your Telegram id
+2. From the Apps Script editor, run `addTelegramWebAppUser('<that id>')`
+
+Repeat per person who should expand kits. `listTelegramWebAppUsers()` shows the
+current set; `removeTelegramWebAppUser(id)` revokes.
+
+The page helps here: an unauthorised user sees their own id on screen with the
+exact call to run, so you don't have to talk them through finding it.
+
+### 3. n8n — import `hq-kits-proxy.n8n.json`
+Replace both placeholders in node **2. Forward to Apps Script**:
+
+| placeholder | value |
+|---|---|
+| `__APPS_SCRIPT_EXEC_URL__` | `WEB_APP_URL` from `Secrets.js` |
+| `__APP_SECRET_TOKEN__` | `APP_SECRET_TOKEN` from `Secrets.js` |
+
+**Activate it.** A 404 means inactive, not an auth failure.
+
+### 4. Caddy — add the `/api/kits` route
+Paste the `handle /api/kits { … }` block from `Caddyfile.snippet` into the
+existing `hq.yassinqurabi.com { … }` block in `/opt/caddy/Caddyfile`, next to
+`handle /api/board`. The static-file `handle` must stay LAST — it's the
+catch-all.
+
+```
+cd /opt/caddy
+docker compose exec caddy caddy validate --config /etc/caddy/Caddyfile
+docker compose exec caddy caddy reload --config /etc/caddy/Caddyfile
+```
+
+⚠ Use `caddy reload`, **not** `docker compose up -d caddy`. Reload swaps the
+config in place with **zero downtime**; recreating the container briefly drops
+n8n and tracker too. (Slice 1 needed the recreate only because it added a
+volume mount — this change is config-only, so it doesn't.)
+
+Always `validate` first: a bad directive makes the WHOLE Caddyfile invalid,
+which would take every site down, not just this one.
+
+The route carries a 90s `response_header_timeout` — a commit takes the script
+lock and inserts rows, so it can legitimately run well past a board read.
+
+### 5. Upload the page
+```
+scp kits.html hetzner:/opt/hq-app/kits.html
+```
+Caddy's `try_files {path} {path}.html` already resolves `/kits` → `kits.html`.
+No new Caddy rule needed for the page itself.
+
+### 6. Give it a Telegram entry point
+It must launch as a Mini App. Pick one:
+
+* **Menu button** (simplest) — BotFather → `/setmenubutton` → pick the bot → send
+  `https://hq.yassinqurabi.com/kits` → give it a label like `Kits`. Appears in
+  **private chats** with the bot.
+* **Named Mini App** (shareable, works from a group) — BotFather → `/newapp` →
+  pick the bot → set the URL → you get a `t.me/<bot>/<shortname>` link that can
+  be pinned or posted anywhere.
+
+⚠ I'd verify the group behaviour on the real device before telling the team —
+Telegram treats `web_app` buttons differently in groups than in private chats,
+and the exact rules have moved around between client versions.
+
+### 7. Test, in this order
+1. Open it from the Telegram entry point → the queue paints
+   → whole pipe + auth work
+2. Open `https://hq.yassinqurabi.com/kits` in a plain browser tab → **"Not
+   authorised"** with your id shown → the gate is doing its job
+3. Untick one component → footer count drops by one
+4. Set **Spares for us = 1** on a qty-1 kit → component quantities double
+   → the additive semantic is right (total = rowQty + spares)
+5. **⇄ swap** a component → look up a real SKU → the row shows `old → new`
+   with the new shelf and HAND
+   → `kitsLookup` is reachable (this is the one that would silently do nothing
+   if the endpoint were missing)
+6. **Expand →** → rows land under the kit on All Orders, NOTE tagged
+   `↳ from KIT-<sku>`, and the kit drops out of the queue on reload
+
+If step 1 fails, check n8n Executions first — that splits "Caddy problem" from
+"Apps Script problem" in one glance.
+
+---
+
+## The trap this page was written to avoid
+
+The engine's third argument is **spares**, not total — it computes
+`total = rowQty + extras` itself. Passing a total would **double-ship**: a qty-6
+row would build 12 real kits. The page sends the spare count and nothing else,
+and there's a Node test asserting exactly that (`extras: 2`, never `8`).
+
+Related: the engine reports its count as `componentsAdded`, **not** `inserted` —
+reading the wrong key reports "0 rows" on every successful commit.

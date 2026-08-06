@@ -128,6 +128,15 @@ function getDashboardTick() {
 function _dashBustTickCache() {
   try { CacheService.getScriptCache().remove(DASHBOARD.tickCacheKey); }
   catch (e) { /* nothing to do */ }
+
+  // Same moment, second job: mark the PUBLISHED tick stale so the next trigger
+  // run rewrites it. Hooked HERE rather than at each call site because every
+  // write chokepoint already funnels through this function — updateOrderStatus,
+  // the doPost insert, and boardSetStatus — so one edit covers every path that
+  // exists now or later. Cheap (one property write) and never fatal: a missed
+  // flag costs one late publish, not correctness.
+  try { if (typeof _pubMarkDirty === 'function') _pubMarkDirty(); }
+  catch (e) { /* publishing is best-effort — never block a write on it */ }
 }
 
 

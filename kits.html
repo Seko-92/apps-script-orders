@@ -1,0 +1,1132 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <!-- Same Add-to-Home-Screen set as the board. status-bar-style is "black"
+       NOT "black-translucent": translucent draws the page UNDER the status bar
+       and clips the header. -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="apple-mobile-web-app-title" content="HQ Kits">
+  <meta name="theme-color" content="#1d1d1b">
+  <title>HQ · Kit Expansion</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Roboto+Mono:wght@400;500;700&family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <style>
+    /* ==================================================================
+       HQ MOTOR SERVICE — KIT EXPANSION (hosted, web-app slice 2)
+
+       WHY THIS PAGE EXISTS
+       The Google Sheets mobile app cannot render an Apps Script modal at
+       all. On the warehouse tablet, kit expansion has literally had no
+       answer. This is that answer — the same engine, reachable from a
+       device the picker is already holding at the shelf.
+
+       WHY IT IS LIGHT WHILE THE BOARD IS DARK — deliberate, not drift.
+       The board is an AMBIENT WALL DISPLAY: dark, glanceable from across
+       the floor, read at a distance. This is a HANDS-ON WORK SURFACE:
+       a checklist read at arm's length under warehouse lighting, ticked
+       one line at a time. Paper-light is the right register for that, it
+       matches the print pick list, and it matches the modal this
+       replaces — so the muscle memory carries over.
+
+       TOUCH FIRST. Every tap target is >= 44px. The modal it ports from
+       was tuned for a 1180x820 desktop dialog with a mouse; copying that
+       sizing onto a tablet would have been the wrong half of the port.
+       ================================================================== */
+
+    :root {
+      --ink:        #1d1d1b;
+      --ink-soft:   #4a4a44;
+      --ink-mute:   #8a8a80;
+      --paper:      #fff8e7;   /* warm cream — the brand's paper */
+      --surface:    #ffffff;
+      --rule:       #e4ded0;
+      --brand:      #ffd400;
+      --brand-deep: #c9a227;
+      --brand-soft: #fff4b0;
+      --amber:      #ffb800;
+      --amber-bg:   #fff3d6;
+      --green:      #1b5e20;
+      --green-bg:   #e8f5e9;
+      --red:        #b71c1c;
+      --red-bg:     #ffe5e5;
+      --blue:       #0d47a1;
+      --blue-bg:    #e3f0ff;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+
+    html, body {
+      height: 100%;
+      background: var(--paper);
+      color: var(--ink);
+      font-family: 'Roboto', -apple-system, BlinkMacSystemFont, sans-serif;
+      font-size: 15px;
+      -webkit-font-smoothing: antialiased;
+      overscroll-behavior: none;
+    }
+
+    /* The lesson from the board, applied from line one: served TOP-LEVEL,
+       100vh means the LARGE viewport (URL bar retracted) and the bottom is
+       clipped unreachably. dvh tracks what is actually visible. */
+    .wrap {
+      height: 100vh;
+      height: 100dvh;
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ---------- HEADER ---------- */
+    .hdr {
+      flex: 0 0 auto;
+      background: var(--ink);
+      color: var(--paper);
+      padding: 10px 14px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .hdr-mono {
+      font-family: 'Oswald', sans-serif; font-weight: 700; font-size: 18px;
+      color: var(--ink); background: var(--brand);
+      padding: 2px 9px; border-radius: 5px; letter-spacing: 0.04em;
+    }
+    .hdr-title {
+      font-family: 'Oswald', sans-serif; font-weight: 500; font-size: 15px;
+      letter-spacing: 0.10em; text-transform: uppercase;
+    }
+    .hdr-spacer { flex: 1; }
+    .hdr-count {
+      font-family: 'Roboto Mono', monospace; font-size: 12px;
+      color: var(--brand); letter-spacing: 0.04em; white-space: nowrap;
+    }
+    .hdr-btn {
+      background: transparent; border: 1px solid rgba(255,248,231,0.28);
+      color: var(--paper); border-radius: 6px;
+      min-height: 34px; min-width: 38px; padding: 0 10px;
+      font-size: 14px; cursor: pointer;
+    }
+    .hdr-btn:active { background: rgba(255,248,231,0.14); }
+
+    /* ---------- SCROLLING BODY ---------- */
+    .body {
+      flex: 1;
+      min-height: 0;              /* lets the column actually shrink */
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+      padding: 12px;
+    }
+
+    /* ---------- KIT META ---------- */
+    .kitcard {
+      background: var(--surface);
+      border: 1px solid var(--rule);
+      border-left: 5px solid var(--brand);
+      border-radius: 8px;
+      padding: 12px 14px;
+      margin-bottom: 12px;
+    }
+    .kitcard.ready-mode { border-left-color: var(--amber); }
+    .kit-sku-row { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+    .kit-sku {
+      font-family: 'Roboto Mono', monospace; font-weight: 700; font-size: 20px;
+      letter-spacing: 0.02em;
+    }
+    .kit-name { font-size: 15px; color: var(--ink-soft); flex: 1; min-width: 140px; }
+    .kit-pill {
+      font-family: 'Oswald', sans-serif; font-size: 11px; font-weight: 600;
+      letter-spacing: 0.10em; padding: 3px 9px; border-radius: 4px;
+    }
+    .kit-pill.MANUAL { background: var(--brand-soft); color: #6b5800; }
+    .kit-pill.READY  { background: var(--amber);      color: var(--ink); }
+    .kit-meta-line {
+      margin-top: 6px; font-family: 'Roboto Mono', monospace;
+      font-size: 12px; color: var(--ink-mute); letter-spacing: 0.02em;
+    }
+
+    /* spares */
+    .spare-row {
+      margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--rule);
+      display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    }
+    .spare-row.active { background: var(--brand-soft); margin: 12px -14px -12px; padding: 12px 14px; border-radius: 0 0 6px 6px; }
+    .spare-label {
+      font-family: 'Oswald', sans-serif; font-size: 12px; font-weight: 600;
+      letter-spacing: 0.08em; text-transform: uppercase;
+    }
+    .spare-input {
+      width: 74px; min-height: 44px; text-align: center;
+      font-family: 'Roboto Mono', monospace; font-size: 18px; font-weight: 700;
+      border: 2px solid var(--rule); border-radius: 6px; background: var(--surface);
+      color: var(--ink);
+    }
+    .spare-input:focus { outline: none; border-color: var(--brand-deep); }
+    .spare-hint { font-size: 13px; color: var(--ink-soft); flex: 1; min-width: 180px; }
+
+    /* ---------- BANNERS ---------- */
+    .banner { border-radius: 8px; padding: 11px 13px; margin-bottom: 12px; font-size: 13.5px; line-height: 1.5; }
+    .banner-title { font-family: 'Oswald', sans-serif; font-weight: 600; letter-spacing: 0.05em; margin-bottom: 5px; font-size: 14px; }
+    .banner.ready    { background: var(--amber-bg); border: 1px solid var(--amber); color: #6b4e00; }
+    .banner.unparsed { background: var(--red-bg);   border: 1px solid var(--red);   color: var(--red); }
+    .loc-pill {
+      font-family: 'Roboto Mono', monospace; background: var(--ink); color: var(--brand);
+      padding: 1px 7px; border-radius: 4px; font-size: 12px;
+    }
+    .raw-line {
+      display: block; font-family: 'Roboto Mono', monospace; font-size: 12px;
+      background: var(--surface); border: 1px solid var(--red);
+      padding: 5px 8px; border-radius: 4px; margin: 4px 0;
+      word-break: break-word;
+    }
+
+    /* ---------- PANES ---------- */
+    .panes { display: flex; flex-direction: column; gap: 12px; }
+    .pane-head {
+      font-family: 'Oswald', sans-serif; font-size: 12px; font-weight: 600;
+      letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-mute);
+      margin-bottom: 7px;
+    }
+
+    /* Landscape / wide: the checklist is the ACTIONABLE surface so it gets the
+       larger share; the Sales Description is reference the picker reads to
+       decide what to untick. Portrait: SD collapses below (details/summary). */
+    @media (min-width: 860px) {
+      .panes { flex-direction: row; align-items: flex-start; }
+      .pane-comps { flex: 1.7; min-width: 0; }
+      .pane-sd    { flex: 1;   min-width: 250px; position: sticky; top: 0; }
+    }
+
+    /* ---------- COMPONENT CARDS ---------- */
+    .comp-card {
+      background: var(--surface); border: 1px solid var(--rule);
+      border-radius: 8px; margin-bottom: 8px; overflow: hidden;
+      transition: opacity 140ms ease, border-color 140ms ease;
+    }
+    .comp-card.excluded { opacity: 0.45; }
+    .comp-card.swapped  { border-left: 4px solid var(--blue); }
+    .comp-card.added    { border-left: 4px solid var(--green); }
+
+    .comp {
+      display: grid;
+      grid-template-columns: 30px 62px 1fr;
+      grid-template-areas: "cb qty main" "cb qty meta";
+      gap: 2px 10px;
+      align-items: center;
+      padding: 10px 12px;
+      cursor: pointer;
+    }
+    .comp-cb {
+      grid-area: cb;
+      width: 26px; height: 26px;
+      accent-color: var(--brand-deep);
+      cursor: pointer;
+    }
+    .comp-qty {
+      grid-area: qty;
+      width: 100%; min-height: 44px; text-align: center;
+      font-family: 'Roboto Mono', monospace; font-size: 16px; font-weight: 700;
+      border: 2px solid var(--rule); border-radius: 6px;
+      background: var(--paper); color: var(--ink);
+    }
+    .comp-qty:focus { outline: none; border-color: var(--brand-deep); background: var(--surface); }
+    .comp-main { grid-area: main; min-width: 0; }
+    .comp-sku {
+      display: block; font-family: 'Roboto Mono', monospace;
+      font-weight: 700; font-size: 15px; word-break: break-all;
+    }
+    .comp-name {
+      display: block; font-size: 13px; color: var(--ink-soft);
+      line-height: 1.35; margin-top: 1px;
+    }
+    .comp-meta {
+      grid-area: meta;
+      display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+      margin-top: 4px; font-family: 'Roboto Mono', monospace;
+      font-size: 12px; color: var(--ink-mute);
+    }
+    .comp-meta .loc { font-weight: 700; color: var(--ink-soft); }
+    .comp-card.missing .comp-meta .loc { color: var(--red); }
+    .swap-btn {
+      margin-left: auto;
+      background: var(--paper); border: 1px solid var(--rule);
+      color: var(--ink-soft); border-radius: 6px;
+      min-height: 34px; padding: 0 12px;
+      font-family: 'Oswald', sans-serif; font-size: 12px; letter-spacing: 0.06em;
+      cursor: pointer;
+    }
+    .swap-btn:active { background: var(--brand-soft); }
+    .add-tag {
+      grid-area: cb;
+      font-family: 'Oswald', sans-serif; font-size: 9px; font-weight: 700;
+      background: var(--green); color: #fff; border-radius: 4px;
+      padding: 3px 2px; text-align: center; letter-spacing: 0.04em;
+    }
+    .old-sku { color: var(--ink-mute); text-decoration: line-through; }
+
+    /* swap panel */
+    .swap-panel {
+      display: none;
+      padding: 10px 12px; border-top: 1px dashed var(--rule);
+      background: var(--paper);
+      gap: 8px; flex-wrap: wrap; align-items: center;
+    }
+    .swap-panel.open { display: flex; }
+    .swap-in, .add-sku {
+      flex: 1; min-width: 130px; min-height: 44px; padding: 0 10px;
+      font-family: 'Roboto Mono', monospace; font-size: 15px;
+      border: 2px solid var(--rule); border-radius: 6px;
+      background: var(--surface); color: var(--ink);
+    }
+    .swap-in:focus, .add-sku:focus, .add-qty:focus { outline: none; border-color: var(--brand-deep); }
+    .mini-btn {
+      min-height: 44px; padding: 0 14px; border: none; border-radius: 6px;
+      background: var(--ink); color: var(--paper);
+      font-family: 'Oswald', sans-serif; font-size: 13px; letter-spacing: 0.06em;
+      cursor: pointer;
+    }
+    .mini-btn.ghost { background: var(--surface); color: var(--ink-soft); border: 1px solid var(--rule); }
+    .swap-res { flex-basis: 100%; font-size: 12.5px; color: var(--ink-soft); font-family: 'Roboto Mono', monospace; }
+    .swap-res.bad { color: var(--red); }
+    .swap-res.good { color: var(--green); }
+
+    /* add-a-part row */
+    .addrow {
+      display: flex; gap: 8px; flex-wrap: wrap; align-items: center;
+      background: var(--surface); border: 1px dashed var(--rule);
+      border-radius: 8px; padding: 10px 12px; margin-top: 4px;
+    }
+    .add-qty {
+      width: 62px; min-height: 44px; text-align: center;
+      font-family: 'Roboto Mono', monospace; font-size: 16px; font-weight: 700;
+      border: 2px solid var(--rule); border-radius: 6px; background: var(--paper); color: var(--ink);
+    }
+    .add-res { flex-basis: 100%; font-size: 12.5px; font-family: 'Roboto Mono', monospace; color: var(--ink-soft); }
+    .add-res.bad { color: var(--red); }
+
+    /* ---------- SALES DESCRIPTION ---------- */
+    .sd-box { background: var(--surface); border: 1px solid var(--rule); border-radius: 8px; }
+    .sd-box > summary {
+      list-style: none; cursor: pointer; padding: 12px 14px;
+      font-family: 'Oswald', sans-serif; font-size: 12px; font-weight: 600;
+      letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-soft);
+      display: flex; align-items: center; gap: 8px; min-height: 46px;
+    }
+    .sd-box > summary::-webkit-details-marker { display: none; }
+    .sd-box > summary::before { content: "▸"; transition: transform 160ms ease; }
+    .sd-box[open] > summary::before { transform: rotate(90deg); }
+    .sd-body {
+      padding: 0 14px 14px; font-size: 14px; line-height: 1.6;
+      white-space: pre-wrap; word-break: break-word; color: var(--ink-soft);
+    }
+    .sd-empty { color: var(--ink-mute); font-style: italic; }
+    @media (min-width: 860px) {
+      /* On a wide screen it is reference held open beside the checklist. */
+      .sd-box > summary { pointer-events: none; }
+    }
+
+    /* ---------- STICKY FOOTER ---------- */
+    .ftr {
+      flex: 0 0 auto;
+      background: var(--surface);
+      border-top: 2px solid var(--ink);
+      padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
+    }
+    .ftr-summary {
+      font-size: 13px; color: var(--ink-soft); margin-bottom: 9px; text-align: center;
+    }
+    .ftr-summary.warn { color: var(--red); font-weight: 500; }
+    .ftr-btns { display: flex; gap: 9px; }
+    .btn {
+      flex: 1; min-height: 54px; border: none; border-radius: 8px;
+      font-family: 'Oswald', sans-serif; font-size: 15px; font-weight: 600;
+      letter-spacing: 0.06em; cursor: pointer; padding: 0 10px;
+      transition: transform 90ms ease, opacity 140ms ease;
+    }
+    .btn:active:not(:disabled) { transform: translateY(1px); }
+    .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    .btn-primary { background: var(--brand); color: var(--ink); flex: 1.5; }
+    .btn-ghost   { background: var(--paper); color: var(--ink-soft); border: 1px solid var(--rule); }
+    .btn-force   { background: var(--amber-bg); color: #6b4e00; border: 2px solid var(--amber); }
+
+    /* ---------- GATE (auth / empty / done) ---------- */
+    .gate {
+      flex: 1; display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      text-align: center; padding: 28px 22px; gap: 12px;
+    }
+    .gate-icon { font-size: 46px; line-height: 1; }
+    .gate-title { font-family: 'Oswald', sans-serif; font-size: 21px; font-weight: 600; letter-spacing: 0.04em; }
+    .gate-msg { font-size: 14.5px; color: var(--ink-soft); max-width: 460px; line-height: 1.6; }
+    .gate-code {
+      font-family: 'Roboto Mono', monospace; font-size: 13px;
+      background: var(--ink); color: var(--brand);
+      padding: 8px 12px; border-radius: 6px; word-break: break-all;
+    }
+    .gate .btn { flex: 0 0 auto; min-width: 200px; margin-top: 6px; }
+
+    /* done-screen result lines */
+    .res-list { width: 100%; max-width: 520px; text-align: left; margin-top: 6px; }
+    .res-line {
+      background: var(--surface); border: 1px solid var(--rule);
+      border-left: 4px solid var(--rule);
+      border-radius: 7px; padding: 9px 12px; margin-bottom: 7px; font-size: 13.5px;
+    }
+    .res-line.ok      { border-left-color: var(--green); }
+    .res-line.skipped { border-left-color: var(--ink-mute); }
+    .res-line.failed  { border-left-color: var(--red); }
+    .res-sku { font-family: 'Roboto Mono', monospace; font-weight: 700; }
+    .chips { margin-top: 5px; display: flex; gap: 5px; flex-wrap: wrap; }
+    .chip {
+      font-family: 'Oswald', sans-serif; font-size: 10px; font-weight: 600;
+      letter-spacing: 0.07em; padding: 2px 7px; border-radius: 3px;
+    }
+    .chip.excluded { background: var(--brand-soft); color: #6b5800; }
+    .chip.swapped  { background: var(--blue-bg);   color: var(--blue); }
+    .chip.added    { background: var(--green-bg);  color: var(--green); }
+    .chip.forced   { background: var(--amber-bg);  color: #6b4e00; }
+
+    /* ---------- LOADING OVERLAY ----------
+       Same language as the three commit modals: a see-through FROSTED veil
+       (not an opaque box — that reads as a crash), dual-ring spinner, and a
+       CSS-stepped ellipsis so the message is set WITHOUT a trailing "…". */
+    .overlay {
+      position: fixed; inset: 0; z-index: 60;
+      display: none; align-items: center; justify-content: center;
+      flex-direction: column; gap: 16px;
+      background: rgba(29,29,27,0.42);
+      backdrop-filter: blur(3.5px) saturate(0.9);
+      -webkit-backdrop-filter: blur(3.5px) saturate(0.9);
+    }
+    .overlay.on { display: flex; }
+    .spin { position: relative; width: 62px; height: 62px; }
+    .spin::before, .spin::after {
+      content: ""; position: absolute; inset: 0; border-radius: 50%;
+      border: 3px solid transparent;
+    }
+    .spin::before { border-top-color: var(--brand); animation: spinA 0.9s linear infinite; }
+    .spin::after  { inset: 9px; border-bottom-color: rgba(255,248,231,0.5); animation: spinB 1.4s linear infinite; }
+    @keyframes spinA { to { transform: rotate(360deg); } }
+    @keyframes spinB { to { transform: rotate(-360deg); } }
+    .overlay-msg {
+      color: var(--paper); font-family: 'Oswald', sans-serif;
+      font-size: 15px; letter-spacing: 0.06em; text-align: center; padding: 0 20px;
+    }
+    .overlay-msg::after {
+      content: ""; animation: dots 1.4s steps(4, end) infinite;
+    }
+    @keyframes dots { 0% { content: ""; } 25% { content: "."; } 50% { content: ".."; } 75% { content: "..."; } }
+
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+
+  <div class="wrap">
+    <div class="hdr">
+      <div class="hdr-mono">HQ</div>
+      <div class="hdr-title">Kit Expansion</div>
+      <div class="hdr-spacer"></div>
+      <div class="hdr-count" id="counter"></div>
+      <button class="hdr-btn" id="btnReload" title="Reload the queue">&#8635;</button>
+    </div>
+
+    <!-- GATE: boot / auth / empty / done all render here -->
+    <div class="gate" id="gate">
+      <div class="gate-icon">&#9881;</div>
+      <div class="gate-title">Loading</div>
+      <div class="gate-msg">Fetching the kit queue.</div>
+    </div>
+
+    <!-- WORK SURFACE -->
+    <div class="body hidden" id="body">
+      <div class="kitcard" id="kitCard"></div>
+      <div class="banner ready hidden" id="readyBanner"></div>
+      <div class="banner ready hidden" id="blockedBanner"></div>
+      <div class="banner unparsed hidden" id="unparsedBanner"></div>
+
+      <div class="panes">
+        <div class="pane-comps">
+          <div class="pane-head">Components &#183; untick what ships inside another box</div>
+          <div id="compsEl"></div>
+        </div>
+        <div class="pane-sd">
+          <details class="sd-box" id="sdBox">
+            <summary>Sales Description &#183; what the customer sees</summary>
+            <div class="sd-body" id="sdBody"></div>
+          </details>
+        </div>
+      </div>
+    </div>
+
+    <div class="ftr hidden" id="ftr">
+      <div class="ftr-summary" id="summary"></div>
+      <div class="ftr-btns" id="ftrBtns"></div>
+    </div>
+  </div>
+
+  <div class="overlay" id="overlay">
+    <div class="spin"></div>
+    <div class="overlay-msg" id="overlayMsg">Working</div>
+  </div>
+
+  <script>
+    // =================================================================
+    // HQ KIT EXPANSION — hosted client
+    //
+    // TRANSPORT: POST /api/kits -> Caddy -> n8n (holds the shared token)
+    // -> Apps Script doPost. The token never reaches the browser.
+    //
+    // IDENTITY: Telegram signs initData with the bot token. We forward it
+    // untouched on EVERY call; Apps Script verifies the HMAC and checks the
+    // allowlist. That is the whole auth story — no login, no session, no
+    // passphrase. Opened outside Telegram, initData is empty and the server
+    // refuses, which is the intended behaviour, not a bug to work around.
+    //
+    // TRUST: we send IDENTIFIERS and CHOICES, never data. The server
+    // re-derives the kit from a fresh scan at commit time.
+    // =================================================================
+
+    var HQ_API = '/api/kits';
+    var TG = (window.Telegram && window.Telegram.WebApp) ? window.Telegram.WebApp : null;
+
+    // ---- session state ----
+    var queue    = [];     // kits still awaiting a decision
+    var idx      = 0;      // which one we are on
+    var results  = [];     // accumulated outcomes, for the done screen
+    var busy     = false;
+
+    // ---- per-kit state (ALL reset in renderKit) ----
+    var excludedSkus = {};   // origSku -> true
+    var compQty      = {};   // origSku -> override qty (final row qty)
+    var compSwap     = {};   // origSku -> { sku, name, location, available }
+    var addedItems   = [];   // [{ sku, name, location, available, qty }]
+    var extras       = 0;    // spares for us — ADDITIVE, never a multiplier
+
+    // -----------------------------------------------------------------
+    // BOOT
+    // -----------------------------------------------------------------
+    if (TG) { try { TG.ready(); TG.expand(); } catch (e) {} }
+    document.getElementById('btnReload').addEventListener('click', function () {
+      if (!busy) loadQueue();
+    });
+    loadQueue();
+
+    // -----------------------------------------------------------------
+    // TRANSPORT
+    // -----------------------------------------------------------------
+    function hqCall(action, body) {
+      var payload = body || {};
+      payload.action = action;
+      payload.initData = (TG && TG.initData) ? TG.initData : '';
+      return fetch(HQ_API, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify(payload)
+      }).then(function (r) {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.json();
+      });
+    }
+
+    function loadQueue() {
+      showGate('&#9881;', 'Loading', 'Fetching the kit queue.');
+      hqCall('kitsQueue', {}).then(function (res) {
+        if (res && res.authError) return renderAuthGate(res.message);
+        if (!res || !res.ok)      return renderErrorGate((res && res.message) || 'Could not read the queue.');
+        queue   = res.kits || [];
+        idx     = 0;
+        results = [];
+        if (!queue.length) return renderEmptyGate(res.message);
+        renderKit();
+      }).catch(function (err) {
+        renderErrorGate(String(err.message || err));
+      });
+    }
+
+    // -----------------------------------------------------------------
+    // GATES
+    // -----------------------------------------------------------------
+    function showGate(icon, title, msgHtml, extraHtml) {
+      document.getElementById('body').classList.add('hidden');
+      document.getElementById('ftr').classList.add('hidden');
+      document.getElementById('counter').textContent = '';
+      var g = document.getElementById('gate');
+      g.classList.remove('hidden');
+      g.innerHTML = '<div class="gate-icon">' + icon + '</div>'
+                  + '<div class="gate-title">' + title + '</div>'
+                  + '<div class="gate-msg">' + msgHtml + '</div>'
+                  + (extraHtml || '');
+      hideOverlay();
+    }
+
+    function renderAuthGate(reason) {
+      // Surface the Telegram user id so allowlisting is self-service: the
+      // admin runs addTelegramWebAppUser('<id>') once from the editor.
+      var uid = '';
+      try { uid = String(TG.initDataUnsafe.user.id); } catch (e) {}
+      var extra = '';
+      if (!TG || !TG.initData) {
+        extra = '<div class="gate-msg">This page identifies you through Telegram. '
+              + 'Open it from the bot button rather than a browser tab.</div>';
+      } else if (uid) {
+        extra = '<div class="gate-msg">Your Telegram id:</div>'
+              + '<div class="gate-code">' + esc(uid) + '</div>'
+              + '<div class="gate-msg">An admin adds it once with '
+              + '<code>addTelegramWebAppUser(\'' + esc(uid) + '\')</code>.</div>';
+      }
+      showGate('&#128274;', 'Not authorised', esc(reason || 'Access refused.'), extra);
+    }
+
+    function renderErrorGate(msg) {
+      showGate('&#9888;', 'Something went wrong', esc(msg),
+        '<button class="btn btn-primary" onclick="location.reload()">Try again</button>');
+    }
+
+    function renderEmptyGate(msg) {
+      showGate('&#10003;', 'Nothing waiting',
+        esc(msg || 'No kits are awaiting a decision right now.'),
+        '<button class="btn btn-primary" id="gateReload">Check again</button>');
+      var b = document.getElementById('gateReload');
+      if (b) b.addEventListener('click', loadQueue);
+    }
+
+    // -----------------------------------------------------------------
+    // RENDER ONE KIT
+    // -----------------------------------------------------------------
+    function renderKit() {
+      if (idx >= queue.length) return renderDone();
+
+      // Reset EVERY per-kit choice. Deliberate: a spare count or an exclusion
+      // carried into the next kit is how you accidentally over-ship.
+      excludedSkus = {}; compQty = {}; compSwap = {}; addedItems = []; extras = 0;
+      busy = false;
+
+      var kit = queue[idx];
+      var isReady = (kit.kitType === 'READY');
+
+      document.getElementById('gate').classList.add('hidden');
+      document.getElementById('body').classList.remove('hidden');
+      document.getElementById('ftr').classList.remove('hidden');
+      document.getElementById('body').scrollTop = 0;
+      document.getElementById('counter').textContent = 'Kit ' + (idx + 1) + ' of ' + queue.length;
+
+      // --- meta card ---
+      var card = document.getElementById('kitCard');
+      card.classList.toggle('ready-mode', isReady);
+      card.innerHTML = ''
+        + '<div class="kit-sku-row">'
+        +   '<span class="kit-sku">' + esc(kit.kitSku) + '</span>'
+        +   '<span class="kit-name">' + esc(kit.kitName || '') + '</span>'
+        +   '<span class="kit-pill ' + (isReady ? 'READY' : 'MANUAL') + '">' + esc(kit.kitType || '') + '</span>'
+        + '</div>'
+        + '<div class="kit-meta-line">'
+        +   'Row ' + esc(kit.row) + ' &#183; ' + esc(kit.table || '')
+        +   ' &#183; SO ' + esc(kit.salesOrder || '—')
+        +   ' &#183; Qty ' + esc(kit.rowQty)
+        +   (kit.kitEngine ? ' &#183; ' + esc(kit.kitEngine) : '')
+        +   (kit.kitLocation ? ' &#183; ' + esc(kit.kitLocation) : '')
+        + '</div>'
+        + '<div class="spare-row" id="spareRow">'
+        +   '<span class="spare-label">Spares for us</span>'
+        +   '<input type="number" class="spare-input" id="spareInput" min="0" max="99" value="0" inputmode="numeric">'
+        +   '<span class="spare-hint" id="spareHint"></span>'
+        + '</div>';
+      document.getElementById('spareInput').addEventListener('input', onExtrasChange);
+      onExtrasChange();   // paints the hint
+
+      // --- READY banner ---
+      var rb = document.getElementById('readyBanner');
+      if (isReady) {
+        var loc = kit.kitLocation || 'K-*';
+        rb.innerHTML = '<div class="banner-title">&#9888; READY KIT &#183; pre-assembled '
+                     + '<span class="loc-pill">' + esc(loc) + '</span></div>'
+                     + 'Normally ships as one box from ' + esc(loc) + '. '
+                     + '<strong>Skip</strong> ships it as-is (the default). '
+                     + '<strong>Force Expand</strong> picks the components individually — worth it on a '
+                     + 'DIRECT order when keeping the ' + esc(loc) + ' box reserved for eBay '
+                     + 'matters more than picker time.';
+        rb.classList.remove('hidden');
+      } else {
+        rb.classList.add('hidden');
+      }
+
+      // --- BLOCKED: no sales order ---
+      // The queue lists a kit as soon as it is a registered kit SKU on an open
+      // row; the COMMIT identifies it by SKU + SALES ORDER, because rows drift
+      // (n8n inserts, sorts, other commits) and a row number cannot be trusted
+      // between render and commit. A row with no SO is therefore visible but
+      // NOT committable. Say so on the card and disable Expand, rather than
+      // hiding the row (the picker still needs to know the kit is there) or
+      // letting them tap Expand into a guaranteed failure.
+      // Unusual, not blocking. Every kit that arrives through eBay or a Zoho
+      // pull carries an order id, so a blank one means the row was typed by
+      // hand. Worth flagging so nobody expands against a half-finished row by
+      // accident — but the expansion itself is perfectly valid.
+      var noSo = !String(kit.salesOrder || '').trim();
+      var sb = document.getElementById('blockedBanner');
+      if (noSo) {
+        sb.innerHTML = '<div class="banner-title">&#9888; No sales order on row ' + esc(kit.row) + '</div>' +
+          'Every kit from eBay or a Zoho pull carries one, so this row was probably typed by hand. ' +
+          'Expanding still works — the components land under this row either way — but if it is a ' +
+          'real order, add the SALES ORDER on the sheet first so the inserted rows inherit it.';
+        sb.classList.remove('hidden');
+      } else {
+        sb.classList.add('hidden');
+      }
+
+      // --- unparsed-lines banner ---
+      var ub = document.getElementById('unparsedBanner');
+      var up = kit.unparsedLines || [];
+      if (up.length) {
+        var h = '<div class="banner-title">&#9888; ' + up.length
+              + ' line(s) in Zoho could not be read &#183; this checklist is INCOMPLETE</div>';
+        for (var i = 0; i < up.length; i++) h += '<span class="raw-line">' + esc(up[i]) + '</span>';
+        h += 'Fix the Purchase Description in Zoho — one component per line, '
+           + 'ending in its 6-digit SKU. Allowed after the SKU: "(Deleted)", "*N", '
+           + '"+ packed-with note". Then reload.';
+        ub.innerHTML = h;
+        ub.classList.remove('hidden');
+      } else {
+        ub.classList.add('hidden');
+      }
+
+      // --- sales description ---
+      var sd = document.getElementById('sdBody');
+      var box = document.getElementById('sdBox');
+      if (kit.salesDescription) {
+        sd.textContent = kit.salesDescription;
+        sd.classList.remove('sd-empty');
+      } else {
+        sd.textContent = 'No Sales Description available for this kit.';
+        sd.classList.add('sd-empty');
+      }
+      // Open by default on a wide screen (reference beside the checklist),
+      // collapsed on a phone/portrait so the checklist owns the fold.
+      box.open = (window.innerWidth >= 860);
+
+      renderFooter(isReady);
+      renderComponents();
+      updateSummary();
+    }
+
+    // -----------------------------------------------------------------
+    // COMPONENTS
+    // -----------------------------------------------------------------
+    function renderComponents() {
+      var kit = queue[idx];
+      // Queue components carry base x rowQty (the server previewed at x1).
+      // Display scales base-per-kit x totalKits; an explicit per-component
+      // override always wins and survives re-render.
+      var rowQty = parseInt(kit.rowQty, 10) || 1;
+      var totalKits = rowQty + extras;
+      var html = '';
+
+      for (var i = 0; i < kit.components.length; i++) {
+        var c = kit.components[i];
+        var orig = c.sku;
+        var swap = compSwap[orig];
+        var isMissing = (c.missing || c.location === 'NOT FOUND');
+        var basePerKit = (parseInt(c.qty, 10) || 1) / rowQty;
+        var scaled = Math.round(basePerKit * totalKits);
+        var qtyVal = (compQty[orig] != null) ? compQty[orig] : scaled;
+
+        var showSku  = swap ? swap.sku : orig;
+        var showName = swap ? (swap.name || c.name) : c.name;
+        var showLoc  = swap ? swap.location : (c.location || '—');
+        var showHand = swap ? swap.available : c.available;
+        var skuHtml  = swap
+          ? '<span class="old-sku">' + esc(orig) + '</span> &#8594; ' + esc(showSku)
+          : esc(showSku);
+
+        var cls = 'comp-card'
+                + (excludedSkus[orig] ? ' excluded' : '')
+                + (swap ? ' swapped' : '')
+                + (isMissing ? ' missing' : '');
+
+        html += '<div class="' + cls + '" data-sku="' + esc(orig) + '">'
+             +    '<label class="comp">'
+             +      '<input type="checkbox" class="comp-cb" data-act="toggle" data-sku="' + esc(orig) + '"'
+             +             (excludedSkus[orig] ? '' : ' checked') + '>'
+             +      '<input type="number" class="comp-qty" min="1" inputmode="numeric" value="' + qtyVal + '"'
+             +             ' data-act="qty" data-sku="' + esc(orig) + '">'
+             +      '<span class="comp-main">'
+             +        '<span class="comp-sku">' + skuHtml + '</span>'
+             +        '<span class="comp-name">' + esc(showName || '') + '</span>'
+             +      '</span>'
+             +      '<span class="comp-meta">'
+             +        '<span class="loc">' + esc(showLoc || '—') + '</span>'
+             +        (showHand != null ? '<span>&#183; HAND ' + esc(showHand) + '</span>' : '')
+             +        '<button type="button" class="swap-btn" data-act="openswap" data-sku="' + esc(orig) + '">&#8646; swap</button>'
+             +      '</span>'
+             +    '</label>'
+             +    '<div class="swap-panel" data-panel="' + esc(orig) + '">'
+             +      '<input type="text" class="swap-in" data-in="' + esc(orig) + '" placeholder="replacement SKU" autocomplete="off" inputmode="numeric">'
+             +      '<button type="button" class="mini-btn" data-act="dolookup" data-sku="' + esc(orig) + '">look up</button>'
+             +      (swap ? '<button type="button" class="mini-btn ghost" data-act="clearswap" data-sku="' + esc(orig) + '">&#10005; undo</button>' : '')
+             +      '<span class="swap-res" data-res="' + esc(orig) + '"></span>'
+             +    '</div>'
+             +  '</div>';
+      }
+
+      // custom adds
+      for (var a = 0; a < addedItems.length; a++) {
+        var it = addedItems[a];
+        html += '<div class="comp-card added">'
+             +    '<div class="comp">'
+             +      '<span class="add-tag">ADD</span>'
+             +      '<input type="number" class="comp-qty" min="1" inputmode="numeric" value="' + (it.qty || 1) + '"'
+             +             ' data-act="addqty" data-idx="' + a + '">'
+             +      '<span class="comp-main">'
+             +        '<span class="comp-sku">' + esc(it.sku) + '</span>'
+             +        '<span class="comp-name">' + esc(it.name || '') + '</span>'
+             +      '</span>'
+             +      '<span class="comp-meta">'
+             +        '<span class="loc">' + esc(it.location || 'NOT FOUND') + '</span>'
+             +        (it.available != null ? '<span>&#183; HAND ' + esc(it.available) + '</span>' : '')
+             +        '<button type="button" class="swap-btn" data-act="removeadd" data-idx="' + a + '">&#10005; remove</button>'
+             +      '</span>'
+             +    '</div>'
+             +  '</div>';
+      }
+
+      html += '<div class="addrow">'
+           +    '<input type="text" class="add-sku" id="addSku" placeholder="add a part not in the kit" autocomplete="off" inputmode="numeric">'
+           +    '<input type="number" class="add-qty" id="addQty" min="1" value="1" inputmode="numeric">'
+           +    '<button type="button" class="mini-btn" data-act="addlookup">+ add</button>'
+           +    '<span class="add-res" id="addRes"></span>'
+           +  '</div>';
+
+      document.getElementById('compsEl').innerHTML = html;
+    }
+
+    // Event DELEGATION rather than inline handlers: one listener, no quoting
+    // hazards when a SKU ends up inside a generated onclick string.
+    document.getElementById('compsEl').addEventListener('click', function (ev) {
+      var t = ev.target.closest('[data-act]');
+      if (!t) return;
+      var act = t.getAttribute('data-act');
+      var sku = t.getAttribute('data-sku');
+      if (act === 'openswap') {
+        ev.preventDefault();
+        var p = document.querySelector('.swap-panel[data-panel="' + cssEsc(sku) + '"]');
+        if (p) {
+          p.classList.toggle('open');
+          if (p.classList.contains('open')) { var i = p.querySelector('.swap-in'); if (i) i.focus(); }
+        }
+      } else if (act === 'dolookup')   { ev.preventDefault(); doSwapLookup(sku); }
+      else if (act === 'clearswap')    { ev.preventDefault(); delete compSwap[sku]; renderComponents(); updateSummary(); }
+      else if (act === 'addlookup')    { ev.preventDefault(); addComponentLookup(); }
+      else if (act === 'removeadd')    { ev.preventDefault(); addedItems.splice(parseInt(t.getAttribute('data-idx'), 10), 1); renderComponents(); updateSummary(); }
+    });
+
+    document.getElementById('compsEl').addEventListener('change', function (ev) {
+      var t = ev.target.closest('[data-act]');
+      if (!t) return;
+      var act = t.getAttribute('data-act');
+      if (act === 'toggle') {
+        var sku = t.getAttribute('data-sku');
+        if (t.checked) delete excludedSkus[sku]; else excludedSkus[sku] = true;
+        var card = t.closest('.comp-card');
+        if (card) card.classList.toggle('excluded', !t.checked);
+        updateSummary();
+      } else if (act === 'qty') {
+        var v = parseInt(t.value, 10);
+        if (isNaN(v) || v < 1) { v = 1; t.value = 1; }
+        compQty[t.getAttribute('data-sku')] = v;
+      } else if (act === 'addqty') {
+        var n = parseInt(t.value, 10);
+        if (isNaN(n) || n < 1) { n = 1; t.value = 1; }
+        var ai = parseInt(t.getAttribute('data-idx'), 10);
+        if (addedItems[ai]) addedItems[ai].qty = n;
+      }
+    });
+
+    // Keep taps on the qty box from toggling the surrounding label's checkbox.
+    document.getElementById('compsEl').addEventListener('mousedown', stopOnQty, true);
+    document.getElementById('compsEl').addEventListener('touchstart', stopOnQty, { capture: true, passive: true });
+    function stopOnQty(ev) {
+      if (ev.target && ev.target.classList && ev.target.classList.contains('comp-qty')) ev.stopPropagation();
+    }
+
+    // -----------------------------------------------------------------
+    // SWAP / ADD LOOKUPS
+    // -----------------------------------------------------------------
+    function doSwapLookup(orig) {
+      var input = document.querySelector('.swap-in[data-in="' + cssEsc(orig) + '"]');
+      var out   = document.querySelector('.swap-res[data-res="' + cssEsc(orig) + '"]');
+      var q = input ? String(input.value || '').trim() : '';
+      if (!q) { if (out) { out.className = 'swap-res bad'; out.textContent = 'Type a SKU first.'; } return; }
+      if (out) { out.className = 'swap-res'; out.textContent = 'looking up ' + q + '…'; }
+
+      hqCall('kitsLookup', { sku: q }).then(function (r) {
+        if (r && r.authError) return renderAuthGate(r.message);
+        compSwap[orig] = {
+          sku:       (r && r.sku) || q,
+          name:      (r && r.name) || '',
+          location:  (r && r.location) || 'NOT FOUND',
+          available: (r && r.available != null) ? r.available : null
+        };
+        renderComponents();
+        updateSummary();
+      }).catch(function () {
+        // Never block the picker on a failed lookup — record the swap with
+        // what we know and let the shelf be the source of truth.
+        compSwap[orig] = { sku: q, name: '', location: 'NOT FOUND', available: null };
+        renderComponents();
+        updateSummary();
+      });
+    }
+
+    function addComponentLookup() {
+      var input = document.getElementById('addSku');
+      var qtyEl = document.getElementById('addQty');
+      var out   = document.getElementById('addRes');
+      var q = String(input.value || '').trim();
+      var qty = parseInt(qtyEl.value, 10); if (isNaN(qty) || qty < 1) qty = 1;
+      if (!q) { out.className = 'add-res bad'; out.textContent = 'Type a SKU first.'; return; }
+      out.className = 'add-res'; out.textContent = 'looking up ' + q + '…';
+
+      hqCall('kitsLookup', { sku: q }).then(function (r) {
+        if (r && r.authError) return renderAuthGate(r.message);
+        pushAdded(r, q, qty);
+      }).catch(function () {
+        pushAdded(null, q, qty);
+      });
+    }
+
+    function pushAdded(r, q, qty) {
+      addedItems.push({
+        sku:       (r && r.sku) || q,
+        name:      (r && r.name) || '',
+        location:  (r && r.location) || 'NOT FOUND',
+        available: (r && r.available != null) ? r.available : null,
+        qty:       qty
+      });
+      renderComponents();
+      updateSummary();
+    }
+
+    // -----------------------------------------------------------------
+    // SPARES  (ADDITIVE — total = rowQty + extras. Never a multiplier.)
+    // -----------------------------------------------------------------
+    function onExtrasChange() {
+      var input = document.getElementById('spareInput');
+      if (!input) return;
+      var v = parseInt(input.value, 10);
+      if (isNaN(v) || v < 0) v = 0;
+      if (v > 99) v = 99;
+      input.value = v;
+      extras = v;
+
+      var rowQty = parseInt(queue[idx].rowQty, 10) || 1;
+      var row  = document.getElementById('spareRow');
+      var hint = document.getElementById('spareHint');
+      if (extras > 0) {
+        row.classList.add('active');
+        hint.innerHTML = '<strong>' + (rowQty + extras) + ' total</strong> — '
+                       + rowQty + ' for the customer + ' + extras + ' for us';
+      } else {
+        row.classList.remove('active');
+        hint.innerHTML = '<strong>0 spares</strong> — ship exactly ' + rowQty
+                       + ' kit' + (rowQty > 1 ? 's' : '') + ' to the customer';
+      }
+      renderComponents();
+      updateSummary();
+    }
+
+    // -----------------------------------------------------------------
+    // FOOTER
+    // -----------------------------------------------------------------
+    function renderFooter(isReady) {
+      var el = document.getElementById('ftrBtns');
+      // READY: Skip is the safe default and gets the primary weight.
+      // MANUAL: Expand is the primary path.
+      el.innerHTML = isReady
+        ? '<button class="btn btn-force"   id="btnExpand">&#9888; Force Expand</button>'
+        + '<button class="btn btn-primary" id="btnSkip">Skip &#183; ship as box &#8594;</button>'
+        : '<button class="btn btn-ghost"   id="btnSkip">Skip</button>'
+        + '<button class="btn btn-primary" id="btnExpand">Expand &#8594;</button>';
+      document.getElementById('btnExpand').addEventListener('click', function () { onExpand(isReady); });
+      document.getElementById('btnSkip').addEventListener('click', onSkip);
+    }
+
+    function updateSummary() {
+      var kit = queue[idx];
+      var total    = kit.components.length;
+      var excluded = Object.keys(excludedSkus).length;
+      var swaps    = Object.keys(compSwap).length;
+      var added    = addedItems.length;
+      var willInsert = (total - excluded) + added;
+      var isReady = (kit.kitType === 'READY');
+
+      var bits = ['Will insert <strong>' + willInsert + '</strong> row' + (willInsert === 1 ? '' : 's')];
+      if (excluded) bits.push(excluded + ' excluded');
+      if (swaps)    bits.push(swaps + ' swapped');
+      if (added)    bits.push(added + ' added');
+
+      var warn = (willInsert === 0);
+      var msg = bits.join(' &#183; ');
+      if (willInsert === 0) {
+        msg += isReady
+          ? ' — nothing to insert. Skip still ships the box.'
+          : ' — nothing to insert.';
+      }
+
+      var s = document.getElementById('summary');
+      s.innerHTML = msg;
+      s.className = warn ? 'ftr-summary warn' : 'ftr-summary';
+
+      var be = document.getElementById('btnExpand');
+      var bs = document.getElementById('btnSkip');
+      if (be) be.disabled = (willInsert === 0 || busy);
+      if (bs) bs.disabled = busy;
+    }
+
+    // -----------------------------------------------------------------
+    // ACTIONS
+    // -----------------------------------------------------------------
+    function onExpand(isReady) {
+      if (busy) return;
+      var kit = queue[idx];
+      if (isReady && !confirm('Force expand this READY kit?\n\n' + kit.kitSku
+            + ' would normally ship as one pre-assembled box. Continue with component-level expansion?')) return;
+
+      busy = true; updateSummary();
+      showOverlay((isReady ? 'Force expanding ' : 'Expanding ') + kit.kitSku);
+
+      hqCall('kitsCommit', {
+        kitSku:       kit.kitSku,
+        salesOrder:   kit.salesOrder,
+        excludedSkus: Object.keys(excludedSkus),
+        extras:       extras,
+        force:        !!isReady,
+        alterations:  buildAlterations()
+      }).then(function (res) {
+        hideOverlay();
+        busy = false;
+        if (res && res.authError) return renderAuthGate(res.message);
+        results.push({
+          kitSku: kit.kitSku, salesOrder: kit.salesOrder,
+          outcome: (res && res.ok) ? 'ok' : 'failed',
+          message: (res && res.message) || '',
+          inserted: (res && res.inserted) || 0,
+          forced: !!(res && res.forced),
+          excluded: (res && res.excluded) || [],
+          swapped: (res && res.swapped) || 0,
+          addedCustom: (res && res.addedCustom) || 0,
+          totalKits: (res && res.totalKits) || 0
+        });
+        idx++;
+        renderKit();
+      }).catch(function (err) {
+        hideOverlay();
+        busy = false;
+        results.push({ kitSku: kit.kitSku, salesOrder: kit.salesOrder,
+                       outcome: 'failed', message: String(err.message || err), inserted: 0 });
+        idx++;
+        renderKit();
+      });
+    }
+
+    function onSkip() {
+      if (busy) return;
+      var kit = queue[idx];
+      results.push({
+        kitSku: kit.kitSku, salesOrder: kit.salesOrder, outcome: 'skipped',
+        message: (kit.kitType === 'READY') ? 'READY · shipped as box' : 'skipped'
+      });
+      idx++;
+      renderKit();
+    }
+
+    /* Package per-component alterations. `overrides` is keyed by the ORIGINAL
+       lowercased component SKU; `added` is a flat list. Shape matches exactly
+       what the desktop modal sends, so the server path is identical. */
+    function buildAlterations() {
+      var overrides = {};
+      Object.keys(compSwap).forEach(function (s) {
+        var k = String(s).toLowerCase();
+        overrides[k] = overrides[k] || {};
+        overrides[k].swap     = compSwap[s].sku;
+        overrides[k].swapName = compSwap[s].name;
+      });
+      Object.keys(compQty).forEach(function (s) {
+        var k = String(s).toLowerCase();
+        overrides[k] = overrides[k] || {};
+        overrides[k].qty = compQty[s];
+      });
+      var added = addedItems.map(function (a) {
+        return { sku: a.sku, name: a.name, qty: a.qty };
+      });
+      return { overrides: overrides, added: added };
+    }
+
+    // -----------------------------------------------------------------
+    // DONE
+    // -----------------------------------------------------------------
+    function renderDone() {
+      var ok = 0, skipped = 0, failed = 0, rows = 0;
+      for (var i = 0; i < results.length; i++) {
+        if (results[i].outcome === 'ok')      { ok++; rows += results[i].inserted || 0; }
+        else if (results[i].outcome === 'skipped') skipped++;
+        else failed++;
+      }
+
+      var list = '<div class="res-list">';
+      for (var j = 0; j < results.length; j++) {
+        var r = results[j];
+        var chips = '';
+        if (r.forced)              chips += '<span class="chip forced">FORCED</span>';
+        if (r.excluded && r.excluded.length) chips += '<span class="chip excluded">EXCLUDED ' + r.excluded.length + '</span>';
+        if (r.swapped)             chips += '<span class="chip swapped">SWAPPED ' + r.swapped + '</span>';
+        if (r.addedCustom)         chips += '<span class="chip added">ADDED ' + r.addedCustom + '</span>';
+
+        var tail = (r.outcome === 'ok')
+          ? (r.inserted + ' row' + (r.inserted === 1 ? '' : 's') + ' inserted')
+          : esc(r.message || r.outcome);
+
+        list += '<div class="res-line ' + r.outcome + '">'
+              +   '<span class="res-sku">' + esc(r.kitSku) + '</span> &#183; ' + tail
+              +   (chips ? '<div class="chips">' + chips + '</div>' : '')
+              +   (r.excluded && r.excluded.length
+                    ? '<div class="comp-name">' + esc(r.excluded.join('  ·  ')) + '</div>' : '')
+              + '</div>';
+      }
+      list += '</div>';
+
+      var head = ok + ' expanded &#183; ' + skipped + ' skipped'
+               + (failed ? ' &#183; ' + failed + ' failed' : '')
+               + (rows ? '<br>' + rows + ' component row' + (rows === 1 ? '' : 's') + ' inserted' : '');
+
+      showGate(failed ? '&#9888;' : '&#10003;', 'Queue complete', head,
+        list + '<button class="btn btn-primary" id="gateReload">Check for more</button>');
+      var b = document.getElementById('gateReload');
+      if (b) b.addEventListener('click', loadQueue);
+    }
+
+    // -----------------------------------------------------------------
+    // HELPERS
+    // -----------------------------------------------------------------
+    function showOverlay(msg) {
+      // Message set WITHOUT a trailing ellipsis — the CSS ::after animates it.
+      document.getElementById('overlayMsg').textContent = msg;
+      document.getElementById('overlay').classList.add('on');
+    }
+    function hideOverlay() { document.getElementById('overlay').classList.remove('on'); }
+
+    function esc(s) {
+      return String(s == null ? '' : s)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+    // For use inside a querySelector attribute value.
+    function cssEsc(s) { return String(s == null ? '' : s).replace(/["\\]/g, '\\$&'); }
+  </script>
+</body>
+</html>

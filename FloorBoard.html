@@ -4,6 +4,19 @@
   <base target="_top">
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- Add-to-Home-Screen: launches chrome-less, which removes the viewport
+       problem at the source (no URL bar => 100vh == 100dvh == visible).
+       These were dropped back when the board was served from Apps Script,
+       where they CAN'T work — the page was inside Google's sandbox iframe,
+       so it was never the top-level document. Hosted on our own domain it
+       is, so they apply now. status-bar-style is "black" NOT
+       "black-translucent" on purpose: translucent draws the page UNDER the
+       status bar and would clip the header — the mirror of the footer bug. -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="apple-mobile-web-app-title" content="HQ Floor">
+  <meta name="theme-color" content="#0e0e0d">
   <title>HQ · Floor Board</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -108,11 +121,24 @@
       content: ""; position: fixed; inset: 0; z-index: 8; pointer-events: none;
       background: repeating-linear-gradient(rgba(0,0,0,0) 0, rgba(0,0,0,0) 2px, rgba(0,0,0,0.13) 3px);
     }
+    /* HEIGHT — read this before changing it. On the Apps Script /exec the
+       board runs INSIDE Google's sandbox iframe, where 100vh resolves to the
+       iframe's own box, i.e. exactly what's visible. Served TOP-LEVEL from the
+       VPS, mobile browsers define 100vh as the LARGE viewport (the height the
+       page would have with the URL bar retracted) — TALLER than the visible
+       area. With overflow:hidden on html/body the clipped footer is then
+       unreachable: no scroll, and rotating/desktop-mode don't help because the
+       chrome is still there. dvh tracks the REAL visible viewport and fixes it
+       in both hosts. Keep the 100vh line above it as the pre-2022 fallback
+       (browsers that don't know dvh ignore the second declaration).
+       width is 100% not 100vw for the same class of reason — 100vw includes a
+       scrollbar gutter and can overflow horizontally. */
     .board {
       position: relative;
       z-index: 1;
-      height: 100vh;
-      width: 100vw;
+      height: 100vh;    /* fallback — old browsers, and the JS below covers them */
+      height: 100dvh;   /* the real fix: tracks the visible viewport */
+      width: 100%;
       display: flex;
       flex-direction: column;
       gap: 16px;
@@ -1171,6 +1197,130 @@
     @keyframes eqBar { 0%,100% { height: 4px; } 50% { height: 14px; } }
 
     /* Connection-lost banner */
+    /* ───────────── TAP-TO-INSPECT DRAWER ─────────────
+       Slides up over the board. The board keeps polling underneath — this is a
+       LOOKUP, not a mode, so nothing about the live picture pauses while it is
+       open. Sheet-style (bottom sheet) rather than a centre modal because the
+       tablet is held one-handed and the bottom half is the reachable half. */
+    .drw-back {
+      position: fixed; inset: 0; z-index: 40;
+      background: rgba(8,8,7,0.62);
+      backdrop-filter: blur(2.5px); -webkit-backdrop-filter: blur(2.5px);
+      opacity: 0; pointer-events: none; transition: opacity 200ms ease;
+    }
+    .drw-back.on { opacity: 1; pointer-events: auto; }
+
+    .drw {
+      position: fixed; left: 0; right: 0; bottom: 0; z-index: 41;
+      max-height: 86vh; max-height: 86dvh;
+      display: flex; flex-direction: column;
+      background: var(--ink-card);
+      border-top: 2px solid var(--brand-yellow);
+      border-radius: 16px 16px 0 0;
+      box-shadow: 0 -18px 50px rgba(0,0,0,0.55);
+      transform: translateY(101%);
+      transition: transform 260ms cubic-bezier(.2,.9,.3,1);
+    }
+    .drw.on { transform: translateY(0); }
+
+    .drw-head {
+      flex: 0 0 auto; display: flex; align-items: center; gap: 12px;
+      padding: 14px 18px 12px; border-bottom: 1px solid var(--rule);
+    }
+    .drw-grip {
+      position: absolute; top: 6px; left: 50%; transform: translateX(-50%);
+      width: 44px; height: 4px; border-radius: 2px; background: rgba(245,245,242,0.22);
+    }
+    .drw-title {
+      font-family: 'Roboto Mono', monospace; font-weight: 700; font-size: 20px;
+      color: var(--paper); letter-spacing: 0.02em; word-break: break-all;
+    }
+    .drw-sub { font-size: 12px; color: var(--mute); margin-top: 2px; }
+    .drw-x {
+      margin-left: auto; flex: 0 0 auto;
+      width: 44px; height: 44px; border-radius: 10px;
+      background: rgba(245,245,242,0.06); border: 1px solid var(--rule);
+      color: var(--paper); font-size: 19px; cursor: pointer;
+    }
+    .drw-x:active { background: rgba(245,245,242,0.14); }
+    .drw-body { flex: 1; min-height: 0; overflow-y: auto; padding: 14px 18px 22px; }
+
+    .drw-hero { display: flex; gap: 14px; align-items: flex-start; margin-bottom: 14px; }
+    .drw-img {
+      width: 104px; height: 104px; flex: 0 0 auto; border-radius: 10px;
+      background: #fff; object-fit: contain; border: 1px solid var(--rule);
+    }
+    .drw-noimg {
+      width: 104px; height: 104px; flex: 0 0 auto; border-radius: 10px;
+      border: 1px dashed var(--rule); color: var(--mute-soft);
+      display: flex; align-items: center; justify-content: center; font-size: 11px;
+    }
+    .drw-name { font-size: 14px; line-height: 1.45; color: var(--paper); }
+
+    /* Photo gallery. eBay carries up to 5 shots per listing and the extra
+       angles are often the ones that settle "is this the right part?" — the
+       first image alone frequently does not. Main image plus a tappable strip;
+       the strip only appears when there IS more than one. */
+    .drw-shots { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+    .drw-shot {
+      width: 46px; height: 46px; border-radius: 7px; background: #fff;
+      object-fit: contain; border: 1px solid var(--rule); cursor: pointer;
+      opacity: 0.55; transition: opacity 140ms ease, border-color 140ms ease;
+    }
+    .drw-shot.sel { opacity: 1; border-color: var(--brand-yellow); }
+    .drw-shot:active { opacity: 1; }
+    .drw-imgwrap { position: relative; flex: 0 0 auto; }
+    .drw-imgcount {
+      position: absolute; right: 4px; bottom: 4px;
+      background: rgba(8,8,7,0.78); color: var(--paper);
+      font-size: 10px; padding: 1px 6px; border-radius: 10px;
+    }
+
+    .drw-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: 8px; }
+    .drw-cell {
+      background: rgba(245,245,242,0.05); border: 1px solid var(--rule);
+      border-radius: 9px; padding: 9px 11px;
+    }
+    .drw-k { font-size: 9.5px; letter-spacing: 0.12em; color: var(--mute); text-transform: uppercase; }
+    .drw-v { font-family: 'Oswald', sans-serif; font-size: 21px; color: var(--paper); margin-top: 2px; }
+    .drw-v.warn { color: var(--amber-warn); }
+    .drw-v.bad  { color: var(--red-alert); }
+    .drw-v.good { color: var(--green-soft); }
+    .drw-v.sm   { font-size: 14px; font-family: 'Roboto Mono', monospace; }
+
+    .drw-sec {
+      margin-top: 18px; font-family: 'Oswald', sans-serif; font-size: 11px;
+      letter-spacing: 0.16em; text-transform: uppercase; color: var(--brand-rim);
+      border-bottom: 1px solid var(--rule); padding-bottom: 6px; margin-bottom: 10px;
+    }
+    .drw-line {
+      display: flex; gap: 10px; align-items: baseline; padding: 7px 0;
+      border-bottom: 1px solid rgba(255,255,255,0.05); font-size: 13px; color: var(--paper);
+    }
+    .drw-line .mono { font-family: 'Roboto Mono', monospace; font-weight: 700; }
+    .drw-line .dim  { color: var(--mute); font-size: 12px; }
+    .drw-line .push { margin-left: auto; text-align: right; white-space: nowrap; }
+    .drw-blocked { color: var(--red-alert); font-weight: 700; }
+
+    .drw-banner {
+      background: rgba(255,212,0,0.10); border: 1px solid rgba(255,212,0,0.35);
+      color: var(--brand-soft); border-radius: 9px; padding: 10px 12px;
+      font-size: 13px; line-height: 1.5; margin-bottom: 12px;
+    }
+    .drw-link {
+      display: inline-flex; align-items: center; min-height: 44px; padding: 0 16px;
+      margin: 12px 8px 0 0; border-radius: 9px; text-decoration: none;
+      background: var(--brand-yellow); color: var(--ink);
+      font-family: 'Oswald', sans-serif; font-size: 13px; letter-spacing: 0.06em;
+    }
+    .drw-link.ghost { background: transparent; color: var(--paper); border: 1px solid var(--rule); }
+    .drw-empty { color: var(--mute); font-size: 13px; padding: 18px 0; text-align: center; }
+    .drw-spin { text-align: center; padding: 40px 0; color: var(--mute); font-size: 13px; }
+
+    /* the tappable affordances on a pick row */
+    .pick-sku, .pick-meta { cursor: pointer; }
+    .pick-sku:active, .pick-meta:active { opacity: 0.6; }
+
     .connlost {
       position: fixed;
       top: 0; left: 0; right: 0;
@@ -1412,10 +1562,46 @@
     </div>
   </div>
 
+  <div class="drw-back" id="drwBack"></div>
+  <div class="drw" id="drw" role="dialog" aria-modal="true">
+    <div class="drw-grip"></div>
+    <div class="drw-head">
+      <div style="min-width:0;">
+        <div class="drw-title" id="drwTitle">—</div>
+        <div class="drw-sub" id="drwSub"></div>
+      </div>
+      <button class="drw-x" id="drwX" aria-label="Close">&#10005;</button>
+    </div>
+    <div class="drw-body" id="drwBody"></div>
+  </div>
+
   <script>
     // ===================================================================
     // HQ FLOOR BOARD — client (v1.0)
     // ===================================================================
+
+    // ── VIEWPORT FIT (fallback only) ──────────────────────────────────
+    // The .board height fix lives in CSS (100dvh). This is ONLY for
+    // browsers that don't understand dvh — it measures the actual visible
+    // viewport and pins the height in px. Deliberately a no-op on anything
+    // modern, so the known-good Apps Script /exec path is untouched there.
+    // visualViewport is the most accurate source when present; innerHeight
+    // is the fallback. Correct in BOTH hosts: inside the Apps Script iframe
+    // innerHeight is the iframe's height, which is what we want anyway.
+    (function fitBoardFallback() {
+      if (window.CSS && CSS.supports && CSS.supports('height', '100dvh')) return;
+      var el = document.getElementById('board');
+      if (!el) return;
+      function fit() {
+        var h = (window.visualViewport && window.visualViewport.height) || window.innerHeight;
+        if (h) el.style.height = h + 'px';
+      }
+      fit();
+      window.addEventListener('resize', fit);
+      window.addEventListener('orientationchange', fit);
+      if (window.visualViewport) window.visualViewport.addEventListener('resize', fit);
+    })();
+
     var POLL_MS     = 20000;   // minimum gap between ticks
     var POLL_MAX_MS = 90000;   // ceiling when the server is crawling
     var CLOCK_MS  = 1000;    // local clock cadence
@@ -1676,7 +1862,16 @@
     var pollUrgent  = false;   // a write just happened — refresh at the first chance
     var lastTick    = null;    // most recent good tick — optimistic picks repaint from it
 
+    // PAUSED WHILE THE DRAWER IS OPEN — measured 2026-08-06.
+    // Apps Script serialises concurrent executions of the same script, so a
+    // boardTick already in flight puts the drawer's lookup in a QUEUE behind
+    // it. A tap that costs ~4s server-side was arriving in ~20s on the board.
+    // The board behind an open drawer is covered anyway; nobody is reading it.
+    // Closing resumes and immediately refreshes, so nothing is missed.
+    var pollPaused = false;
+
     function poll() {
+      if (pollPaused) { schedulePoll(); return; }   // stay scheduled, just skip
       if (pollBusy) return;              // previous tick still running — skip
       pollBusy = true;
       var started = Date.now();
@@ -1694,7 +1889,8 @@
       // round-trip was slower than that, give it that long again before asking.
       // EXCEPT right after a write — the picker just tapped something and needs
       // to see it move, so jump the queue once.
-      var wait = pollUrgent ? 0 : Math.min(Math.max(POLL_MS, pollLastMs), POLL_MAX_MS);
+      var wait = pollPaused ? POLL_MS
+               : (pollUrgent ? 0 : Math.min(Math.max(POLL_MS, pollLastMs), POLL_MAX_MS));
       pollUrgent = false;
       pollTimer = setTimeout(poll, wait);
     }
@@ -1713,6 +1909,7 @@
     }
 
     function onFail(err) {
+      if (pollPaused) return;   // a paused tick is not a lost line
       failCount++;
       if (failCount >= 2) {
         document.getElementById('connLost').classList.add('show');
@@ -2181,6 +2378,15 @@
       var sku = document.createElement('span');
       sku.className = 'pick-sku';
       sku.textContent = r.sku || '';
+      // Tap the SKU for the part, the order id for the order. stopPropagation
+      // so neither can ever reach the row's ✓ Pick button — a mis-tap that
+      // silently flips an order to PREPARING would be far worse than a missed
+      // lookup.
+      sku.title = 'Tap for stock, shelf and which kits use it';
+      sku.addEventListener('click', function (ev) {
+        ev.preventDefault(); ev.stopPropagation();
+        openPartDrawer(r.sku, r);
+      });
 
       // A kit row that hasn't been expanded yet CANNOT be picked off a shelf —
       // its components aren't on the sheet. Without this the picker walks to a
@@ -2201,6 +2407,11 @@
       var meta = document.createElement('span');
       meta.className = 'pick-meta';
       meta.textContent = (r.channel === 'DIRECT' ? 'Direct' : 'eBay') + ' · ' + (r.orderId || '');
+      meta.title = 'Tap for this order: rows, timeline, notes';
+      meta.addEventListener('click', function (ev) {
+        ev.preventDefault(); ev.stopPropagation();
+        openOrderDrawer(r.orderId);
+      });
 
       var isPrep = String(r.status).toUpperCase() === 'PREPARING';
       var st = document.createElement('span');
@@ -2228,6 +2439,278 @@
         noteEl.textContent = '📌 ' + fnText;
         li.appendChild(noteEl);
       }
+    }
+
+    // ================= TAP-TO-INSPECT =================
+    // A LOOKUP, not a mode: the board keeps polling underneath, nothing pauses.
+    // Everything rendered here already existed behind the sidebar consoles —
+    // the board just had no way to ask. On-demand only; deliberately NOT folded
+    // into the 20s tick, which would undo the tick optimisation.
+
+    var drwOpen = false, drwSeq = 0;
+
+    function drwShow(title, sub) {
+      document.getElementById('drwTitle').textContent = title || '';
+      document.getElementById('drwSub').textContent   = sub || '';
+      document.getElementById('drwBody').innerHTML    = '<div class="drw-spin">loading…</div>';
+      document.getElementById('drwBack').classList.add('on');
+      document.getElementById('drw').classList.add('on');
+      drwOpen = true;
+      pollPaused = true;          // stop competing with the lookup we just fired
+    }
+    function drwClose() {
+      document.getElementById('drwBack').classList.remove('on');
+      document.getElementById('drw').classList.remove('on');
+      drwOpen = false;
+      drwSeq++;                       // invalidate any in-flight response
+      pollPaused = false;
+      pollSoon();                     // catch up immediately on the way out
+    }
+    document.getElementById('drwX').addEventListener('click', drwClose);
+    document.getElementById('drwBack').addEventListener('click', drwClose);
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape' && drwOpen) drwClose();
+    });
+
+    function drwCell(k, v, tone) {
+      return '<div class="drw-cell"><div class="drw-k">' + esc(k) + '</div>' +
+             '<div class="drw-v ' + (tone || '') + '">' + v + '</div></div>';
+    }
+    function drwNum(n) { return (n == null || n === '') ? '—' : esc(String(n)); }
+    function drwMoney(n) { return (n == null || n === '' || isNaN(n)) ? '—' : '$' + Number(n).toFixed(2); }
+
+    // ---------- PART — PROGRESSIVE, IN THREE STAGES ----------
+    //
+    // The full dossier is a steady ~4s of server work, but over the hosted path
+    // it lands anywhere from 5s to 45s (cold start, execution serialisation,
+    // the /exec redirect). Waiting for all of it before painting anything is
+    // what made the drawer feel broken.
+    //
+    //   stage 1  instant  — what the TICK already told us: sku, shelf, qty
+    //   stage 2  ~1s      — one MI row + one Zoho row: photo, title, stock, price
+    //   stage 3  ~3s      — the full dossier: ripple, kit composition, buildable
+    //
+    // Each stage only paints if it is still the current request, and a later
+    // stage failing NEVER wipes an earlier one — a slow ripple leaves you with a
+    // perfectly usable drawer instead of an error.
+    function openPartDrawer(sku, seedRow) {
+      if (!sku) return;
+      var mySeq = ++drwSeq;
+      drwShow(sku, 'part');
+
+      // --- stage 1: zero-latency, straight from the row we already have ---
+      if (seedRow) renderPartSeed(seedRow);
+
+      // --- stage 2: identity + stock ---
+      hqCall('boardPartLite', { sku: sku }).then(function (res) {
+        if (mySeq !== drwSeq) return;
+        if (res && res.ok && res.basics) renderPartBasics(res.basics);
+      }).catch(function () { /* stage 3 may still succeed */ });
+
+      // --- stage 3: the intelligence ---
+      hqCall('boardPart', { sku: sku }).then(function (res) {
+        if (mySeq !== drwSeq) return;
+        if (!res || !res.ok || !res.dossier) {
+          return drwNote('Extra detail unavailable — stock above is current.');
+        }
+        renderPart(res.dossier);
+      }).catch(function () {
+        if (mySeq === drwSeq) drwNote('Extra detail unavailable — stock above is current.');
+      });
+    }
+
+    /** Stage 1 — costs nothing, the board already has these fields. */
+    function renderPartSeed(r) {
+      document.getElementById('drwSub').textContent = 'part · ' + (r.location || 'NOT FOUND');
+      document.getElementById('drwBody').innerHTML =
+        '<div class="drw-hero"><div class="drw-noimg">loading</div>' +
+        '<div style="min-width:0;"><div class="drw-name" id="drwSeedName">…</div></div></div>' +
+        '<div class="drw-grid">' +
+          drwCell('shelf', esc(r.location || '—'), 'sm') +
+          drwCell('on this order', '×' + esc(num(r.qty) || 1)) +
+        '</div>' +
+        '<div id="drwMore"><div class="drw-spin">fetching stock…</div></div>';
+    }
+
+    /** Stage 2 — replaces the seed with real identity + live stock. */
+    function renderPartBasics(b) {
+      var h = '', imgs = (b.images || []).filter(function (u) { return !!u; });
+      document.getElementById('drwSub').textContent =
+        'part · ' + (b.location || 'NOT FOUND') + (b.listingStatus ? ' · ' + b.listingStatus : '');
+
+      h += '<div class="drw-hero">';
+      h += imgs.length
+        ? '<div class="drw-imgwrap"><img class="drw-img" id="drwMainImg" src="' + esc(imgs[0]) + '" alt="" ' +
+          'onerror="this.outerHTML=\'<div class=&quot;drw-noimg&quot;>no photo</div>\'">' +
+          (imgs.length > 1 ? '<span class="drw-imgcount">1/' + imgs.length + '</span>' : '') + '</div>'
+        : '<div class="drw-noimg">no photo</div>';
+      h += '<div style="min-width:0;"><div class="drw-name">' + esc(b.title || '(no title)') + '</div>';
+      if (imgs.length > 1) {
+        h += '<div class="drw-shots" id="drwShots">';
+        imgs.forEach(function (u, i) {
+          h += '<img class="drw-shot' + (i === 0 ? ' sel' : '') + '" data-i="' + i + '" src="' + esc(u) + '" alt="">';
+        });
+        h += '</div>';
+      }
+      h += '</div></div>';
+
+      var tone = (b.available == null) ? '' : (b.available <= 0 ? 'bad' : (b.available <= 5 ? 'warn' : 'good'));
+      h += '<div class="drw-grid">' +
+           drwCell('on hand', drwNum(b.available), tone) +
+           drwCell('shelf', esc(b.location || '—'), 'sm') +
+           drwCell('eBay $', drwMoney(b.ebayPrice), 'sm') +
+           drwCell('Zoho $', drwMoney(b.zohoPrice), 'sm') +
+        '</div>';
+      if (b.ebayUrl) h += '<a class="drw-link" href="' + esc(b.ebayUrl) + '" target="_blank" rel="noopener">Open on eBay ↗</a>';
+      h += '<div id="drwMore"><div class="drw-spin">looking for kits that use this…</div></div>';
+
+      document.getElementById('drwBody').innerHTML = h;
+      wireShots(imgs);
+    }
+
+    function wireShots(imgs) {
+      var strip = document.getElementById('drwShots');
+      if (!strip) return;
+      strip.addEventListener('click', function (ev) {
+        var t = ev.target.closest('.drw-shot');
+        if (!t) return;
+        var main = document.getElementById('drwMainImg');
+        if (main) main.src = t.src;
+        var cnt = document.querySelector('.drw-imgcount');
+        if (cnt) cnt.textContent = (parseInt(t.getAttribute('data-i'), 10) + 1) + '/' + imgs.length;
+        strip.querySelectorAll('.drw-shot').forEach(function (n) { n.classList.remove('sel'); });
+        t.classList.add('sel');
+      });
+    }
+
+    /** A note in the stage-3 slot — never destroys what stages 1-2 painted. */
+    function drwNote(msg) {
+      var el = document.getElementById('drwMore');
+      if (el) el.innerHTML = '<div class="drw-empty">' + esc(msg) + '</div>';
+    }
+
+    /**
+     * Stage 3 — the intelligence only. Stages 1-2 already painted identity and
+     * stock, so this fills #drwMore and must never overwrite the whole body:
+     * if this call is slow the picker keeps a usable drawer.
+     */
+    function renderPart(d) {
+      var slot = document.getElementById('drwMore');
+      if (!slot) return;
+      var p = d.part || {}, h = '';
+
+      if (p.zohoAvailable != null && p.miAvailable != null &&
+          Math.abs(p.zohoAvailable - p.miAvailable) >= 2) {
+        h += '<div class="drw-banner">Stock sources disagree — Zoho <b>' + drwNum(p.zohoAvailable) +
+             '</b> vs eBay <b>' + drwNum(p.miAvailable) + '</b>. Zoho is the master and the fresher of the two.</div>';
+      }
+      if (p.committed) {
+        h += '<div class="drw-line"><span class="dim">committed to open orders</span>' +
+             '<span class="push mono">' + drwNum(p.committed) + '</span></div>';
+      }
+
+      if (d.isKit && d.kit) {
+        var k = d.kit;
+        h += '<div class="drw-sec">This SKU is a kit</div>';
+        h += '<div class="drw-grid">' +
+             drwCell('buildable', drwNum(k.buildable), (k.buildable === 0 ? 'bad' : 'good')) +
+             drwCell('type', esc(k.type || '—'), 'sm') +
+             drwCell('listed $', drwMoney(k.listed), 'sm') +
+             '</div>';
+        if (k.limitedBy) h += '<div class="drw-line"><span class="dim">blocked by</span>' +
+                              '<span class="push mono">' + esc(k.limitedBy) + '</span></div>';
+        (k.components || []).forEach(function (c) {
+          h += '<div class="drw-line"><span class="mono">' + esc(c.sku) + '</span>' +
+               '<span class="dim">' + esc(c.name || '') + '</span>' +
+               '<span class="push dim">×' + esc(c.qty) + ' · have ' + drwNum(c.available) + '</span></div>';
+        });
+      }
+
+      if (d.usedIn && d.usedIn.length) {
+        h += '<div class="drw-sec">Used in ' + d.usedIn.length + ' kit' + (d.usedIn.length === 1 ? '' : 's') + '</div>';
+        if (d.unblock && d.unblock.length) {
+          h += '<div class="drw-banner">Restocking this unblocks ' +
+               d.unblock.map(function (u) { return '<b>' + esc(u) + '</b>'; }).join(', ') + '.</div>';
+        }
+        d.usedIn.forEach(function (u) {
+          var blocked = d.unblock && d.unblock.indexOf(u.kitSku) !== -1;
+          h += '<div class="drw-line"><span class="mono">' + esc(u.kitSku) + '</span>' +
+               '<span class="dim">' + esc(u.kitName || '') + '</span>' +
+               '<span class="push ' + (blocked ? 'drw-blocked' : 'dim') + '">' +
+               (blocked ? 'BLOCKED by this' : 'buildable ' + drwNum(u.buildable)) + '</span></div>';
+        });
+      }
+
+      slot.innerHTML = h || '<div class="drw-empty">No kits use this part.</div>';
+    }
+
+    // ---------- ORDER ----------
+    function openOrderDrawer(orderId) {
+      if (!orderId) return;
+      var mySeq = ++drwSeq;
+      drwShow(orderId, 'order');
+      hqCall('boardOrder', { orderId: orderId }).then(function (res) {
+        if (mySeq !== drwSeq) return;
+        if (!res || !res.ok || !res.dossier) {
+          return drwFail((res && res.reason) || 'Could not read that order.');
+        }
+        renderOrder(res.dossier);
+      }).catch(function (e) {
+        if (mySeq === drwSeq) drwFail(String(e.message || e));
+      });
+    }
+
+    function renderOrder(d) {
+      var h = '';
+      document.getElementById('drwSub').textContent =
+        (d.channel || '') + (d.statuses && d.statuses.length ? ' · ' + d.statuses.join(' / ') : '');
+
+      if (!d.found) {
+        h += '<div class="drw-banner">Not on the sheet right now. It may have shipped and been cleared — the timeline below is what the system remembers.</div>';
+      }
+
+      if (d.rows && d.rows.length) {
+        h += '<div class="drw-sec">' + d.rows.length + ' row' + (d.rows.length === 1 ? '' : 's') + '</div>';
+        d.rows.forEach(function (r) {
+          h += '<div class="drw-line"><span class="mono">' + esc(r.sku) + '</span>' +
+               '<span class="dim">' + esc(r.location || '') + '</span>' +
+               '<span class="push dim">×' + esc(r.qty) + ' · ' + esc(r.status || '') + '</span></div>';
+        });
+      }
+
+      if (d.zoho) {
+        h += '<div class="drw-sec">Zoho</div><div class="drw-line"><span class="dim">' +
+             esc(d.zoho.order || '') + '</span><span class="push dim">pay ' +
+             esc(d.zoho.payment || '—') + ' · ship ' + esc(d.zoho.shipment || '—') + '</span></div>';
+      }
+
+      if (d.events && d.events.length) {
+        h += '<div class="drw-sec">Timeline</div>';
+        d.events.slice(-12).reverse().forEach(function (ev) {
+          h += '<div class="drw-line"><span class="mono">' + esc(ev.event || '') + '</span>' +
+               '<span class="dim">' + esc(ev.sku || '') + '</span>' +
+               '<span class="push dim">' + esc(ev.when || ev.timestamp || '') + '</span></div>';
+        });
+      }
+
+      if (d.notes && d.notes.length) {
+        h += '<div class="drw-sec">Case notes</div>';
+        d.notes.forEach(function (n) {
+          h += '<div class="drw-line"><span class="dim">' + esc(n.findings || n.category || '') + '</span>' +
+               '<span class="push dim">' + esc(n.status || '') + '</span></div>';
+        });
+      }
+
+      if (d.links && d.links.ebay) h += '<a class="drw-link" href="' + esc(d.links.ebay) + '" target="_blank" rel="noopener">eBay ↗</a>';
+      if (d.links && d.links.zoho) h += '<a class="drw-link ghost" href="' + esc(d.links.zoho) + '" target="_blank" rel="noopener">Zoho ↗</a>';
+
+      if (!h) h = '<div class="drw-empty">Nothing recorded for this order.</div>';
+      document.getElementById('drwBody').innerHTML = h;
+    }
+
+    function drwFail(msg) {
+      document.getElementById('drwBody').innerHTML =
+        '<div class="drw-empty">' + esc(msg) + '</div>';
     }
 
     function buildPickRow(r, animate) {

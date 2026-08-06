@@ -121,8 +121,17 @@ function commitKitFromWeb(kitSku, salesOrder, excludedSkus, extras, force, alter
   try {
     kitSku     = String(kitSku || "").trim();
     salesOrder = String(salesOrder || "").trim();
-    if (!kitSku || !salesOrder) {
-      return { ok: false, message: "Missing kit SKU or sales order.", inserted: 0 };
+
+    // Only the SKU is required. A BLANK sales order is legitimate — a
+    // hand-typed kit row that has not been given one yet — and the engine
+    // handles it: _findKitRowBySkuAndSo compares trimmed strings, so blank
+    // matches blank, and when several rows tie it disambiguates by proximity
+    // to the hint row we pass below. The desktop modal has never required an
+    // SO either, and a rule that exists on only one surface is a defect.
+    // (An earlier version of this guard demanded both and blocked expansion
+    // of any SO-less row — 2026-08-06.)
+    if (!kitSku) {
+      return { ok: false, message: "Missing kit SKU.", inserted: 0 };
     }
 
     // Re-derive from a FRESH scan. If it isn't in the queue any more — expanded

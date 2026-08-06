@@ -179,6 +179,28 @@ function addTelegramWebAppUser(userId) {
   return "✅ Added " + id + " — now " + list.length + " allowed.";
 }
 
+/**
+ * ONE-TIME BOOTSTRAP — select this in the editor's function dropdown and Run.
+ *
+ * WHY IT EXISTS: the Apps Script editor's Run button cannot pass ARGUMENTS, so
+ * `addTelegramWebAppUser('123')` is not directly runnable from the UI. Same
+ * reason `setMyPricePushPassphraseNow()` exists. Edit the list below, run once,
+ * then check the Execution log for the result.
+ *
+ * Get an id by sending /whoami to the bot.
+ */
+function addWebAppUsersNow() {
+  var ids = [
+    "1654742718"   // Yassin
+    // , "..."     // add more here, one per line
+  ];
+  var out = ids.map(addTelegramWebAppUser);
+  out.push("Allowed now: " + listTelegramWebAppUsers().join(", "));
+  var msg = out.join("\n");
+  try { console.log(msg); } catch (_) {}
+  return msg;
+}
+
 /** Remove a Telegram user id from the web-app allowlist. */
 function removeTelegramWebAppUser(userId) {
   var id = String(userId || "").trim();
