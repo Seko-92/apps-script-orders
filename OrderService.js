@@ -147,6 +147,26 @@ function doPost(e) {
       })).setMimeType(ContentService.MimeType.JSON);
     }
 
+    // --- BOARD: PRINT + PICKER ---------------------------------------------
+    // The pick list as a string, so a tablet can print it — the Sheets mobile
+    // app cannot open the Apps Script modal the sidebar uses. The picker guard
+    // is unchanged; boardSetPicker is allow-listed to the dropdown's own values.
+    if (payload.action === 'boardPrint') {
+      return ContentService.createTextOutput(JSON.stringify(
+        getPrintHtmlForBoard()
+      )).setMimeType(ContentService.MimeType.JSON);
+    }
+    if (payload.action === 'boardPickers') {
+      return ContentService.createTextOutput(JSON.stringify(
+        getBoardPickers()
+      )).setMimeType(ContentService.MimeType.JSON);
+    }
+    if (payload.action === 'boardSetPicker') {
+      return ContentService.createTextOutput(JSON.stringify(
+        setBoardPicker(payload.picker)
+      )).setMimeType(ContentService.MimeType.JSON);
+    }
+
     // --- TAP-TO-INSPECT (board drawer) -----------------------------------------
     // Thin wrappers over dossiers that ALREADY EXIST and are already reachable
     // from the sidebar consoles — the board simply had no way to ask for them.

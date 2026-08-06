@@ -416,3 +416,92 @@ function _dashKitSkuSet() {
     return {};    // degrade to "nothing is a kit" — never break the board
   }
 }
+
+
+// =======================================================================================
+// BOARD: PICKER SELECTION
+// =======================================================================================
+//
+// Printing refuses without a real Pick ID in Schema.cellEmployeeId — that guard
+// is the single chokepoint for warehouse accountability, and once set, every
+// status event for the rest of the shift carries the picker's name into the
+// Activity Log.
+//
+// Which left the tablet in a bind: it could not print, because it could not set
+// the picker, because setting it meant walking to a computer — the exact trip
+// printing from the board is supposed to remove.
+//
+// So the board can set it, under the SAME allow-list discipline as
+// boardSetStatus: the value must already be one of the dropdown's own options.
+// Arbitrary text cannot be written, so the worst a stranger on the URL could do
+// is select a different REAL picker — the same thing they could do by walking
+// up to the sheet, and visible in the Activity Log either way.
+
+/**
+ * The Pick ID options, read from the cell's own data validation so there is
+ * exactly one source of truth and adding a picker in the sheet is enough.
+ *
+ * @returns {{ok:boolean, pickers:Array<string>, current:string}}
+ */
+function getBoardPickers() {
+  try {
+    var sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(MAIN_SHEET_NAME);
+    if (!sheet) return { ok: false, pickers: [], current: "" };
+
+    var range = sheet.getRange(Schema.cellEmployeeId);
+    var current = String(range.getValue() || "").trim();
+
+    var dv = range.getDataValidation();
+    var opts = dv ? (dv.getCriteriaValues()[0] || []) : [];
+
+    // Keep only real pickers. The list also carries the dropdown's own
+    // placeholder ("Pick ID for Shipping"), which the print guard rejects — so
+    // offering it here would just produce a confusing refusal downstream.
+    var pickers = [];
+    for (var i = 0; i < opts.length; i++) {
+      var v = String(opts[i] || "").trim();
+      if (v && /^Shipping\s*-\s*/i.test(v)) pickers.push(v);
+    }
+
+    return { ok: true, pickers: pickers, current: /^Shipping\s*-\s*/i.test(current) ? current : "" };
+  } catch (err) {
+    try { console.log("getBoardPickers: " + err); } catch (_) {}
+    return { ok: false, pickers: [], current: "" };
+  }
+}
+
+
+/**
+ * Set the shift's picker from the board.
+ *
+ * ⚠ ALLOW-LISTED: the value must already appear in the cell's validation list.
+ * This is the security boundary, exactly as the PENDING/PREPARING allow-list is
+ * for boardSetStatus — not a PIN, but a capability narrow enough that a public
+ * URL cannot do damage with it.
+ *
+ * @returns {{ok:boolean, picker:string, message:string}}
+ */
+function setBoardPicker(value) {
+  var want = String(value || "").trim();
+  if (!want) return { ok: false, picker: "", message: "No picker given." };
+
+  try {
+    var avail = getBoardPickers();
+    if (!avail.ok) return { ok: false, picker: "", message: "Could not read the picker list." };
+    if (avail.pickers.indexOf(want) === -1) {
+      return { ok: false, picker: "", message: "Not a known picker." };
+    }
+
+    var sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(MAIN_SHEET_NAME);
+    sheet.getRange(Schema.cellEmployeeId).setValue(want);
+
+    try {
+      logActivity("NOTE", "", "", 0, "board", "picker set to " + want);
+    } catch (e) { /* best-effort */ }
+
+    return { ok: true, picker: want, message: "" };
+  } catch (err) {
+    try { console.log("setBoardPicker: " + err); } catch (_) {}
+    return { ok: false, picker: "", message: String(err.message || err) };
+  }
+}

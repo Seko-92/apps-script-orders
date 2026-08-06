@@ -282,12 +282,24 @@
     }
 
     /* ─────────── HERO STRIP ─────────── */
+    /* The largest number on screen used to be RECEIVED TODAY (57) — the least
+       actionable thing on the board. The eye goes to size, so size has to
+       follow usefulness: what to DO on the left, what already HAPPENED on the
+       right, visibly supporting rather than competing. */
     .hero {
       display: grid;
-      grid-template-columns: 1.7fr 1fr 1fr 1fr;
+      grid-template-columns: 1.85fr 1.25fr 0.85fr 0.85fr;
       gap: 16px;
       align-items: stretch;
     }
+    /* The two retrospective cards recede — but only enough to stop competing.
+       At 0.72 with a muted number the LABELS went hard to read, which is a step
+       too far: these are still real figures someone glances at, not decoration.
+       Dim the number, keep the label legible. */
+    .hero > .mini.past { opacity: 0.88; }
+    .hero > .mini.past .mini-value { font-size: 42px; color: var(--mute); }
+    .hero > .mini.past .mini-label { color: var(--mute); }
+    .hero > .mini.past:hover { opacity: 1; }
     .hero > div { min-height: 168px; }   /* room for the orbit to circle the count cleanly */
     .grab {
       position: relative;
@@ -807,6 +819,7 @@
     .rest-foot { position: absolute; left: 0; right: 0; bottom: clamp(16px, 3.4vh, 32px); z-index: 3; text-align: center; }
     .rest-straggler { font-family: 'Roboto Mono', monospace; font-size: 12px; color: var(--mute-soft); letter-spacing: 0.08em; }
     .rest-straggler:empty { display: none; }
+
     @media (prefers-reduced-motion: reduce) { .dial-bezel, .dial-sweep, .ember, .grab-orbit-sweep { animation: none !important; } }
 
     /* ─────────── PICK ROWS ─────────── */
@@ -880,15 +893,20 @@
       overflow: hidden;
       text-overflow: ellipsis;
     }
+    /* LOCATION LEADS. It is the routing key — it decides where the picker's
+       feet go — and it used to carry the same weight as the SKU beside it. */
     .pick-loc {
       font-family: 'Roboto Mono', monospace;
       font-weight: 700;
-      font-size: 16px;
+      font-size: 21px;
       color: var(--brand-rim);
       letter-spacing: 0.01em;
       white-space: nowrap;
     }
-    .pick-loc.missing { color: var(--red-alert); font-weight: 500; }
+    .pick-loc.missing { color: var(--red-alert); font-weight: 500; font-size: 15px; }
+    /* No shelf = this row cannot be walked. Make it look wrong at a glance
+       rather than only on reading it. */
+    .pick-row.noloc { background: rgba(255,107,107,0.05); box-shadow: inset 3px 0 0 var(--red-alert); }
     /* Unexpanded kit — not pickable off a shelf until someone decides.
        Outlined rather than filled so it reads as a NOTE on the SKU, not as a
        third status competing with GRAB / PREP at the end of the row. */
@@ -909,7 +927,7 @@
 
     .pick-sku {
       font-family: 'Roboto Mono', monospace;
-      font-size: 17px;
+      font-size: 15px;
       color: var(--paper);
       white-space: nowrap;
       overflow: hidden;
@@ -919,9 +937,19 @@
       font-family: 'Oswald', sans-serif;
       font-weight: 700;
       font-size: 20px;
-      color: var(--brand-yellow);
-      min-width: 34px;
+      color: var(--mute);
+      min-width: 40px;
       text-align: right;
+    }
+    /* Anything above one is a different job — carrying two is not carrying
+       eight. Only then does it earn brand colour and a box. */
+    .pick-qty.multi {
+      color: var(--brand-yellow);
+      background: rgba(255,212,0,0.10);
+      border: 1px solid rgba(255,212,0,0.30);
+      border-radius: 7px;
+      padding: 1px 8px;
+      font-size: 22px;
     }
     .pick-meta {
       font-family: 'Roboto Mono', monospace;
@@ -931,22 +959,30 @@
       overflow: hidden;
       text-overflow: ellipsis;
     }
+    /* ⚠ STATUS IS NOT A CONTROL.
+       GRAB/PREP used to be a filled pill sitting directly beside the ✓ PICK
+       button — same shape, same size, similar warmth. Nothing told a gloved
+       hand at speed which one DID something. A mis-tap there silently flips an
+       order, so this is a correctness problem, not a taste one.
+       Now: no fill, no border, no pill. Just a word. The button is the only
+       thing on the row shaped like a button. */
     .pick-status {
       font-family: 'Oswald', sans-serif;
       font-weight: 700;
       font-size: 11px;
-      letter-spacing: 0.10em;
+      letter-spacing: 0.14em;
       text-transform: uppercase;
-      text-align: center;
-      padding: 3px 9px;
-      border-radius: 5px;
-      min-width: 54px;
-      border: 1px solid transparent;
+      text-align: right;
+      padding: 0;
+      border-radius: 0;
+      min-width: 46px;
+      border: 0;
+      background: none;
     }
     /* PENDING = act now → loud brand-yellow, with a slow sheen to draw the eye */
     .pick-status.pend {
-      background: var(--brand-yellow);
-      color: var(--ink);
+      background: none;
+      color: var(--brand-yellow);
       position: relative;
       overflow: hidden;
     }
@@ -955,16 +991,16 @@
       position: absolute;
       top: 0; left: -60%;
       width: 55%; height: 100%;
-      background: linear-gradient(100deg, transparent, rgba(255,255,255,0.5), transparent);
+      background: none;
       pointer-events: none;
-      animation: chipSheen 3.6s ease-in-out infinite;
+      animation: none;
     }
     @keyframes chipSheen {
       0%       { left: -60%; }
       55%,100% { left: 130%; }
     }
     /* PREPARING = in hand → quiet outline */
-    .pick-status.prep { background: transparent; border-color: rgba(255,184,77,0.5); color: var(--amber-warn); }
+    .pick-status.prep { background: transparent; border: 0; color: var(--amber-warn); }
 
     /* Arrival drama — a freshly-pickable row slides in + glows */
     .pick-row.enter { animation: pickIn 0.6s cubic-bezier(.2,1,.3,1); }
@@ -1048,6 +1084,14 @@
       font-size: 14px;
       color: var(--mute);
     }
+    /* AS IT LANDS is ambient history, not work. Its pills were as colourful as
+       anything on the pick list and actively pulled the eye off the actionable
+       side. Monochrome here; brand yellow is reserved for what to DO. */
+    .feed-tag.new, .feed-tag.ship, .feed-tag.prep, .feed-tag.print, .feed-tag.cancel {
+      background: rgba(245,245,242,0.07) !important;
+      color: var(--mute) !important;
+      border-color: rgba(245,245,242,0.12) !important;
+    }
     .feed-tag {
       font-family: 'Oswald', sans-serif;
       font-weight: 600;
@@ -1102,7 +1146,26 @@
     }
     .ftr-picker { color: var(--mute); }
     .ftr-picker b { color: var(--brand-rim); font-weight: 500; }
-    .ftr-right { display: flex; align-items: center; gap: 20px; }
+    .ftr-right { display: flex; align-items: center; gap: 14px; }
+
+    /* The footer used to be eight identical chips in a row, mixing things that
+       DO something with things you merely set and things you only read. Same
+       size, same border, same spacing — so it read as a wall of buttons and
+       ran out of room. Grouped by kind, with a hairline between groups. */
+    .ftr-grp { display: flex; align-items: center; gap: 8px; }
+    .ftr-grp + .ftr-grp { padding-left: 14px; border-left: 1px solid var(--mute-faint); }
+
+    /* Preferences shrink to their glyph — the word is in the tooltip. */
+    .ftr-pref .ftr-sound {
+      max-width: 30px; padding: 3px 0; overflow: hidden;
+      white-space: nowrap; text-align: center; opacity: 0.72;
+      transition: max-width 0.25s ease, opacity 0.2s, padding 0.25s ease;
+    }
+    .ftr-pref .ftr-sound:hover { max-width: 108px; padding: 3px 10px; opacity: 1; }
+    .ftr-pref .ftr-sound.on { opacity: 1; }
+
+    /* Status is text, not a control. */
+    .ftr-stat { color: var(--mute-soft); gap: 12px; }
     .ftr-sound {
       cursor: pointer;
       user-select: none;
@@ -1341,6 +1404,114 @@
     /* Boot state */
     .board.booting .grab-num,
     .board.booting .mini-value { opacity: 0.4; }
+    /* ==================================================================
+       RESPONSIVE
+       ------------------------------------------------------------------
+       The board was built for a wall and a desk, and had NO width-based
+       media queries at all: a 4-column hero, a 2-column body, 6-column
+       pick rows, and overflow:hidden so nothing cut off could even be
+       scrolled to. Fine at 1900px, unusable on a phone.
+
+       Three sizes, and the rule at each is the same: KEEP WHAT SOMEONE
+       WOULD ACT ON, drop what is ambient.
+         wide    (>1200) — unchanged, the wall/desk board
+         tablet  (<=1200 / <=900) — hero folds to 2x2, body stacks
+         phone   (<=620) — pick list only; the feed is history and history
+                           is the first thing to go on a 6-inch screen
+
+       ⚠ The .mid grid is also set per adaptive MODE (busy/balanced/quiet),
+       so these must out-specify `.board.mode-busy .mid` — hence the
+       .board prefix rather than a bare .mid.
+       ================================================================== */
+
+    /* ---------- tablet landscape / small laptop ---------- */
+    @media (max-width: 1200px) {
+      .board { padding: 14px 18px 12px; gap: 12px; }
+      .hero { grid-template-columns: 1.7fr 1.2fr 1fr 1fr; gap: 12px; }
+      .hero > div { min-height: 150px; }
+      .grab-num { font-size: 64px; }
+      .mini-value { font-size: 46px; }
+      .board .mid,
+      .board.mode-busy .mid,
+      .board.mode-balanced .mid,
+      .board.mode-quiet .mid { grid-template-columns: 1.5fr 1fr; }
+
+      /* The chips were sized for a 1900px wall. On a tablet the same padding
+         and gaps left them shoulder to shoulder. */
+      .ftr { font-size: 11px; padding-top: 8px; }
+      .ftr-right { gap: 10px; }
+      .ftr-grp { gap: 6px; }
+      .ftr-grp + .ftr-grp { padding-left: 10px; }
+      .ftr-sound { padding: 2px 8px; }
+      .radio-meta { max-width: 92px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    }
+
+    /* ---------- tablet portrait ---------- */
+    @media (max-width: 900px) {
+      /* The board stops being a fixed-height canvas here. Stacked content is
+         taller than the viewport, and with overflow:hidden the bottom would be
+         unreachable — the same trap the whole page hit on the tablet. */
+      html, body { overflow: auto; }
+      .board { height: auto; min-height: 100vh; min-height: 100dvh; overflow: visible; }
+
+      .hdr { grid-template-columns: 1fr auto; row-gap: 8px; }
+      .pray { grid-column: 1 / -1; justify-self: center; }
+
+      /* Version string is the first thing nobody needs on a small screen. */
+      .ftr-stat span:last-child { display: none; }
+
+      .hero { grid-template-columns: 1fr 1fr; }
+      .hero > div { min-height: 132px; }
+      .grab { grid-column: 1 / -1; }          /* the primary metric spans */
+
+      .board .mid,
+      .board.mode-busy .mid,
+      .board.mode-balanced .mid,
+      .board.mode-quiet .mid { grid-template-columns: 1fr; }
+      .mid > .feed { min-height: 0; }
+      .mid > .feed:nth-child(2) { max-height: 44vh; }
+    }
+
+    /* ---------- phone ---------- */
+    @media (max-width: 620px) {
+      .board { padding: 10px 12px 8px; gap: 10px; }
+      .hdr-words, .wx, .hijri { display: none; }   /* identity is the HQ mark */
+      .clock { font-size: 22px; }
+
+      .hero { grid-template-columns: 1fr 1fr; gap: 8px; }
+      .hero > div { min-height: 104px; padding: 12px 14px; }
+      .grab-num { font-size: 52px; }
+      .mini-value { font-size: 34px; }
+      .hero > .mini.past { display: none; }   /* retrospective counts are not phone work */
+
+      /* Pick rows reflow to two lines: the walk (where · how many · action)
+         on top, the confirmation detail beneath. */
+      .pick-main {
+        grid-template-columns: auto auto 1fr auto;
+        grid-template-areas: "loc qty . do" "sku sku meta meta";
+        gap: 4px 10px;
+      }
+      .pick-loc  { grid-area: loc; font-size: 19px; }
+      .pick-qty  { grid-area: qty; }
+      .pick-sku  { grid-area: sku; font-size: 14px; }
+      .pick-meta { grid-area: meta; text-align: right; }
+      .pick-status { display: none; }         /* the ✓ PICK button implies it */
+      .pick-do   { grid-area: do; }
+      .pick-row  { padding: 10px 12px; }
+
+      /* History is the first thing to go on a small screen. */
+      .board .mid > *:nth-child(2) { display: none; }
+      .board .mid,
+      .board.mode-busy .mid,
+      .board.mode-balanced .mid,
+      .board.mode-quiet .mid { grid-template-columns: 1fr; }
+
+      /* Footer keeps the controls, drops the telemetry. */
+      .ftr { flex-wrap: wrap; gap: 8px; font-size: 11px; }
+      .ftr-picker, .ftr-pref { display: none; }   /* preferences are a desk job */
+      .ftr-grp + .ftr-grp { padding-left: 8px; }
+    }
+
   </style>
 </head>
 <body>
@@ -1419,7 +1590,7 @@
         <div class="mini-sub" id="oldestSub">nothing pending</div>
       </div>
 
-      <div class="mini">
+      <div class="mini past">
         <div class="mini-label">Shipped today</div>
         <div class="mini-core">
           <div class="mini-value" id="shippedVal">—</div>
@@ -1429,7 +1600,7 @@
         <div class="mini-sub" id="shippedSub">&nbsp;</div>
       </div>
 
-      <div class="mini">
+      <div class="mini past">
         <div class="mini-label">Received today</div>
         <div class="mini-core">
           <div class="mini-value" id="receivedVal">—</div>
@@ -1544,12 +1715,29 @@
         <div class="radio-pop" id="radioPop"></div>
       </div>
       <div class="ftr-right">
-        <span class="ftr-sound" id="soundToggle" title="Distinct chime per event">♪ off</span>
-        <span class="ftr-sound" id="fsToggle" title="Fullscreen (tap on the tablet)">⛶ full</span>
-        <span class="ftr-sound" id="themeBtn" title="Theme">🎨 theme</span>
-        <span class="ftr-sound" id="breatheBtn" title="Ambient breath — a barely-there living calm">◌ breathe</span>
-        <span id="footSync">sync —</span>
-        <span>FLOOR · v2.1 · hosted</span>
+        <!-- ACTIONS — these DO something. Full labels, normal weight. -->
+        <span class="ftr-grp">
+          <span class="ftr-sound" id="printBtn" title="Print the pick list — PREPARING rows">🖨 print</span>
+          <a class="ftr-sound" id="arcadeBtn" href="/arcade" target="_blank" rel="noopener"
+             style="text-decoration:none;" title="Break-room cabinet — six games">🕹 arcade</a>
+          <span class="ftr-sound" id="fsToggle" title="Fullscreen (tap on the tablet)">⛶ full</span>
+        </span>
+
+        <!-- PREFERENCES — set once, then never read. Icon-only: they were
+             eating a third of the bar for words nobody re-reads, and that is
+             what made the row feel cramped. Labels live in the tooltips and
+             the JS still writes the same textContent. -->
+        <span class="ftr-grp ftr-pref">
+          <span class="ftr-sound" id="soundToggle" title="Sound — distinct chime per event">♪ off</span>
+          <span class="ftr-sound" id="themeBtn" title="Theme">🎨 theme</span>
+          <span class="ftr-sound" id="breatheBtn" title="Ambient breath">◌ breathe</span>
+        </span>
+
+        <!-- STATUS — read-only. Never looked like a control, so stop framing it. -->
+        <span class="ftr-grp ftr-stat">
+          <span id="footSync">sync —</span>
+          <span>v2.1</span>
+        </span>
       </div>
     </div>
     <audio id="radioAudio" preload="none"></audio>
@@ -1625,6 +1813,7 @@
     var lastWarmthBucket = '';
     var audioCtx  = null;
     var eggClicks = 0, eggTimer = null;
+    var eggArmed = false, eggArmTimer = null;   // second run of 5 taps -> arcade
     var themes    = ['', 'midnight', 'crt'];
     var themeIdx  = 0;
     var breatheOn = true;  // ambient breath — default ON, toggleable in the footer
@@ -2372,7 +2561,11 @@
       var loc = document.createElement('span');
       loc.className = 'pick-loc';
       var locTxt = String(r.location || '').trim();
-      if (!locTxt || locTxt.toUpperCase() === 'NOT FOUND') { loc.classList.add('missing'); locTxt = locTxt || '—'; }
+      if (!locTxt || locTxt.toUpperCase() === 'NOT FOUND') {
+        loc.classList.add('missing');
+        li.classList.add('noloc');       // the whole row reads as broken
+        locTxt = locTxt || '—';
+      }
       loc.textContent = locTxt;
 
       var sku = document.createElement('span');
@@ -2401,8 +2594,9 @@
       }
 
       var qty = document.createElement('span');
-      qty.className = 'pick-qty';
-      qty.textContent = '×' + (num(r.qty) || 1);
+      var qn = num(r.qty) || 1;
+      qty.className = 'pick-qty' + (qn > 1 ? ' multi' : '');
+      qty.textContent = '×' + qn;
 
       var meta = document.createElement('span');
       meta.className = 'pick-meta';
@@ -2439,6 +2633,151 @@
         noteEl.textContent = '📌 ' + fnText;
         li.appendChild(noteEl);
       }
+    }
+
+    // ================= PRINT THE PICK LIST =================
+    // The other hard platform wall: the Sheets mobile app cannot open an Apps
+    // Script modal, so a picker on the tablet has never been able to print —
+    // they walk to a computer. Apps Script renders the SAME document the
+    // sidebar prints and hands it over as a string; the board opens it in a
+    // window and calls print().
+    //
+    // The accountability guard is untouched: no real Pick ID, no print. But
+    // the board can now SET one (allow-listed to the dropdown's own values),
+    // which is what makes the tablet workflow actually complete instead of
+    // bouncing the picker back to a desk.
+
+    document.getElementById('printBtn').addEventListener('click', function () {
+      // ⚠ OPEN THE WINDOW *HERE*, synchronously, inside the tap.
+      //
+      // Browsers only allow window.open() while a user gesture is still on the
+      // stack. Opening it in the .then() after the server call — which is what
+      // this did first — arrives long after the gesture has ended, so it gets
+      // blocked as a pop-up. That was OUR bug, not a setting the picker got
+      // wrong, and telling them to allow pop-ups was the wrong fix.
+      //
+      // So: claim the window on the tap, park a placeholder in it, and fill it
+      // when the document arrives.
+      var w = null;
+      try { w = window.open('', '_blank'); } catch (e) { w = null; }
+      if (w) {
+        try {
+          w.document.write(
+            '<!doctype html><meta charset="utf-8"><title>HQ · pick list</title>' +
+            '<body style="margin:0;display:flex;align-items:center;justify-content:center;' +
+            'height:100vh;background:#1b1b18;color:#f5f5f2;' +
+            "font-family:-apple-system,BlinkMacSystemFont,sans-serif;\">" +
+            '<div style="text-align:center"><div style="font-size:15px;letter-spacing:.08em">' +
+            'BUILDING THE PICK LIST</div><div style="opacity:.55;font-size:12px;margin-top:8px">' +
+            'this window will fill in a moment</div></div>');
+        } catch (e) { /* placeholder is cosmetic */ }
+      }
+
+      // Deliberately NOT drwClose() first: that resumes the poll and fires a
+      // tick, which Apps Script runs BEFORE the print (one execution at a
+      // time), queueing the print behind it. drwShow overwrites the drawer.
+      startPrint(w);
+    });
+
+    function startPrint(win) {
+      drwShow('Pick list', 'preparing document…');
+      pollPaused = true;                 // do not compete with the render
+      hqCall('boardPrint', {}).then(function (res) {
+        if (res && res.ok && res.html) return deliverPrint(res, win);
+        // Anything other than success: close the window we optimistically
+        // claimed, so a failure never leaves a blank orphan tab behind.
+        closePrintWindow(win);
+        if (res && res.needsPicker)     return askForPicker();
+        // Say what actually went wrong. `error` is what the n8n proxy returns
+        // when the hop itself fails (timeout, oversize) — reading only `reason`
+        // turned every transport failure into a useless generic message.
+        var why = (res && (res.reason || res.error)) ||
+                  (res ? ('unexpected response: ' + JSON.stringify(res).slice(0, 160))
+                       : 'no response');
+        drwFail(why);
+      }).catch(function (e) {
+        closePrintWindow(win);
+        drwFail(String(e.message || e));
+      });
+    }
+
+    function closePrintWindow(w) { try { if (w && !w.closed) w.close(); } catch (e) {} }
+
+    /** No picker set — offer the list rather than sending them to the sheet. */
+    function askForPicker() {
+      document.getElementById('drwTitle').textContent = 'Who is picking?';
+      document.getElementById('drwSub').textContent = 'required before printing';
+      document.getElementById('drwBody').innerHTML = '<div class="drw-spin">loading pickers…</div>';
+
+      hqCall('boardPickers', {}).then(function (res) {
+        if (!res || !res.ok || !res.pickers || !res.pickers.length) {
+          return drwFail('No pickers configured. Set the Pick ID dropdown in the sheet.');
+        }
+        var h = '<div class="drw-banner">The pick list records who printed it, and every ' +
+                'status change for the rest of the shift is filed under this name.</div>';
+        res.pickers.forEach(function (p) {
+          h += '<button class="drw-link ghost" style="display:block;width:100%;margin:8px 0;text-align:left;" ' +
+               'data-picker="' + esc(p) + '">' + esc(p.replace(/\n/g, ' · ')) + '</button>';
+        });
+        document.getElementById('drwBody').innerHTML = h;
+
+        document.getElementById('drwBody').addEventListener('click', function (ev) {
+          var b = ev.target.closest('[data-picker]');
+          if (!b) return;
+          var who = b.getAttribute('data-picker');
+          document.getElementById('drwBody').innerHTML = '<div class="drw-spin">setting picker…</div>';
+          // Tapping a picker IS a gesture, so a window claimed here is allowed
+          // too — otherwise choosing a picker would print into nothing.
+          var w2 = null;
+          try { w2 = window.open('', '_blank'); } catch (e) { w2 = null; }
+          hqCall('boardSetPicker', { picker: who }).then(function (r) {
+            if (r && r.ok) { startPrint(w2); return; }   // straight back into printing
+            closePrintWindow(w2);
+            drwFail((r && r.message) || 'Could not set the picker.');
+          }).catch(function (e) { drwFail(String(e.message || e)); });
+        });
+      }).catch(function (e) { drwFail(String(e.message || e)); });
+    }
+
+    /**
+     * Hand the document to the browser.
+     *
+     * A NEW WINDOW rather than an iframe: the print template is a full document
+     * with its own @page rules, and printing an iframe applies the PARENT
+     * page's print styles in several browsers — which would silently wreck
+     * pagination that took a long time to get right.
+     */
+    function deliverPrint(res, w) {
+      // Fall back to opening now if the tap-time open was refused — rare, but
+      // some tablet browsers still block even a gesture-initiated open.
+      if (!w || w.closed) {
+        try { w = window.open('', '_blank'); } catch (e) { w = null; }
+      }
+
+      if (!w) {
+        // Popup blocked — common on tablets. Do not lose the document.
+        document.getElementById('drwTitle').textContent = 'Allow pop-ups to print';
+        document.getElementById('drwSub').textContent = res.docNumber || '';
+        pollPaused = false;          // the drawer stays open; do not strand the board
+        document.getElementById('drwBody').innerHTML =
+          '<div class="drw-banner">The browser blocked the print window. Allow pop-ups for ' +
+          'this site, then tap print again.</div>' +
+          '<div class="drw-line"><span class="dim">in this batch</span>' +
+          '<span class="push mono">' + esc(res.ebay) + ' eBay · ' + esc(res.direct) + ' direct</span></div>';
+        return;
+      }
+
+      w.document.open();
+      w.document.write(res.html);
+      w.document.close();
+      // Let fonts and the logo settle before the dialog, or the first page can
+      // print half-styled.
+      setTimeout(function () { try { w.focus(); w.print(); } catch (e) {} }, 700);
+
+      drwClose();
+      var kb = res.html ? Math.round(res.html.length / 1024) : 0;
+      try { console.log('print doc ' + kb + 'KB · ' + res.docNumber); } catch (e) {}
+      printedToast(res.ebay + ' eBay · ' + res.direct + ' direct sent to print');
     }
 
     // ================= TAP-TO-INSPECT =================
@@ -2811,7 +3150,22 @@
       clearTimeout(t._timer);
       t._timer = setTimeout(hideToast, 6000);
     }
-    function hideToast() { document.getElementById('ctoast').classList.remove('show'); }
+    function hideToast() {
+      document.getElementById('ctoast').classList.remove('show');
+      var u = document.getElementById('ctoastUndo');
+      if (u) u.style.display = '';        // restore for the pick toast
+    }
+
+    /** The same toast, minus Undo — there is nothing to undo about a print. */
+    function printedToast(msg) {
+      var t = document.getElementById('ctoast');
+      document.getElementById('ctoastMsg').textContent = '🖨 ' + msg;
+      var u = document.getElementById('ctoastUndo');
+      if (u) u.style.display = 'none';
+      t.classList.add('show');
+      clearTimeout(t._timer);
+      t._timer = setTimeout(hideToast, 5000);
+    }
 
     // ---------- FLOOR NOTES (** marker, read straight from each order's NOTE) ----------
     var FLOOR_MARK = '**';
@@ -2921,7 +3275,14 @@
 
       var o = document.createElement('span');
       o.className = 'feed-order';
-      o.textContent = (e.orderId || '(no id)') + (e._n > 1 ? '  ·  ' + e._n + ' items' : '');
+      // Some events are not ABOUT an order: PRINTED covers a whole batch, and
+      // a picker-change note has no order at all. Padding those with "(no id)"
+      // advertised a missing field instead of just reading naturally.
+      var count = (e._n > 1) ? (e._n + ' items') : '';
+      var label = e.orderId
+        ? (e.orderId + (count ? '  ·  ' + count : ''))
+        : (count || '—');
+      o.textContent = label;
 
       var ch = document.createElement('span');
       ch.className = 'feed-chan';
@@ -3064,6 +3425,20 @@
       if (logo) { logo.classList.remove('flip'); void logo.offsetWidth; logo.classList.add('flip');
                   setTimeout(function () { logo.classList.remove('flip'); }, 950); }
       chime('caughtUp');
+
+      // The egg has always been a wink with no payoff. Now a SECOND run of five
+      // taps, while the first toast is still up, opens the break-room cabinet.
+      // Two-stage on purpose: nobody hits it by accident on a wall display, and
+      // the people who already knew about the egg get something for it.
+      if (eggArmed) {
+        eggArmed = false;
+        egg.textContent = '🕹  CABINET UNLOCKED';
+        try { window.open('/arcade', '_blank'); } catch (e) {}
+      } else {
+        eggArmed = true;
+        clearTimeout(eggArmTimer);
+        eggArmTimer = setTimeout(function () { eggArmed = false; }, 6000);
+      }
     }
 
     var wakeLock = null;

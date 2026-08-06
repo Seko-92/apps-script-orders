@@ -6,7 +6,16 @@
  * Gathers 'PREPARING' rows, separating them into eBay vs DIRECT lists
  * Now includes HAND (Col G) and LEFT (Col H) columns
  */
-function preparePrintSheet() {
+function preparePrintSheet(opts) {
+  // opts.forBoard — return the rendered HTML instead of opening a dialog.
+  // showModalDialog only exists inside the Sheets UI, which is exactly why a
+  // picker on the tablet has never been able to print. Everything ABOVE the
+  // last line already produces the finished document; the board needs the
+  // string, not the dialog. Called with no arguments this behaves exactly as
+  // it always has — the sidebar and menu paths are untouched.
+  opts = opts || {};
+  var forBoard = (opts.forBoard === true);
+
   var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   var sheet = ss.getSheetByName(MAIN_SHEET_NAME);
 
@@ -23,8 +32,13 @@ function preparePrintSheet() {
   var pickIdRaw = sheet.getRange(Schema.cellEmployeeId).getValue();
   var pickIdRawStr = String(pickIdRaw || "").trim();
   if (!pickIdRawStr || !/^Shipping\s*-\s*/i.test(pickIdRawStr)) {
-    return "❌ Pick a real Pick ID for Shipping (cell " + Schema.cellEmployeeId +
-           ") — the dropdown header doesn't count.";
+    var guardMsg = "❌ Pick a real Pick ID for Shipping (cell " + Schema.cellEmployeeId +
+                   ") — the dropdown header doesn't count.";
+    // The board needs a structured refusal it can render; the sidebar has
+    // always expected a plain string. The GUARD ITSELF is unchanged — it is
+    // the accountability chokepoint, and printing from a tablet must not be a
+    // way around it.
+    return forBoard ? { ok: false, reason: "No picker set", needsPicker: true } : guardMsg;
   }
 
   var data = sheet.getDataRange().getValues();
@@ -186,8 +200,50 @@ function preparePrintSheet() {
     );
   } catch (logErr) { /* swallow — print must proceed */ }
 
+  if (forBoard) {
+    var _html = ui.getContent();
+    try { console.log("print doc built: " + _html.length + " chars · " + docNumber); } catch (e) {}
+    return {
+      ok: true,
+      html: _html,                    // the finished document, ready to print
+      bytes: _html.length,            // so a transport-size problem is visible
+      docNumber: docNumber,
+      ebay: ebayItems.length,
+      direct: directItems.length,
+      picker: pickIdShipping
+    };
+  }
+
   SpreadsheetApp.getUi().showModalDialog(ui, ' ');
   return "✅ Printing list ready — picker " + pickIdShipping + ".";
+}
+
+
+/**
+ * The print document as a string, for the hosted board.
+ *
+ * WHY: the Sheets mobile app cannot open an Apps Script modal, so a picker on
+ * the tablet has never been able to print a pick list — they walk to a
+ * computer. Same platform wall kit expansion had.
+ *
+ * The accountability guard is NOT relaxed. Printing still requires a real Pick
+ * ID in G2, and the PRINTED event still records who and what. That guard is
+ * the reason every later status change in the shift carries a picker name.
+ *
+ * @returns {{ok:boolean, html:string, docNumber:string, ebay:number,
+ *            direct:number, picker:string}|{ok:false, reason:string}}
+ */
+function getPrintHtmlForBoard() {
+  try {
+    var res = preparePrintSheet({ forBoard: true });
+    if (!res || typeof res !== 'object') {
+      return { ok: false, reason: String(res || "Print failed.") };
+    }
+    return res;
+  } catch (err) {
+    try { console.log("getPrintHtmlForBoard: " + err + "\n" + (err.stack || "")); } catch (_) {}
+    return { ok: false, reason: String(err.message || err) };
+  }
 }
 
 /**
