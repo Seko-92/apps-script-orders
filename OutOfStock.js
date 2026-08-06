@@ -1142,13 +1142,16 @@ function _oosDaysOut(firstSeenStr) {
   return days >= 0 ? days : "";
 }
 
-/** Main-table sort: LOCATION asc (empty last), then SKU asc. */
+/** Main-table sort: LOCATION asc (empty last), then SKU asc.
+ *  Aisle order is NATURAL, not lexical — see compareLocations() in Helpers.js
+ *  (A-9 must precede A-50; this list is walked in order). */
 function _oosMainRowCompare(a, b) {
   var la = String(a[1] || "");
   var lb = String(b[1] || "");
   if (la === "" && lb !== "") return 1;
   if (lb === "" && la !== "") return -1;
-  if (la !== lb) return la.localeCompare(lb);
+  var byLoc = compareLocations(la, lb);
+  if (byLoc !== 0) return byLoc;
   return String(a[0]).localeCompare(String(b[0]));
 }
 

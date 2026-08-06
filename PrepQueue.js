@@ -965,7 +965,11 @@ function _comparePrepRows(a, b) {
   var ae = (la === '' || la.toUpperCase() === 'NOT FOUND');
   var be = (lb === '' || lb.toUpperCase() === 'NOT FOUND');
   if (ae !== be) return ae ? 1 : -1;                 // location-less rows last
-  if (!ae && la !== lb) return la.localeCompare(lb); // both real → by aisle
+  if (!ae) {                                         // both real → by aisle
+    // NATURAL order, not lexical — see compareLocations() in Helpers.js.
+    var byLoc = compareLocations(la, lb);
+    if (byLoc !== 0) return byLoc;
+  }
   return String(a[S]).localeCompare(String(b[S]));   // same aisle, or both blank → by SKU
 }
 

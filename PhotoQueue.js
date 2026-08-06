@@ -201,7 +201,9 @@ function refreshPhotoQueue() {
     var la = a.location || "", lb = b.location || "";
     var pa = (!la || la === "NOT FOUND") ? 1 : 0, pb = (!lb || lb === "NOT FOUND") ? 1 : 0;
     if (pa !== pb) return pa - pb;
-    if (la !== lb) return la.localeCompare(lb);
+    // NATURAL aisle order, not lexical — see compareLocations() in Helpers.js.
+    var byLoc = compareLocations(la, lb);
+    if (byLoc !== 0) return byLoc;
     return String(a.sku).localeCompare(String(b.sku));
   });
 

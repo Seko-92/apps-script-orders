@@ -128,6 +128,14 @@ function _housekeepingPass() {
   try { parts.push(refreshPhotoQueue()); }
   catch (e) { parts.push("❌ Photo queue: " + e); console.log("Housekeeping Photo error: " + e); }
 
+  // STRAGGLER WATCHDOG (Telegram Tier C) — orders past the 3h line, SOs
+  // part-shipped >24h, kits awaiting a decision. Alerts once per item, so this
+  // is silent on most runs. Reads All Orders / Activity Log / Kit Registry
+  // itself (none of that is in `maps`). runStragglerWatchdog never throws, but
+  // it stays inside the same try/catch discipline as every other job here.
+  try { parts.push(runStragglerWatchdog()); }
+  catch (e) { parts.push("❌ Watchdog: " + e); console.log("Housekeeping Watchdog error: " + e); }
+
   var summary = parts.join("  |  ");
   console.log("Housekeeping: " + summary);
   return summary;

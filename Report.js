@@ -76,7 +76,108 @@ function _gatherReportData() {
     }
   } catch (e) { try { console.log("report.gather: " + e); } catch (_) {} }
 
-  return { kpis: kpis, topUnderpriced: topUnderpriced, blocked: blocked };
+  // Restock ripple — which parts to buy first. Best-effort: a failure here
+  // degrades the report to what it was before, never blocks it.
+  var ripple = null;
+  try { ripple = analyzeRestockRipple(); }
+  catch (e) { try { console.log("report.ripple: " + e); } catch (_) {} }
+
+  // Week-over-week movement. null until KPI History has a row from a prior day.
+  var trend = null;
+  try { trend = getKpiTrend(kpis); }
+  catch (e) { try { console.log("report.trend: " + e); } catch (_) {} }
+
+  return {
+    kpis: kpis, topUnderpriced: topUnderpriced, blocked: blocked,
+    ripple: ripple, trend: trend
+  };
+}
+
+
+// =======================================================================================
+// "THIS WEEK'S 3 MOVES" — the decision box
+// =======================================================================================
+//
+// The whole point of this report, per the strategic direction set 2026-07-31:
+// eBay's and Zoho's reports are CHANNEL and FINANCIAL views. This one is the
+// IN-FIELD view, and a manager should be able to read the top of page 1 and
+// know what to DO — not just what is true.
+//
+// Each move carries a $ or a count so it can be ranked against the others.
+// PURE — no I/O, so the ranking logic stays Node-testable.
+
+/**
+ * Pick the highest-impact actions from the gathered data, best first.
+ * @returns {Array<{title:string, detail:string, impact:string}>} 0–3 moves
+ */
+function _reportMoves(data) {
+  var k = data.kpis || {};
+  var moves = [];
+
+  // 1. Restock — the only move that unblocks physical throughput.
+  var rip = data.ripple;
+  if (rip && rip.planFrees > 0) {
+    moves.push({
+      weight: 1000 + rip.planFrees,
+      title:  "Restock " + rip.planParts.length + " parts",
+      detail: rip.planParts.join(" · "),
+      impact: "unblocks " + rip.planFrees + " of " + rip.blockedCount + " blocked kits"
+    });
+  }
+
+  // 2. Reprice — money already on the table, no purchase required.
+  if (k.kitHealthRan && k.underpricedDollars > 0) {
+    moves.push({
+      weight: 900,
+      title:  "Reprice " + k.underpriced + " underpriced kits",
+      detail: "listed below what their own parts cost, at the catalog's median discount",
+      impact: _rMoney(k.underpricedDollars) + " of margin recoverable"
+    });
+  }
+
+  // 3. Whatever is deteriorating fastest — only when history proves it moved.
+  var t = data.trend;
+  if (t && t.deltas) {
+    if (t.deltas.inStockBlocked > 0) {
+      moves.push({
+        weight: 800 + t.deltas.inStockBlocked,
+        title:  "Blocked kits are climbing",
+        detail: "+" + t.deltas.inStockBlocked + " in the last " + t.daysAgo + " days" +
+                " (now " + k.inStockBlocked + " on the shelf but not replenishable)",
+        impact: "shared components running dry"
+      });
+    } else if (t.deltas.outOfStock > 0) {
+      moves.push({
+        weight: 700 + t.deltas.outOfStock,
+        title:  "Out-of-stock list is growing",
+        detail: "+" + t.deltas.outOfStock + " in the last " + t.daysAgo + " days",
+        impact: k.outOfStock + " items to reorder"
+      });
+    }
+  }
+
+  // 4. Fallbacks so the box is never empty on a healthy week.
+  if (k.openCases > 0) {
+    moves.push({
+      weight: 600, title: "Close " + k.openCases + " open investigation" + (k.openCases === 1 ? "" : "s"),
+      detail: "orders with an unresolved finding", impact: "customer-facing"
+    });
+  }
+  if (k.needPhotos > 0) {
+    moves.push({
+      weight: 500, title: "Shoot " + k.needPhotos + " listings still on the logo",
+      detail: "active listings with one image or none", impact: "conversion drag"
+    });
+  }
+  if (k.priceDrift > 0) {
+    moves.push({
+      weight: 400, title: "Resolve " + k.priceDrift + " eBay↔Zoho price difference" + (k.priceDrift === 1 ? "" : "s"),
+      detail: "quotes are made off Zoho's number", impact: "mis-quote risk"
+    });
+  }
+
+  moves.sort(function (a, b) { return b.weight - a.weight; });
+  return moves.slice(0, 3);
 }
 
 
@@ -93,11 +194,36 @@ function _rMoney(n) {
 function _rPct(f) { return (f == null || isNaN(f)) ? "—" : (Math.round(f * 100) + "%"); }
 
 
-/** One KPI cell for the executive band. */
-function _kpiCell(value, label, tone) {
+/**
+ * Week-over-week movement for one KPI, as a coloured HTML fragment.
+ * Direction is coloured by MEANING, not by sign — `goodWhenUp` comes from
+ * KPI_HISTORY.fieldMap, so "buildable ▲" reads green while "blocked ▲" reads
+ * red. Returns "" when there's no history yet or nothing moved, so a first-ever
+ * report is byte-identical to the pre-trend one.
+ */
+function _rTrend(trend, field) {
+  if (!trend || !trend.deltas) return "";
+  var delta = trend.deltas[field];
+  if (typeof delta !== 'number' || isNaN(delta) || delta === 0) return "";
+
+  var good = true;
+  for (var i = 0; i < KPI_HISTORY.fieldMap.length; i++) {
+    if (KPI_HISTORY.fieldMap[i].field === field) { good = KPI_HISTORY.fieldMap[i].goodWhenUp; break; }
+  }
+  var up = delta > 0;
+  var color = (up === good) ? '#1b5e20' : '#b71c1c';
+  return '<span style="font-size:11px;font-weight:bold;color:' + color + ';">&nbsp;' +
+         (up ? '▲' : '▼') + ' ' + Math.abs(delta) + '</span>';
+}
+
+
+/** One KPI cell for the executive band. `trendHtml` is optional. */
+function _kpiCell(value, label, tone, trendHtml) {
   var numColor = tone === 'bad' ? '#b71c1c' : (tone === 'good' ? '#1b5e20' : '#1a1a1a');
   return '<td width="33%" valign="top" style="border:1px solid #e0dccb;background:#fffdf5;padding:10px 12px;">' +
-           '<div style="font-family:Arial,sans-serif;font-size:24px;font-weight:bold;color:' + numColor + ';">' + value + '</div>' +
+           '<div style="font-family:Arial,sans-serif;font-size:24px;font-weight:bold;color:' + numColor + ';">' +
+             value + (trendHtml || "") +
+           '</div>' +
            '<div style="font-family:Arial,sans-serif;font-size:10px;letter-spacing:1px;color:#6b6b6b;text-transform:uppercase;">' + label + '</div>' +
          '</td>';
 }
@@ -139,16 +265,109 @@ function _buildReportHtml(data, dateStr, genTs) {
   }
 
   // ---- Executive KPI band (2 rows × 3) ----
-  html += '<div style="font-size:11px;font-weight:bold;letter-spacing:2px;color:#6b6b6b;margin:6px 0;">AT A GLANCE</div>';
+  // ---- THIS WEEK'S 3 MOVES — the decision box ----
+  // Deliberately ABOVE the KPI band: a manager reading only the top of page 1
+  // should get instructions, not statistics.
+  var moves = _reportMoves(data);
+  if (moves.length) {
+    html += '<div style="border:2px solid #1a1a1a;margin:16px 0;">' +
+              '<div style="background:#1a1a1a;color:#ffd400;padding:7px 12px;font-size:12px;' +
+              'font-weight:bold;letter-spacing:2px;">▌ THIS WEEK\'S ' + moves.length + ' MOVES</div>' +
+              '<table width="100%" cellpadding="0" cellspacing="0" style="background:#fffdf5;">';
+    for (var mi = 0; mi < moves.length; mi++) {
+      var mv = moves[mi];
+      html += '<tr>' +
+                '<td width="34" valign="top" align="center" style="padding:10px 0 10px 10px;' +
+                  'font-size:20px;font-weight:bold;color:#c9a227;">' + (mi + 1) + '</td>' +
+                '<td valign="top" style="padding:10px 12px 10px 4px;' +
+                  (mi < moves.length - 1 ? 'border-bottom:1px solid #ece7d5;' : '') + '">' +
+                  '<div style="font-size:13px;font-weight:bold;color:#1a1a1a;">' + _rEsc(mv.title) + '</div>' +
+                  '<div style="font-size:11px;color:#6b6b6b;padding-top:2px;">' + _rEsc(mv.detail) + '</div>' +
+                  '<div style="font-size:11px;font-weight:bold;color:#1b5e20;padding-top:3px;">→ ' +
+                    _rEsc(mv.impact) + '</div>' +
+                '</td>' +
+              '</tr>';
+    }
+    html += '</table></div>';
+  }
+
+  var tr = data.trend;
+  html += '<div style="font-size:11px;font-weight:bold;letter-spacing:2px;color:#6b6b6b;margin:6px 0;">AT A GLANCE' +
+          (tr ? '<span style="font-weight:normal;letter-spacing:0;text-transform:none;">' +
+                '  ·  ▲▼ vs ' + tr.daysAgo + ' days ago</span>' : '') + '</div>';
   html += '<table width="100%" cellpadding="0" cellspacing="4"><tr>';
-  html += _kpiCell(ran ? String(k.underpriced) : "—", "Underpriced kits", ran && k.underpriced ? 'bad' : '');
-  html += _kpiCell(ran ? String(k.buildableNow) : "—", "Buildable now", 'good');
-  html += _kpiCell(ran ? String(k.inStockBlocked) : "—", "In stock, blocked", ran && k.inStockBlocked ? 'bad' : '');
+  html += _kpiCell(ran ? String(k.underpriced) : "—", "Underpriced kits", ran && k.underpriced ? 'bad' : '', _rTrend(tr, 'underpriced'));
+  html += _kpiCell(ran ? String(k.buildableNow) : "—", "Buildable now", 'good', _rTrend(tr, 'buildableNow'));
+  html += _kpiCell(ran ? String(k.inStockBlocked) : "—", "In stock, blocked", ran && k.inStockBlocked ? 'bad' : '', _rTrend(tr, 'inStockBlocked'));
   html += '</tr><tr>';
-  html += _kpiCell(String(k.outOfStock), "Out of stock", k.outOfStock ? 'bad' : '');
-  html += _kpiCell(String(k.openCases), "Open investigations", k.openCases ? 'bad' : '');
-  html += _kpiCell(String(k.priceDrift), "eBay↔Zoho drift", k.priceDrift ? 'bad' : '');
+  html += _kpiCell(String(k.outOfStock), "Out of stock", k.outOfStock ? 'bad' : '', _rTrend(tr, 'outOfStock'));
+  html += _kpiCell(String(k.openCases), "Open investigations", k.openCases ? 'bad' : '', _rTrend(tr, 'openCases'));
+  html += _kpiCell(String(k.priceDrift), "eBay↔Zoho drift", k.priceDrift ? 'bad' : '', _rTrend(tr, 'priceDrift'));
   html += '</tr></table>';
+
+  // ---- Section: restock ripple ----
+  var rip = data.ripple;
+  if (rip && rip.parts && rip.parts.length) {
+    html += '<div style="font-size:13px;font-weight:bold;letter-spacing:1px;margin:20px 0 6px;border-bottom:2px solid #ffd400;padding-bottom:3px;">🔗 RESTOCK RIPPLE — WHAT ONE ORDER UNBLOCKS</div>';
+    html += '<div style="font-size:11px;color:#6b6b6b;margin-bottom:6px;">' +
+            '<strong>Frees alone</strong> = kits where this is the ONLY part missing, so restocking it is enough. ' +
+            '<strong>Short in</strong> = kits where it is one of several missing.</div>';
+    html += '<table width="100%" cellpadding="5" cellspacing="0" style="border-collapse:collapse;font-size:11px;">' +
+              '<tr style="background:#1a1a1a;color:#ffffff;text-align:left;">' +
+                '<th>PART</th><th>SHELF</th><th align="right">ON HAND</th>' +
+                '<th align="right">FREES ALONE</th><th align="right">SHORT IN</th><th>NAME</th>' +
+              '</tr>';
+    var rn = Math.min(rip.parts.length, 10);
+    for (var ri = 0; ri < rn; ri++) {
+      var p = rip.parts[ri];
+      html += '<tr style="background:' + (ri % 2 ? '#fffdf5' : '#ffffff') + ';border-bottom:1px solid #ece7d5;">' +
+                '<td><strong>' + _rEsc(p.sku) + '</strong></td>' +
+                '<td>' + _rEsc(p.location || "—") + '</td>' +
+                '<td align="right">' + _rEsc(String(p.avail)) + '</td>' +
+                '<td align="right" style="font-weight:bold;color:' + (p.sole ? '#1b5e20' : '#9a9a9a') + ';">' + p.sole + '</td>' +
+                '<td align="right">' + p.shortIn + '</td>' +
+                '<td>' + _rEsc(String(p.name).substring(0, 34)) + '</td>' +
+              '</tr>';
+    }
+    html += '</table>';
+    if (rip.multiBlocked > 0) {
+      html += '<div style="font-size:11px;color:#6b6b6b;margin-top:5px;">' +
+              rip.multiBlocked + ' of ' + rip.blockedCount +
+              ' blocked kits need more than one part restocked — no single order frees them.</div>';
+    }
+  }
+
+  // ---- Section: kits nothing can assess ----
+  // A blind spot in every surface at once — Kit Health can't price these, OOS
+  // can't compute buildable, the ripple can't rank them. Named, with the
+  // specific cause, because each of the three needs a different fix in Zoho.
+  if (rip && rip.unreadable && rip.unreadable.length) {
+    html += '<div style="font-size:13px;font-weight:bold;letter-spacing:1px;margin:20px 0 6px;border-bottom:2px solid #ffd400;padding-bottom:3px;">⚠ KITS NOTHING CAN ASSESS (' + rip.unreadable.length + ')</div>';
+    html += '<div style="font-size:11px;color:#6b6b6b;margin-bottom:6px;">' +
+            'Invisible to pricing, buildability and the ripple until their Purchase Description is fixed in Zoho. ' +
+            'The registry re-parses on save.</div>';
+    html += '<table width="100%" cellpadding="5" cellspacing="0" style="border-collapse:collapse;font-size:11px;">' +
+              '<tr style="background:#1a1a1a;color:#ffffff;text-align:left;">' +
+                '<th>KIT</th><th>NAME</th><th>WHY</th>' +
+              '</tr>';
+    var un = rip.unreadable.slice(0, 12);
+    for (var ui = 0; ui < un.length; ui++) {
+      var u = un[ui];
+      html += '<tr style="background:' + (ui % 2 ? '#fffdf5' : '#ffffff') + ';border-bottom:1px solid #ece7d5;">' +
+                '<td><strong>' + _rEsc(u.sku) + '</strong></td>' +
+                '<td>' + _rEsc(String(u.name).substring(0, 32)) + '</td>' +
+                '<td>' + _rEsc(String(u.reason).substring(0, 46)) +
+                  (u.raw ? '<br><span style="color:#8a8a8a;">&ldquo;' +
+                           _rEsc(String(u.raw).substring(0, 44)) + '&rdquo;</span>' : '') +
+                '</td>' +
+              '</tr>';
+    }
+    html += '</table>';
+    if (rip.unreadable.length > un.length) {
+      html += '<div style="font-size:11px;color:#6b6b6b;margin-top:4px;">… +' +
+              (rip.unreadable.length - un.length) + ' more</div>';
+    }
+  }
 
   // ---- Section: money on the table ----
   html += '<div style="font-size:13px;font-weight:bold;letter-spacing:1px;margin:20px 0 6px;border-bottom:2px solid #ffd400;padding-bottom:3px;">💸 MONEY ON THE TABLE — TOP UNDERPRICED KITS</div>';

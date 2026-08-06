@@ -72,7 +72,17 @@ var TG_COMMANDS = {
   // returns skip:true for anything it doesn't recognise, so our taps flow
   // harmlessly past it and down the command branch instead.
   // Telegram caps callback_data at 64 BYTES, so keep payloads short.
-  callbackPrefix: "HQ:"
+  callbackPrefix: "HQ:",
+
+  // Floor-note marker. MUST stay in sync with FLOOR_MARK in FloorBoard.html —
+  // the board scans each open order's NOTE for this and, when found, shows the
+  // text as a 📌 floor note. This is what makes /note reach the warehouse wall
+  // instead of just sitting in a cell.
+  floorMark: "**",
+
+  // NOTE cells hold several appended segments; the board splits them on a
+  // 3-space run, so that is the separator we must append with.
+  noteSep: "   "
 };
 
 
@@ -424,12 +434,58 @@ var TG_ROUTES = {
     run: function () { return _tgFormatOos(); }
   },
 
+  "/ripple": {
+    help: "which parts to restock first to unblock the most kits",
+    run: function () { return previewRestockRipple(); }
+  },
+
   "/pull": {
     help:  "pull a Zoho sales order into the DIRECT table",
     usage: "<SO or INV>",
     run: function (argStr) {
       if (!argStr) return "Usage: /pull <SO or INV>\nExample: /pull SO-23219";
       return _tgPullPreview(argStr);
+    }
+  },
+
+  "/note": {
+    help:  "pin a note to an order — shows on the Floor Board",
+    usage: "<order> <text>",
+    run: function (argStr) {
+      if (!argStr) return "Usage: /note <order> <text>\nExample: /note SO-23219 call before shipping";
+      return _tgAddNote(argStr);
+    }
+  },
+
+  "/unnote": {
+    help:  "remove the floor notes from an order (leaves buyer/kit notes)",
+    usage: "<order>",
+    run: function (argStr) {
+      if (!argStr) return "Usage: /unnote <order>\nExample: /unnote SO-23219";
+      return _tgClearNote(argStr);
+    }
+  },
+
+  // Needed once, to allowlist yourself for the hosted kit-expansion page:
+  // the web app identifies people by Telegram USER id, which isn't visible
+  // anywhere in the client. This is how you read yours.
+  "/whoami": {
+    help: "your Telegram user id (needed once for web-app access)",
+    // Routes are invoked as run(argStr, args, msg) — the third argument is the
+    // raw Telegram message, which is where `from` lives.
+    run: function (argStr, args, msg) {
+      var u = msg && msg.from;
+      if (!u || !u.id) return "Couldn't read your user id from this message.";
+      var allowed = [];
+      try { allowed = listTelegramWebAppUsers(); } catch (e) {}
+      var isOn = allowed.indexOf(String(u.id)) !== -1;
+      return "👤 " + [u.first_name, u.last_name].filter(Boolean).join(" ") +
+             (u.username ? "  @" + u.username : "") + "\n\n" +
+             "user id: " + u.id + "\n" +
+             "chat id: " + ((msg && msg.chat && msg.chat.id) || "?") + "\n\n" +
+             (isOn ? "✅ Already allowed on the web app."
+                   : "Not yet allowed on the web app. Run this ONCE from the\n" +
+                     "Apps Script editor:\n\n  addTelegramWebAppUser('" + u.id + "')");
     }
   }
 };
@@ -776,6 +832,202 @@ function _tgFormatOos() {
  * Verify afterwards with getWebhookInfo(): allowed_updates should list both,
  * and last_error_message should be empty.
  */
+// =======================================================================================
+// /note  —  THE PARKED "FLOOR NOTES STEP 3", FINALLY LANDING
+// =======================================================================================
+//
+// The Floor Board has scanned every open order's NOTE for a `**` marker since
+// 2026-06-03 and rendered what follows as a 📌 floor note. The missing half was
+// always "text a note from your phone → it appears on the wall." This is it.
+//
+// WHERE IT WRITES: every OPEN (PENDING / PREPARING) row of the order. A picker
+// works line by line, so a note living only on row 1 of a 9-line order is a note
+// they will miss. Terminal rows are skipped — the board only shows open orders,
+// and annotating a shipped row helps nobody standing at a shelf.
+//
+// UN-PREFIXED, by convention: only BUYER notes carry the "Buyer Note:" tag
+// (stamped at doPost). Operator notes stay bare — see the 2026-07-29 Zoho-Pull
+// note work, which set that rule.
+//
+// FORMULA INJECTION is impossible by construction: the appended segment always
+// begins with the `**` marker, so a cell can never start with `=`/`+`/`@`.
+
+var TG_NOTE_MAX = 200;   // a floor note is a shout, not an essay
+
+/**
+ * Append a floor note to every open row of an order.
+ * @param {string} argStr  "<order> <text>"
+ * @returns {string} plain-text confirmation for the chat
+ */
+function _tgAddNote(argStr) {
+  var m = String(argStr || "").trim().match(/^(\S+)\s+([\s\S]+)$/);
+  if (!m) {
+    return "Usage: /note <order> <text>\n" +
+           "Example: /note SO-23219 call before shipping\n\n" +
+           "(needs BOTH an order and some text)";
+  }
+
+  var query = m[1].trim();
+  var text  = m[2].trim().replace(/\s+/g, " ");
+  var clipped = false;
+  if (text.length > TG_NOTE_MAX) { text = text.slice(0, TG_NOTE_MAX - 1) + "…"; clipped = true; }
+
+  // Read-modify-write on shared cells — take the same script lock every other
+  // writer here uses, so two notes landing together can't clobber each other.
+  var lock = LockService.getScriptLock();
+  try { lock.waitLock(15000); }
+  catch (e) { return "⚠ Sheet is busy right now — try again in a moment."; }
+
+  try {
+    var found;
+    try { found = lookupOrder(query); }
+    catch (e) { return "⚠ Lookup failed: " + (e.message || e); }
+
+    if (!found || !found.rows || !found.rows.length) {
+      return "🔍 No rows on the sheet for " + query + ".\n" +
+             "Check the id — /order " + query + " shows what the system knows.";
+    }
+
+    var open = found.rows.filter(function (r) {
+      var s = String(r.status || "").trim().toUpperCase();
+      return s === Schema.status.PENDING || s === Schema.status.PREPARING;
+    });
+
+    if (!open.length) {
+      // Derive the state names from the rows we already hold — lookupOrder's
+      // summary exposes `statuses` (an array), not a single `status`.
+      var seen = {};
+      found.rows.forEach(function (r) {
+        var s = String(r.status || "").trim().toUpperCase();
+        if (s) seen[s] = 1;
+      });
+      var states = Object.keys(seen).join(" / ") || "closed";
+      return "✋ " + query + " has no open rows — every line is " + states + ".\n" +
+             "Floor notes only reach the board while an order is still being picked.";
+    }
+
+    var sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(MAIN_SHEET_NAME);
+    if (!sheet) return "⚠ All Orders sheet not found.";
+
+    var segment = TG_COMMANDS.floorMark + " " + text;
+    var logRows = [];
+    var written = 0;
+
+    for (var i = 0; i < open.length; i++) {
+      var r = open[i];
+      var existing = String(r.note || "").trim();
+      var next = existing ? (existing + TG_COMMANDS.noteSep + segment) : segment;
+      sheet.getRange(r.row, Schema.cols.NOTE).setValue(next);
+      written++;
+      logRows.push(["NOTE", r.salesOrder || query, r.sku, r.qty, "telegram",
+                    "floor note added", "", next]);
+    }
+    SpreadsheetApp.flush();
+
+    try { logActivityBatch(logRows); }
+    catch (e) { console.log("_tgAddNote: activity log failed — " + e); }
+
+    var orderId = open[0].salesOrder || query;
+    var out = "📌 Note added · " + orderId + "\n\n" +
+              "  " + segment + "\n\n" +
+              "On " + written + " open row" + (written === 1 ? "" : "s") +
+              " · now showing on the Floor Board.";
+    if (clipped) out += "\n\n(trimmed to " + TG_NOTE_MAX + " characters)";
+    return out;
+
+  } finally {
+    try { lock.releaseLock(); } catch (_) {}
+  }
+}
+
+
+/**
+ * Strip every floor-note segment from a NOTE cell, leaving everything else
+ * untouched. PURE, so the surgery is Node-testable.
+ *
+ * A NOTE cell is a run of segments joined by TG_COMMANDS.noteSep. Only the
+ * ones beginning with the floor marker are ours to remove — buyer notes
+ * ("Buyer Note: …"), kit-expansion tags ("↳ from KIT-…") and Zoho flags
+ * ("⚠️ ZOHO QTY…") are real data written by other parts of the system and
+ * MUST survive. This is why /unnote can't just blank the cell.
+ *
+ * @param {string} note  current cell value
+ * @returns {string} the cell value with floor notes removed
+ */
+function _tgStripFloorNotes(note) {
+  var s = String(note == null ? "" : note);
+  if (!s.trim()) return "";
+  var kept = s.split(TG_COMMANDS.noteSep).filter(function (seg) {
+    return seg.trim().indexOf(TG_COMMANDS.floorMark) !== 0;
+  });
+  return kept.join(TG_COMMANDS.noteSep).trim();
+}
+
+
+/**
+ * Remove floor notes from an order.
+ *
+ * Targets EVERY matching row, not just open ones — a note added before a line
+ * shipped would otherwise linger with no way to clear it from the phone.
+ *
+ * @param {string} argStr  "<order>"
+ * @returns {string} plain-text confirmation
+ */
+function _tgClearNote(argStr) {
+  var query = String(argStr || "").trim().split(/\s+/)[0];
+  if (!query) return "Usage: /unnote <order>\nExample: /unnote SO-23219";
+
+  var lock = LockService.getScriptLock();
+  try { lock.waitLock(15000); }
+  catch (e) { return "⚠ Sheet is busy right now — try again in a moment."; }
+
+  try {
+    var found;
+    try { found = lookupOrder(query); }
+    catch (e) { return "⚠ Lookup failed: " + (e.message || e); }
+
+    if (!found || !found.rows || !found.rows.length) {
+      return "🔍 No rows on the sheet for " + query + ".";
+    }
+
+    var sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(MAIN_SHEET_NAME);
+    if (!sheet) return "⚠ All Orders sheet not found.";
+
+    var cleared = 0, keptSomething = false;
+    var logRows = [];
+
+    for (var i = 0; i < found.rows.length; i++) {
+      var r = found.rows[i];
+      var before = String(r.note || "");
+      if (before.indexOf(TG_COMMANDS.floorMark) < 0) continue;
+
+      var after = _tgStripFloorNotes(before);
+      if (after === before.trim()) continue;
+
+      sheet.getRange(r.row, Schema.cols.NOTE).setValue(after);
+      cleared++;
+      if (after) keptSomething = true;
+      logRows.push(["NOTE", r.salesOrder || query, r.sku, r.qty, "telegram",
+                    "floor note cleared", "", after]);
+    }
+
+    if (!cleared) return "✋ No floor notes on " + query + " — nothing to clear.";
+
+    SpreadsheetApp.flush();
+    try { logActivityBatch(logRows); }
+    catch (e) { console.log("_tgClearNote: activity log failed — " + e); }
+
+    return "🧹 Floor note cleared · " + query + "\n\n" +
+           "Removed from " + cleared + " row" + (cleared === 1 ? "" : "s") +
+           " · gone from the Floor Board." +
+           (keptSomething ? "\n\nBuyer/kit notes on those rows were left untouched." : "");
+
+  } finally {
+    try { lock.releaseLock(); } catch (_) {}
+  }
+}
+
+
 function setWebhookWithCommands() {
   var url = "https://api.telegram.org/bot" + TELEGRAM_BOT_TOKEN + "/setWebhook";
   var res = UrlFetchApp.fetch(url, {

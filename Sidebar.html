@@ -3796,7 +3796,10 @@ body.dark-theme .footer-version { border-color: #2c2c2c; }
     </div>
     <div class="card-body">
       <button class="btn-primary" id="khRunBtn" onclick="runKitHealthNow()">🩺 Run Kit Health</button>
-      <button class="btn-secondary" onclick="run('openKitHealth')">Open Sheet</button>
+      <div class="btn-group">
+        <button class="btn-secondary" onclick="run('openKitHealth')">Open Sheet</button>
+        <button class="btn-secondary" id="rpBtn" onclick="showRippleNow()">🔗 Restock Ripple</button>
+      </div>
       <div id="khResult" class="empty-hint">
         One row per kit: <strong>computed</strong> price (Σ parts × 0.9) vs its <strong>listed</strong> price,
         plus how many you can <strong>build now</strong> from component stock. UNDERPRICED kits sort to the top;
@@ -3894,6 +3897,28 @@ body.dark-theme .footer-version { border-color: #2c2c2c; }
       <div id="wdResult" class="empty-hint">
         Monday ~8am ops digest → the admin <strong>Telegram</strong> chat: underpriced kits (+$), buildable-now, in-stock-blocked, OOS, open cases, price drift. <strong>Preview</strong> shows the exact text without sending; <strong>Send now</strong> posts it; <strong>Arm weekly</strong> installs the Monday schedule. Reads the last Kit Health / Price Audit run — decision-support only.<br><br>
         Every send also logs a row to <strong>KPI History</strong>, which is what the <strong>▲▼ vs last week</strong> arrows are computed from. Trends can't be backfilled, so take a snapshot early to seed the baseline.
+      </div>
+    </div>
+  </div>
+
+  <div class="card collapsed" data-id="watchdog" draggable="true">
+    <div class="card-header" onclick="toggleCollapse(this)">
+      <div class="drag-handle" title="Drag to reorder">☰</div>
+      <div class="card-title"><div class="card-icon">🛡</div><h3>Straggler Watchdog</h3></div>
+      <div class="card-toggle">▼</div>
+    </div>
+    <div class="card-body">
+      <button class="btn-primary" id="swPreviewBtn" onclick="previewStragglersNow()">👁 Preview (no send)</button>
+      <details class="card-more">
+        <summary>More tools</summary>
+        <div class="card-more-content">
+          <button class="btn-info" id="swRunBtn" onclick="runWatchdogNow()">🛡 Run watchdog now</button>
+          <button class="btn-info" id="swResetBtn" onclick="resetWatchdogNow()">↺ Reset alert memory</button>
+        </div>
+      </details>
+      <div id="swResult" class="empty-hint">
+        Pushes to the admin <strong>Telegram</strong> chat, hourly, during work hours: orders <strong>past the 3h line</strong>, SOs <strong>part-shipped over 24h</strong>, and <strong>kits sitting unexpanded</strong> in DIRECT.<br><br>
+        Each item alerts <strong>once</strong>, when it first crosses — it never repeats, so it stays worth reading. <strong>Preview</strong> shows everything currently late without sending or recording anything. <strong>Reset</strong> forgets what's been said, so the next run re-arms and re-seeds.
       </div>
     </div>
   </div>
@@ -6738,6 +6763,100 @@ function openKitPriceCalc() {
 
 /* ---- Weekly Digest (2026-07-31) — Preview (no send) / Send now / Arm weekly ---- */
 var isDigestBusy = false;
+
+// ---- Straggler Watchdog (Tier C) -------------------------------------------
+// `sw` prefix on purpose: the Weekly Digest already owns `wd*` in this file.
+var isWatchdogBusy = false;
+
+function _swPaint(text) {
+  var el = document.getElementById('swResult');
+  if (!el) return;
+  el.className = '';
+  el.style.whiteSpace = 'pre-wrap';
+  el.style.fontFamily = "'Roboto Mono', monospace";
+  el.style.fontSize = '11px';
+  el.textContent = text;
+}
+
+/** Run a watchdog server call with shared busy/spinner/status handling. */
+function _swCall(btnId, label, busyLabel, statusMsg, okMsg, fn) {
+  if (isWatchdogBusy || typeof google === 'undefined' || !google.script) return;
+  var btn = document.getElementById(btnId);
+  isWatchdogBusy = true;
+  if (btn) { btn.disabled = true; btn.textContent = busyLabel; }
+  status.className = 'syncing'; status.textContent = statusMsg;
+  var done = function () {
+    isWatchdogBusy = false;
+    if (btn) { btn.disabled = false; btn.textContent = label; }
+  };
+  var runner = google.script.run
+    .withSuccessHandler(function (text) {
+      done();
+      status.className = 'success'; status.textContent = okMsg;
+      _swPaint(text);
+      playSound('syncDone');
+    })
+    .withFailureHandler(function (err) {
+      done();
+      status.className = 'error'; status.textContent = 'Watchdog failed: ' + err;
+      playSound('error');
+    });
+  fn(runner);
+}
+
+function previewStragglersNow() {
+  _swCall('swPreviewBtn', '👁 Preview (no send)', '⏳ Checking…',
+          'Checking for stragglers…', '✓ Preview ready (nothing sent)',
+          function (r) { r.previewStragglerWatchdog(); });
+}
+
+function runWatchdogNow() {
+  if (!confirm('Run the watchdog now?\n\nAny NEW stragglers will be posted to the admin Telegram chat and recorded so they are not repeated.')) return;
+  _swCall('swRunBtn', '🛡 Run watchdog now', '⏳ Running…',
+          'Running watchdog…', '✓ Watchdog run complete',
+          function (r) { r.runStragglerWatchdog(); });
+}
+
+function resetWatchdogNow() {
+  if (!confirm('Forget what the watchdog has already alerted on?\n\nThe next run re-arms and re-seeds from the current state — you will get one "armed" message, not a flood.')) return;
+  _swCall('swResetBtn', '↺ Reset alert memory', '⏳ Clearing…',
+          'Clearing watchdog memory…', '✓ Watchdog memory cleared',
+          function (r) { r.resetStragglerWatchdog(); });
+}
+
+// ---- Restock Ripple ---------------------------------------------------------
+// Which parts to restock first to unblock the most kits. Read-only; paints into
+// the Kit Health card's result panel (same surface its own run uses).
+var isRippleBusy = false;
+function showRippleNow() {
+  if (isRippleBusy || typeof google === 'undefined' || !google.script) return;
+  var btn = document.getElementById('rpBtn');
+  isRippleBusy = true;
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Working…'; }
+  status.className = 'syncing'; status.textContent = 'Working out the restock ripple…';
+  google.script.run
+    .withSuccessHandler(function (text) {
+      isRippleBusy = false;
+      if (btn) { btn.disabled = false; btn.textContent = '🔗 Restock Ripple'; }
+      status.className = 'success'; status.textContent = '✓ Ripple ready';
+      var el = document.getElementById('khResult');
+      if (el) {
+        el.className = '';
+        el.style.whiteSpace = 'pre-wrap';
+        el.style.fontFamily = "'Roboto Mono', monospace";
+        el.style.fontSize = '11px';
+        el.textContent = text;
+      }
+      playSound('syncDone');
+    })
+    .withFailureHandler(function (err) {
+      isRippleBusy = false;
+      if (btn) { btn.disabled = false; btn.textContent = '🔗 Restock Ripple'; }
+      status.className = 'error'; status.textContent = 'Ripple failed: ' + err;
+      playSound('error');
+    })
+    .previewRestockRipple();
+}
 function _wdPaintText(text) {
   var el = document.getElementById('wdResult');
   if (!el) return;
@@ -6914,7 +7033,7 @@ function applyZones() {
     ['today',        "TODAY'S WORK", ['alerts', 'order-lookup', 'investigations', 'zoho-pull', 'kit-expand', 'fulfill']],
     ['table-tools',  'TABLE TOOLS',  ['ebay', 'direct', 'live', 'location-update']],
     ['inventory',    'INVENTORY',    ['part-console', 'prep-queue', 'out-of-stock', 'stock-highlight', 'price-audit', 'kit-pricing', 'kit-health']],
-    ['diagnostics',  'DIAGNOSTICS',  ['floor-board', 'weekly-digest', 'duplicates', 'sheet-protect', 'api-monitor', 'arcade']]
+    ['diagnostics',  'DIAGNOSTICS',  ['floor-board', 'weekly-digest', 'watchdog', 'duplicates', 'sheet-protect', 'api-monitor', 'arcade']]
   ];
 
   // Snapshot all cards by id before we move anything

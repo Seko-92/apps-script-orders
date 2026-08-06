@@ -412,3 +412,73 @@ function updateMiRows(rows) {
 
   return { updated: updated, notFound: notFound };
 }
+
+
+// =======================================================================================
+// SHELF-LOCATION ORDERING  (natural, not lexical)
+// =======================================================================================
+//
+// FOUND 2026-08-05 by reading a /oos reply top-to-bottom in Telegram:
+//
+//     A-30 · A-36 · A-47 · A-50 · A-9        ← 9 lands AFTER 50
+//     B-22 … B-52 · B-8                      ← same
+//
+// Plain string comparison puts "A-9" after "A-50" because "9" > "5" character
+// by character. Every surface that ordered by LOCATION did this, so the
+// restock walk has been wrong at every single-digit shelf — the list's entire
+// job is "walk the aisle in order," and it wasn't.
+//
+// It only became visible in Telegram because the sheet is usually scanned, not
+// read straight down. Worth remembering: a new surface onto old data is a
+// cheap way to find bugs the original surface was hiding.
+//
+// This compares the AISLE LETTER first, then the shelf NUMBER numerically, then
+// any trailing note. It deliberately does NOT handle "blank / NOT FOUND last" —
+// every caller already does that before reaching here, and folding two rules
+// into one comparator makes both harder to reason about.
+//
+// Handles the warehouse's real notations, incl. the pack-size suffix that
+// appears in ~59 MI locations ("G-35 * 2" — one sellable unit is pre-packed as
+// N pieces; an assurance note, never a qty multiplier).
+
+/**
+ * Split "G-35 * 2" into {prefix:"G", num:35, rest:"* 2"}.
+ * @returns {?{prefix:string,num:number,rest:string}} null when it isn't
+ *          letter-then-number shaped (e.g. "NOT FOUND", "", "K55B").
+ */
+function _parseShelfLocation(v) {
+  var s = String(v == null ? "" : v).trim();
+  if (!s) return null;
+  var m = s.match(/^([A-Za-z]+)\s*[-–—]?\s*(\d+)(.*)$/);
+  if (!m) return null;
+  return {
+    prefix: m[1].toUpperCase(),
+    num:    parseInt(m[2], 10),
+    rest:   m[3].trim().toUpperCase()
+  };
+}
+
+/**
+ * Compare two shelf locations in the order a picker physically walks them.
+ * Unparseable values sort after parseable ones, then fall back to plain text
+ * so the ordering is still stable and deterministic.
+ *
+ * @returns {number} negative / 0 / positive, suitable for Array.prototype.sort
+ */
+function compareLocations(a, b) {
+  var pa = _parseShelfLocation(a);
+  var pb = _parseShelfLocation(b);
+
+  if (pa && pb) {
+    if (pa.prefix !== pb.prefix) return pa.prefix < pb.prefix ? -1 : 1;
+    if (pa.num    !== pb.num)    return pa.num - pb.num;
+    if (pa.rest   !== pb.rest)   return pa.rest < pb.rest ? -1 : 1;
+    return 0;
+  }
+  if (pa && !pb) return -1;
+  if (!pa && pb) return 1;
+
+  var sa = String(a == null ? "" : a).trim().toUpperCase();
+  var sb = String(b == null ? "" : b).trim().toUpperCase();
+  return sa < sb ? -1 : (sa > sb ? 1 : 0);
+}
