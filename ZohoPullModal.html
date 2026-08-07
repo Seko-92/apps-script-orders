@@ -864,6 +864,11 @@
       if (a.flaggedQty > 0)      bits.push('<div class="done-result-row">⚠ <strong>' + a.flaggedQty + '</strong> row(s) flagged with qty-change note</div>');
       if (a.flaggedRemoved > 0)  bits.push('<div class="done-result-row">⚠ <strong>' + a.flaggedRemoved + '</strong> row(s) flagged as REMOVED</div>');
       if (a.canceled > 0)        bits.push('<div class="done-result-row">✗ <strong>' + a.canceled + '</strong> row(s) canceled</div>');
+      // Kit components are counted inside the flagged/canceled totals above, but
+      // they're worth naming: the picker selected ONE kit line and more rows than
+      // that changed. Saying so is what makes the cascade legible instead of
+      // surprising.
+      if (a.kitComponents > 0)   bits.push('<div class="done-result-row">📦 including <strong>' + a.kitComponents + '</strong> expanded kit component(s)</div>');
       if (bits.length === 0)     bits.push('<div class="done-result-row">No changes applied</div>');
 
       document.getElementById('bodyEl').innerHTML =

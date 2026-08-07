@@ -329,6 +329,62 @@ function _formatDateCell(val) {
 }
 
 
+/**
+ * Expansion component rows belonging to one kit, within one sales order.
+ *
+ * Kit expansion inserts each component as its own DIRECT row carrying a NOTE tag
+ * that names the parent kit — that tag is the ONLY link between them, since the
+ * components have their own SKUs and are not Zoho line items. `computeZohoSoDiff`
+ * skips these rows on purpose (see _readDirectStateForSo), so any caller acting on
+ * a kit's Zoho line has to find the components itself.
+ *
+ * ⚠ MATCHES THE CAPTURED SKU EXACTLY, not a string prefix. A plain
+ * `note.indexOf("↳ from KIT-" + sku) === 0` test would let kit "1586" match rows
+ * belonging to kit "158652". The capture avoids that whole class of near-miss.
+ *
+ * Covers both tags written by KitExpansion:
+ *   "↳ from KIT-<sku>"      registered components
+ *   "↳ added to KIT-<sku>"  custom adds made in the expansion modal
+ *
+ * @param {Sheet}  sheet
+ * @param {string} soNumber  the sales order the components must belong to
+ * @param {string} kitSku    the PARENT kit's SKU
+ * @returns {Array<{row:number, sku:string, qty:*, status:string}>} empty when the
+ *          SKU is not an expanded kit — callers can invoke this unconditionally.
+ */
+function _findKitComponentRows(sheet, soNumber, kitSku) {
+  var out = [];
+  var so  = String(soNumber || "").trim().toUpperCase();
+  var kit = String(kitSku   || "").trim().toUpperCase();
+  if (!so || !kit) return out;
+
+  var boundary = getBoundaryRow();
+  if (boundary < 1) return out;
+
+  var startRow = boundary + 2;                 // first DIRECT data row
+  var lastRow  = sheet.getLastRow();
+  var nRows    = lastRow - startRow + 1;
+  if (nRows < 1) return out;
+
+  var data = sheet.getRange(startRow, 1, nRows, Schema.dataWidth).getValues();
+  for (var i = 0; i < data.length; i++) {
+    if (String(data[i][Schema.idx("SALES_ORDER")] || "").trim().toUpperCase() !== so) continue;
+
+    var note = String(data[i][Schema.idx("NOTE")] || "");
+    var m = note.match(/^↳ (?:from|added to) KIT-(\S+)/);
+    if (!m || String(m[1]).trim().toUpperCase() !== kit) continue;
+
+    out.push({
+      row:    startRow + i,
+      sku:    String(data[i][Schema.idx("SKU")] || "").trim(),
+      qty:    data[i][Schema.idx("QTY")],
+      status: String(data[i][Schema.idx("STATUS")] || "").trim().toUpperCase()
+    });
+  }
+  return out;
+}
+
+
 // =======================================================================================
 // PUBLIC: applyZohoPullSelection(query, selections)
 // =======================================================================================
@@ -384,7 +440,10 @@ function applyZohoPullSelection(query, selections, note) {
     ok: false,
     reason: "",
     soNumber: "",
-    applied: { inserted: 0, flaggedQty: 0, flaggedRemoved: 0, canceled: 0 },
+    // kitComponents = how many of the flagged/canceled rows were expansion
+    // components pulled in by the cascade (already counted in their own bucket
+    // too — this is for reporting, so the picker sees the kit was handled whole).
+    applied: { inserted: 0, flaggedQty: 0, flaggedRemoved: 0, canceled: 0, kitComponents: 0 },
     skipped: [],
     summary: ""
   };
@@ -556,6 +615,15 @@ function applyZohoPullSelection(query, selections, note) {
         _flagDirectRow(mainSheet, rowInfo.row, prefix, true);
         out.applied.flaggedRemoved++;
       });
+      // Cascade to this kit's expansion components — see the note in the cancel
+      // branch below. A removed kit whose parts stay unflagged is still a live
+      // pick list for a kit that is no longer on the order.
+      _findKitComponentRows(mainSheet, diff.soNumber, line.sku).forEach(function(comp) {
+        if (comp.status === Schema.status.CANCELED) return;
+        _flagDirectRow(mainSheet, comp.row, prefix, true);
+        out.applied.flaggedRemoved++;
+        out.applied.kitComponents++;
+      });
     });
 
     // --- 3. Cancels (removed lines the picker chose to flip to CANCELED) ---
@@ -583,6 +651,51 @@ function applyZohoPullSelection(query, selections, note) {
           ]);
         } catch (e) {
           console.log("applyZohoPullSelection: cancel write failed row " + rowInfo.row + ": " + e);
+        }
+      });
+
+      // ⚠ CASCADE TO THE KIT'S EXPANSION COMPONENTS.
+      //
+      // If this removed line was an EXPANDED kit, the physical work for it lives
+      // in the component rows, not in the kit row. Those components have their own
+      // SKUs and are deliberately invisible to the diff — _readDirectStateForSo
+      // skips any row whose NOTE starts with the expansion tag, because they are
+      // not Zoho line items and would otherwise read as unexpected extras. So
+      // line.directRows holds ONLY the parent, and canceling it left every
+      // component sitting open.
+      //
+      // Reported live 2026-08-07: a kit was expanded, then its line was deleted
+      // from the sales order; "Mark CANCELED" in the Pull modal canceled the kit
+      // SKU alone and left the sub-items as live pick lines for a kit that is no
+      // longer part of the order. The picker walks the aisles and picks them.
+      //
+      // Components are tied to their parent ONLY by the NOTE tag written at
+      // expansion time, so that tag is what we match on. Both variants are
+      // covered: "↳ from KIT-<sku>" for registered components and
+      // "↳ added to KIT-<sku>" for custom adds. Rows already CANCELED are left
+      // alone, and a non-kit line simply finds nothing — no registry read needed,
+      // the cascade is self-limiting.
+      //
+      // This is the mirror of _kitParentFollowUp (StatusService), which handles
+      // the opposite direction: all components terminal → flip the parent.
+      _findKitComponentRows(mainSheet, diff.soNumber, line.sku).forEach(function(comp) {
+        if (comp.status === Schema.status.CANCELED) return;
+        try {
+          mainSheet.getRange(comp.row, Schema.cols.STATUS).setValue(Schema.status.CANCELED);
+          mainSheet.getRange(comp.row, 1, 1, Schema.dataWidth).setFontLine('line-through');
+          mainSheet.getRange(comp.row, 1, 1, Schema.dataWidth).setBackground('#ffe5e5');
+          out.applied.canceled++;
+          out.applied.kitComponents++;
+          cancelLogBatch.push([
+            "CANCELED", diff.soNumber, comp.sku, comp.qty,
+            "sidebar",
+            "Canceled via Pull modal · component of KIT-" + line.sku +
+              " (kit line removed in Zoho)",
+            undefined, ""
+          ]);
+        } catch (e) {
+          console.log("applyZohoPullSelection: kit component cancel failed row " +
+                      comp.row + ": " + e);
         }
       });
     });

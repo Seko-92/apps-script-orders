@@ -1675,6 +1675,90 @@ function updateLastSyncTimestamp() {
   // Live formula in E1 handles this now — see BrandTheme._setSystemPulseBannerFormulas.
 }
 
+/**
+ * Status → sort rank. PENDING first, CANCELED last, unknown parked with CANCELED,
+ * blank after everything. Shared by both tables so they can never disagree.
+ */
+function _statusSortRank(status) {
+  var s = String(status == null ? '' : status).trim().toUpperCase();
+  if (s === Schema.status.PENDING)   return 1;
+  if (s === Schema.status.PREPARING) return 2;
+  if (s === Schema.status.SHIPPED)   return 3;
+  if (s === Schema.status.CANCELED)  return 4;
+  if (s === '')                      return 5;
+  return 4;   // unknown / typo'd status parks with CANCELED, never above live work
+}
+
+/**
+ * Rank every SALES ORDER group in the DIRECT table by its MOST URGENT row.
+ *
+ * WHY A GROUP RANK AND NOT A PER-ROW SORT (2026-08-07): the DIRECT table is
+ * order-centric — the picker fulfils one order at a time and the gold box painted
+ * by _paintDirectOrderDividers derives its group starts from consecutive col-D
+ * values. Sorting rows by status directly would split a HALF-SHIPPED order across
+ * the table and render it as TWO boxes for one order, which is the exact thing the
+ * divider exists to prevent. So the group moves as a unit, and it moves according
+ * to the most urgent row inside it:
+ *
+ *   any row PENDING    → group ranks 1 → top       (still needs picking)
+ *   all rows PREPARING → group ranks 2 → middle    (in progress)
+ *   all rows SHIPPED   → group ranks 3 → bottom    (done, out of the way)
+ *   all rows CANCELED  → group ranks 4 → below that
+ *
+ * Consequence worth knowing: a PARTIALLY shipped order stays near the top rather
+ * than sinking, because it still contains work. Its shipped lines sink to the
+ * bottom of its OWN box (see the within-group rule in _compareDirectRows).
+ *
+ * @param {Array<{values:Array}>} indexed  paired row objects (values + formats + rich text)
+ * @returns {Object} map of trimmed SO → best (lowest) status rank in that group
+ */
+function _buildDirectSoRank(indexed) {
+  var rank = {};
+  for (var i = 0; i < indexed.length; i++) {
+    var so = String(indexed[i].values[Schema.idx("SALES_ORDER")] || '').trim();
+    if (!so) continue;   // blank/buffer rows are sunk by the comparator, not ranked
+    var r = _statusSortRank(indexed[i].values[Schema.idx("STATUS")]);
+    if (rank[so] === undefined || r < rank[so]) rank[so] = r;
+  }
+  return rank;
+}
+
+/**
+ * DIRECT row comparator: group by SALES ORDER (groups ordered by urgency), then
+ * status, then aisle within the order.
+ *
+ * @param {Object} a       paired row object
+ * @param {Object} b       paired row object
+ * @param {Object} soRank  output of _buildDirectSoRank
+ */
+function _compareDirectRows(a, b, soRank) {
+  var soA = String(a.values[Schema.idx("SALES_ORDER")] || '').trim();
+  var soB = String(b.values[Schema.idx("SALES_ORDER")] || '').trim();
+
+  // Empty-SO blank/buffer rows always sink, whatever their status says.
+  if (!soA && !soB) return 0;
+  if (!soA) return 1;
+  if (!soB) return -1;
+
+  if (soA !== soB) {
+    // Different orders → the more urgent GROUP wins, so shipped orders sit below
+    // preparing ones, which sit below anything still pending.
+    var gA = soRank[soA] || 5;
+    var gB = soRank[soB] || 5;
+    if (gA !== gB) return gA - gB;
+    // Same urgency → oldest order first, and deterministic either way.
+    return soA.localeCompare(soB);
+  }
+
+  // Same order → picked lines drop to the bottom of their own box, and what's
+  // left to pick reads top-down in aisle order.
+  var cmp = _statusSortRank(a.values[Schema.idx("STATUS")]) -
+            _statusSortRank(b.values[Schema.idx("STATUS")]);
+  if (cmp !== 0) return cmp;
+  return compareLocations(a.values[Schema.idx("LOCATION")],
+                          b.values[Schema.idx("LOCATION")]);
+}
+
 function sortTableByStatusAndLocation(tableNumber) {
   var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   var sheet = ss.getSheetByName(MAIN_SHEET_NAME);
@@ -1709,43 +1793,29 @@ function sortTableByStatusAndLocation(tableNumber) {
   var skuRich = skuRange.getRichTextValues();   // [[RichTextValue], ...]
   var soRange = sheet.getRange(startRow, Schema.cols.SALES_ORDER, numRows, 1);
   var soRich = soRange.getRichTextValues();
-  var statusOrder = {};
-  statusOrder[Schema.status.PENDING]   = 1;
-  statusOrder[Schema.status.PREPARING] = 2;
-  statusOrder[Schema.status.SHIPPED]   = 3;
-  statusOrder[Schema.status.CANCELED]  = 4;
-  statusOrder['']                      = 5;
   // Pair values + formats + col-A & col-D rich text so they travel together.
   var indexed = data.map(function(row, i) {
     return { values: row, formats: formats[i], rich: skuRich[i][0], soRich: soRich[i][0] };
   });
-  indexed.sort(function(a, b) {
-    if (tableNumber === 2) {
-      // DIRECT is ORDER-CENTRIC: group by sales order, then location within the
-      // order (the picker fulfills one order at a time, walking its items by
-      // aisle). Empty-SO blank/buffer rows sink to the bottom. This keeps each
-      // order's items — INCLUDING its expanded kit components — together, which
-      // is exactly what the per-order divider (SO painter) relies on. NOTE:
-      // grouping by SO deliberately overrides status ordering for DIRECT so a
-      // half-shipped order's rows don't split apart.
-      var soA = String(a.values[Schema.idx("SALES_ORDER")] || '').trim();
-      var soB = String(b.values[Schema.idx("SALES_ORDER")] || '').trim();
-      if (soA !== soB) {
-        if (!soA) return 1;
-        if (!soB) return -1;
-        return soA.localeCompare(soB);
-      }
-      return String(a.values[Schema.idx("LOCATION")] || '').localeCompare(
-             String(b.values[Schema.idx("LOCATION")] || ''));
-    }
-    // eBay: aisle walk — status then location (unchanged).
-    var sA = String(a.values[Schema.idx("STATUS")] || '').trim().toUpperCase();
-    var sB = String(b.values[Schema.idx("STATUS")] || '').trim().toUpperCase();
-    var cmp = (statusOrder[sA] || 4) - (statusOrder[sB] || 4);
-    if (cmp !== 0) return cmp;
-    return String(a.values[Schema.idx("LOCATION")] || '').localeCompare(
-           String(b.values[Schema.idx("LOCATION")] || ''));
-  });
+  if (tableNumber === 2) {
+    // DIRECT is ORDER-CENTRIC: whole SALES ORDER groups move as units, ordered by
+    // the most urgent row inside each (so shipped orders sink to the bottom the way
+    // shipped rows do on eBay), then status + aisle within the order. The group rank
+    // is what keeps a half-shipped order from splitting into two gold boxes — see
+    // _buildDirectSoRank for the full reasoning.
+    var soRank = _buildDirectSoRank(indexed);
+    indexed.sort(function(a, b) { return _compareDirectRows(a, b, soRank); });
+  } else {
+    // eBay is AISLE-CENTRIC: one line per order, so there is no grouping to protect
+    // — sort rows straight by status then location.
+    indexed.sort(function(a, b) {
+      var cmp = _statusSortRank(a.values[Schema.idx("STATUS")]) -
+                _statusSortRank(b.values[Schema.idx("STATUS")]);
+      if (cmp !== 0) return cmp;
+      return compareLocations(a.values[Schema.idx("LOCATION")],
+                              b.values[Schema.idx("LOCATION")]);
+    });
+  }
   var sortedData    = indexed.map(function(x) { return x.values; });
   var sortedFormats = indexed.map(function(x) { return x.formats; });
   var sortedRich    = indexed.map(function(x) { return [x.rich]; });

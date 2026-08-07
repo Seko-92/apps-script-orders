@@ -587,23 +587,73 @@ function _paintDirectOrderDividers(sheet, boundary, colDData, lastRow) {
   // clear left/right/bottom/vertical/horizontal here.)
   sheet.getRange(firstData, 1, bandRows, W).setBorder(null, false, false, false, false, false);
 
-  var boxColor = "#c9a227";                              // brand gold
-  var boxStyle = SpreadsheetApp.BorderStyle.SOLID_MEDIUM;
+  var boxColor  = "#c9a227";                             // brand gold — order is whole
+  var splitColor = "#b71c1c";                            // alarm red — order is SPLIT
+  var boxStyle  = SpreadsheetApp.BorderStyle.SOLID_MEDIUM;
   var boxW = Schema.cols.LEFT;                           // box the visible DIRECT columns (A..LEFT)
+
+  // ── PASS 1: collect the contiguous blocks, don't draw yet ──────────────────
+  // Drawing inside the walk (the old shape) forced a decision about each block
+  // before we knew whether its order appears again further down. See the
+  // SPLIT-ORDER note below for why that matters.
+  var blocks = [];
   var gStart = -1, gSO = null;
   for (var row2 = firstData; row2 <= lastRow + 1; row2++) {   // +1 flushes the final group
     var bi = row2 - Schema.dataStartRow;
     var bso = (row2 <= lastRow && bi >= 0 && bi < colDData.length)
               ? String(colDData[bi][0]).trim() : "";
     if (bso !== gSO) {
-      if (gSO && gStart > 0) {                           // close the previous order's box
-        var drawTop = (gStart !== firstData);            // first order: skip top → don't touch the header edge
-        sheet.getRange(gStart, 1, row2 - gStart, boxW)
-             .setBorder(drawTop ? true : null, true, true, true, false, false, boxColor, boxStyle);
-      }
+      if (gSO && gStart > 0) blocks.push({ so: gSO, start: gStart, end: row2 - 1 });
       gSO = bso;
       gStart = bso ? row2 : -1;
     }
+  }
+
+  // ── PASS 2: how many separate blocks does each order occupy? ───────────────
+  var blockCount = {};
+  for (var b = 0; b < blocks.length; b++) {
+    blockCount[blocks[b].so] = (blockCount[blocks[b].so] || 0) + 1;
+  }
+
+  // ── PASS 3: draw ──────────────────────────────────────────────────────────
+  //
+  // ⚠ THE SPLIT-ORDER CASE — this is a SAFETY NET, and it is the reason the
+  // painter is two-pass.
+  //
+  // This painter used to assume every sales order occupies ONE contiguous run of
+  // rows, and closed a box on every change of col D. When that assumption broke,
+  // it drew TWO CLOSED GOLD BOXES for a single order — and a closed box is the
+  // floor's signal for "this is the whole order." A picker working the first box
+  // sees it close and reads the order as complete. Observed live 2026-08-07 after
+  // a Zoho line was added to an in-progress order: SO-24696 rendered as a 2-row
+  // box at the top and a 13-row box further down. That ships 2 of 15 lines.
+  //
+  // Contiguity is now also protected at the source (inserts land next to their
+  // order's existing rows — see _insertAddedItemsToDirect). But that protects
+  // only the paths we know about today; a future insert site, a manual row move,
+  // a paste or a delete can all break it again. So the painter must never be the
+  // thing that renders a broken layout as a trustworthy one.
+  //
+  // A split order is therefore drawn RED and OPEN-ENDED: no bottom edge except on
+  // its final block, no top edge except on its first. It reads as one damaged,
+  // continuing thing rather than two tidy complete ones. Same rule the rest of
+  // this system runs on — never show a number or a boundary you can't stand
+  // behind (OOS BUILDABLE, Kit Health computed price, the ripple's "frees alone").
+  var seenBlocks = {};
+  for (var k = 0; k < blocks.length; k++) {
+    var blk    = blocks[k];
+    var isSplit = blockCount[blk.so] > 1;
+    var nth     = (seenBlocks[blk.so] = (seenBlocks[blk.so] || 0) + 1);
+
+    // First order on the sheet skips its top edge so we never recolor the
+    // header's underline.
+    var drawTop = (blk.start !== firstData);
+    var top     = drawTop ? (!isSplit || nth === 1) : null;
+    var bottom  = (!isSplit || nth === blockCount[blk.so]);
+
+    sheet.getRange(blk.start, 1, blk.end - blk.start + 1, boxW)
+         .setBorder(top, true, bottom, true, false, false,
+                    isSplit ? splitColor : boxColor, boxStyle);
   }
 }
 

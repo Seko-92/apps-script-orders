@@ -820,7 +820,33 @@ function _insertAddedItemsToDirect(sheet, soNumber, lineItems, noteOverride, det
 
   if (newRows.length === 0) return 0;
 
-  var insertRow = boundary + 2;
+  // ⚠ INSERT NEXT TO THE ORDER'S OWN ROWS — contiguity by construction.
+  //
+  // This used to be an unconditional `boundary + 2` (top of the DIRECT segment),
+  // whatever order the new rows belonged to. When the SO already had rows further
+  // down — a Zoho line added to an order the floor is mid-way through — that left
+  // ONE order sitting in TWO places, and _paintDirectOrderDividers faithfully drew
+  // two closed gold boxes for it. Live on 2026-08-07: SO-24696 as a 2-row box on
+  // top and a 13-row box below. A picker who works the top box and sees it close
+  // ships 2 of 15 lines.
+  //
+  // Landing the rows at the group's TOP fixes it at the source and is better than
+  // sorting afterwards on every count: only rows below the insert point move (the
+  // same displacement insertRowsBefore causes anyway) instead of the whole segment
+  // being rewritten under everyone's cursor; there's no full re-read of the Kit
+  // Registry or repaint of every box; and contiguity holds without any later step
+  // having to remember to run. It is also the pattern kit expansion already uses —
+  // insertRowsAfter beside the parent row — which is precisely why kit components
+  // have never split their order.
+  //
+  // Bonus: copyFormatToRange's template (the row just below the insert point) is
+  // now the order's OWN first row rather than an unrelated order's, so inherited
+  // formatting is right by construction too.
+  //
+  // A genuinely new order has no rows yet → top of the segment, which is also
+  // where the sort would put it (new work is the most urgent).
+  var groupTop  = _directGroupTopRow(sheet, soNumber, boundary);
+  var insertRow = (groupTop > 0) ? groupTop : (boundary + 2);
   sheet.insertRowsBefore(insertRow, newRows.length);
   sheet.getRange(insertRow, 1, newRows.length, Schema.dataWidth).setValues(newRows);
 
@@ -861,8 +887,13 @@ function _insertAddedItemsToDirect(sheet, soNumber, lineItems, noteOverride, det
   try { logActivityBatch(activityLogBatch); }
   catch (e) { console.log("_insertAddedItemsToDirect: log error: " + e); }
 
-  // Refresh duplicate-SO border tabs — see same call in pullSalesOrderToDirect
-  // for rationale (programmatic insert doesn't fire onEdit).
+  // Refresh duplicate-SO border tabs + the per-order gold boxes — programmatic
+  // inserts don't fire onEdit. NOTE: deliberately NOT a full re-sort. The rows
+  // now land inside their own order's block (see the insert-position note above),
+  // so contiguity — the part that actually matters — already holds. A sort here
+  // would rewrite the entire DIRECT segment and move every row under the cursor
+  // of anyone working the sheet, to buy ordering that is cosmetic and that the
+  // next status change re-establishes anyway.
   try { setupDuplicateSalesOrderHighlighting(); }
   catch (e) { console.log("_insertAddedItemsToDirect: highlight refresh error: " + e); }
 
@@ -1466,6 +1497,43 @@ function _readDirectStateForSo(sheet, soNumber) {
     }
   }
   return out;
+}
+
+
+/**
+ * First DIRECT row already occupied by a sales order, or -1 if it has none.
+ *
+ * Used by _insertAddedItemsToDirect to land new lines inside their own order's
+ * block instead of at the top of the segment, so an order can never end up split
+ * across two places (which the divider painter would render as two closed boxes —
+ * see the SPLIT-ORDER note in _paintDirectOrderDividers).
+ *
+ * Returns the group's TOP row rather than its bottom: new lines are then the most
+ * visible rows of the order, and copyFormatToRange's template becomes the order's
+ * own first row.
+ *
+ * @param {Sheet}  sheet
+ * @param {string} soNumber
+ * @param {number} [boundary]  the DIRECT divider row, if the caller already has it
+ * @returns {number} 1-based row, or -1 when the order has no rows yet
+ */
+function _directGroupTopRow(sheet, soNumber, boundary) {
+  var target = String(soNumber || "").trim().toUpperCase();
+  if (!target) return -1;
+
+  var bound = boundary || getBoundaryRow();
+  if (bound < 1) return -1;
+
+  var startRow = bound + 2;                 // first DIRECT data row
+  var lastRow  = sheet.getLastRow();
+  var nRows    = lastRow - startRow + 1;
+  if (nRows < 1) return -1;
+
+  var col = sheet.getRange(startRow, Schema.cols.SALES_ORDER, nRows, 1).getValues();
+  for (var i = 0; i < col.length; i++) {
+    if (String(col[i][0] || "").trim().toUpperCase() === target) return startRow + i;
+  }
+  return -1;
 }
 
 
