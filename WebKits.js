@@ -84,7 +84,10 @@ function getKitQueueForWeb() {
         kitEngine:        k.plan.kitEngine,
         salesDescription: k.plan.salesDescription || "",
         components:       k.plan.components,
-        unparsedLines:    k.plan.unparsedLines || []
+        unparsedLines:    k.plan.unparsedLines || [],
+        // Components for this kit already on this order — the page warns, it
+        // never blocks (see _countExistingKitComponents).
+        alreadyExpanded:  k.alreadyExpanded || { count: 0, skus: [] }
       });
     }
 

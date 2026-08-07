@@ -174,6 +174,11 @@
     .banner-title { font-family: 'Oswald', sans-serif; font-weight: 600; letter-spacing: 0.05em; margin-bottom: 5px; font-size: 14px; }
     .banner.ready    { background: var(--amber-bg); border: 1px solid var(--amber); color: #6b4e00; }
     .banner.unparsed { background: var(--red-bg);   border: 1px solid var(--red);   color: var(--red); }
+    /* Own colour on purpose — this can appear alongside the READY banner and the
+       two must not read as one. Blue-grey = a fact to weigh, amber = ships as a
+       box, red = the checklist is incomplete. */
+    .banner.dup      { background: #e8f0f7; border: 1px solid #8fb3d0; color: #1f3b57; }
+    .banner.dup .dup-skus { display: block; margin-top: 6px; font-family: 'Roboto Mono', monospace; font-size: 11.5px; color: #37618a; word-break: break-word; }
     .loc-pill {
       font-family: 'Roboto Mono', monospace; background: var(--ink); color: var(--brand);
       padding: 1px 7px; border-radius: 4px; font-size: 12px;
@@ -448,6 +453,7 @@
       <div class="kitcard" id="kitCard"></div>
       <div class="banner ready hidden" id="readyBanner"></div>
       <div class="banner ready hidden" id="blockedBanner"></div>
+      <div class="banner dup hidden" id="dupBanner"></div>
       <div class="banner unparsed hidden" id="unparsedBanner"></div>
 
       <div class="panes">
@@ -678,6 +684,29 @@
         sb.classList.remove('hidden');
       } else {
         sb.classList.add('hidden');
+      }
+
+      // --- already-expanded banner ---
+      // Expansion leaves the parent row in place, so an expanded kit still looks
+      // expandable. Warns rather than blocks: two of the same kit on one order is
+      // legitimate, and refusing the second would be worse than the duplicate.
+      var db = document.getElementById('dupBanner');
+      var dup = kit.alreadyExpanded || { count: 0, skus: [] };
+      if (dup.count > 0) {
+        var dh = '<div class="banner-title">&#9888; Already expanded &#183; '
+               + dup.count + ' component row(s) on this order</div>'
+               + 'Expanding again adds a SECOND set of rows. Continue only if this is '
+               + 'genuinely a second kit — otherwise Skip, or delete the existing '
+               + 'component rows first.';
+        if (dup.skus && dup.skus.length) {
+          dh += '<span class="dup-skus">on the order: ' + esc(dup.skus.join(' · '))
+              + (dup.count > dup.skus.length ? ' …' : '') + '</span>';
+        }
+        db.innerHTML = dh;
+        db.classList.remove('hidden');
+      } else {
+        db.classList.add('hidden');
+        db.innerHTML = '';
       }
 
       // --- unparsed-lines banner ---

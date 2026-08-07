@@ -6,20 +6,20 @@
 // the action layer. Picker selects kit rows on the sheet, clicks Preview in
 // the sidebar, reviews in a popup modal, commits the expansion.
 //
-// TWO COMMIT PATHS coexist (both production):
+// ONE COMMIT PATH (modal, shipped 2026-05-19) — Preview opens a popup modal
+// showing the components checklist (left) + Sales Description reference panel
+// (right). Picker unchecks components that are physically packed together
+// (Sales Description shows packaging hints like "Full Gasket Set ABC + Head
+// Gasket" — Head Gasket is bundled inside ABC's box, doesn't need its own row).
+// Expand-and-continue commits the kit minus excluded SKUs, advances to the next
+// kit in the queue. The same path serves the hosted /kits Mini App via WebKits.js.
 //
-//   1. MODAL PATH (primary, shipped 2026-05-19) — Preview opens a popup
-//      modal showing the components checklist (left) + Sales Description
-//      reference panel (right). Picker unchecks components that are
-//      physically packed together (Sales Description shows packaging hints
-//      like "Full Gasket Set ABC + Head Gasket" — Head Gasket is bundled
-//      inside ABC's box, doesn't need its own row). Expand-and-continue
-//      commits the kit minus excluded SKUs, advances to next kit in queue.
-//
-//   2. BULK PATH (fallback, predates the modal) — sidebar Expand button
-//      commits ALL selected kits with ALL components, no exclusion controls.
-//      Kept during the modal's bake-in period; will be removed once the
-//      modal is proven in production.
+// The old BULK PATH (`expandSelectedKits` — commit every selected kit with every
+// component, no exclusion controls) was DELETED 2026-08-08. Its sidebar button
+// was retired 2026-06-03 when the card was cleaned up, but the 343-line server
+// function was left behind with zero callers — carrying its own copy of the
+// expansion logic, which made it read as live and cost real debugging time. Git
+// history has it if it is ever wanted back.
 //
 // FLOW (modal path)
 //   1. Picker selects N rows in All Orders, enters optional Deploy×
@@ -34,8 +34,7 @@
 //
 // PUBLIC API
 //   expandKit(kitSku, deployQty)                — pure: kit info + scaled components
-//   previewSelectedKits(deployQty)              — read-only: enriched preview payload
-//   expandSelectedKits(deployQty, exclusionMap) — BULK COMMIT (fallback path)
+//   previewSelectedKits(deployQty, rowsOverride)— read-only: enriched preview payload
 //   openKitExpansionModal(deployQty)            — MODAL: entry point from sidebar
 //   commitKitFromModal(sessionId, excludedSkus) — MODAL: commit current + advance
 //   skipKitFromModal(sessionId)                 — MODAL: skip current + advance
@@ -129,6 +128,74 @@ function expandKit(kitSku, deployQty) {
 // =======================================================================================
 
 /**
+ * How many expansion component rows for `kitSku` already sit on `soNumber`.
+ *
+ * ⚠ WHY THIS EXISTS, AND WHY IT WARNS RATHER THAN BLOCKS (2026-08-08)
+ *
+ * Expansion leaves the parent kit row in place (auto-follow only fires on a
+ * TERMINAL transition), so an already-expanded kit still LOOKS expandable — same
+ * SKU, same ▣ glyph, still PENDING. The guard against re-expanding it was
+ * `_findKitRowBySkuAndSo`, which asks whether THE ROW DIRECTLY BELOW carries this
+ * kit's tag.
+ *
+ * That assumed the parent sits immediately above its components. It doesn't: rows
+ * inside a sales order are sorted by AISLE, and a kit parent almost never shares an
+ * aisle with its parts. Live 2026-08-07 — parent 158652 at K-62, its components at
+ * E-17 / E-37 / F-20 / I-53 / L-230, and the row below it an unrelated line. So the
+ * guard reads "never expanded" and a second full set of components gets inserted:
+ * duplicate pick lines and doubled committed stock, silently.
+ *
+ * ⚠ BUT AN ORDER-WIDE CHECK MUST NOT BLOCK. A customer can legitimately order TWO
+ * of the same kit on one SO; expanding the first leaves tagged components behind,
+ * and a strict refusal would then make the second impossible to expand. Worse, the
+ * commit path's use of the adjacency test is DISAMBIGUATION — "which of these two
+ * identical rows is the unexpanded one" — so a whole-order match there would skip
+ * both and fail with "Kit row not found".
+ *
+ * Two identical kit rows cannot be told apart from row data. That is already a
+ * settled ruling in this system: the board's kit-collapse pre-pass hits the same
+ * wall and deliberately shows an extra row rather than hiding an undecided kit.
+ * Same call here — surface the fact, let the picker decide. Decision-support, not
+ * enforcement, exactly like READY force-expand and the Kit Health verdicts.
+ *
+ * Counting components back to a number of expansions is NOT possible either:
+ * exclusions and custom adds change how many rows one expansion inserts (the same
+ * reason the board's kit strip takes its denominator from the sheet, never from the
+ * registry). So this reports the raw count and says nothing it cannot stand behind.
+ *
+ * @param {Array<Array>} allData   full sheet values, row 1 at index 0
+ * @param {string} soNumber        the kit row's SALES ORDER
+ * @param {string} kitSku          the parent kit SKU
+ * @returns {{count:number, skus:Array<string>}} count 0 when never expanded
+ */
+function _countExistingKitComponents(allData, soNumber, kitSku) {
+  var out = { count: 0, skus: [] };
+  var so  = String(soNumber || "").trim().toUpperCase();
+  var kit = String(kitSku   || "").trim().toUpperCase();
+  if (!so || !kit) return out;   // a blank SO would match every buffer row
+
+  var SKU_I  = Schema.idx("SKU");
+  var SO_I   = Schema.idx("SALES_ORDER");
+  var NOTE_I = Schema.idx("NOTE");
+
+  for (var i = Schema.dataStartRow - 1; i < allData.length; i++) {
+    var r = allData[i];
+    if (!r) continue;
+    if (String(r[SO_I] || "").trim().toUpperCase() !== so) continue;
+
+    // Exact captured-SKU compare, never a prefix test: `indexOf(tag + sku) === 0`
+    // would let kit "1586" match kit "158652"'s components.
+    var m = String(r[NOTE_I] || "").match(/^↳ (?:from|added to) KIT-(\S+)/);
+    if (!m || String(m[1]).trim().toUpperCase() !== kit) continue;
+
+    out.count++;
+    if (out.skus.length < 8) out.skus.push(String(r[SKU_I] || "").trim());
+  }
+  return out;
+}
+
+
+/**
  * Sidebar entry point. Reads the picker's current selection on the All Orders
  * sheet, classifies each selected row as kit-or-not, builds a preview payload
  * the sidebar can render. READ-ONLY — no sheet writes.
@@ -138,6 +205,8 @@ function expandKit(kitSku, deployQty) {
  *
  * @param {number} deployQty — multiplier applied to all selected kit rows.
  *                              Defaults to 1 (deploy exactly the row qty).
+ * @param {Array<number>} [rowsOverride] — supply rows explicitly instead of
+ *                              reading the sheet selection (the hosted page).
  * @returns {{
  *   ok: boolean,
  *   message: string,
@@ -146,6 +215,7 @@ function expandKit(kitSku, deployQty) {
  *   nonKitRows: Array<{row, sku, reason}>,
  *   kitRows: Array<{
  *     row, table, sourceSku, sourceQty, sourceSalesOrder, sourceNote,
+ *     alreadyExpanded: {count, skus},
  *     plan: {kitName, kitType, kitLocation, kitEngine, deployQty,
  *            components: [{sku, qty, name, location, available, missing}]}
  *   }>
@@ -266,6 +336,11 @@ function previewSelectedKits(deployQty, rowsOverride) {
 
     var table = (boundaryRow > 0 && sheetRow > boundaryRow) ? "DIRECT" : "eBay";
 
+    // Does this kit already have expansion components on this order? Reuses the
+    // sheet read we already did. See _countExistingKitComponents for why this is
+    // a WARNING and never a refusal.
+    var priorComps = _countExistingKitComponents(allData, rowSo, rowSku);
+
     kitRows.push({
       row:              sheetRow,
       table:            table,
@@ -273,6 +348,7 @@ function previewSelectedKits(deployQty, rowsOverride) {
       sourceQty:        rowQty,
       sourceSalesOrder: rowSo,
       sourceNote:       rowNote,
+      alreadyExpanded:  priorComps,          // {count, skus}
       plan: {
         kitName:          plan.kitName,
         kitType:          plan.kitType,
@@ -301,349 +377,6 @@ function previewSelectedKits(deployQty, rowsOverride) {
       activeSheetName: ss.getActiveSheet().getName()
     }
   };
-}
-
-
-// =======================================================================================
-// PUBLIC: expandSelectedKits(deployQty)
-// =======================================================================================
-//
-// COMMIT path. Reads sheet selection, inserts component rows below each MANUAL
-// kit row in the selection. Sibling of previewSelectedKits — same selection
-// logic, but actually writes.
-//
-// CONTRACT
-//   - LockService serializes commits (30s wait)
-//   - Original kit row STAYS. Only its position is the anchor — components are
-//     inserted directly below it via sheet.insertRowsAfter(kitRow, N).
-//   - Component rows inherit: SALES_ORDER, STATUS, SHIPPING (the picker-facing
-//     identifiers), buyer NOTE merged into the kit-expansion tag, and current
-//     MI location + hand.
-//   - SHIP_COST stays on the kit row only; not duplicated onto components
-//     (preserves single-line-item shipping accounting).
-//   - LEFT column stays blank — picker fills it after counting at the shelf.
-//   - Activity Log: one RECEIVED event per component row, source=sidebar.
-//   - READY kits are REFUSED (return refused[] entry) — they ship as one box.
-//   - Already-expanded kits are REFUSED — defense: check the row immediately
-//     below; if its NOTE starts with "↳ from KIT-<sku>" for this same kit,
-//     skip to prevent double-expansion when the picker clicks twice.
-//   - Filter-corruption defense (gotcha #4): save headers before each insert,
-//     verify-and-restore after. Multi-kit batches use bottom-up processing
-//     order so kit row numbers stay valid across inserts.
-//
-// @param {number} extrasQty   — ADDITIVE extras-for-us count, applied to
-//                                EACH selected kit row. 0 (default) = ship
-//                                exactly the customer's rowQty (no spares).
-//                                N = ship rowQty + N total kits per row.
-//                                Same semantic as the modal's per-kit input
-//                                (unified 2026-05-20). Old "deployQty=N means
-//                                multiply rowQty by N" semantic was retired
-//                                because it broke at rowQty>1.
-// @param {object} [exclusionMap] — optional { "<kitSku>": ["<compSku1>", ...] }
-//                                map of components to SKIP per kit. Provided by
-//                                the Kit Expansion modal when the picker
-//                                unchecks components that are physically packed
-//                                together (Sales Description bundling hint).
-//                                Missing kits default to no exclusions.
-// @returns {{
-//   ok: boolean, message: string,
-//   expanded: number,
-//   refused: Array<{row, sku, reason}>,
-//   skipped: Array<{row, reason}>,
-//   details: Array<{row, sku, componentsAdded, excludedSkus, extras, totalKits, rowQty}>
-// }}
-function expandSelectedKits(extrasQty, exclusionMap) {
-  var lock = LockService.getScriptLock();
-  if (!lock.tryLock(30000)) {
-    return { ok: false, message: "Another operation is in progress. Try again.",
-             expanded: 0, refused: [], skipped: [], details: [] };
-  }
-
-  try {
-    var ss = SpreadsheetApp.getActive();
-    if (!ss) {
-      return { ok: false, message: "No active spreadsheet.",
-               expanded: 0, refused: [], skipped: [], details: [] };
-    }
-    var sheet = ss.getSheetByName(MAIN_SHEET_NAME);
-    if (!sheet) {
-      return { ok: false, message: "All Orders sheet not found.",
-               expanded: 0, refused: [], skipped: [], details: [] };
-    }
-
-    var selectedRows = _collectSelectedRows(sheet);
-    if (selectedRows.length === 0) {
-      return { ok: false, message: "No rows selected on the sheet.",
-               expanded: 0, refused: [], skipped: [], details: [] };
-    }
-
-    // Additive extras-for-us count (replaces old row-qty multiplier)
-    var extras = parseInt(extrasQty);
-    if (isNaN(extras) || extras < 0) extras = 0;
-    if (extras > 99) extras = 99;
-
-    var boundaryRow = getBoundaryRow();
-    var locInvMaps = buildLocationAndInventoryMaps();
-    var zohoMap = buildZohoStockMap();   // DIRECT-side HAND source (Zoho-first)
-
-    // Save headers ONCE upfront — verifyAndRestoreHeaders defends against the
-    // Sheets bug where inserting rows inside a filtered area replaces headers
-    // with "Column 1", "Column 2", ... (CLAUDE.md gotcha #4).
-    var savedHeaders = sheet.getRange(Schema.headerRow, 1, 1, Schema.dataWidth).getValues()[0];
-
-    // Process BOTTOM-UP — insertions shift rows BELOW the insertion point. By
-    // working from the highest row number downward, the row numbers we haven't
-    // processed yet stay valid.
-    selectedRows.sort(function(a, b) { return b - a; });
-
-    var SKU_I        = Schema.idx("SKU");
-    var QTY_I        = Schema.idx("QTY");
-    var SO_I         = Schema.idx("SALES_ORDER");
-    var NOTE_I       = Schema.idx("NOTE");
-    var STATUS_I     = Schema.idx("STATUS");
-    var SHIPPING_I   = Schema.idx("SHIPPING");
-
-    var expanded = 0;
-    var refused = [];
-    var skipped = [];
-    var details = [];
-    var activityLog = [];
-
-    for (var i = 0; i < selectedRows.length; i++) {
-      var kitRow = selectedRows[i];
-
-      // Skip non-data rows
-      if (kitRow < Schema.dataStartRow) {
-        skipped.push({ row: kitRow, reason: "Banner/header row" });
-        continue;
-      }
-      if (boundaryRow > 0 && (kitRow === boundaryRow || kitRow === boundaryRow + 1)) {
-        skipped.push({ row: kitRow, reason: "DIRECT divider/header row" });
-        continue;
-      }
-
-      // Re-read the kit row freshly to catch concurrent edits
-      var rowVals = sheet.getRange(kitRow, 1, 1, Schema.dataWidth).getValues()[0];
-      var rowSku    = String(rowVals[SKU_I]    || "").trim();
-      var rowQty    = parseInt(rowVals[QTY_I]) || 1;
-      var rowSo     = String(rowVals[SO_I]     || "");
-      var rowNote   = String(rowVals[NOTE_I]   || "");
-      var rowStatus = String(rowVals[STATUS_I] || Schema.status.PENDING);
-      var rowShip   = String(rowVals[SHIPPING_I] || "");
-
-      if (!rowSku) {
-        skipped.push({ row: kitRow, reason: "Empty SKU on this row" });
-        continue;
-      }
-
-      // Already-expanded check: if the row directly below has a NOTE that
-      // starts with "↳ from KIT-<rowSku>", this kit was already expanded.
-      // Defensive against double-clicks or repeated commits on stale selection.
-      if (kitRow + 1 <= sheet.getLastRow()) {
-        var belowNote = String(sheet.getRange(kitRow + 1, NOTE_I + 1).getValue() || "");
-        if (belowNote.indexOf("↳ from KIT-" + rowSku) === 0) {
-          refused.push({
-            row: kitRow, sku: rowSku,
-            reason: "Already expanded (row below has matching kit tag)"
-          });
-          continue;
-        }
-      }
-
-      // Additive math: total kits = rowQty + extras
-      var totalKits       = rowQty + extras;
-      if (totalKits < 1) {
-        skipped.push({ row: kitRow, reason: "rowQty=" + rowQty + " + extras=" + extras + " yields 0 kits" });
-        continue;
-      }
-      var effectiveDeploy = totalKits;
-      var plan = expandKit(rowSku, effectiveDeploy);
-
-      if (!plan.found) {
-        refused.push({ row: kitRow, sku: rowSku, reason: plan.reason });
-        continue;
-      }
-      if (plan.kitType === KIT_REGISTRY.types.READY) {
-        refused.push({
-          row: kitRow, sku: rowSku,
-          reason: "READY kit (lives at " + (plan.kitLocation || "K-*") + ") — ships pre-assembled, no expansion"
-        });
-        continue;
-      }
-
-      // --- Apply per-kit exclusions from the modal (if any) ---
-      // exclusionMap shape: { "<kitSku>": ["<compSku1>", "<compSku2>"] }
-      // Components matching an excluded SKU are filtered out BEFORE insert.
-      // Excluded SKUs are recorded for the Activity Log DETAIL field so the
-      // audit trail captures "what didn't get inserted and why".
-      var excludedSkus = [];
-      if (exclusionMap && exclusionMap[rowSku] && exclusionMap[rowSku].length) {
-        var excludeSet = {};
-        for (var ex = 0; ex < exclusionMap[rowSku].length; ex++) {
-          excludeSet[String(exclusionMap[rowSku][ex]).trim()] = true;
-        }
-        var keptComponents = [];
-        for (var fc = 0; fc < plan.components.length; fc++) {
-          var compSku = String(plan.components[fc].sku).trim();
-          if (excludeSet[compSku]) {
-            excludedSkus.push(compSku);
-          } else {
-            keptComponents.push(plan.components[fc]);
-          }
-        }
-        plan.components = keptComponents;
-      }
-
-      var N = plan.components.length;
-      if (N === 0) {
-        var emptyReason = excludedSkus.length > 0
-          ? "All components excluded by picker (" + excludedSkus.join(", ") + ")"
-          : "Kit has no components in registry";
-        refused.push({ row: kitRow, sku: rowSku, reason: emptyReason });
-        continue;
-      }
-
-      // Build the kit-expansion NOTE prefix
-      // - Default (extras=0): "↳ from KIT-160029"
-      // - extras>0: "↳ from KIT-160029 · deploy 3 total (1 for customer + 2 for us)"
-      // - Then merge in the kit row's original NOTE (which may contain a
-      //   "Buyer Note: ..." prefix from n8n, or supervisor remarks) — picker
-      //   sees both signals on each component row.
-      var notePrefix = "↳ from KIT-" + rowSku;
-      if (extras > 0) {
-        notePrefix += " · deploy " + totalKits + " total ("
-                    + rowQty + " for customer + " + extras + " for us)";
-      }
-      var componentNote = rowNote ? (notePrefix + " · " + rowNote) : notePrefix;
-
-      // Insert N blank rows below the kit row
-      sheet.insertRowsAfter(kitRow, N);
-
-      // Build component row values
-      var newRows = [];
-      for (var c = 0; c < N; c++) {
-        var comp = plan.components[c];
-        var skuLower = comp.sku.toLowerCase();
-        var loc = locInvMaps.locationMap.get(skuLower) || "NOT FOUND";
-        var inv = locInvMaps.inventoryMap.get(skuLower);
-        var zo  = zohoMap.get(skuLower);
-        // DIRECT-side rows take HAND Zoho-first, MI fallback (matches recomputeHand).
-        // "" when neither source has it — the next recompute resolves it.
-        var hand = zo ? zo.available
-                 : (inv && inv.available != null) ? inv.available : "";
-
-        var row = new Array(Schema.dataWidth);
-        row[Schema.idx("SKU")]         = comp.sku;
-        row[Schema.idx("QTY")]         = comp.qty;
-        row[Schema.idx("LOCATION")]    = loc;
-        row[Schema.idx("SALES_ORDER")] = rowSo;
-        row[Schema.idx("NOTE")]        = componentNote;
-        row[Schema.idx("STATUS")]      = rowStatus;
-        row[Schema.idx("HAND")]        = hand;
-        row[Schema.idx("LEFT")]        = "";
-        row[Schema.idx("SHIPPING")]    = rowShip;
-        row[Schema.idx("SHIP_COST")]   = "";   // stays on parent kit row only
-        newRows.push(row);
-      }
-
-      sheet.getRange(kitRow + 1, 1, N, Schema.dataWidth).setValues(newRows);
-      verifyAndRestoreHeaders(sheet, savedHeaders);
-
-      // One Activity Log RECEIVED entry per component row.
-      // DETAIL field carries kit-expansion context + (if any) the list of
-      // SKUs excluded by the picker — so reviewing any component row in the
-      // log surfaces "this was inserted as part of KIT-X, and these other
-      // SKUs were excluded as bundled-with-another-SKU calls".
-      var baseDetail = "kit expansion from " + rowSku;
-      if (extras > 0) baseDetail += " (deploy " + totalKits + " total: " + rowQty + "+" + extras + ")";
-      if (excludedSkus.length > 0) {
-        baseDetail += " · excluded: " + excludedSkus.join(", ");
-      }
-      for (var c2 = 0; c2 < N; c2++) {
-        var comp2 = plan.components[c2];
-        activityLog.push([
-          "RECEIVED",
-          rowSo,                         // orderId
-          comp2.sku,                     // sku
-          comp2.qty,                     // qty
-          "sidebar",                     // source — picker auto-captured from G2
-          baseDetail,                    // detail
-          undefined,                     // picker: let logActivityBatch resolve via G2
-          componentNote                  // note
-        ]);
-      }
-
-      expanded++;
-      details.push({
-        row:             kitRow,
-        sku:             rowSku,
-        componentsAdded: N,
-        excludedSkus:    excludedSkus,
-        extras:          extras,
-        totalKits:       totalKits,
-        rowQty:          rowQty
-      });
-
-      // Boundary row shifted if we just inserted in the eBay table — recompute
-      // for the next iteration. (Bottom-up processing means later iterations
-      // are at LOWER row numbers, so they're unaffected — but for safety.)
-      boundaryRow = getBoundaryRow();
-    }
-
-    // Batch-log activity (best-effort; logging failure does NOT roll back inserts)
-    if (activityLog.length > 0) {
-      try { logActivityBatch(activityLog); } catch (logErr) {
-        try { console.log("expandSelectedKits: activity log failed: " + logErr); } catch (_) {}
-      }
-    }
-
-    // Refresh Kit SKU markers — programmatic insertRowsAfter + setValues
-    // doesn't fire kitSkuOnEdit, so without this explicit call:
-    //   (a) the parent kit row keeps its ▣ correctly (untouched by expansion)
-    //   (b) but newly-inserted component rows would inherit whatever number
-    //       format their template row had (could be ▣ if pasted near a kit
-    //       row, or plain if pasted near a non-kit row)
-    //   (c) and the suppression rule for "↳ from KIT-" NOTE prefix wouldn't
-    //       run, so component rows whose SKU is itself a kit (sub-assemblies)
-    //       would show ▣ alongside the parent — exactly the noise the user
-    //       flagged 2026-05-19.
-    // refreshKitSkuMarkers reads each row's NOTE column and skips components
-    // (via the ↳ from KIT- prefix check) regardless of whether their SKU is
-    // a standalone kit in the registry.
-    if (expanded > 0) {
-      try { refreshKitSkuMarkers(); }
-      catch (kitErr) { console.log("expandSelectedKits: kit marker refresh failed: " + kitErr); }
-      // New component rows share the kit row's SO# — re-paint duplicate-SO
-      // borders so the group is surfaced immediately instead of waiting for
-      // the next onEdit (which only fires on user typing, not programmatic
-      // insertRowsAfter / setValues).
-      try { setupDuplicateSalesOrderHighlighting(); }
-      catch (dupErr) { console.log("expandSelectedKits: dup-SO refresh failed: " + dupErr); }
-
-      // Enrich the inserted component SKUs (title note + listing link) from MI.
-      try { refreshAllOrdersEnrichment(); }
-      catch (enrErr) { console.log("expandSelectedKits: SKU enrichment failed: " + enrErr); }
-    }
-
-    return {
-      ok:       true,
-      message:  expanded + " kit(s) expanded · " + refused.length + " refused · " + skipped.length + " skipped",
-      expanded: expanded,
-      refused:  refused,
-      skipped:  skipped,
-      details:  details
-    };
-
-  } catch (err) {
-    try { console.log("expandSelectedKits error: " + err + "\n" + err.stack); } catch (_) {}
-    return {
-      ok: false,
-      message: "Expand failed: " + (err.message || err),
-      expanded: 0, refused: [], skipped: [], details: []
-    };
-  } finally {
-    try { lock.releaseLock(); } catch (_) {}
-  }
 }
 
 
@@ -835,7 +568,8 @@ function openKitExpansionModal(deployQty) {
         kitEngine:        k.plan.kitEngine,
         salesDescription: k.plan.salesDescription || "",
         components:       k.plan.components,   // base qty (×1) — modal re-scales
-        unparsedLines:    k.plan.unparsedLines || []
+        unparsedLines:    k.plan.unparsedLines || [],
+        alreadyExpanded:  k.alreadyExpanded || { count: 0, skus: [] }
       });
     }
 

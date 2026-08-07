@@ -158,6 +158,38 @@
        Description the registry parser could not read. Unlike READY (a
        legitimate alternative path), this is a data-loss warning — the
        checklist is INCOMPLETE until the item is fixed in Zoho. */
+    /* ALREADY-EXPANDED warning. Deliberately its own colour, not the READY
+       amber — the two can appear on the same kit and must not read as one
+       banner. Blue-grey = "here is a fact you should know", vs amber = "this
+       kit ships as a box" and red = "the checklist is incomplete". */
+    .dup-banner {
+      background: #e8f0f7;
+      border: 1px solid #8fb3d0;
+      border-left: 4px solid #37618a;
+      padding: 10px 14px;
+      margin: 10px 16px 0;
+      border-radius: 4px;
+      font-size: 12.5px;
+      color: #1f3b57;
+      line-height: 1.5;
+    }
+    .dup-banner-title {
+      font-family: 'Oswald', sans-serif;
+      font-weight: 700;
+      font-size: 12px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: #17334d;
+      margin-bottom: 4px;
+    }
+    .dup-banner .dup-skus {
+      display: block;
+      margin-top: 5px;
+      font-family: 'Roboto Mono', monospace;
+      font-size: 11px;
+      color: #37618a;
+      word-break: break-word;
+    }
     .unparsed-banner {
       background: #ffe5e5;
       border: 1px solid #ff8a8a;
@@ -770,6 +802,7 @@
     <div class="ready-banner" id="readyBanner" style="display:none"></div>
 
     <!-- UNPARSED-LINES WARNING (hidden unless the registry has ⚠ rows for this kit) -->
+    <div class="dup-banner" id="dupBanner" style="display:none"></div>
     <div class="unparsed-banner" id="unparsedBanner" style="display:none"></div>
 
     <!-- BODY: two columns -->
@@ -892,6 +925,33 @@
       } else {
         bannerEl.style.display = 'none';
         bannerEl.innerHTML = '';
+      }
+
+      // ALREADY-EXPANDED warning. Expansion leaves the parent row in place, so
+      // an expanded kit still looks expandable — and the commit-side guard that
+      // used to catch this checks only the row DIRECTLY BELOW, which the aisle
+      // sort routinely separates from the components. Stated, not enforced: a
+      // customer CAN order two of the same kit, and blocking the second would be
+      // worse than the duplicate this warns about.
+      var dupEl = document.getElementById('dupBanner');
+      var dup = kit.alreadyExpanded || { count: 0, skus: [] };
+      if (dup.count > 0) {
+        var dupHtml = ''
+          + '<div class="dup-banner-title">⚠ Already expanded — ' + dup.count
+          + ' component row(s) for this kit are on this order</div>'
+          + 'Expanding again inserts a SECOND set of component rows. '
+          + 'Only continue if this is genuinely a second kit on the order — '
+          + 'otherwise Skip, or delete the existing component rows first and re-expand.';
+        if (dup.skus && dup.skus.length) {
+          dupHtml += '<span class="dup-skus">already on the order: '
+                   + esc(dup.skus.join(' · '))
+                   + (dup.count > dup.skus.length ? ' …' : '') + '</span>';
+        }
+        dupEl.innerHTML = dupHtml;
+        dupEl.style.display = 'block';
+      } else {
+        dupEl.style.display = 'none';
+        dupEl.innerHTML = '';
       }
 
       // UNPARSED-LINES warning — red banner listing the raw Zoho PD lines
