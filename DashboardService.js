@@ -312,6 +312,41 @@ function _dashOpenOrders() {
   var data = sheet.getRange(Schema.dataStartRow, 1, n, Schema.dataWidth).getValues();
 
   var kitSkus = _dashKitSkuSet();     // cached — see helper
+
+  // ── KIT PARENTS THAT HAVE ALREADY BEEN EXPANDED ───────────────────────────
+  // Expansion inserts the components as their own rows and deliberately LEAVES
+  // the parent in place; kit-parent auto-follow only fires on a TERMINAL
+  // transition, so the parent sits at PENDING for the whole pick. The board was
+  // therefore listing it as one more pick line — wearing a KIT badge and a
+  // ✓ Pick button — for a box that no longer exists as a physical thing, and
+  // counting its qty again in UNITS TO PICK on top of the components.
+  //
+  // Components are tagged "↳ from KIT-<parent sku>" and carry the parent's
+  // SALES ORDER, so the pairing is exact.
+  //
+  // ⚠ Collapse ONLY when the order has exactly ONE open parent row for that
+  // SKU. Two of the same kit on one SO with just one of them expanded cannot be
+  // told apart from here, and hiding a kit nobody has decided yet is far worse
+  // than showing one extra row — so the ambiguous case stays visible.
+  var expandedOf = {}, parentsOf = {};
+  for (var p = 0; p < data.length; p++) {
+    var pSku = String(data[p][Schema.idx("SKU")] || "").trim();
+    if (pSku.toUpperCase() === Schema.boundaryMarker) continue;
+    if (!pSku) continue;
+    var pStatus = String(data[p][Schema.idx("STATUS")] || "").trim().toUpperCase();
+    if (pStatus !== Schema.status.PENDING && pStatus !== Schema.status.PREPARING) continue;
+    var pOrder = String(data[p][Schema.idx("SALES_ORDER")] || "").trim();
+    var pNote  = String(data[p][Schema.idx("NOTE")] || "").trim();
+    var pm = pNote.match(/^↳ from KIT-(\S+)/);
+    if (pm) {
+      var ek = pOrder + "|" + pm[1];
+      expandedOf[ek] = (expandedOf[ek] || 0) + 1;
+    } else if (kitSkus[pSku] === 1) {
+      var pk = pOrder + "|" + pSku;
+      parentsOf[pk] = (parentsOf[pk] || 0) + 1;
+    }
+  }
+
   var out = [];
   var paidCount = 0;
   var inDirect = false;
@@ -345,9 +380,17 @@ function _dashOpenOrders() {
     if (status !== Schema.status.PENDING && status !== Schema.status.PREPARING) continue;
 
     var note = String(data[i][Schema.idx("NOTE")] || "").trim();
+
+    // An expanded kit's parent is not a pickable line — its components are.
+    var orderId     = String(data[i][Schema.idx("SALES_ORDER")] || "").trim();
+    var isComponent = note.indexOf("↳ from KIT-") === 0;
+    var isKitParent = !isComponent && kitSkus[sku] === 1;
+    var kitKey      = orderId + "|" + sku;
+    if (isKitParent && expandedOf[kitKey] > 0 && parentsOf[kitKey] === 1) continue;
+
     out.push({
       channel:  inDirect ? "DIRECT" : "EBAY",
-      orderId:  String(data[i][Schema.idx("SALES_ORDER")] || "").trim(),
+      orderId:  orderId,
       sku:      sku,
       qty:      data[i][Schema.idx("QTY")],
       location: String(data[i][Schema.idx("LOCATION")] || "").trim(),
@@ -357,7 +400,9 @@ function _dashOpenOrders() {
       // the shelf — its components aren't on the sheet. Flagging it stops a
       // picker walking to a K-* aisle expecting a box. Components themselves
       // (NOTE starts "↳ from KIT-") are normal pickable rows, so exclude them.
-      isKit: (note.indexOf("↳ from KIT-") !== 0) && kitSkus[sku] === 1
+      // Already-expanded parents never reach here — they were skipped above —
+      // so the badge now means what it says: THIS one still needs a decision.
+      isKit: isKitParent
     });
   }
 

@@ -101,11 +101,17 @@
        infinite breathing. will-change promotes it to its own GPU layer
        so the opacity glide never janks. Gated on body.breathe — toggle
        OFF (rAF is cancelled) and the board is exactly today's board. */
+    /* "Barely there" had been tuned past the point of being there at all: a
+       0.07 core times the night band (0.05..0.18) moved the backdrop by TWO
+       levels out of 255 — under the perceptual threshold on any panel, and
+       night is when this board is actually watched. Core raised, and the wash
+       reaches further out so it registers in the gutters and the header /
+       footer bands, which is the only area not covered by opaque cards. */
     .breath {
       position: fixed; inset: 0; z-index: 0; pointer-events: none;
       opacity: 0; will-change: opacity;
-      background: radial-gradient(120% 95% at 50% 44%,
-        rgba(255,247,228,0.07) 0%, rgba(255,247,228,0.015) 34%, transparent 60%);
+      background: radial-gradient(125% 100% at 50% 44%,
+        rgba(255,247,228,0.115) 0%, rgba(255,247,228,0.045) 38%, transparent 72%);
     }
 
     /* ─────────── THEMES (re-skin the brand accent) ─────────── */
@@ -146,15 +152,19 @@
     }
 
     /* ─────────── HEADER ─────────── */
+    /* Chrome, not content. It was ~90px tall for three short strings — the
+       clock alone stacked time / date / hijri on three lines — and that band
+       is stolen from the pick list, which is the only thing anyone walks to
+       the board to read. Now a single ~46px rule-bar. */
     .hdr {
       display: grid;
       grid-template-columns: 1fr auto 1fr;   /* brand · centered prayer · status */
       align-items: center;
       gap: 16px;
       border-bottom: 1px solid var(--rule);
-      padding-bottom: 12px;
+      padding-bottom: 8px;
     }
-    .hdr-brand { display: flex; align-items: center; gap: 12px; justify-self: start; }
+    .hdr-brand { display: flex; align-items: center; gap: 10px; justify-self: start; }
     .pray      { justify-self: center; }
     .hdr-right { justify-self: end; }
     .hdr-mono {
@@ -162,11 +172,11 @@
       overflow: hidden;
       font-family: 'Oswald', sans-serif;
       font-weight: 700;
-      font-size: 22px;
+      font-size: 19px;
       letter-spacing: 0.04em;
       color: var(--ink);
       background: var(--brand-yellow);
-      padding: 2px 10px;
+      padding: 1px 9px;
       border-radius: 5px;
       animation: brandBreath 4.5s ease-in-out infinite;  /* ambient life */
     }
@@ -197,12 +207,12 @@
     .hdr-words {
       font-family: 'Oswald', sans-serif;
       font-weight: 500;
-      font-size: 17px;
+      font-size: 14px;
       letter-spacing: 0.16em;
       text-transform: uppercase;
       color: var(--mute);
     }
-    .hdr-right { display: flex; align-items: center; gap: 22px; }
+    .hdr-right { display: flex; align-items: center; gap: 20px; }
     .wx {
       display: flex;
       align-items: center;
@@ -218,7 +228,7 @@
       display: flex;
       align-items: center;
       gap: 8px;
-      padding: 5px 16px;
+      padding: 4px 14px;
       border: 1px solid var(--mute-faint);
       border-radius: 22px;
       background: rgba(255,255,255,0.025);
@@ -257,28 +267,45 @@
     .live-dot.idle  { background: var(--amber-warn);box-shadow: 0 0 9px var(--amber-warn);animation: beat 1.5s ease-in-out infinite; }
     .live-dot.stale { background: var(--red-alert); box-shadow: 0 0 9px var(--red-alert); animation: beat 0.8s ease-in-out infinite; }
     @keyframes beat { 0%,100%{ transform: scale(1); opacity: 1;} 50%{ transform: scale(1.35); opacity: 0.7;} }
-    .hdr-clock { text-align: right; }
+    /* Three stacked lines cost ~52px of header for two of them nobody reads
+       twice. Time keeps its size (it is the one glanceable value); the two
+       dates fold into a micro-column beside it, so the block is ~26px. */
+    .hdr-clock {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      text-align: right;
+    }
     .hdr-clock-time {
       font-family: 'Roboto Mono', monospace;
       font-weight: 700;
-      font-size: 24px;
+      font-size: 22px;
       line-height: 1;
       color: var(--paper);
     }
-    .hdr-clock-date {
-      font-family: 'Roboto Mono', monospace;
-      font-size: 12px;
-      letter-spacing: 0.06em;
-      color: var(--mute-soft);
-      margin-top: 3px;
+    .hdr-clock-when {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 2px;
+      padding-left: 10px;
+      border-left: 1px solid var(--mute-faint);
+      text-align: left;
     }
-    .hdr-clock-hijri {
+    .hdr-clock-date {
       font-family: 'Roboto Mono', monospace;
       font-size: 11px;
       letter-spacing: 0.05em;
+      line-height: 1;
+      color: var(--mute-soft);
+    }
+    .hdr-clock-hijri {
+      font-family: 'Roboto Mono', monospace;
+      font-size: 10px;
+      letter-spacing: 0.04em;
+      line-height: 1;
       color: var(--brand-rim);
-      opacity: 0.75;
-      margin-top: 2px;
+      opacity: 0.7;
     }
 
     /* ─────────── HERO STRIP ─────────── */
@@ -286,21 +313,29 @@
        actionable thing on the board. The eye goes to size, so size has to
        follow usefulness: what to DO on the left, what already HAPPENED on the
        right, visibly supporting rather than competing. */
+    /* Left to right the row now tells the shift's story: what is waiting ·
+       how big it is · how late it is · what already went out. */
     .hero {
       display: grid;
-      grid-template-columns: 1.85fr 1.25fr 0.85fr 0.85fr;
+      grid-template-columns: 1.7fr 0.82fr 1.15fr 0.72fr 0.72fr;
       gap: 16px;
       align-items: stretch;
     }
     /* The two retrospective cards recede — but only enough to stop competing.
        At 0.72 with a muted number the LABELS went hard to read, which is a step
        too far: these are still real figures someone glances at, not decoration.
-       Dim the number, keep the label legible. */
-    .hero > .mini.past { opacity: 0.88; }
-    .hero > .mini.past .mini-value { font-size: 42px; color: var(--mute); }
+       Dim the number, keep the label legible. The rule is simply LIVE 58 /
+       HISTORY 38, so the hierarchy is a size you can read across the row. */
+    .hero > .mini.past { opacity: 0.9; }
+    .hero > .mini.past .mini-value { font-size: 38px; color: var(--mute); }
     .hero > .mini.past .mini-label { color: var(--mute); }
     .hero > .mini.past:hover { opacity: 1; }
-    .hero > div { min-height: 168px; }   /* room for the orbit to circle the count cleanly */
+    /* 168 was sized for the orbit ring (118px wrap + 36px card padding = 154),
+       so it carried pure slack — and because the cards are `space-between`,
+       every spare pixel went into the gap under the LABEL. Trimmed to just
+       clear the ring; the height goes to the pick list, which is the thing
+       people actually walk over to read. */
+    .hero > div { min-height: 154px; }
     .grab {
       position: relative;
       background: var(--ink-card);
@@ -533,7 +568,7 @@
       background: var(--ink-card);
       border: 1px solid var(--ink-rim);
       border-radius: 16px;
-      padding: 20px 24px;
+      padding: 16px 22px;
       display: flex;
       flex-direction: column;
       justify-content: space-between;   /* label top · number mid · sub bottom — fills the card */
@@ -626,6 +661,71 @@
     }
 
     /* ─────────── PAID SHIPPING STRIP ─────────── */
+    /* ─────────── NEW-ORDER BEACON ─────────── */
+    /* Everything else on this board assumes someone is looking at it. This is
+       the one element built for the opposite case: the picker is on the floor,
+       the sheet is on a screen they walked away from, and an order just landed.
+       So it is loud, it names the AISLE (go here), and it repeats — but it
+       clears itself the moment the row is grabbed, and gives up after 3
+       minutes rather than pulsing at an empty room all night. */
+    .beacon-strip {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      cursor: pointer;
+      background: linear-gradient(90deg, rgba(255,212,0,0.22), rgba(255,212,0,0.05));
+      border: 1px solid rgba(255,212,0,0.55);
+      border-left: 5px solid var(--brand-yellow);
+      border-radius: 12px;
+      /* Kept SHORT on purpose: it is an extra band in the flow, and the list
+         it is pointing at is the thing the picker walks over to read. */
+      padding: 9px 22px;
+    }
+    .beacon-word {
+      font-family: 'Oswald', sans-serif;
+      font-weight: 700;
+      font-size: 18px;
+      letter-spacing: 0.20em;
+      text-transform: uppercase;
+      color: var(--brand-yellow);
+    }
+    .beacon-body {
+      font-family: 'Roboto Mono', monospace;
+      font-size: 17px;
+      font-weight: 700;
+      color: var(--paper);
+      letter-spacing: 0.04em;
+    }
+    .beacon-more {
+      font-family: 'Roboto Mono', monospace;
+      font-size: 13px;
+      color: var(--mute);
+      margin-left: auto;
+    }
+    /* Board-edge glow — visible from across the floor, at an angle, and from
+       outside the reading distance where the strip's text is still a blur. */
+    .beacon-edge {
+      position: fixed; inset: 0;
+      pointer-events: none;
+      z-index: 60;
+      opacity: 0;
+      transition: opacity 0.35s ease;
+    }
+    body.beacon .beacon-edge {
+      opacity: 1;
+      animation: beaconPulse 1.7s ease-in-out infinite;
+    }
+    @keyframes beaconPulse {
+      0%,100% { box-shadow: inset 0 0 0 3px rgba(255,212,0,0.22), inset 0 0 45px rgba(255,212,0,0.07); }
+      50%     { box-shadow: inset 0 0 0 6px rgba(255,212,0,0.85), inset 0 0 105px rgba(255,212,0,0.26); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      body.beacon .beacon-edge {
+        animation: none;
+        box-shadow: inset 0 0 0 4px rgba(255,212,0,0.6);
+      }
+    }
+
     .paid {
       display: flex;
       align-items: center;
@@ -672,6 +772,25 @@
     }
 
     /* ─────────── NOTES PANEL (right column when notes active) ─────────── */
+    /* The notes block sits ABOVE the feed inside the same panel — brand-tinted
+       so it reads as pinned, with its own rule beneath it so the feed below
+       still reads as a separate list rather than more notes. */
+    .notes-block {
+      background: rgba(255,212,0,0.055);
+      border-bottom: 1px solid rgba(255,212,0,0.28);
+      box-shadow: inset 4px 0 0 var(--brand-yellow);
+      flex: 0 0 auto;
+    }
+    .notes-head {
+      padding: 9px 22px 4px;
+      font-family: 'Oswald', sans-serif;
+      font-weight: 500;
+      font-size: 11px;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--brand-rim);
+    }
+    .notes-list { list-style: none; margin: 0; padding: 0 0 6px; }
     .note-row {
       display: grid;
       grid-template-columns: auto 1fr auto;
@@ -823,11 +942,15 @@
     @media (prefers-reduced-motion: reduce) { .dial-bezel, .dial-sweep, .ember, .grab-orbit-sweep { animation: none !important; } }
 
     /* ─────────── PICK ROWS ─────────── */
+    /* The ✓ Pick button is now the tallest thing in the row (44px), so the
+       row's own padding has to give the height back — otherwise raising the
+       touch target quietly pushes the last line off a full board, which is a
+       worse bug than the one it fixed. */
     .pick-row {
       display: flex;
       flex-direction: column;
       gap: 5px;
-      padding: 12px 22px;
+      padding: 10px 22px;
       border-bottom: 1px solid var(--mute-faint);
     }
     .pick-row.noted { box-shadow: inset 3px 0 0 var(--brand-yellow); }
@@ -838,17 +961,26 @@
       gap: 14px;
     }
     /* console action — mark picked (PENDING → PREPARING) */
+    /* 44px MINIMUM — this is the only write action on the board, it sits
+       inches from a row that is itself tappable, and a mis-tap silently flips
+       an order. It was 35px; kits.html already holds every target to 44 for
+       the same tablet. Correctness, not polish. */
     .pick-do {
       font-family: 'Oswald', sans-serif;
       font-weight: 600;
-      font-size: 13px;
+      font-size: 14px;
       letter-spacing: 0.06em;
       text-transform: uppercase;
       background: rgba(76,175,80,0.16);
       color: var(--green-soft);
       border: 1px solid rgba(76,175,80,0.45);
       border-radius: 8px;
-      padding: 7px 14px;
+      padding: 0 20px;
+      min-height: 44px;
+      min-width: 96px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
       cursor: pointer;
       transition: background 0.15s, color 0.15s;
     }
@@ -999,8 +1131,17 @@
       0%       { left: -60%; }
       55%,100% { left: 130%; }
     }
-    /* PREPARING = in hand → quiet outline */
-    .pick-status.prep { background: transparent; border: 0; color: var(--amber-warn); }
+    /* PREPARING = in hand → quiet outline. It takes the BUTTON'S lane (same
+       96px, centred) because a PREP row has no button: the marker then lands
+       in the column the eye is already scanning, instead of floating short
+       of it. PENDING's lane collapses to nothing — it prints no marker. */
+    .pick-status.pend { min-width: 0; }
+    .pick-status.prep {
+      background: transparent; border: 0;
+      color: var(--amber-warn);
+      min-width: 96px;
+      text-align: center;
+    }
 
     /* Arrival drama — a freshly-pickable row slides in + glows */
     .pick-row.enter { animation: pickIn 0.6s cubic-bezier(.2,1,.3,1); }
@@ -1053,11 +1194,38 @@
     .feed.ambient { opacity: 0.9; }
     .feed.ambient .feed-title { color: var(--mute-soft); }
     .feed-note {
+      display: flex;
+      align-items: center;
+      gap: 14px;
       font-family: 'Roboto Mono', monospace;
       font-size: 11px;
       color: var(--mute-soft);
       letter-spacing: 0.04em;
     }
+    /* Aisle ↔ age. Aisle is the WALK and stays the default; age is the TRIAGE,
+       and the two are different sorts of the same list. Tapping OLDEST WAITING
+       flips it here too — that card is an alarm, and an alarm should hand you
+       the thing it is alarming about. */
+    .sortsw { display: inline-flex; border: 1px solid var(--mute-faint); border-radius: 6px; overflow: hidden; }
+    .sortsw-opt {
+      font-family: 'Oswald', sans-serif;
+      font-weight: 500;
+      font-size: 10px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      padding: 4px 10px;
+      min-height: 24px;
+      display: inline-flex;
+      align-items: center;
+      color: var(--mute-soft);
+      cursor: pointer;
+      transition: background 0.18s, color 0.18s;
+    }
+    .sortsw-opt:hover { color: var(--brand-rim); }
+    .sortsw-opt.on { background: rgba(255,212,0,0.16); color: var(--brand-yellow); }
+    /* The alarm card is a control now — say so, quietly. */
+    .mini.tappable { cursor: pointer; }
+    .mini.tappable:hover { border-color: rgba(255,212,0,0.35); }
     .feed-list {
       list-style: none;
       overflow-y: auto;
@@ -1066,6 +1234,17 @@
       min-height: 0;
     }
     .feed-list::-webkit-scrollbar { width: 0; }
+    /* A panel height almost never divides evenly by row height, so the last
+       visible row was being sliced through the middle — and with the scrollbar
+       hidden there was NO affordance at all, so it read as a rendering fault
+       rather than "there is more below". Nobody scrolls a wall board, so the
+       honest signal is a fade: the list visibly continues past the edge.
+       Applied only while it genuinely overflows and is not already scrolled to
+       the end, so a short list never dims its own last row for nothing. */
+    .feed-list.overflowing {
+      -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 26px), transparent 100%);
+              mask-image: linear-gradient(to bottom, #000 calc(100% - 26px), transparent 100%);
+    }
     .feed-row {
       display: grid;
       grid-template-columns: 60px 84px 1fr auto;   /* tightened so the full order id fits */
@@ -1137,6 +1316,7 @@
       display: flex;
       align-items: center;
       justify-content: space-between;
+      gap: 20px;
       border-top: 1px solid var(--rule);
       padding-top: 10px;
       font-family: 'Roboto Mono', monospace;
@@ -1144,8 +1324,6 @@
       color: var(--mute-soft);
       letter-spacing: 0.04em;
     }
-    .ftr-picker { color: var(--mute); }
-    .ftr-picker b { color: var(--brand-rim); font-weight: 500; }
     .ftr-right { display: flex; align-items: center; gap: 14px; }
 
     /* The footer used to be eight identical chips in a row, mixing things that
@@ -1155,27 +1333,89 @@
     .ftr-grp { display: flex; align-items: center; gap: 8px; }
     .ftr-grp + .ftr-grp { padding-left: 14px; border-left: 1px solid var(--mute-faint); }
 
-    /* Preferences shrink to their glyph — the word is in the tooltip. */
-    .ftr-pref .ftr-sound {
-      max-width: 30px; padding: 3px 0; overflow: hidden;
-      white-space: nowrap; text-align: center; opacity: 0.72;
-      transition: max-width 0.25s ease, opacity 0.2s, padding 0.25s ease;
+    /* ACTIONS carry the WORD, not a glyph. The first cut used emoji icons and
+       half of them fell back to tofu on the real device (📻 rendered as a box,
+       ⛶ as "::") — a broken glyph reads worse than no glyph. Words in Oswald
+       are legible in every font stack and these three are short. */
+    .ftr-act .ftr-sound {
+      font-family: 'Oswald', sans-serif;
+      font-weight: 500;
+      font-size: 12px;
+      letter-spacing: 0.10em;
+      text-transform: uppercase;
+      padding: 5px 14px;
     }
-    .ftr-pref .ftr-sound:hover { max-width: 108px; padding: 3px 10px; opacity: 1; }
+
+    /* PREFERENCES collapse to their glyph, revealing the word on hover.
+       Collapsing the whole CHIP (the previous approach) clipped mid-word and
+       produced unreadable stubs; hiding the LABEL leaves a clean glyph that is
+       never cut. Glyphs are basic-plane geometry (♪ ◐ ◍) — no emoji fallback. */
+    .ftr-pref .ftr-sound { opacity: 0.7; padding: 5px 9px; }
+    .ftr-pref .ftr-sound:hover { opacity: 1; }
     .ftr-pref .ftr-sound.on { opacity: 1; }
+    .ftr-lbl {
+      display: inline-block;
+      overflow: hidden;
+      white-space: nowrap;
+      vertical-align: middle;
+    }
+    .ftr-pref .ftr-lbl {
+      max-width: 0;
+      opacity: 0;
+      transition: max-width 0.25s ease, opacity 0.18s, margin-left 0.25s ease;
+    }
+    .ftr-pref .ftr-sound:hover .ftr-lbl { max-width: 92px; opacity: 1; margin-left: 7px; }
 
     /* Status is text, not a control. */
     .ftr-stat { color: var(--mute-soft); gap: 12px; }
     .ftr-sound {
+      display: inline-flex;
+      align-items: center;
       cursor: pointer;
       user-select: none;
-      padding: 3px 10px;
+      padding: 4px 10px;
+      min-height: 26px;
       border: 1px solid var(--mute-faint);
       border-radius: 6px;
-      transition: color 0.2s, border-color 0.2s;
+      white-space: nowrap;
+      transition: color 0.2s, border-color 0.2s, background 0.2s, opacity 0.2s;
     }
-    .ftr-sound:hover { color: var(--brand-rim); border-color: var(--rule); }
+    /* The icon font stack DELIBERATELY excludes the colour-emoji font. Left to
+       its own devices the browser served ◍ from Noto Color Emoji — it came out
+       as a yellow beach-ball among monochrome chips. Pin it to text fonts and
+       the glyph stays ink. */
+    .ftr-ico {
+      font-size: 14px;
+      line-height: 1;
+      font-family: 'DejaVu Sans', 'Liberation Sans', 'Segoe UI Symbol', 'Arial Unicode MS', sans-serif;
+      font-variant-emoji: text;
+    }
+    /* `arcade` is an <a>; without this it wears the browser's link colour and
+       turns PURPLE once visited — which is exactly what it was doing. */
+    .ftr-sound, .ftr-sound:visited { color: inherit; }
+    .ftr-sound:hover { color: var(--brand-rim); border-color: var(--rule); background: rgba(255,255,255,0.04); }
     .ftr-sound.on { color: var(--brand-yellow); border-color: var(--rule); }
+
+    /* The picker gate sits WITH print, because print refuses without it. It
+       used to whisper in the far-left corner ~1400px from the button it
+       blocks — the one place you would never look when print did nothing. */
+    .ftr-picker {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      min-height: 26px;
+      padding: 4px 11px;
+      border: 1px solid transparent;
+      border-radius: 6px;
+      color: var(--mute);
+      white-space: nowrap;
+    }
+    .ftr-picker b { color: var(--brand-rim); font-weight: 500; }
+    .ftr-picker.unset {
+      color: var(--amber-warn);
+      border-color: rgba(255,184,77,0.35);
+      background: rgba(255,184,77,0.07);
+    }
 
     /* Floor radio widget */
     .radio {
@@ -1427,10 +1667,13 @@
     /* ---------- tablet landscape / small laptop ---------- */
     @media (max-width: 1200px) {
       .board { padding: 14px 18px 12px; gap: 12px; }
-      .hero { grid-template-columns: 1.7fr 1.2fr 1fr 1fr; gap: 12px; }
+      .hero { grid-template-columns: 1.6fr 0.9fr 1.15fr 0.78fr 0.78fr; gap: 12px; }
       .hero > div { min-height: 150px; }
+      .mini { padding: 16px 16px; }
+      .mini-label { font-size: 13px; letter-spacing: 0.11em; }
       .grab-num { font-size: 64px; }
       .mini-value { font-size: 46px; }
+      .hero > .mini.past .mini-value { font-size: 32px; }
       .board .mid,
       .board.mode-busy .mid,
       .board.mode-balanced .mid,
@@ -1442,7 +1685,9 @@
       .ftr-right { gap: 10px; }
       .ftr-grp { gap: 6px; }
       .ftr-grp + .ftr-grp { padding-left: 10px; }
-      .ftr-sound { padding: 2px 8px; }
+      .ftr-sound { padding: 3px 8px; min-height: 24px; }
+      .ftr-act .ftr-sound { padding: 4px 11px; }
+      .ftr-picker { padding: 3px 9px; min-height: 24px; }
       .radio-meta { max-width: 92px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     }
 
@@ -1475,8 +1720,12 @@
     /* ---------- phone ---------- */
     @media (max-width: 620px) {
       .board { padding: 10px 12px 8px; gap: 10px; }
-      .hdr-words, .wx, .hijri { display: none; }   /* identity is the HQ mark */
-      .clock { font-size: 22px; }
+      /* These two were written as .hijri / .clock and matched NOTHING — the
+         real classes are .hdr-clock-hijri / .hdr-clock-time, so the phone
+         layout never actually shed them. */
+      .hdr-words, .wx, .hdr-clock-hijri { display: none; }   /* identity is the HQ mark */
+      .hdr-clock-time { font-size: 19px; }
+      .hdr-clock-when { padding-left: 8px; }
 
       .hero { grid-template-columns: 1fr 1fr; gap: 8px; }
       .hero > div { min-height: 104px; padding: 12px 14px; }
@@ -1508,8 +1757,9 @@
 
       /* Footer keeps the controls, drops the telemetry. */
       .ftr { flex-wrap: wrap; gap: 8px; font-size: 11px; }
-      .ftr-picker, .ftr-pref { display: none; }   /* preferences are a desk job */
+      .ftr-pref { display: none; }   /* preferences are a desk job */
       .ftr-grp + .ftr-grp { padding-left: 8px; }
+      /* The picker STAYS — it is the reason print would refuse. */
     }
 
   </style>
@@ -1518,6 +1768,7 @@
   <div class="warmth" id="warmth"></div>
   <div class="breath" id="breath"></div>
   <div class="stars" id="stars"></div>
+  <div class="beacon-edge" id="beaconEdge" aria-hidden="true"></div>
   <div class="board booting" id="board">
 
     <!-- HEADER -->
@@ -1543,8 +1794,10 @@
         </div>
         <div class="hdr-clock">
           <div class="hdr-clock-time" id="clockTime">—:—</div>
-          <div class="hdr-clock-date" id="clockDate">loading</div>
-          <div class="hdr-clock-hijri" id="hijri"></div>
+          <div class="hdr-clock-when">
+            <div class="hdr-clock-date" id="clockDate">loading</div>
+            <div class="hdr-clock-hijri" id="hijri"></div>
+          </div>
         </div>
       </div>
     </div>
@@ -1581,7 +1834,19 @@
         </div>
       </div>
 
+      <!-- UNITS TO PICK — ten LINES and thirty UNITS are the same list and a
+           very different morning, and nothing on the board said which one you
+           were looking at. Free: the pick rows already carry qty. -->
       <div class="mini">
+        <div class="mini-label">Units to pick</div>
+        <div class="mini-core">
+          <div class="mini-value" id="unitsVal">—</div>
+          <div class="grab-share mini-share"><i class="se" id="unitShareE"></i><i class="sd" id="unitShareD"></i></div>
+        </div>
+        <div class="mini-sub" id="unitsSub">&nbsp;</div>
+      </div>
+
+      <div class="mini tappable" id="oldestCard" title="Show the pick list oldest-first">
         <div class="mini-label">Oldest waiting</div>
         <div class="mini-core">
           <div class="mini-value" id="oldestVal">—</div>
@@ -1627,13 +1892,26 @@
       </span>
     </div>
 
+    <!-- NEW-ORDER BEACON — for the picker who is NOT looking at the board.
+         Says where to go, not just that something happened. Tap to dismiss. -->
+    <div class="beacon-strip hidden" id="beaconStrip" title="Tap to dismiss">
+      <span class="beacon-word">New</span>
+      <span class="beacon-body" id="beaconBody"></span>
+      <span class="beacon-more" id="beaconMore"></span>
+    </div>
+
     <!-- MIDDLE: Direct pick-list + live feed -->
     <div class="mid">
       <!-- PICK-LIST (primary — actionable) -->
       <div class="feed primary">
         <div class="feed-head">
-          <span class="feed-title">To pick · by aisle</span>
-          <span class="feed-note" id="pickCount"></span>
+          <span class="feed-title">To pick · <span id="pickModeWord">by aisle</span></span>
+          <span class="feed-note">
+            <span class="sortsw" id="sortSw" title="Aisle order is the walk. Age order is the triage.">
+              <b class="sortsw-opt on" data-mode="aisle">Aisle</b><b class="sortsw-opt" data-mode="age">Age</b>
+            </span>
+            <span id="pickCount"></span>
+          </span>
         </div>
         <ul class="feed-list" id="pickList">
           <li class="feed-empty">nothing open to pick</li>
@@ -1644,6 +1922,12 @@
         <div class="feed-head">
           <span class="feed-title" id="rightTitle">As it lands</span>
           <span class="feed-note" id="rightNote">today · newest first</span>
+        </div>
+        <!-- Floor notes STACK on the feed, they do not replace it. See
+             paintRightColumn for why the old flip was the wrong shape. -->
+        <div class="notes-block hidden" id="notesBlock">
+          <div class="notes-head"><span id="notesCount">0 floor notes</span></div>
+          <ul class="notes-list" id="notesList"></ul>
         </div>
         <ul class="feed-list" id="feedList">
           <li class="feed-empty">waiting for today's first event…</li>
@@ -1706,31 +1990,33 @@
 
     <!-- FOOTER -->
     <div class="ftr">
-      <div class="ftr-picker" id="footPicker">picker —</div>
+      <!-- Ambient thing at the far end; the radio was orphaned mid-bar. -->
       <div class="radio" id="radio">
-        <span class="radio-btn" id="radioBtn" title="Play / pause">📻</span>
+        <span class="radio-btn" id="radioBtn" title="Play / pause">▶</span>
         <span class="eq" id="eq" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span>
         <span class="radio-meta" id="radioMeta" title="Choose station">radio</span>
         <span class="radio-pick" id="radioPick" title="Choose station">▾</span>
         <div class="radio-pop" id="radioPop"></div>
       </div>
       <div class="ftr-right">
-        <!-- ACTIONS — these DO something. Full labels, normal weight. -->
-        <span class="ftr-grp">
-          <span class="ftr-sound" id="printBtn" title="Print the pick list — PREPARING rows">🖨 print</span>
+        <!-- ACTIONS — these DO something. The picker chip leads the group
+             because print REFUSES without one; it used to sit in the opposite
+             corner, which is the one place you would never look. -->
+        <span class="ftr-grp ftr-act">
+          <span class="ftr-picker" id="footPicker" title="Pick ID — required before printing">picker —</span>
+          <span class="ftr-sound" id="printBtn" title="Print the pick list — PREPARING rows">Print</span>
           <a class="ftr-sound" id="arcadeBtn" href="/arcade" target="_blank" rel="noopener"
-             style="text-decoration:none;" title="Break-room cabinet — six games">🕹 arcade</a>
-          <span class="ftr-sound" id="fsToggle" title="Fullscreen (tap on the tablet)">⛶ full</span>
+             style="text-decoration:none;" title="Break-room cabinet — six games">Arcade</a>
+          <span class="ftr-sound" id="fsToggle" title="Fullscreen (tap on the tablet)">Full</span>
         </span>
 
-        <!-- PREFERENCES — set once, then never read. Icon-only: they were
-             eating a third of the bar for words nobody re-reads, and that is
-             what made the row feel cramped. Labels live in the tooltips and
-             the JS still writes the same textContent. -->
+        <!-- PREFERENCES — set once, then never read. The GLYPH stays, the word
+             collapses and returns on hover. The previous cut clipped the whole
+             chip at 30px, which cut mid-word into unreadable stubs. -->
         <span class="ftr-grp ftr-pref">
-          <span class="ftr-sound" id="soundToggle" title="Sound — distinct chime per event">♪ off</span>
-          <span class="ftr-sound" id="themeBtn" title="Theme">🎨 theme</span>
-          <span class="ftr-sound" id="breatheBtn" title="Ambient breath">◌ breathe</span>
+          <span class="ftr-sound" id="soundToggle" title="Sound — distinct chime per event"><i class="ftr-ico">♪</i><span class="ftr-lbl">off</span></span>
+          <span class="ftr-sound" id="themeBtn" title="Theme"><i class="ftr-ico">◐</i><span class="ftr-lbl">Default</span></span>
+          <span class="ftr-sound" id="breatheBtn" title="Ambient breath"><i class="ftr-ico">○</i><span class="ftr-lbl">breathe</span></span>
         </span>
 
         <!-- STATUS — read-only. Never looked like a control, so stop framing it. -->
@@ -1809,7 +2095,11 @@
     var seenKeys  = {};      // feed dedupe: have we already rendered this event?
     var firstTick = true;    // suppress flash/chime + animation on initial paint
     var failCount = 0;
-    var soundOn   = false;
+    // ON by default. A board whose job is to reach a picker who has walked
+    // away cannot do it silently, and the toggle is right there in the footer
+    // for the days it grates. Existing devices keep whatever they chose —
+    // only the never-set default flips (see the null check on load).
+    var soundOn   = true;
     var lastWarmthBucket = '';
     var audioCtx  = null;
     var eggClicks = 0, eggTimer = null;
@@ -1821,10 +2111,28 @@
 
     // ---------- boot ----------
     document.addEventListener('DOMContentLoaded', function () {
-      soundOn = localStorage.getItem('floorSound') === '1';
+      var _snd = localStorage.getItem('floorSound');
+      soundOn = (_snd === null) ? true : (_snd === '1');
       paintSoundToggle();
       document.getElementById('soundToggle').addEventListener('click', toggleSound);
       document.getElementById('fsToggle').addEventListener('click', toggleFullscreen);
+      document.getElementById('beaconStrip').addEventListener('click', beaconClear);
+      // Someone CAN scroll on the tablet — drop the fade once they reach the end.
+      ['pickList', 'feedList'].forEach(function (id) {
+        var el = document.getElementById(id);
+        if (el) el.addEventListener('scroll', function () { markOverflow(el); });
+      });
+      document.getElementById('sortSw').addEventListener('click', function (ev) {
+        var o = ev.target && ev.target.closest ? ev.target.closest('.sortsw-opt') : null;
+        if (o) setPickMode(o.getAttribute('data-mode'));
+      });
+      // The alarm hands you what it is alarming about.
+      document.getElementById('oldestCard').addEventListener('click', function () {
+        setPickMode(pickMode === 'age' ? 'aisle' : 'age');
+      });
+      document.addEventListener('fullscreenchange', paintFullscreen);
+      document.addEventListener('webkitfullscreenchange', paintFullscreen);
+      paintFullscreen();
       var hqMark = document.querySelector('.hdr-mono');
       if (hqMark) hqMark.addEventListener('click', onHqTap);
       requestWakeLock();
@@ -1946,7 +2254,7 @@
       var t = themes[themeIdx];
       if (t) document.body.classList.add('theme-' + t);
       var lbl = t ? (t.charAt(0).toUpperCase() + t.slice(1)) : 'Default';
-      document.getElementById('themeBtn').textContent = '🎨 ' + lbl;
+      _ftrPaint('themeBtn', t === 'crt' ? '◑' : (t === 'midnight' ? '◒' : '◐'), lbl);
       localStorage.setItem('floorTheme', String(themeIdx));
     }
     function cycleTheme() {
@@ -2129,6 +2437,7 @@
 
       var c = tick.cockpit || {};
       var a = tick.alerts  || {};
+      orderAge = c.orderAgeMin || {};   // feeds the "oldest first" re-sort
 
       paintGrab(c);
       paintMinis(c);
@@ -2137,6 +2446,11 @@
       // Overlay any just-tapped rows the server hasn't confirmed yet — a tick
       // served from n8n's 15s cache can still be showing the old status.
       paintPickList(applyPickOverrides((tick.openOrders || []).slice()), tick.openOrdersTotal);
+      paintUnits(tick.openOrders || [], tick.openOrdersTotal);
+      // RAW rows — applyPickOverrides fakes a status the server has not
+      // confirmed, which would make an optimistic pick look like a fresh
+      // arrival on the very next tick.
+      beaconCheck(tick.openOrders || []);
       paintRightColumn(tick);
       paintRest(tick, c);
       applyMode((tick.openOrders || []).length);
@@ -2485,8 +2799,158 @@
       return (r.channel || '') + '|' + (r.orderId || '') + '|' + (r.sku || '');
     }
 
-    function paintPickList(rows, total) {
+    /* ─────────── NEW-ORDER BEACON ───────────
+       Fires on an order id the board has NOT SEEN BEFORE, not on the count
+       going up: a count can rise for reasons that are not an arrival (a row
+       un-picked, a status corrected on the sheet), and it cannot tell you
+       WHICH order to walk to. Ids can.
+       Clears on any of three things, whichever comes first — the row is no
+       longer waiting (someone grabbed it), the operator taps the strip, or
+       three minutes pass. A beacon that pulses at an empty room all night
+       teaches people to ignore beacons. */
+    var BEACON_REPEAT_MS = 20000;   // re-chime cadence while unacknowledged
+    var BEACON_LIFE_MS   = 180000;  // give up after 3 minutes
+    var seenOrders  = null;         // null = first tick; never fire on it
+    var beaconIds   = null;         // ids this beacon is currently about
+    var beaconTimer = null, beaconDeath = null;
+
+    function beaconCheck(rows) {
       rows = rows || [];
+      var now = {}, fresh = [];
+      for (var i = 0; i < rows.length; i++) {
+        var id = String(rows[i].orderId || '').trim();
+        if (!id) continue;
+        var waiting = String(rows[i].status).toUpperCase() === 'PENDING';
+        if (waiting) now[id] = 1;
+        if (waiting && seenOrders && !seenOrders[id]) fresh.push(rows[i]);
+      }
+      // Anything we are beaconing about that is no longer waiting = grabbed.
+      if (beaconIds) {
+        var stillWaiting = false;
+        for (var k = 0; k < beaconIds.length; k++) if (now[beaconIds[k]]) stillWaiting = true;
+        if (!stillWaiting) beaconClear();
+      }
+      if (seenOrders && fresh.length) beaconFire(fresh);
+      seenOrders = now;
+    }
+
+    function beaconFire(fresh) {
+      var r = fresh[0];
+      var where = String(r.location || '').trim();
+      if (!where || where.toUpperCase() === 'NOT FOUND') where = 'no shelf';
+      document.getElementById('beaconBody').textContent =
+        (r.channel === 'DIRECT' ? 'Direct' : 'eBay') + ' · ' + where + ' · ' + (r.sku || '');
+      document.getElementById('beaconMore').textContent =
+        fresh.length > 1 ? ('+' + (fresh.length - 1) + ' more just landed') : '';
+
+      beaconIds = fresh.map(function (x) { return String(x.orderId || '').trim(); });
+      document.getElementById('beaconStrip').classList.remove('hidden');
+      document.body.classList.add('beacon');
+
+      chime(r.channel === 'DIRECT' ? 'newDirect' : 'newEbay');
+      if (beaconTimer) clearInterval(beaconTimer);
+      beaconTimer = setInterval(function () {
+        chime(r.channel === 'DIRECT' ? 'newDirect' : 'newEbay');
+      }, BEACON_REPEAT_MS);
+
+      if (beaconDeath) clearTimeout(beaconDeath);
+      beaconDeath = setTimeout(beaconClear, BEACON_LIFE_MS);
+    }
+
+    function beaconClear() {
+      if (beaconTimer) { clearInterval(beaconTimer); beaconTimer = null; }
+      if (beaconDeath) { clearTimeout(beaconDeath); beaconDeath = null; }
+      beaconIds = null;
+      document.body.classList.remove('beacon');
+      var s = document.getElementById('beaconStrip');
+      if (s) s.classList.add('hidden');
+    }
+
+    /* UNITS TO PICK — how BIG the queue is, which the line count hides: the
+       same ten lines can be ten units or thirty, and that is a different
+       morning. The sub-line adds how far it spreads, because ten lines in
+       three aisles and ten lines in nine aisles are different walks too.
+       ⚠ openOrders is capped server-side (60). When the list is truncated the
+       sum is a FLOOR, not a total — so it prints "34+" and the sub-line says
+       how many lines it actually saw. Printing a bare number there would
+       quietly under-state the morning, which is the one thing this card
+       exists to stop. */
+    function paintUnits(rows, total) {
+      rows = rows || [];
+      var units = 0, ue = 0, ud = 0, aisles = {};
+      for (var i = 0; i < rows.length; i++) {
+        var q = num(rows[i].qty) || 1;
+        units += q;
+        if (String(rows[i].channel).toUpperCase() === 'DIRECT') ud += q; else ue += q;
+        var a = _aisleOf(rows[i].location);
+        if (a) aisles[a] = 1;
+      }
+      var capped = num(total) > rows.length;
+      var val = document.getElementById('unitsVal');
+      if (val) val.textContent = String(units) + (capped && units ? '+' : '');
+
+      var nA = 0; for (var k in aisles) { if (aisles.hasOwnProperty(k)) nA++; }
+      var lines = capped
+        ? (rows.length + ' of ' + num(total) + ' lines')
+        : (rows.length + (rows.length === 1 ? ' line' : ' lines'));
+      var sub = document.getElementById('unitsSub');
+      if (sub) sub.innerHTML = rows.length
+        ? (lines + ' · ' + nA + (nA === 1 ? ' aisle' : ' aisles'))
+        : '&nbsp;';
+
+      var tot = ue + ud;
+      var se = document.getElementById('unitShareE'), sd = document.getElementById('unitShareD');
+      if (se && sd) {
+        se.style.width = (tot ? (ue / tot * 100) : 0) + '%';
+        sd.style.width = (tot ? (ud / tot * 100) : 0) + '%';
+      }
+    }
+    // "A-42" → "A". NOT FOUND rows have no aisle and must not invent one.
+    function _aisleOf(loc) {
+      var s = String(loc || '').trim().toUpperCase();
+      if (!s || s === 'NOT FOUND') return '';
+      var m = s.match(/^([A-Z]+)\s*-/);
+      return m ? m[1] : '';
+    }
+
+    /* Aisle ↔ age. The server sorts by aisle (natural, not lexical) because
+       that is the walk and it is the right default. Age is a re-sort of the
+       SAME rows, done here, using cockpit.orderAgeMin — no extra round trip
+       and no second server sort to keep in step with the first.
+       Rows with no known age (never logged a RECEIVED event) sink rather than
+       claiming to be the newest thing on the floor. */
+    var pickMode = 'aisle';
+    var orderAge = {};
+
+    function setPickMode(mode) {
+      if (mode !== 'aisle' && mode !== 'age') return;
+      pickMode = mode;
+      document.getElementById('pickModeWord').textContent =
+        mode === 'age' ? 'oldest first' : 'by aisle';
+      var opts = document.querySelectorAll('.sortsw-opt');
+      for (var i = 0; i < opts.length; i++) {
+        opts[i].classList.toggle('on', opts[i].getAttribute('data-mode') === mode);
+      }
+      if (lastTick) {
+        paintPickList(applyPickOverrides((lastTick.openOrders || []).slice()),
+                      lastTick.openOrdersTotal);
+      }
+    }
+
+    function sortForMode(rows) {
+      if (pickMode !== 'age') return rows;      // server order IS aisle order
+      return rows.slice().sort(function (a, b) {
+        var aa = orderAge[String(a.orderId || '').trim()];
+        var ab = orderAge[String(b.orderId || '').trim()];
+        var am = (aa === undefined) ? 1 : 0, bm = (ab === undefined) ? 1 : 0;
+        if (am !== bm) return am - bm;          // unknown age sinks
+        if (am) return 0;
+        return ab - aa;                          // oldest (largest age) first
+      });
+    }
+
+    function paintPickList(rows, total) {
+      rows = sortForMode(rows || []);
       var list = document.getElementById('pickList');
       // Say so when the walk is truncated. A pick list that looks complete but
       // isn't is worse than one that admits it — the picker would finish the
@@ -2541,6 +3005,8 @@
         li.textContent = 'nothing open to pick';
         list.appendChild(li);
       }
+      // The pick list hits the same edge whenever the beacon adds its band.
+      markOverflow(list);
     }
 
     function animateRowOut(node) {
@@ -2607,10 +3073,15 @@
         openOrderDrawer(r.orderId);
       });
 
+      // GRAB used to print on EVERY row. A column that says the same thing on
+      // all eleven lines carries no information — it is just the name of the
+      // panel repeated. PENDING is the norm and the ✓ Pick button already says
+      // it; only the EXCEPTION gets a marker. The lane keeps its width so the
+      // buttons stay in one straight column down the list.
       var isPrep = String(r.status).toUpperCase() === 'PREPARING';
       var st = document.createElement('span');
       st.className = 'pick-status ' + (isPrep ? 'prep' : 'pend');
-      st.textContent = isPrep ? 'PREP' : 'GRAB';
+      st.textContent = isPrep ? 'PREP' : '';
 
       main.appendChild(loc); main.appendChild(sku); main.appendChild(qty);
       main.appendChild(meta); main.appendChild(st);
@@ -3179,6 +3650,13 @@
       return rest.trim();
     }
 
+    /* Notes STACK ON the feed — they used to REPLACE it, and that was wrong
+       three ways: a single ** note anywhere deleted the board's only view of
+       what was happening; notes are few (1-3) and the panel is ~700px, so it
+       traded a full feed for one line and a lot of nothing; and it was a mode
+       with no exit on the board — the only way back was editing the sheet.
+       Notes are the EXCEPTION, so they get the loud treatment and the top of
+       the panel. The feed is the norm, so it stays. */
     function paintRightColumn(tick) {
       var orders = tick.openOrders || [];
       var notes = [], seen = {};
@@ -3192,25 +3670,26 @@
         notes.push({ order: oid, text: txt });
       }
       var panel = document.getElementById('rightPanel');
-      var title = document.getElementById('rightTitle');
-      var note  = document.getElementById('rightNote');
+      var block = document.getElementById('notesBlock');
+
+      // A note is someone shouting at the floor — the panel stops being
+      // ambient while one is up, but it keeps its name and its contents.
+      panel.classList.toggle('primary', notes.length > 0);
+      panel.classList.toggle('ambient', notes.length === 0);
+      document.getElementById('rightTitle').textContent = 'As it lands';
+      document.getElementById('rightNote').textContent  = 'today · newest first';
+
+      block.classList.toggle('hidden', notes.length === 0);
       if (notes.length) {
-        panel.classList.remove('ambient');
-        panel.classList.add('primary');
-        title.textContent = 'Floor notes';
-        note.textContent  = notes.length + ' active';
+        document.getElementById('notesCount').textContent =
+          notes.length + (notes.length === 1 ? ' floor note' : ' floor notes');
         renderNotesPanel(notes);
-      } else {
-        panel.classList.add('ambient');
-        panel.classList.remove('primary');
-        title.textContent = 'As it lands';
-        note.textContent  = 'today · newest first';
-        paintFeed((tick.cockpit && tick.cockpit.timeline) || []);
       }
+      paintFeed((tick.cockpit && tick.cockpit.timeline) || []);
     }
 
     function renderNotesPanel(notes) {
-      var list = document.getElementById('feedList');
+      var list = document.getElementById('notesList');
       var frag = document.createDocumentFragment();
       notes.forEach(function (n) {
         var li = document.createElement('li');
@@ -3256,6 +3735,19 @@
       }
       list.innerHTML = '';
       list.appendChild(frag);
+      markOverflow(list);
+    }
+
+    /* Fade the bottom edge whenever a list runs past its panel — see the
+       .overflowing rule. Deferred one frame because rows animate in with a
+       translateY, and measuring mid-animation reports the wrong height. */
+    function markOverflow(el) {
+      if (!el) return;
+      requestAnimationFrame(function () {
+        var over  = (el.scrollHeight - el.clientHeight) > 2;
+        var atEnd = (el.scrollTop + el.clientHeight) >= (el.scrollHeight - 2);
+        el.classList.toggle('overflowing', over && !atEnd);
+      });
     }
 
     function buildFeedRow(e, animate) {
@@ -3330,8 +3822,10 @@
 
     function paintFooter(tick) {
       var picker = (tick.picker || '').trim();
-      document.getElementById('footPicker').innerHTML =
-        picker ? ('picker · <b>' + esc(picker) + '</b>') : 'no picker set';
+      var pk = document.getElementById('footPicker');
+      pk.innerHTML = picker ? ('picker · <b>' + esc(picker) + '</b>') : 'no picker set';
+      // Amber only when it BLOCKS something — print refuses without a Pick ID.
+      pk.classList.toggle('unset', !picker);
       // Show just the sync TIME — freshness STATE lives in the live indicator,
       // which is off-hours-aware (no scary STALE when the shop is simply closed).
       var raw = tick.lastSync ? String(tick.lastSync) : '';
@@ -3349,8 +3843,9 @@
       if (!breatheOn) { breathRAF = null; return; }
       var b = 0.5 + 0.5 * Math.sin(performance.now() / 12000 * 2 * Math.PI); // 12s, 0..1
       var night = document.body.classList.contains('is-night');
-      var lo = night ? 0.05 : 0.22;          // breath recedes to a whisper at night
-      var hi = night ? 0.18 : 0.80;
+      // Night still recedes — it just has to stay ABOVE the visible floor.
+      var lo = night ? 0.16 : 0.30;
+      var hi = night ? 0.62 : 1.00;
       var el = document.getElementById('breath');
       if (el) el.style.opacity = (lo + b * (hi - lo)).toFixed(3);
       breathRAF = requestAnimationFrame(breathLoop);
@@ -3364,7 +3859,7 @@
       document.body.classList.toggle('breathe', breatheOn);
       var btn = document.getElementById('breatheBtn');
       if (btn) {
-        btn.textContent = breatheOn ? '◍ breathe' : '◌ breathe';
+        _ftrPaint('breatheBtn', breatheOn ? '●' : '○', 'breathe');
         btn.classList.toggle('on', breatheOn);
       }
       var el = document.getElementById('breath');
@@ -3390,20 +3885,47 @@
     }
     function paintSoundToggle() {
       var el = document.getElementById('soundToggle');
-      el.textContent = soundOn ? '♪ on' : '♪ off';
+      _ftrPaint('soundToggle', '♪', soundOn ? 'on' : 'off');
       el.classList.toggle('on', soundOn);
+    }
+
+    /* Preference chips are glyph + collapsible label, so they can no longer be
+       painted with textContent — that would wipe the two spans and bring back
+       the clipped-stub bug. One helper, so every caller stays honest. */
+    function _ftrPaint(id, glyph, label) {
+      var el = document.getElementById(id);
+      if (!el) return;
+      var i = el.querySelector('.ftr-ico');
+      var l = el.querySelector('.ftr-lbl');
+      if (i) i.textContent = glyph;
+      if (l) l.textContent = label;
     }
 
     // ---------- kiosk: fullscreen + keep-awake ----------
     function toggleFullscreen() {
       try {
         var el = document.documentElement;
-        if (!document.fullscreenElement && !document.webkitFullscreenElement) {
+        if (!isFullscreen()) {
           (el.requestFullscreen || el.webkitRequestFullscreen).call(el);
         } else {
           (document.exitFullscreen || document.webkitExitFullscreen).call(document);
         }
       } catch (e) { /* fullscreen blocked — ignore */ }
+    }
+    function isFullscreen() {
+      return !!(document.fullscreenElement || document.webkitFullscreenElement);
+    }
+    /* The chip had NO state at all — you went fullscreen and it still read
+       "FULL", so nothing on screen told you which mode you were in or that the
+       tap had landed. Drive it from the EVENT, not from the click: Esc and the
+       device's own gestures exit fullscreen without ever touching our button. */
+    function paintFullscreen() {
+      var el = document.getElementById('fsToggle');
+      if (!el) return;
+      var on = isFullscreen();
+      el.textContent = on ? 'Exit' : 'Full';
+      el.title = on ? 'Leave fullscreen' : 'Fullscreen (tap on the tablet)';
+      el.classList.toggle('on', on);
     }
     // ---------- easter egg: tap the HQ mark 5× ----------
     function onHqTap() {
@@ -3545,7 +4067,9 @@
       paintRadio();
     }
     function paintRadio() {
-      document.getElementById('radioBtn').textContent = radioPlaying ? '⏸' : '📻';
+      // Geometry, not emoji: 📻 and ⏸ both fell back to tofu boxes on the real
+      // device. ▶ / ▮▮ also says what the button DOES, which 📻 never did.
+      document.getElementById('radioBtn').textContent = radioPlaying ? '▮▮' : '▶';
       var meta = document.getElementById('radioMeta');
       if (!radioPlaying) {
         meta.textContent = 'radio';

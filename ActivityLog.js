@@ -570,6 +570,7 @@ function getDashboardSnapshot() {
     receivedDirect: 0,
     oldestPendingMinutes: null,
     pastRedlineCount: 0,    // # of PENDING orders aged past the 3h redline
+    orderAgeMin: {},        // orderId → age in minutes, OPEN orders only (board "by age" sort)
     pendingCount: 0,
     lastSyncMinutes: null,
     ebayPending: 0,
@@ -701,6 +702,19 @@ function getDashboardSnapshot() {
           if (status === Schema.status.PENDING || status === Schema.status.PREPARING) {
             if (inDirect) result.directPending++;
             else result.ebayPending++;
+
+            // Per-order AGE, so the Floor Board can offer a "by age" walk
+            // beside its "by aisle" one. Aisle order is right for walking and
+            // stays the default; when a dozen orders are past the redline the
+            // question changes from "where do I go next" to "what is latest",
+            // and those are different sorts of the same list.
+            // Free: receivedMap is already built above, and this rides inside
+            // a row scan that was happening anyway. Captured for BOTH open
+            // states so a PREPARING row still sorts sensibly.
+            var oidAge = String(mainData[j][Schema.idx("SALES_ORDER")] || "").trim();
+            if (oidAge && receivedMap[oidAge] && result.orderAgeMin[oidAge] === undefined) {
+              result.orderAgeMin[oidAge] = Math.floor((Date.now() - receivedMap[oidAge]) / 60000);
+            }
           }
 
           // PENDING-only counters: pendingCount + per-channel "to grab".
