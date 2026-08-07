@@ -738,6 +738,17 @@
       transition: opacity 0.3s ease, transform 0.3s ease;
     }
     .paid.hidden { display: none; }
+
+    /* ⚠ GLOBAL .hidden — this was MISSING, and it cost the beacon entirely.
+       Four elements toggle `hidden` (.paid · .beacon-strip · .notes-block ·
+       .kitstrip) but only two ever had a scoped `display:none`, so the NEW
+       beacon and the floor-notes band were PERMANENTLY on screen showing
+       their default markup — the beacon reading a bare "NEW" with an empty
+       body, forever. The 2026-08-07 notifier work therefore never actually
+       announced anything: a band that is always there cannot mean "new".
+       !important on purpose — "hidden" must beat any component's own display,
+       whatever order the cascade happens to land in. */
+    .hidden { display: none !important; }
     .paid.flash { animation: paidFlash 1s ease; }
     @keyframes paidFlash {
       0%   { box-shadow: 0 0 0 0 rgba(255,184,77,0.6); }
@@ -954,9 +965,16 @@
       border-bottom: 1px solid var(--mute-faint);
     }
     .pick-row.noted { box-shadow: inset 3px 0 0 var(--brand-yellow); }
+    /* ⚠ FIXED LANES, not `auto`. Every row is its OWN grid, so an `auto`
+       column sizes to that row's content only — a ×10 qty chip is wider than
+       a ×1, which pushed that row's "Direct · SO-…" further right than its
+       neighbours'. Down a list of thirty lines the meta column visibly
+       staggered, and a list whose whole job is to be scanned top-to-bottom
+       cannot afford a ragged left edge on any column. Fixed widths make the
+       lanes line up the way a printed pick list does. */
     .pick-main {
       display: grid;
-      grid-template-columns: 108px auto auto 1fr auto auto;
+      grid-template-columns: 108px 92px 54px 1fr auto auto;
       align-items: center;
       gap: 14px;
     }
@@ -1055,6 +1073,149 @@
       color: var(--brand-yellow);
       vertical-align: 2px;
       opacity: 0.9;
+    }
+
+    /* ─────────── KIT THREAD ─────────── */
+    /* On the SHEET a component announces itself in the NOTE column ("↳ from
+       KIT-x"), and that text survives every sort. The board was handed it and
+       threw it away — so two pieces of one box, sitting in two different
+       aisles, looked exactly like two unrelated pick lines.
+       The thread is a COLOUR, deliberately, not a glyph and not a tag:
+         · it costs 3px on a row we just fought to shorten,
+         · it reads at wall distance and at an angle, which a 10px badge does
+           not, and
+         · it cannot fall back to tofu — ❶ / 📻 / ⛶ / ◍ all already have on
+           this exact device.
+       ⚠ HUES AVOID EVERY COLOUR THAT ALREADY MEANS SOMETHING HERE: brand
+       yellow (do something / floor note), red (broken row), green (✓ Pick),
+       amber (paid shipping) — under NORMAL vision and under all three
+       dichromacies.
+
+       ⚠ TWO hues, not three, and the saturation is not a style choice.
+       Exhaustively searched: 2 hues hold ΔE 57.8 in the worst case across
+       normal + protanopia + deuteranopia + tritanopia; THREE collapse to 12.5
+       (indistinguishable), because deuteranopia folds the space onto a
+       blue↔yellow axis and yellow is already spoken for. Every softer variant
+       tested dropped below threshold on both axes. So the third and fourth
+       threads come from PATTERN, which colour vision deficiency cannot touch. */
+    .kit-c0 { --kc: #63ffff; }   /* cyan   — 14.2:1 on the card */
+    .kit-c1 { --kc: #b163ff; }   /* violet —  5.0:1 on the card */
+
+    /* The spine is a pseudo-element rather than an inset shadow because a
+       shadow cannot carry a pattern. It always owns 0→3px — it is the thread
+       the eye follows DOWN the list, and that job needs the outer edge. A
+       floor note or a missing shelf stacks outboard at 3→6px and loses
+       nothing: both already carry their own text or background too. */
+    .pick-row { position: relative; }
+    .pick-row.kitted::before {
+      content: ''; position: absolute; left: 0; top: 0; bottom: 0;
+      width: 3px; background: var(--kc); pointer-events: none;
+    }
+    .pick-row.kitted.kit-dash::before {
+      background: repeating-linear-gradient(
+        to bottom, var(--kc) 0 8px, transparent 8px 15px);
+    }
+    .pick-row.kitted.noted { box-shadow: inset 6px 0 0 var(--brand-yellow); }
+    .pick-row.kitted.noloc { box-shadow: inset 6px 0 0 var(--red-alert); }
+
+    /* THE STRIP — completeness, which is ONE fact about the kit and therefore
+       is not repeated on every row (the same reason GRAB was deleted from all
+       eleven lines). Present only while something is still missing. */
+    .kitstrip { flex: 0 0 auto; border-bottom: 1px solid var(--mute-faint); }
+    .kitstrip.hidden { display: none; }
+    .kitline {
+      position: relative;
+      display: grid;
+      grid-template-columns: auto auto 88px 1fr;
+      align-items: center;
+      gap: 12px;
+      padding: 8px 22px;
+      background: rgba(245,245,242,0.022);
+      cursor: pointer;
+    }
+    /* the strip wears the SAME spine as its rows — that is the whole binding */
+    .kitline::before {
+      content: ''; position: absolute; left: 0; top: 0; bottom: 0;
+      width: 3px; background: var(--kc); pointer-events: none;
+    }
+    .kitline.kit-dash::before {
+      background: repeating-linear-gradient(
+        to bottom, var(--kc) 0 8px, transparent 8px 15px);
+    }
+    .kit-more {
+      padding: 6px 22px;
+      font-family: 'Roboto Mono', monospace;
+      font-size: 11px; color: var(--mute-soft);
+      border-top: 1px solid var(--mute-faint);
+    }
+
+    /* ─────────── ORDER GROUPS (age mode only) ─────────── */
+    /* The age list was ALREADY right and only looked wrong. Array.sort is
+       stable, rows arrive aisle-sorted from the server, and every line of one
+       order shares that order's age — so age mode is really "oldest ORDER
+       first, then walk order inside it". Nothing marked where one order
+       ended, so a jump from Z-150 back to B-25 read as chaos rather than as a
+       new order starting.
+       The sheet already draws a per-SO rule (_paintDirectOrderDividers) and
+       the print a per-SO header; the board was the only surface without one.
+       And it PAYS for its own height — the SO stops being printed on all ten
+       rows, which is the same redundancy that got GRAB deleted.
+       ⚠ AGE MODE ONLY. In aisle order consecutive rows are usually different
+       orders, so a header per row would be pure noise. */
+    .pick-head {
+      display: flex; align-items: center; gap: 12px;
+      padding: 7px 22px;
+      background: rgba(245,245,242,0.04);
+      border-bottom: 1px solid var(--mute-faint);
+      box-shadow: inset 3px 0 0 var(--mute-soft);
+      cursor: pointer;
+    }
+    .pick-head:hover { background: rgba(245,245,242,0.07); }
+    .ph-id {
+      font-family: 'Roboto Mono', monospace;
+      font-size: 13px; font-weight: 700;
+      color: var(--paper); letter-spacing: 0.02em; white-space: nowrap;
+    }
+    .ph-meta {
+      font-family: 'Oswald', sans-serif;
+      font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase;
+      color: var(--mute); white-space: nowrap;
+    }
+    .ph-age {
+      margin-left: auto;
+      font-family: 'Roboto Mono', monospace;
+      font-size: 12px; color: var(--mute); white-space: nowrap;
+    }
+    /* past the 3h redline — same threshold the OLDEST WAITING card paints */
+    .pick-head.late { box-shadow: inset 3px 0 0 var(--red-alert); }
+    .pick-head.late .ph-age { color: var(--red-alert); }
+    /* the header says the order, so the rows stop repeating it */
+    #pickList.grouped .pick-meta { display: none; }
+    .kitline + .kitline { border-top: 1px solid var(--mute-faint); }
+    .kitline:hover { background: rgba(245,245,242,0.05); }
+    .kit-name {
+      font-family: 'Roboto Mono', monospace;
+      font-size: 13px; font-weight: 700;
+      color: var(--kc); letter-spacing: 0.02em; white-space: nowrap;
+    }
+    .kit-prog {
+      font-family: 'Oswald', sans-serif;
+      font-weight: 600; font-size: 13px; letter-spacing: 0.06em;
+      color: var(--paper); white-space: nowrap;
+    }
+    /* the hero's "big number + bar" idiom, at strip scale */
+    .kit-meter {
+      height: 3px; border-radius: 2px;
+      background: var(--mute-faint); overflow: hidden;
+    }
+    .kit-meter i {
+      display: block; height: 100%; border-radius: 2px;
+      background: var(--kc); transition: width 0.45s ease;
+    }
+    .kit-left {
+      font-family: 'Roboto Mono', monospace;
+      font-size: 12px; color: var(--mute);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     }
 
     .pick-sku {
@@ -1667,17 +1828,41 @@
     /* ---------- tablet landscape / small laptop ---------- */
     @media (max-width: 1200px) {
       .board { padding: 14px 18px 12px; gap: 12px; }
-      .hero { grid-template-columns: 1.6fr 0.9fr 1.15fr 0.78fr 0.78fr; gap: 12px; }
-      .hero > div { min-height: 150px; }
-      .mini { padding: 16px 16px; }
-      .mini-label { font-size: 13px; letter-spacing: 0.11em; }
-      .grab-num { font-size: 64px; }
-      .mini-value { font-size: 46px; }
-      .hero > .mini.past .mini-value { font-size: 32px; }
+      /* ─────── BELOW 1200px THE BOARD IS A TOOL, NOT A WALL ───────
+         Measured on the real tablet: the pick list showed FIVE of
+         twenty-nine lines — six screens to walk one shift — while the
+         ambient feed held ~40% of the width and the hero spent a
+         quarter of the height, two of its five cards on numbers nobody
+         can act on. Those two are ALREADY dimmed as retrospective and
+         already dropped at 620px; the tablet simply fell in the gap
+         between the two rules.
+         ⚠ Nothing above 1200px moves, so the wall board stays exactly
+         the monitor it is today. */
+      .hero > .mini.past { display: none; }
+      .hero { grid-template-columns: 1.55fr 1fr 1.2fr; gap: 12px; }
+      /* min-height alone could never shrink this row — see .grab-numwrap
+         below, which was flooring it regardless. */
+      .hero > div { min-height: 0; }
+      .mini { padding: 13px 15px; }
+      .mini-label { font-size: 12px; letter-spacing: 0.1em; }
+      .grab-num { font-size: 46px; }
+      .mini-value { font-size: 38px; }
+
+      /* ⚠ THE ACTUAL FLOOR ON THE HERO'S HEIGHT. .grab-numwrap is a hard
+         118×118 and NO breakpoint ever resized it, so the card could not
+         go below ~144px however small min-height was set — which is why
+         the 104px already written at 620px has never once applied. */
+      .grab-numwrap { flex: 0 0 92px; width: 92px; height: 92px; }
+
+      /* The list is the tool; the feed becomes a ticker beside it. */
       .board .mid,
       .board.mode-busy .mid,
       .board.mode-balanced .mid,
-      .board.mode-quiet .mid { grid-template-columns: 1.5fr 1fr; }
+      .board.mode-quiet .mid { grid-template-columns: 2.4fr 1fr; }
+
+      /* 44px on the button is a hard floor (mis-tap = a flipped order),
+         so the row gives its height back from padding instead. */
+      .pick-row { padding: 7px 18px; }
 
       /* The chips were sized for a 1900px wall. On a tablet the same padding
          and gaps left them shoulder to shoulder. */
@@ -1730,6 +1915,9 @@
       .hero { grid-template-columns: 1fr 1fr; gap: 8px; }
       .hero > div { min-height: 104px; padding: 12px 14px; }
       .grab-num { font-size: 52px; }
+      /* the ring has to come down too or min-height below is inert — the
+         phone layout has been carrying that bug since it was written */
+      .grab-numwrap { flex: 0 0 78px; width: 78px; height: 78px; }
       .mini-value { font-size: 34px; }
       .hero > .mini.past { display: none; }   /* retrospective counts are not phone work */
 
@@ -1747,6 +1935,14 @@
       .pick-status { display: none; }         /* the ✓ PICK button implies it */
       .pick-do   { grid-area: do; }
       .pick-row  { padding: 10px 12px; }
+
+      /* The kit strip STAYS on the phone — it is the definition of "something
+         someone would act on". Only the meter goes: the "N of M" beside it
+         says the same thing in less room, and the aisles are the actionable
+         half so they keep the space. */
+      .kitline   { grid-template-columns: auto auto 1fr; padding: 8px 12px; }
+      .kit-meter { display: none; }
+      .kit-more  { padding: 6px 12px; }
 
       /* History is the first thing to go on a small screen. */
       .board .mid > *:nth-child(2) { display: none; }
@@ -1913,6 +2109,9 @@
             <span id="pickCount"></span>
           </span>
         </div>
+        <!-- KITS IN PROGRESS — the rows carry membership (a coloured spine),
+             this carries completeness and the aisles still to walk. -->
+        <div class="kitstrip hidden" id="kitStrip"></div>
         <ul class="feed-list" id="pickList">
           <li class="feed-empty">nothing open to pick</li>
         </ul>
@@ -2443,6 +2642,17 @@
       paintMinis(c);
       paintPace(tick.paceCar);
       paintPaid(a);
+      // BEFORE the pick list — fillPickRow reads the hue map this builds.
+      //
+      // The strip is deliberately NOT updated optimistically on a ✓ Pick the
+      // way the rows are. Deriving "done" client-side would mean counting
+      // PENDING components off the OPEN rows, and those are capped at 60 — a
+      // kit with a component past the cap would silently over-report progress,
+      // which is the one failure this feature exists to prevent. Server-derived
+      // and one poll behind means the strip can only ever UNDER-state progress,
+      // and "keep looking" is the safe direction to be wrong in. The row itself
+      // still answers instantly: it flips to PREP and loses its button.
+      paintKitStrip(tick.kits);
       // Overlay any just-tapped rows the server hasn't confirmed yet — a tick
       // served from n8n's 15s cache can still be showing the old status.
       paintPickList(applyPickOverrides((tick.openOrders || []).slice()), tick.openOrdersTotal);
@@ -2949,6 +3159,93 @@
       });
     }
 
+    /* ─────────── KIT THREAD ─────────── */
+    /* order|parent → hue index. The SERVER assigns the hue from a stable key
+       sort, so a kit keeps its colour for its whole life instead of flickering
+       every time another kit completes. */
+    var kitHue = {};
+    var KIT_STRIP_MAX = 4;      // = the number of distinguishable threads
+
+    function kitKeyOf(r) {
+      return r && r.kit ? (String(r.orderId || '').trim() + '|' + r.kit) : '';
+    }
+
+    function kitThreadClass(k) {
+      return 'kit-c' + (num(k.hue) || 0) + (num(k.dash) ? ' kit-dash' : '');
+    }
+
+    function paintKitStrip(kits) {
+      kits = kits || [];
+      kitHue = {};
+      for (var i = 0; i < kits.length; i++) {
+        kitHue[kits[i].key] = { hue: num(kits[i].hue) || 0, dash: num(kits[i].dash) || 0 };
+      }
+
+      // Membership (the spine) lasts as long as the rows are open; the strip
+      // is only ever here to say something is still MISSING, so a finished kit
+      // keeps its thread and loses its line.
+      var live = kits.filter(function (k) { return num(k.done) < num(k.total); });
+
+      var box = document.getElementById('kitStrip');
+      if (!box) return;
+      box.innerHTML = '';
+      box.classList.toggle('hidden', !live.length);
+
+      // ⚠ CAP THE STRIP. Every line here is stolen from the pick list, and a
+      // band that quietly pushes the last pickable row off a full board is a
+      // worse bug than the one it fixes — the same trap raising ✓ Pick to 44px
+      // hit. Four is also exactly how many threads are distinguishable, so a
+      // fifth line could not be told apart from the first anyway.
+      var shown = live.slice(0, KIT_STRIP_MAX);
+      var extra = live.length - shown.length;
+
+      shown.forEach(function (k) {
+        var tot = num(k.total) || 1, done = num(k.done) || 0;
+
+        var line = document.createElement('div');
+        line.className = 'kitline ' + kitThreadClass(k);
+        line.title = 'Order ' + (k.order || '') + ' — tap for the full order';
+
+        var nm = document.createElement('span');
+        nm.className = 'kit-name';
+        nm.textContent = 'KIT-' + (k.parent || '');
+
+        var pg = document.createElement('span');
+        pg.className = 'kit-prog';
+        pg.textContent = done + ' of ' + tot;
+
+        var mt = document.createElement('span');
+        mt.className = 'kit-meter';
+        var fill = document.createElement('i');
+        fill.style.width = Math.round((done / tot) * 100) + '%';
+        mt.appendChild(fill);
+
+        // Name the AISLES, not the count of what's left — the aisle is the
+        // only part a picker across the floor can act on. Same reason the
+        // beacon names one.
+        var lf = document.createElement('span');
+        lf.className = 'kit-left';
+        var left = k.left || [];
+        lf.textContent = left.length
+          ? 'left: ' + left.slice(0, 4).join(' · ') +
+            (left.length > 4 ? '  +' + (left.length - 4) : '')
+          : 'shelf unknown on the rest';
+
+        line.appendChild(nm); line.appendChild(pg);
+        line.appendChild(mt); line.appendChild(lf);
+        line.addEventListener('click', function () { openOrderDrawer(k.order); });
+        box.appendChild(line);
+      });
+
+      if (extra > 0) {
+        var more = document.createElement('div');
+        more.className = 'kit-more';
+        more.textContent = '+' + extra + ' more kit' + (extra === 1 ? '' : 's') +
+                           ' in progress — tap a threaded row for its order';
+        box.appendChild(more);
+      }
+    }
+
     function paintPickList(rows, total) {
       rows = sortForMode(rows || []);
       var list = document.getElementById('pickList');
@@ -2966,27 +3263,34 @@
       var emptyEl = list.querySelector('.feed-empty');
       if (emptyEl && rows.length) emptyEl.remove();
 
-      // index the rows already on screen (ignore ones mid-exit)
+      // In age mode the list is order-grouped, so it gets headers and the rows
+      // stop repeating the order id. See the .pick-head CSS note.
+      list.classList.toggle('grouped', pickMode === 'age');
+      var items = withOrderGroups(rows);
+
+      // index what is already on screen (ignore anything mid-exit). Keyed on
+      // data-key, which now covers headers as well as rows.
       var existing = {};
-      var domRows = list.querySelectorAll('.pick-row');
+      var domRows = list.querySelectorAll('[data-key]');
       for (var i = 0; i < domRows.length; i++) {
         var dk = domRows[i].getAttribute('data-key');
         if (dk && !domRows[i].classList.contains('exit')) existing[dk] = domRows[i];
       }
 
-      // place each incoming row in order — reuse if present, build (with enter) if new
+      // place each item in order — reuse if present, build (with enter) if new
       var nextKeys = {};
       var anchor = null;
-      for (var j = 0; j < rows.length; j++) {
-        var r = rows[j];
-        var key = pickKey(r);
-        nextKeys[key] = true;
-        var rowEl = existing[key];
+      for (var j = 0; j < items.length; j++) {
+        var it = items[j];
+        nextKeys[it.key] = true;
+        var rowEl = existing[it.key];
         if (rowEl) {
-          fillPickRow(rowEl, r);            // refresh content (e.g. GRAB → PREP)
+          if (it.kind === 'head') fillPickHead(rowEl, it);
+          else                    fillPickRow(rowEl, it.row);   // e.g. GRAB → PREP
           rowEl.classList.remove('exit');
         } else {
-          rowEl = buildPickRow(r, !firstTick);
+          rowEl = (it.kind === 'head') ? buildPickHead(it)
+                                       : buildPickRow(it.row, !firstTick);
         }
         var ref = anchor ? anchor.nextSibling : list.firstChild;
         if (ref !== rowEl) list.insertBefore(rowEl, ref);
@@ -3011,6 +3315,12 @@
 
     function animateRowOut(node) {
       if (!node || node.classList.contains('exit')) return;
+      // An order header has no exit animation, and a group label hanging over
+      // rows that have already left would read as a bug. Take it out at once.
+      if (node.classList.contains('pick-head')) {
+        if (node.parentNode) node.parentNode.removeChild(node);
+        return;
+      }
       node.classList.add('exit');
       setTimeout(function () {
         if (node && node.parentNode) node.parentNode.removeChild(node);
@@ -3094,6 +3404,18 @@
         main.appendChild(doBtn);
       }
       li.appendChild(main);
+
+      // KIT THREAD — this row is one piece of a box whose other pieces are in
+      // other aisles. Colour only: the count lives ONCE, on the strip above.
+      // Classes are cleared first because fillPickRow also runs on REUSE, and
+      // a stale hue would outlive the kit it belonged to.
+      li.classList.remove('kit-c0', 'kit-c1', 'kit-dash');
+      var kh = kitHue[kitKeyOf(r)];
+      li.classList.toggle('kitted', !!kh);
+      if (kh) {
+        li.classList.add('kit-c' + kh.hue);
+        if (kh.dash) li.classList.add('kit-dash');
+      }
 
       // floor note in this row's NOTE (the ** marker) → 📌 line + left accent
       var fnText = extractFloorNote(r.note);
@@ -3528,6 +3850,78 @@
       li.className = 'pick-row' + (animate ? ' enter' : '');
       fillPickRow(li, r);
       return li;
+    }
+
+    /* An order-group header. Carries the one fact every row of the group was
+       repeating, plus the thing age mode exists to show: how long the ORDER
+       has waited. Tapping it opens the order — one target per order instead
+       of the same drawer on ten rows. */
+    function fillPickHead(li, g) {
+      li.setAttribute('data-key', g.key);
+      li.innerHTML = '';
+
+      var id = document.createElement('span');
+      id.className = 'ph-id';
+      id.textContent = g.orderId || '—';
+
+      var meta = document.createElement('span');
+      meta.className = 'ph-meta';
+      meta.textContent = (g.channel === 'DIRECT' ? 'Direct' : 'eBay') +
+                         '  ·  ' + g.n + (g.n === 1 ? ' line' : ' lines');
+
+      var age = document.createElement('span');
+      age.className = 'ph-age';
+      // fmtDur is what OLDEST WAITING already uses — one formatter, so the
+      // header and the hero card can never disagree about the same order.
+      age.textContent = (g.age === undefined) ? '' : (fmtDur(g.age) + ' waiting');
+
+      li.classList.toggle('late', g.age !== undefined && g.age >= 180);
+      li.appendChild(id); li.appendChild(meta); li.appendChild(age);
+      li.title = 'Tap for this order: rows, timeline, notes';
+    }
+
+    function buildPickHead(g) {
+      var li = document.createElement('li');
+      li.className = 'pick-head';
+      fillPickHead(li, g);
+      li.addEventListener('click', function () { openOrderDrawer(g.orderId); });
+      return li;
+    }
+
+    /* Interleave a header wherever the sales order changes. Age mode only —
+       see the CSS note. Returns a flat display list the reconcile can key on
+       exactly as it already keys rows. */
+    function withOrderGroups(rows) {
+      if (pickMode !== 'age') return rows.map(function (r) {
+        return { key: pickKey(r), kind: 'row', row: r };
+      });
+      var out = [], prev = null, usedKeys = {};
+      for (var i = 0; i < rows.length; i++) {
+        var oid = String(rows[i].orderId || '').trim();
+        if (oid !== prev) {
+          var n = 0;
+          for (var j = i; j < rows.length; j++) {
+            if (String(rows[j].orderId || '').trim() !== oid) break;
+            n++;
+          }
+          // ⚠ Keys MUST be unique — the reconcile indexes on data-key, so two
+          // headers sharing one key would collapse into a single node in the
+          // wrong place. One order cannot appear in two blocks today (every
+          // row of it shares the order's age, and the sort is stable), but
+          // that is a property of the CURRENT sort, not a guarantee. Suffix
+          // any repeat rather than depend on it.
+          var hk = 'H|' + oid;
+          if (usedKeys[hk]) hk += '|' + i;
+          usedKeys[hk] = 1;
+          out.push({
+            key: hk, kind: 'head',
+            orderId: oid, channel: rows[i].channel, n: n, age: orderAge[oid]
+          });
+          prev = oid;
+        }
+        out.push({ key: pickKey(rows[i]), kind: 'row', row: rows[i] });
+      }
+      return out;
     }
 
     // ---------- CONSOLE: mark picked (PENDING → PREPARING) ----------

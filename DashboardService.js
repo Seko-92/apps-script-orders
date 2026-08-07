@@ -36,6 +36,21 @@ var DASHBOARD = {
   // 15-second poll. Kit composition changes rarely; minutes of staleness is fine.
   kitCacheKey: 'dashKitSkus',
   kitCacheSec: 300,
+  // KIT THREADS = 2 hues × 2 patterns (solid / dashed) = 4 distinguishable.
+  //
+  // ⚠ TWO hues, not three, and this was MEASURED not chosen. An exhaustive
+  // search of every colour that clears 4.5:1 on the card AND stays clear of
+  // yellow / red / green / amber found: 2 hues separate by ΔE 57.8 in the
+  // worst case across normal + protanopia + deuteranopia + tritanopia; THREE
+  // collapse to ΔE 12.5, i.e. indistinguishable. Under deuteranopia the space
+  // folds onto a blue↔yellow axis and yellow already means "do something"
+  // here, so the third hue has nowhere to live.
+  //
+  // Hence PATTERN as the second channel — it is immune to colour vision
+  // deficiency entirely, and it is what makes four concurrent kits safe.
+  // Past four they cycle; the strip names each one.
+  kitHues:     2,
+  kitPatterns: 2,
 
   // WHOLE-TICK cache. Measured 2026-08-05: a cold tick took ~26s, and every
   // device polling pays that independently. Apps Script gives a consumer
@@ -186,6 +201,8 @@ function _buildDashboardTick() {
     // it has to be lifted onto the tick explicitly or the board can never tell
     // it's showing a truncated walk.
     openOrdersTotal: (openOrders && openOrders.total) || (openOrders || []).length,
+    // Kits in progress — same lifting problem as `total` above.
+    kits:       (openOrders && openOrders.kits) || [],
     serverTime: new Date().toISOString()
   };
 }
@@ -328,20 +345,55 @@ function _dashOpenOrders() {
   // SKU. Two of the same kit on one SO with just one of them expanded cannot be
   // told apart from here, and hiding a kit nobody has decided yet is far worse
   // than showing one extra row — so the ambiguous case stays visible.
+  // The SAME pass tallies each expanded kit for the board's KIT STRIP.
+  //
+  // ⚠ THE DENOMINATOR MUST COME FROM THE SHEET, NEVER FROM THE KIT REGISTRY.
+  // Expansion supports EXCLUSIONS and custom adds, so a kit whose registry
+  // composition is 8 parts may only have had 6 rows inserted. A board that
+  // promised "of 8" would send a picker hunting for two components that were
+  // deliberately left out — worse than showing no counter at all. What was
+  // actually INSERTED is the only honest total, and it is right here in the
+  // rows we have already read.
   var expandedOf = {}, parentsOf = {};
+  var kitTot = {}, kitDone = {}, kitLeft = {}, kitMeta = {};
   for (var p = 0; p < data.length; p++) {
     var pSku = String(data[p][Schema.idx("SKU")] || "").trim();
     if (pSku.toUpperCase() === Schema.boundaryMarker) continue;
     if (!pSku) continue;
     var pStatus = String(data[p][Schema.idx("STATUS")] || "").trim().toUpperCase();
-    if (pStatus !== Schema.status.PENDING && pStatus !== Schema.status.PREPARING) continue;
+    var pOpen   = (pStatus === Schema.status.PENDING ||
+                   pStatus === Schema.status.PREPARING);
     var pOrder = String(data[p][Schema.idx("SALES_ORDER")] || "").trim();
     var pNote  = String(data[p][Schema.idx("NOTE")] || "").trim();
     var pm = pNote.match(/^↳ from KIT-(\S+)/);
     if (pm) {
       var ek = pOrder + "|" + pm[1];
-      expandedOf[ek] = (expandedOf[ek] || 0) + 1;
-    } else if (kitSkus[pSku] === 1) {
+
+      // TALLY over EVERY status, not just the open ones. A component already
+      // shipped still counts toward the kit's SIZE — otherwise the denominator
+      // shrinks as the pick proceeds and a half-finished box prints "3 of 3".
+      // CANCELED is the exception: that line is no longer part of the box, so
+      // it counts toward neither side.
+      if (pStatus !== Schema.status.CANCELED) {
+        kitTot[ek] = (kitTot[ek] || 0) + 1;
+        if (pStatus === Schema.status.PENDING) {
+          // still to find — remember WHERE, that is the actionable part
+          var pLoc = String(data[p][Schema.idx("LOCATION")] || "").trim();
+          if (!kitLeft[ek]) kitLeft[ek] = [];
+          if (pLoc && pLoc.toUpperCase() !== "NOT FOUND" &&
+              kitLeft[ek].indexOf(pLoc) === -1) kitLeft[ek].push(pLoc);
+        } else {
+          // ✓ Pick flips PENDING → PREPARING, so PREPARING means grabbed.
+          kitDone[ek] = (kitDone[ek] || 0) + 1;
+        }
+        if (!kitMeta[ek]) kitMeta[ek] = { parent: pm[1], order: pOrder };
+      }
+
+      // The COLLAPSE decision below keeps its ORIGINAL open-only semantics —
+      // it asks "is this parent still standing over live components", which is
+      // a different question from "how big is this kit".
+      if (pOpen) expandedOf[ek] = (expandedOf[ek] || 0) + 1;
+    } else if (kitSkus[pSku] === 1 && pOpen) {
       var pk = pOrder + "|" + pSku;
       parentsOf[pk] = (parentsOf[pk] || 0) + 1;
     }
@@ -388,7 +440,7 @@ function _dashOpenOrders() {
     var kitKey      = orderId + "|" + sku;
     if (isKitParent && expandedOf[kitKey] > 0 && parentsOf[kitKey] === 1) continue;
 
-    out.push({
+    var row = {
       channel:  inDirect ? "DIRECT" : "EBAY",
       orderId:  orderId,
       sku:      sku,
@@ -403,8 +455,55 @@ function _dashOpenOrders() {
       // Already-expanded parents never reach here — they were skipped above —
       // so the badge now means what it says: THIS one still needs a decision.
       isKit: isKitParent
+    };
+    // Which kit this component belongs to. On the SHEET the "↳ from KIT-x"
+    // note says so on every row and survives any sort; the board received that
+    // text and threw it away, so a component looked exactly like a standalone
+    // line. Set ONLY on components — an absent field costs nothing in the
+    // published payload, which is guarded against the 50K cell limit.
+    if (isComponent) {
+      var cm = note.match(/^↳ from KIT-(\S+)/);
+      if (cm) row.kit = cm[1];
+    }
+    out.push(row);
+  }
+
+  // ── KITS IN PROGRESS ──────────────────────────────────────────────────────
+  // One entry per expanded kit that still has a component to find. The rows
+  // carry membership (a coloured spine); this carries COMPLETENESS, which is
+  // one fact about the kit and therefore does NOT belong repeated on every
+  // row — the same reason GRAB was removed from all eleven lines.
+  var kits = [];
+  for (var kk in kitTot) {
+    if (!Object.prototype.hasOwnProperty.call(kitTot, kk)) continue;
+    var kTot = kitTot[kk], kDone = kitDone[kk] || 0;
+    if (kTot < 2) continue;       // a single-component "kit" needs no thread
+    // FINISHED KITS STAY IN THIS LIST. Membership is permanent for as long as
+    // the rows are open — the picker who grabbed all eight still has to know
+    // which eight go in one box at the bench. The board drops only the STRIP
+    // when done >= total; the rows keep their thread.
+    kits.push({
+      key:    kk,
+      parent: kitMeta[kk].parent,
+      order:  kitMeta[kk].order,
+      total:  kTot,
+      done:   kDone,
+      left:   (kitLeft[kk] || []).slice().sort(compareLocations)
     });
   }
+  // TWO orderings, deliberately. Colour is assigned from a STABLE key sort so
+  // a kit keeps its hue for its whole life and the list does not flicker as
+  // kits complete. Display is by completeness DESCENDING, because a kit at
+  // 7 of 8 is the one most likely to be mistaken for finished.
+  kits.sort(function (a, b) { return a.key < b.key ? -1 : (a.key > b.key ? 1 : 0); });
+  for (var ci = 0; ci < kits.length; ci++) {
+    // hue alternates fastest, pattern carries the overflow — so the first two
+    // kits differ by COLOUR (read fastest) and only the third and fourth need
+    // the picker to notice a dashed spine.
+    kits[ci].hue  = ci % DASHBOARD.kitHues;
+    kits[ci].dash = Math.floor(ci / DASHBOARD.kitHues) % DASHBOARD.kitPatterns;
+  }
+  kits.sort(function (a, b) { return (b.done / b.total) - (a.done / a.total); });
 
   // SORT FIRST, THEN CAP.
   // 2026-08-05: these were the other way round — the cap ran during the scan, so
@@ -429,8 +528,9 @@ function _dashOpenOrders() {
 
   var capped = out.length > DASHBOARD.pickListCap
                  ? out.slice(0, DASHBOARD.pickListCap) : out;
-  capped.total     = out.length;    // both read by _buildDashboardTick before
-  capped.paidCount = paidCount;     // JSON serialisation drops these
+  capped.total     = out.length;    // all three read by _buildDashboardTick
+  capped.paidCount = paidCount;     // before JSON serialisation drops them
+  capped.kits      = kits;
   return capped;
 }
 
