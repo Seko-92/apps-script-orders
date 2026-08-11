@@ -1,0 +1,767 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#0e0e0d">
+<title>HQ · Wall</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@300;400;500;600;700&family=Roboto+Mono:wght@400;500;700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+/* ============================================================================
+   HQ WALL — the MONITOR CENTER · hq.yassinqurabi.com/wall          (v1.0)
+
+   READ-ONLY projection of the floor. Every metric visible, both channels
+   always on screen, ZERO write surface — this link can hang on any display
+   anywhere: the warehouse wall, the Riyadh desk, a TV. The TOOL (the page
+   at "/") is where actions live; this page only ever *paints*.
+
+   Split off the Floor Board 2026-08-11 (redesign round 1). Same data pipe:
+   POST /api/board {action:"boardTick"} — n8n cache → published cell → Apps
+   Script. Cost does not scale with viewers (published tick).
+
+   THE RULES (same law as the tool, scaled for distance):
+     type scale (wall): 72 · 34 · 24 · 18 · 14 · 12
+     color = meaning:  yellow act · green ok/done · red disagree/late ·
+                       amber money · cyan+violet kit threads · gray recedes
+     position = meaning: left spine = kit membership ONLY · band = the box
+     row height CONSTANT (46px) · one media-free fixed 16:9 layout
+   ============================================================================ */
+:root {
+  --g0: #0e0e0d;  --g1: #161614;  --g2: #1d1d1a;  --g3: #26261f;
+  --line: rgba(245,245,242,0.09);
+  --line-brand: rgba(255,212,0,0.22);
+  --t1: #f5f5f2;  --t2: rgba(245,245,242,0.64);  --t3: rgba(245,245,242,0.38);
+  --act: #ffd400;  --ok: #4caf50;  --alarm: #ff6b6b;  --money: #ffb84d;
+  --kit-a: #63ffff;  --kit-b: #b163ff;
+  --fs-hero: 72px; --fs-big: 34px; --fs-shelf: 24px; --fs-row: 18px; --fs-sub: 14px; --fs-lab: 12px;
+  --disp: 'Oswald', sans-serif;  --mono: 'Roboto Mono', monospace;  --body: 'Roboto', sans-serif;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; }
+body { background: var(--g0); color: var(--t1); font-family: var(--body); overflow: hidden; }
+.wall { height: 100dvh; display: grid;
+        grid-template-rows: 64px auto 1fr;
+        grid-template-columns: 340px 1fr 1fr;
+        grid-template-areas: "hdr hdr hdr" "beacon beacon beacon" "rail ebay direct"; }
+
+/* ── HEADER ────────────────────────────────────────────────────────────── */
+.hdr { grid-area: hdr; display: flex; align-items: center; gap: 24px; padding: 0 28px;
+       background: var(--g1); border-bottom: 1px solid var(--line-brand); }
+.hdr-hq { background: var(--act); color: var(--g0); font-family: var(--disp);
+          font-weight: 700; font-size: 22px; padding: 3px 12px; letter-spacing: 0.04em; }
+.hdr-word { font-family: var(--disp); font-weight: 500; font-size: 16px;
+            letter-spacing: 0.3em; text-transform: uppercase; color: var(--t2); }
+.hdr-mid { margin-left: auto; display: flex; gap: 26px; align-items: center;
+           font-family: var(--mono); font-size: var(--fs-sub); color: var(--t2); }
+.pray { display: none; }
+.pray.on { display: inline; }
+.snd { cursor: pointer; font-family: var(--mono); font-size: var(--fs-sub); color: var(--t3);
+       border: 1px solid var(--line); border-radius: 4px; padding: 3px 10px; user-select: none; }
+.snd.on { color: var(--act); border-color: var(--line-brand); }
+.hdr-live { display: flex; align-items: center; gap: 8px; font-family: var(--disp);
+            font-size: var(--fs-lab); letter-spacing: 0.18em; text-transform: uppercase; color: var(--ok); }
+.hdr-live i { width: 10px; height: 10px; border-radius: 50%; background: var(--ok);
+              box-shadow: 0 0 8px rgba(76,175,80,0.8); }
+.hdr-live.stale { color: var(--alarm); }
+.hdr-live.stale i { background: var(--alarm); box-shadow: 0 0 8px rgba(255,107,107,0.8); }
+.hdr-live.rest { color: var(--t3); }
+.hdr-live.rest i { background: var(--t3); box-shadow: none; }
+.hdr-live.idle { color: var(--money); }
+.hdr-live.idle i { background: var(--money); box-shadow: none; }
+.hdr-clock { font-family: var(--disp); font-weight: 600; font-size: 30px; letter-spacing: 0.04em; color: var(--t1); }
+.hdr-date { font-family: var(--mono); font-size: var(--fs-lab); color: var(--t3); text-align: right; line-height: 1.5; }
+
+/* ── BEACON — full width, reaches across the floor ─────────────────────── */
+.beacon { grid-area: beacon; display: none; align-items: center; gap: 18px;
+          padding: 10px 28px; background: rgba(255,212,0,0.14);
+          border-bottom: 1px solid var(--line-brand); cursor: pointer; }
+.beacon.show { display: flex; animation: bpulse 2.2s ease-in-out infinite; }
+@keyframes bpulse { 0%,100% { background: rgba(255,212,0,0.10); } 50% { background: rgba(255,212,0,0.20); } }
+.beacon b { font-family: var(--disp); font-weight: 700; font-size: var(--fs-row);
+            letter-spacing: 0.26em; color: var(--act); }
+.beacon span { font-family: var(--mono); font-size: var(--fs-row); color: var(--t1); }
+.beacon small { font-family: var(--mono); font-size: var(--fs-sub); color: var(--t3); margin-left: auto; }
+.edge { position: fixed; inset: 0; pointer-events: none; z-index: 40; opacity: 0;
+        box-shadow: inset 0 0 90px rgba(255,212,0,0.55); }
+.edge.show { animation: eglow 2.2s ease-in-out infinite; }
+@keyframes eglow { 0%,100% { opacity: 0.15; } 50% { opacity: 0.8; } }
+
+/* ── METRICS RAIL ──────────────────────────────────────────────────────── */
+.rail { grid-area: rail; display: flex; flex-direction: column; gap: 12px;
+        padding: 16px; background: var(--g1); border-right: 1px solid var(--line);
+        overflow: hidden; min-height: 0; }
+/* ⚠ min-width:0 — a grid child defaults to min-width:auto, so its content
+   REFUSES to shrink and overflows the card's own border (the "1 aisle" ran
+   past the frame; caught by rendering the live page 2026-08-12). */
+.m { background: var(--g2); border: 1px solid var(--line); padding: 12px 16px;
+     flex: none; min-width: 0; }
+.m-lab { font-family: var(--disp); font-size: var(--fs-lab); letter-spacing: 0.2em;
+         text-transform: uppercase; color: var(--t3); margin-bottom: 2px; }
+.m-hero { border-color: var(--line-brand); }
+.m-hero .m-num { font-family: var(--disp); font-weight: 600; font-size: var(--fs-hero);
+                 line-height: 1; color: var(--act); font-variant-numeric: tabular-nums; }
+.m-hero.clear .m-num { color: var(--ok); font-size: 44px; padding: 8px 0; }
+.m-hero .m-split { display: flex; gap: 18px; margin-top: 6px; font-family: var(--mono);
+                   font-size: var(--fs-sub); color: var(--t2); }
+.m-hero .m-split b { color: var(--t1); }
+.sharebar { display: flex; height: 5px; margin-top: 10px; border-radius: 3px; overflow: hidden;
+            background: var(--g3); }
+.sharebar .e { background: var(--act); }
+.sharebar .d { background: var(--t3); }
+.m-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; flex: none; }
+.m-num2 { font-family: var(--disp); font-weight: 600; font-size: var(--fs-big); line-height: 1.1;
+          font-variant-numeric: tabular-nums; }
+.m-num2.warn { color: var(--alarm); }
+.m-num2.good { color: var(--ok); }
+.m-sub { font-family: var(--mono); font-size: var(--fs-lab); color: var(--t3); margin-top: 3px;
+         white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mbar { height: 4px; background: var(--g3); border-radius: 2px; margin-top: 8px; overflow: hidden; }
+.mbar i { display: block; height: 100%; background: var(--act); }
+.m-paid { border-color: rgba(255,184,77,0.5); display: none; align-items: center; gap: 12px; }
+.m-paid.on { display: flex; }
+.m-paid .m-num2 { color: var(--money); }
+.m-paid .m-text { font-family: var(--disp); font-size: var(--fs-sub); letter-spacing: 0.06em;
+                  text-transform: uppercase; color: var(--money); }
+.m-paid small { display: block; font-family: var(--body); font-size: var(--fs-lab);
+                color: var(--t3); text-transform: none; letter-spacing: 0; margin-top: 2px; }
+.m-pipe { display: flex; gap: 16px; font-family: var(--mono); font-size: var(--fs-sub);
+          color: var(--t2); flex-wrap: wrap; }
+.m-pipe b { color: var(--t1); }
+
+.feed { flex: 1; min-height: 0; display: flex; flex-direction: column; background: var(--g2);
+        border: 1px solid var(--line); padding: 12px 0 4px; }
+.feed .m-lab { padding: 0 16px 8px; border-bottom: 1px solid var(--line); }
+.feed ul { list-style: none; overflow: hidden; flex: 1; }
+.feed li { display: flex; gap: 10px; align-items: center; padding: 7px 16px;
+           border-bottom: 1px solid var(--line); font-family: var(--mono); font-size: var(--fs-sub); }
+.feed li.empty { color: var(--t3); border: none; }
+.feed time { color: var(--t3); font-size: var(--fs-lab); width: 46px; flex: none; }
+.ftag { font-family: var(--disp); font-size: 10px; letter-spacing: 0.12em; padding: 1px 7px;
+        border-radius: 3px; color: var(--g0); background: var(--t3); text-transform: uppercase; flex: none; }
+.ftag.new  { background: var(--act); }
+.ftag.ship { background: var(--ok); }
+.ftag.cancel { background: var(--alarm); }
+.feed .fid { color: var(--t2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.feed .fch { margin-left: auto; color: var(--t3); font-size: var(--fs-lab); flex: none; }
+
+/* ── CHANNEL COLUMNS ───────────────────────────────────────────────────── */
+.chan { min-width: 0; overflow: hidden; display: flex; flex-direction: column; min-height: 0; }
+.chan-ebay { grid-area: ebay; border-right: 1px solid var(--line); }
+.chan-direct { grid-area: direct; }
+.chan-head { display: flex; align-items: baseline; gap: 14px; padding: 14px 24px 10px;
+             border-bottom: 2px solid var(--line-brand); flex: none; }
+.chan-head h2 { font-family: var(--disp); font-weight: 600; font-size: 22px;
+                letter-spacing: 0.14em; text-transform: uppercase; }
+.chan-head .cnt { font-family: var(--mono); font-size: var(--fs-sub); color: var(--t2); }
+.chan-head .over { margin-left: auto; font-family: var(--mono); font-size: var(--fs-sub); color: var(--alarm); }
+.chan ul { list-style: none; overflow: hidden; flex: 1; min-height: 0; }
+.chan .none { padding: 26px 24px; font-family: var(--mono); font-size: var(--fs-sub); color: var(--t3); }
+
+.wband { display: flex; align-items: center; gap: 14px; min-height: 42px; padding: 4px 24px;
+         background: var(--g2); border-top: 1px solid var(--line); flex-wrap: wrap; }
+.wband .band-id { font-family: var(--mono); font-weight: 700; font-size: var(--fs-sub); color: var(--t1); }
+.wband .band-n { font-family: var(--disp); font-size: var(--fs-lab); letter-spacing: 0.12em;
+                 text-transform: uppercase; color: var(--t3); }
+.wband .age { margin-left: auto; font-family: var(--mono); font-size: var(--fs-sub); color: var(--t3); }
+.wband .age.late { color: var(--alarm); }
+.wband .split-warn { font-family: var(--disp); font-size: var(--fs-lab); letter-spacing: 0.1em;
+                     color: var(--alarm); text-transform: uppercase; }
+.kitchip { display: inline-flex; align-items: center; gap: 6px; font-family: var(--mono);
+           font-size: var(--fs-lab); color: var(--t2); background: var(--g3);
+           border: 1px solid var(--line); border-radius: 3px; padding: 2px 8px; }
+.kitchip i { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.kitchip.k0 i { background: var(--kit-a); }
+.kitchip.k1 i { background: var(--kit-b); }
+.kitchip.kd i { background: transparent; border: 2px dashed currentColor; }
+.kitchip.k0.kd i { border-color: var(--kit-a); }
+.kitchip.k1.kd i { border-color: var(--kit-b); }
+
+.wrow { display: grid; grid-template-columns: 122px 1fr 64px 70px; align-items: center;
+        height: 46px; padding: 0 24px 0 21px; border-top: 1px solid var(--line);
+        border-left: 3px solid transparent; }
+.wrow.kit-0 { border-left-color: var(--kit-a); }
+.wrow.kit-1 { border-left-color: var(--kit-b); }
+.wrow.kit-dash { border-left-style: dashed; }
+.wrow.prep-row { opacity: 0.45; }
+.wrow.noted .wsku::after { content: ' 📌'; font-size: var(--fs-sub); }
+.wshelf { font-family: var(--mono); font-weight: 700; font-size: var(--fs-shelf); color: var(--act); }
+.wshelf.gone { color: var(--t3); font-size: var(--fs-row); }
+.wshelf small { font-size: var(--fs-sub); color: var(--t3); font-weight: 400; }
+.wshelf.dual { font-size: 17px; white-space: nowrap; }
+.wshelf.dual i { font-style: normal; color: var(--t3); padding: 0 1px; }
+.wsku { font-family: var(--mono); font-size: var(--fs-row); color: var(--t1);
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wsku .kitflag { font-family: var(--disp); font-size: var(--fs-lab); color: var(--g0);
+                 background: var(--kit-a); padding: 1px 6px; border-radius: 3px; margin-left: 10px; }
+.wqty { font-family: var(--disp); font-weight: 600; font-size: var(--fs-row);
+        color: var(--t3); text-align: center; font-variant-numeric: tabular-nums; }
+.wqty.multi { color: var(--act); }
+.wst { font-family: var(--disp); font-size: var(--fs-lab); letter-spacing: 0.14em;
+       text-transform: uppercase; color: var(--t3); text-align: right; }
+.wmore { padding: 12px 24px; font-family: var(--mono); font-size: var(--fs-sub); color: var(--alarm); }
+
+/* ── STATES ────────────────────────────────────────────────────────────── */
+.connlost { position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%);
+            background: var(--alarm); color: var(--g0); font-family: var(--disp);
+            font-size: var(--fs-sub); letter-spacing: 0.1em; text-transform: uppercase;
+            padding: 8px 18px; border-radius: 5px; display: none; z-index: 60; }
+.connlost.show { display: block; }
+.restveil { position: fixed; inset: 0; background: rgba(14,14,13,0.62);
+            backdrop-filter: blur(2px); display: none; z-index: 30;
+            align-items: center; justify-content: center; flex-direction: column; gap: 10px; }
+.restveil.show { display: flex; }
+.restveil .rv-clock { font-family: var(--disp); font-weight: 300; font-size: 96px;
+                      letter-spacing: 0.06em; color: var(--t1); }
+.restveil .rv-line { font-family: var(--mono); font-size: var(--fs-row); color: var(--t2); }
+.restveil .rv-sub { font-family: var(--mono); font-size: var(--fs-sub); color: var(--t3); }
+@media (prefers-reduced-motion: reduce) {
+  .beacon.show, .edge.show { animation: none; }
+}
+</style>
+</head>
+<body>
+<div class="edge" id="edge"></div>
+<div class="wall">
+
+  <div class="hdr">
+    <span class="hdr-hq">HQ</span>
+    <span class="hdr-word">Warehouse Floor</span>
+    <span class="hdr-mid">
+      <span class="pray" id="pray"></span>
+      <span class="snd" id="snd" title="Beacon chime">♪ on</span>
+      <span class="hdr-live" id="live"><i></i><span id="liveText">connecting</span></span>
+      <span class="hdr-clock" id="clock">—:—</span>
+      <span class="hdr-date" id="dateBox">—</span>
+    </span>
+  </div>
+
+  <div class="beacon" id="beacon" title="Tap to dismiss">
+    <b>NEW</b><span id="beaconBody"></span><small>tap to dismiss</small>
+  </div>
+
+  <div class="rail">
+    <div class="m m-hero" id="heroCard">
+      <div class="m-lab">Orders to grab</div>
+      <div class="m-num" id="grabNum">—</div>
+      <div class="m-split" id="grabSplit"></div>
+      <div class="sharebar"><i class="e" id="shareE"></i><i class="d" id="shareD"></i></div>
+    </div>
+
+    <div class="m-pair">
+      <div class="m">
+        <div class="m-lab">Oldest waiting</div>
+        <div class="m-num2 warn" id="oldestVal">—</div>
+        <div class="m-sub" id="oldestSub">&nbsp;</div>
+        <div class="mbar"><i id="oldestBar" style="background:var(--alarm)"></i></div>
+      </div>
+      <div class="m">
+        <div class="m-lab">Units to pick</div>
+        <div class="m-num2" id="unitsVal">—</div>
+        <div class="m-sub" id="unitsSub">&nbsp;</div>
+        <div class="mbar"><i id="unitsBar"></i></div>
+      </div>
+    </div>
+
+    <div class="m-pair">
+      <div class="m">
+        <div class="m-lab">Shipped today</div>
+        <div class="m-num2 good" id="shipVal">—</div>
+        <div class="m-sub" id="shipSub">&nbsp;</div>
+        <div class="mbar"><i id="shipBar" style="background:var(--ok)"></i></div>
+      </div>
+      <div class="m">
+        <div class="m-lab">Received today</div>
+        <div class="m-num2" id="recvVal">—</div>
+        <div class="m-sub" id="recvSub">&nbsp;</div>
+        <div class="mbar"><i id="recvBar" style="background:var(--t3)"></i></div>
+      </div>
+    </div>
+
+    <div class="m m-paid" id="paidCard">
+      <span class="m-num2" id="paidNum">0</span>
+      <span class="m-text">Paid shipping waiting<small>match the exact label level</small></span>
+    </div>
+
+    <div class="m">
+      <div class="m-lab">Pipeline</div>
+      <div class="m-pipe" id="pipe">—</div>
+    </div>
+
+    <div class="feed">
+      <div class="m-lab">As it lands</div>
+      <ul id="feedList"><li class="empty">waiting for today's first event…</li></ul>
+    </div>
+  </div>
+
+  <div class="chan chan-ebay">
+    <div class="chan-head"><h2>eBay</h2><span class="cnt" id="cntE">—</span><span class="over" id="overE"></span></div>
+    <ul id="listE"><li class="none">…</li></ul>
+  </div>
+
+  <div class="chan chan-direct">
+    <div class="chan-head"><h2>Direct</h2><span class="cnt" id="cntD">—</span><span class="over" id="overD"></span></div>
+    <ul id="listD"><li class="none">…</li></ul>
+  </div>
+
+</div>
+
+<div class="restveil" id="restveil">
+  <div class="rv-clock" id="rvClock">—:—</div>
+  <div class="rv-line" id="rvLine">the floor is at rest</div>
+  <div class="rv-sub" id="rvSub"></div>
+</div>
+<div class="connlost" id="connLost">lost the line · retrying</div>
+
+<script>
+// ===========================================================================
+// HQ WALL client — read-only. One rule above all: this page never writes.
+// ===========================================================================
+var TZ = 'America/Chicago';
+var API = '/api/board';
+var POLL_MS = 20000, POLL_MAX_MS = 90000;
+var REDLINE_MIN = 180;
+
+function num(v) { var n = parseFloat(v); return isFinite(n) ? n : 0; }
+function fmtDur(mins) {
+  mins = Math.round(mins);
+  if (mins < 60) return mins + 'm';
+  var h = Math.floor(mins / 60), m = mins % 60;
+  if (h < 24) return m ? (h + 'h ' + m + 'm') : (h + 'h');
+  var d = Math.floor(h / 24); h = h % 24;
+  return h ? (d + 'd ' + h + 'h') : (d + 'd');
+}
+function fmtClock(hourFraction) {
+  if (hourFraction === null || hourFraction === undefined) return '';
+  var h = Math.floor(hourFraction);
+  var m = Math.round((hourFraction - h) * 60);
+  if (m === 60) { m = 0; h++; }
+  var ap = h >= 12 ? 'p' : 'a';
+  var h12 = h % 12; if (h12 === 0) h12 = 12;
+  return h12 + ':' + (m < 10 ? '0' + m : m) + ap;
+}
+function inferChannel(orderId) {
+  var id = String(orderId || '').trim().toUpperCase();
+  if (!id) return '';
+  if (id.indexOf('SO-') === 0 || id.indexOf('INV-') === 0) return 'Direct';
+  if (/^[\d][\d\-]+$/.test(id)) return 'eBay';
+  return 'Direct';
+}
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
+  });
+}
+
+// ---------- transport: fetch only, at most ONE tick in flight ----------
+var pollBusy = false, pollTimer = null, pollLastMs = 0, failCount = 0, firstTick = true;
+
+function call(action) {
+  return fetch(API, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: action })
+  }).then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); });
+}
+function poll() {
+  if (pollBusy) return;
+  pollBusy = true;
+  var started = Date.now();
+  call('boardTick')
+    .then(function (t) { pollLastMs = Date.now() - started; onTick(t); })
+    .catch(function () { pollLastMs = Date.now() - started; onFail(); })
+    .then(schedule, schedule);
+}
+function schedule() {
+  pollBusy = false;
+  if (pollTimer) clearTimeout(pollTimer);
+  pollTimer = setTimeout(poll, Math.min(Math.max(POLL_MS, pollLastMs), POLL_MAX_MS));
+}
+function onFail() {
+  failCount++;
+  if (failCount >= 2) {
+    document.getElementById('connLost').classList.add('show');
+    setLive('stale', 'offline');
+  }
+}
+
+// ---------- clock / rest ----------
+function houstonHour() {
+  var h = parseInt(new Date().toLocaleString('en-US', { timeZone: TZ, hour: '2-digit', hour12: false }), 10);
+  return isNaN(h) ? 12 : h;
+}
+function isOffHours() {
+  var wd = new Date().toLocaleDateString('en-US', { timeZone: TZ, weekday: 'short' });
+  if (wd === 'Sat' || wd === 'Sun') return true;
+  var h = houstonHour();
+  return (h < 9 || h >= 17);
+}
+function tickClock() {
+  var now = new Date();
+  var t = now.toLocaleTimeString('en-US', { timeZone: TZ, hour: 'numeric', minute: '2-digit', second: '2-digit' });
+  document.getElementById('clock').textContent = t;
+  document.getElementById('rvClock').textContent =
+    now.toLocaleTimeString('en-US', { timeZone: TZ, hour: 'numeric', minute: '2-digit' });
+  var d = now.toLocaleDateString('en-US', { timeZone: TZ, weekday: 'long', month: 'short', day: 'numeric' });
+  document.getElementById('dateBox').innerHTML = esc(d) + '<br>' + esc(hijriLine || '');
+}
+setInterval(tickClock, 1000);
+
+// ---------- prayer + hijri (best-effort ambience; page never depends on it) --
+var hijriLine = '';
+function fetchPrayer() {
+  fetch('https://api.aladhan.com/v1/timingsByCity?city=Houston&country=US&method=2')
+    .then(function (r) { return r.json(); })
+    .then(function (j) {
+      if (!j || !j.data) return;
+      var t = j.data.timings, h = j.data.date && j.data.date.hijri;
+      if (h) hijriLine = h.day + ' ' + h.month.en + ' ' + h.year;
+      var order = ['Fajr', 'Dhuhr', 'Asr', 'Maghrib', 'Isha'];
+      var now = new Date().toLocaleTimeString('en-US', { timeZone: TZ, hour12: false, hour: '2-digit', minute: '2-digit' });
+      for (var i = 0; i < order.length; i++) {
+        if (t[order[i]] > now) {
+          var el = document.getElementById('pray');
+          el.textContent = '🕌 ' + order[i].toUpperCase() + ' · ' + t[order[i]];
+          el.classList.add('on');
+          return;
+        }
+      }
+      document.getElementById('pray').classList.remove('on');
+    })
+    .catch(function () {});
+}
+fetchPrayer();
+setInterval(fetchPrayer, 60 * 60 * 1000);
+
+// ---------- live indicator ----------
+function setLive(state, text) {
+  var el = document.getElementById('live');
+  el.className = 'hdr-live' + (state === 'stale' ? ' stale' : state === 'rest' ? ' rest' : '');
+  document.getElementById('liveText').textContent = text;
+}
+
+// ---------- beacon: an id is announced ONCE, chime repeats for an empty room --
+var seenIds = {};                       // id -> ms first seen (45-min memory)
+var SEEN_TTL = 45 * 60 * 1000;
+var beaconUntil = 0, beaconTimer = null, lastChime = 0;
+var soundOn = localStorage.getItem('wallSound') !== 'off';
+function paintSound() {
+  var el = document.getElementById('snd');
+  el.textContent = soundOn ? '♪ on' : '♪ off';
+  el.classList.toggle('on', soundOn);
+}
+document.getElementById('snd').addEventListener('click', function () {
+  soundOn = !soundOn;
+  localStorage.setItem('wallSound', soundOn ? 'on' : 'off');
+  paintSound();
+});
+paintSound();
+
+var audioCtx = null;
+function chime() {
+  if (!soundOn) return;
+  try {
+    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    var t0 = audioCtx.currentTime;
+    [659.25, 783.99].forEach(function (f, i) {
+      var o = audioCtx.createOscillator(), g = audioCtx.createGain();
+      o.type = 'sine'; o.frequency.value = f;
+      g.gain.setValueAtTime(0, t0 + i * 0.18);
+      g.gain.linearRampToValueAtTime(0.12, t0 + i * 0.18 + 0.03);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + i * 0.18 + 0.9);
+      o.connect(g); g.connect(audioCtx.destination);
+      o.start(t0 + i * 0.18); o.stop(t0 + i * 0.18 + 1);
+    });
+  } catch (e) {}
+}
+function beaconCheck(rows) {
+  var now = Date.now();
+  for (var k in seenIds) if (now - seenIds[k] > SEEN_TTL) delete seenIds[k];
+  var fresh = null;
+  for (var i = 0; i < rows.length; i++) {
+    var id = String(rows[i].orderId || '').trim();
+    if (!id) continue;
+    if (!seenIds[id]) {
+      seenIds[id] = now;
+      if (!firstTick && String(rows[i].status).toUpperCase() === 'PENDING') fresh = rows[i];
+    }
+  }
+  if (fresh) {
+    document.getElementById('beaconBody').textContent =
+      (fresh.channel === 'DIRECT' ? 'Direct' : 'eBay') + ' · ' +
+      (fresh.location && fresh.location !== 'NOT FOUND' ? fresh.location : 'no shelf') +
+      ' · ' + fresh.orderId;
+    document.getElementById('beacon').classList.add('show');
+    document.getElementById('edge').classList.add('show');
+    beaconUntil = now + 3 * 60 * 1000;
+    chime(); lastChime = now;
+    if (!beaconTimer) beaconTimer = setInterval(function () {
+      if (Date.now() > beaconUntil) return beaconClear();
+      if (Date.now() - lastChime >= 20000) { chime(); lastChime = Date.now(); }
+    }, 1000);
+  }
+}
+function beaconClear() {
+  document.getElementById('beacon').classList.remove('show');
+  document.getElementById('edge').classList.remove('show');
+  if (beaconTimer) { clearInterval(beaconTimer); beaconTimer = null; }
+}
+document.getElementById('beacon').addEventListener('click', beaconClear);
+
+// ---------- machine-note classifier (the ** rule, retired 2026-08-11) ------
+// Show every HUMAN note; hide only machine kit-tags. Legacy ** markers are
+// stripped on display. ⚠ Zoho flags surface as the row's warning.
+function humanNote(note) {
+  var s = String(note || '').trim();
+  if (!s) return '';
+  if (s.indexOf('↳') === 0) return '';          // machine kit tag
+  return s.replace(/\*\*/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+// ---------- paint ----------
+function onTick(tick) {
+  if (!tick || typeof tick !== 'object' || !tick.cockpit) return onFail();
+  failCount = 0;
+  document.getElementById('connLost').classList.remove('show');
+
+  var c = tick.cockpit || {};
+  orderAge = c.orderAgeMin || {};   // band ages read this
+  var rows = tick.openOrders || [];
+  var by = tick.openOrdersBy || {};
+  var kits = tick.kits || [];
+
+  // hero
+  var grab = num(c.ebayGrab) + num(c.directGrab);
+  var hero = document.getElementById('heroCard');
+  hero.classList.toggle('clear', grab === 0);
+  document.getElementById('grabNum').textContent = grab === 0 ? '✓ clear' : grab;
+  document.getElementById('grabSplit').innerHTML = grab === 0
+    ? '<span>nothing waiting to be grabbed</span>'
+    : '<span>eBay <b>' + num(c.ebayGrab) + '</b></span><span>Direct <b>' + num(c.directGrab) + '</b></span>' +
+      '<span style="color:var(--t3)">' +
+      Math.max(0, num(c.ebayPending) + num(c.directPending) - grab) + ' in progress</span>';
+  document.getElementById('shareE').style.flex = String(Math.max(num(c.ebayGrab), 0.0001));
+  document.getElementById('shareD').style.flex = String(Math.max(num(c.directGrab), 0.0001));
+
+  // oldest
+  var oldest = num(c.oldestPendingMinutes);
+  document.getElementById('oldestVal').textContent = oldest > 0 ? fmtDur(oldest) : '—';
+  document.getElementById('oldestVal').classList.toggle('warn', oldest >= REDLINE_MIN);
+  document.getElementById('oldestSub').textContent =
+    num(c.pastRedlineCount) > 0 ? num(c.pastRedlineCount) + ' past the 3h line' : 'inside the 3h line';
+  document.getElementById('oldestBar').style.width = Math.min(100, (oldest / REDLINE_MIN) * 100) + '%';
+  document.getElementById('oldestBar').style.background = oldest >= REDLINE_MIN ? 'var(--alarm)' : 'var(--act)';
+
+  // units (shown rows are a FLOOR when the cap bit — say the "+")
+  var units = 0, aisles = {};
+  for (var i = 0; i < rows.length; i++) {
+    units += num(rows[i].qty) || 1;
+    var L = String(rows[i].location || '').trim();
+    if (L && L !== 'NOT FOUND') aisles[L.split('-')[0]] = 1;
+  }
+  var total = num(tick.openOrdersTotal) || rows.length;
+  var capped = total > rows.length;
+  document.getElementById('unitsVal').textContent = units + (capped ? '+' : '');
+  document.getElementById('unitsSub').textContent =
+    rows.length + '/' + total + ' lines · ' + Object.keys(aisles).length + ' aisles';
+  document.getElementById('unitsBar').style.width = Math.min(100, units) + '%';
+
+  // shipped / received
+  var ship = num(c.shippedToday), recv = num(c.receivedToday);
+  document.getElementById('shipVal').textContent = ship;
+  document.getElementById('shipSub').textContent =
+    recv > 0 ? Math.round((ship / recv) * 100) + '% of today out' : ' ';
+  document.getElementById('shipBar').style.width = (recv > 0 ? Math.min(100, (ship / recv) * 100) : 0) + '%';
+  document.getElementById('recvVal').textContent = recv;
+  document.getElementById('recvSub').textContent = 'eBay ' + num(c.receivedEbay) + ' · Direct ' + num(c.receivedDirect);
+  document.getElementById('recvBar').style.width = Math.min(100, recv) + '%';
+
+  // paid
+  var paid = num(tick.alerts && tick.alerts.paidShipping && tick.alerts.paidShipping.count);
+  document.getElementById('paidCard').classList.toggle('on', paid > 0);
+  document.getElementById('paidNum').textContent = paid;
+
+  // pipeline
+  // ⚠ tick.lastSync is the RAW E1 CELL — "⏱ Last sync · 4:15 PM   🟡 IDLE  22m
+  // ago". Printing it whole put the sheet's own status line inside the wall's
+  // status line (found by rendering the LIVE page, 2026-08-12). Use the
+  // MINUTES, formatted the same way every other duration on this page is.
+  var sync = num(c.lastSyncMinutes != null ? c.lastSyncMinutes : tick.lastSyncMinutes);
+  var syncTxt = sync > 0 ? fmtDur(sync) : 'now';
+  document.getElementById('pipe').innerHTML =
+    '<span>prep <b>' + num(c.prepQueueCount) + '</b></span>' +
+    '<span>zoho <b>' + num(c.zohoPending) + '</b> to pull</span>' +
+    '<span>sync <b style="color:' + (sync < 15 ? 'var(--ok)' :
+                                    (sync < 60 ? 'var(--money)' : 'var(--alarm)')) +
+    '">' + esc(syncTxt) + '</b></span>';
+
+  // channels
+  paintChannel('EBAY', 'listE', 'cntE', 'overE', rows, by, kits);
+  paintChannel('DIRECT', 'listD', 'cntD', 'overD', rows, by, kits);
+
+  // feed
+  paintFeed(c.timeline || []);
+
+  // beacon reads RAW rows
+  beaconCheck(rows);
+
+  // live + rest
+  // Same tiers as the tool, so the two surfaces can never disagree about the
+  // same pipe: <15m live · <60m idle · older stale. Off-hours a quiet sync is
+  // EXPECTED (shop closed) — resting, never alarming.
+  var off = isOffHours();
+  if (off)             setLive('rest',  'resting · ' + syncTxt);
+  else if (sync < 15)  setLive('',      'live · ' + syncTxt);
+  else if (sync < 60)  setLive('idle',  'idle · ' + syncTxt);
+  else                 setLive('stale', 'stale · ' + syncTxt);
+
+  var veil = document.getElementById('restveil');
+  var resting = off && grab <= 1;
+  veil.classList.toggle('show', resting);
+  if (resting) {
+    document.getElementById('rvLine').textContent =
+      'the floor is at rest · shipped ' + ship + ' today';
+    var h = houstonHour();
+    var opens = h >= 17 ? (24 - h + 9) : (9 - h);
+    document.getElementById('rvSub').textContent = 'opens in about ' + opens + 'h · Houston';
+  }
+  firstTick = false;
+}
+
+function kitIndex(kits) {
+  var m = {};
+  for (var i = 0; i < kits.length; i++) m[kits[i].key] = kits[i];
+  return m;
+}
+
+function paintChannel(ch, listId, cntId, overId, rows, by, kits) {
+  var mine = rows.filter(function (r) { return (r.channel === 'DIRECT' ? 'DIRECT' : 'EBAY') === ch; });
+  var kIdx = kitIndex(kits);
+
+  // counts + honesty
+  var orders = {}, nOrders = 0;
+  mine.forEach(function (r) {
+    var id = String(r.orderId || '').trim();
+    if (id && !orders[id]) { orders[id] = 1; nOrders++; }
+  });
+  var open = num(by[ch]) || mine.length;
+  var hidden = Math.max(0, open - mine.length);
+  document.getElementById(cntId).textContent = open + ' line' + (open === 1 ? '' : 's') + ' · ' + nOrders + ' orders';
+  document.getElementById(overId).textContent = hidden ? '+' + hidden + ' past the cap' : '';
+
+  if (!mine.length) {
+    document.getElementById(listId).innerHTML = '<li class="none">nothing open</li>';
+    return;
+  }
+
+  // kits per order — spine only when an order holds MORE THAN ONE kit
+  var kitsPerOrder = {};
+  mine.forEach(function (r) {
+    var id = String(r.orderId || '').trim();
+    if (!id || !r.kit) return;
+    (kitsPerOrder[id] = kitsPerOrder[id] || {})[r.kit] = 1;
+  });
+
+  var html = '', prev = null;
+  for (var i = 0; i < mine.length; i++) {
+    var r = mine[i];
+    var oid = String(r.orderId || '').trim();
+    if (oid !== prev) {
+      var run = mine.filter(function (x) { return String(x.orderId || '').trim() === oid; });
+      if (oid && (ch === 'DIRECT' || run.length > 1)) {
+        var chips = '';
+        Object.keys(kitsPerOrder[oid] || {}).forEach(function (k) {
+          var kk = kIdx[oid + '|' + k];
+          if (!kk) return;
+          chips += '<span class="kitchip k' + (num(kk.hue) % 2) + (num(kk.dash) ? ' kd' : '') + '"><i></i>' +
+                   esc(k) + ' · ' + num(kk.done) + '/' + num(kk.total) + '</span>';
+        });
+        if (run.some(function (x) { return x.isKit; })) {
+          chips += '<span class="kitchip k0"><i></i>KIT · decide</span>';
+        }
+        var age = orderAgeText(oid);
+        html += '<li class="wband"><span class="band-id">' + esc(oid) + '</span>' +
+                '<span class="band-n">' + run.length + ' line' + (run.length > 1 ? 's' : '') + '</span>' +
+                chips +
+                '<span class="age' + (age.late ? ' late' : '') + '">' + esc(age.text) + '</span></li>';
+      }
+      prev = oid;
+    }
+    html += wallRow(r, kitsPerOrder[oid] || {}, kIdx, oid);
+  }
+  document.getElementById(listId).innerHTML = html;
+}
+
+var orderAge = {};
+function orderAgeText(oid) {
+  var m = orderAge[oid];
+  if (m === undefined) return { text: '', late: false };
+  return { text: fmtDur(m), late: m >= REDLINE_MIN };
+}
+
+function wallRow(r, orderKits, kIdx, oid) {
+  var loc = String(r.location || '').trim();
+  var shelf;
+  if (!loc || loc.toUpperCase() === 'NOT FOUND') shelf = '<span class="wshelf gone">—</span>';
+  else if (loc.indexOf('/') !== -1) {
+    shelf = '<span class="wshelf dual">' +
+      loc.split('/').map(function (s) { return esc(s.trim()); }).join('<i>/</i>') + '</span>';
+  } else {
+    var p = loc.match(/^(.*?)\s*(\*\s*\d+)$/);
+    shelf = p ? '<span class="wshelf">' + esc(p[1]) + ' <small>' + esc(p[2]) + '</small></span>'
+              : '<span class="wshelf">' + esc(loc) + '</span>';
+  }
+  var spine = '';
+  if (r.kit && Object.keys(orderKits).length > 1) {
+    var kk = kIdx[oid + '|' + r.kit];
+    if (kk) spine = ' kit-' + (num(kk.hue) % 2) + (num(kk.dash) ? ' kit-dash' : '');
+  }
+  var prep = String(r.status).toUpperCase() === 'PREPARING';
+  var qn = num(r.qty) || 1;
+  var noted = !!humanNote(r.note);
+  return '<li class="wrow' + spine + (prep ? ' prep-row' : '') + (noted ? ' noted' : '') + '">' +
+    shelf +
+    '<span class="wsku">' + esc(r.sku || '') + (r.isKit ? '<span class="kitflag">KIT</span>' : '') + '</span>' +
+    '<span class="wqty' + (qn > 1 ? ' multi' : '') + '">×' + qn + '</span>' +
+    '<span class="wst">' + (prep ? 'Prep' : '') + '</span></li>';
+}
+
+function paintFeed(timeline) {
+  if (!timeline.length) return;
+  var sorted = timeline.slice().sort(function (x, y) { return (y.hourFraction || 0) - (x.hourFraction || 0); });
+  var rows = [], gidx = {};
+  for (var i = 0; i < sorted.length; i++) {
+    var ev = sorted[i], gk = String(ev.event) + '|' + String(ev.orderId);
+    if (gidx[gk] !== undefined) { rows[gidx[gk]]._n++; }
+    else { var cp = { event: ev.event, orderId: ev.orderId, hourFraction: ev.hourFraction, _n: 1 };
+           gidx[gk] = rows.length; rows.push(cp); }
+  }
+  rows = rows.slice(0, 14);
+  var tag = function (e) {
+    switch (String(e).toUpperCase()) {
+      case 'RECEIVED': return ['new', 'Received'];
+      case 'SHIPPED': return ['ship', 'Shipped'];
+      case 'CANCELED': return ['cancel', 'Canceled'];
+      case 'PREPARING': return ['', 'Prepping'];
+      case 'PRINTED': return ['', 'Printed'];
+      default: return ['', e || '—'];
+    }
+  };
+  var html = '';
+  for (var j = 0; j < rows.length; j++) {
+    var e = rows[j], t = tag(e.event);
+    var label = e.orderId ? (e.orderId + (e._n > 1 ? ' · ' + e._n + ' items' : '')) : (e._n > 1 ? e._n + ' items' : '—');
+    html += '<li><time>' + esc(fmtClock(e.hourFraction)) + '</time>' +
+            '<span class="ftag ' + t[0] + '">' + esc(t[1]) + '</span>' +
+            '<span class="fid">' + esc(label) + '</span>' +
+            '<span class="fch">' + esc(inferChannel(e.orderId)) + '</span></li>';
+  }
+  document.getElementById('feedList').innerHTML = html;
+}
+
+tickClock();
+poll();
+</script>
+</body>
+</html>
