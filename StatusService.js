@@ -328,6 +328,34 @@ function _resolveStatusTargetRows(sheet, target, lastRow) {
     return rows;
   }
 
+  // ⚠ ONE LINE of an order: { orderId, sku }.
+  //
+  // Resolved HERE, inside updateOrderStatus's lock, and deliberately NOT by the
+  // caller passing row numbers. A client that polls cannot hold a row number
+  // safely — an insert between its read and this write shifts every row below,
+  // which is precisely the 2026-05-08 incident where a status landed on the
+  // wrong order. Order id + SKU are immutable values, so resolving them under
+  // the lock is race-free by construction.
+  //
+  // Matching rows ALL flip: two lines of the same SKU on one order are the same
+  // physical grab, so a picker who takes them means both.
+  if (target && typeof target === 'object' &&
+      typeof target.orderId === 'string' && typeof target.sku === 'string') {
+    var wantSo  = String(target.orderId).trim().toLowerCase();
+    var wantSku = String(target.sku).trim().toLowerCase();
+    if (!wantSo || !wantSku) return [];
+    var span = sheet.getRange(Schema.dataStartRow, 1,
+                              lastRow - Schema.dataStartRow + 1,
+                              Schema.dataWidth).getValues();
+    var hit = [];
+    for (var h = 0; h < span.length; h++) {
+      if (String(span[h][Schema.idx("SALES_ORDER")]).trim().toLowerCase() !== wantSo) continue;
+      if (String(span[h][Schema.idx("SKU")]).trim().toLowerCase() !== wantSku) continue;
+      hit.push(Schema.dataStartRow + h);
+    }
+    return hit;
+  }
+
   // Array of row numbers
   if (Array.isArray(target)) {
     return target.filter(function(r) {

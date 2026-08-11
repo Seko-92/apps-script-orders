@@ -89,9 +89,19 @@ function doPost(e) {
       return ContentService.createTextOutput(JSON.stringify(getDashboardTick()))
         .setMimeType(ContentService.MimeType.JSON);
     }
+    if (payload.action === 'boardAdjust') {
+      return ContentService.createTextOutput(JSON.stringify(
+        boardAdjustStock(payload.sku, payload.target, payload.orderId)
+      )).setMimeType(ContentService.MimeType.JSON);
+    }
+    if (payload.action === 'boardLeft') {
+      return ContentService.createTextOutput(JSON.stringify(
+        boardSetLeft(payload.orderId, payload.sku, payload.count)
+      )).setMimeType(ContentService.MimeType.JSON);
+    }
     if (payload.action === 'boardStatus') {
       return ContentService.createTextOutput(JSON.stringify(
-        boardSetStatus(payload.orderId, payload.status)
+        boardSetStatus(payload.orderId, payload.status, payload.sku)
       )).setMimeType(ContentService.MimeType.JSON);
     }
     // --- HOSTED KIT EXPANSION (web-app slice 2) --------------------------------

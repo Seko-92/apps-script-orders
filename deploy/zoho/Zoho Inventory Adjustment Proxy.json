@@ -1,0 +1,325 @@
+{
+  "name": "Zoho Inventory Adjustment Proxy",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Zoho Inventory Adjustment Proxy\n\nCorrects ONE SKU's on-hand quantity from a physical count.\nApps Script → here → Zoho POST /inventoryadjustments\n\n### BEFORE THIS RUNS\n1. **Mint a NEW Zoho refresh token** with scope\n   `ZohoInventory.inventoryadjustments.CREATE,ZohoInventory.items.READ`\n   (items.READ is needed to read stock_on_hand before adjusting).\n   Self Client → same dance as the price-write token.\n2. Paste it into **Get Access Token** below.\n   ⚠ Do NOT reuse the price token. Separate tokens mean the stock path\n   cannot rewrite prices and the price path cannot move stock — either\n   can be revoked without touching the other.\n3. Bind the existing **Header Auth account** credential on the Webhook.\n4. Activate.\n\n### THE ONE UNKNOWN\nZoho may require `adjustment_account_id` on the line item for a\nquantity adjustment, depending on the org's accounting setup. If the\nfirst call errors about an account, read the id from Zoho → Settings →\nChart of Accounts (an 'Inventory Adjustments' / COGS account) and add\nit in **Post Adjustment**. Left out on purpose rather than guessed.\n\n### TEST IT ON A JUNK SKU FIRST\nExactly how the price write was proven.",
+        "height": 620,
+        "width": 460
+      },
+      "id": "note-1",
+      "name": "📌 Setup notes",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -360,
+        40
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "zoho-stock-adjust",
+        "authentication": "headerAuth",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "wh-1",
+      "name": "🔔 Webhook (from Apps Script)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        160,
+        300
+      ],
+      "webhookId": "zoho-stock-adjust",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "2BmoxH9c3WtbdS9x",
+          "name": "Header Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// ✅ Validate — fail fast, before any Zoho call.\nconst b = $json.body || $json;\nconst itemId = String(b.item_id || '').trim();\nconst sku    = String(b.sku || '').trim();\nconst target = parseFloat(b.target);\nconst maxDel = parseFloat(b.max_delta) || 50;\nconst reason = String(b.reason || 'Physical count').slice(0, 200);\n\nif (!itemId)                    throw new Error('Missing item_id');\nif (!isFinite(target))          throw new Error('target must be a number');\nif (target < 0 || target > 10000) throw new Error(`target ${target} outside sanity bounds [0, 10000]`);\n\nreturn [{ json: { itemId, sku, target, maxDel, reason } }];"
+      },
+      "id": "val-1",
+      "name": "✅ Validate Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        380,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://accounts.zoho.com/oauth/v2/token",
+        "sendBody": true,
+        "contentType": "form-urlencoded",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "grant_type",
+              "value": "refresh_token"
+            },
+            {
+              "name": "refresh_token",
+              "value": "PASTE_ADJUSTMENT_SCOPED_REFRESH_TOKEN_HERE"
+            },
+            {
+              "name": "client_id",
+              "value": "PASTE_CLIENT_ID_HERE"
+            },
+            {
+              "name": "client_secret",
+              "value": "PASTE_CLIENT_SECRET_HERE"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "tok-1",
+      "name": "🔑 Get Access Token",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        600,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://www.zohoapis.com/inventory/v1/items/{{ $('✅ Validate Input').first().json.itemId }}?organization_id=803368514",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Zoho-oauthtoken {{ $json.access_token }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "get-1",
+      "name": "📖 Read Current Stock",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        820,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// 🧮 Read Zoho's CURRENT stock, then turn the target into a DELTA.\n//\n// ⚠ THIS IS WHY THE PROXY READS BEFORE IT WRITES. Zoho's adjustment API takes\n// `quantity_adjusted` — a CHANGE, not a new total. Computing that change in\n// Apps Script against the Zoho Stock mirror would use a number up to two\n// minutes old, and any sale in that window would land a wrong correction.\n// Read and write inside ONE execution and the arithmetic is against live data.\nconst v    = $('✅ Validate Input').first().json;\nconst item = $json.item || {};\nconst before = parseFloat(item.stock_on_hand);\n\nif (!isFinite(before)) {\n  throw new Error('Could not read stock_on_hand for item ' + v.itemId + ' — refusing to adjust blind');\n}\n\nconst delta = +(v.target - before).toFixed(4);\n\n// Already correct is a SUCCESS, not a failure — and the most common answer.\nif (delta === 0) {\n  return [{ json: { noop: true, before, target: v.target, delta: 0, sku: v.sku,\n                    name: item.name || '',\n                    message: `${v.sku || v.itemId} already at ${before} — nothing to adjust` } }];\n}\n\n// ⚠ Enforced HERE as well as in Apps Script. A guard that lives only in the\n// caller is a guard that a future caller forgets.\nif (Math.abs(delta) > v.maxDel) {\n  throw new Error(\n    `Refusing: ${v.sku || v.itemId} would move ${delta > 0 ? '+' : ''}${delta} ` +\n    `(${before} → ${v.target}), beyond the ${v.maxDel} limit. ` +\n    `A swing this size is far more likely a miscount or the wrong SKU than a real ` +\n    `discrepancy, and it reaches eBay within minutes. Re-count, or force it deliberately.`);\n}\n\nreturn [{ json: { noop: false, before, target: v.target, delta, sku: v.sku,\n                  itemId: v.itemId, reason: v.reason, name: item.name || '' } }];"
+      },
+      "id": "dlt-1",
+      "name": "🧮 Compute Delta",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1040,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "operator": {
+                "type": "boolean",
+                "operation": "false",
+                "singleValue": true
+              },
+              "leftValue": "={{ $json.noop }}",
+              "rightValue": ""
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-1",
+      "name": "🆕 Needs adjusting?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1260,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://www.zohoapis.com/inventory/v1/inventoryadjustments?organization_id=803368514",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Zoho-oauthtoken {{ $('🔑 Get Access Token').first().json.access_token }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ date: $now.toFormat('yyyy-MM-dd'), reason: $json.reason, adjustment_type: 'quantity', description: 'HQ Floor Board physical count · ' + $json.sku, line_items: [ { item_id: $json.itemId, quantity_adjusted: $json.delta } ] }) }}",
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "id": "post-1",
+      "name": "✏️ Post Adjustment",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1480,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// 📤 Report what actually moved — before, after, and Zoho's own record id.\nconst d = $('🧮 Compute Delta').first().json;\nif (d.noop) return [{ json: { ok: true, noop: true, ...d } }];\n\nconst adj = ($json.inventory_adjustment) || {};\nreturn [{ json: {\n  ok: true,\n  noop: false,\n  sku: d.sku,\n  name: d.name,\n  before: d.before,\n  after: d.target,\n  delta: d.delta,\n  adjustment_id: adj.inventory_adjustment_id || '',\n  message: `${d.sku || d.itemId}: ${d.before} → ${d.target} (${d.delta > 0 ? '+' : ''}${d.delta})`\n} }];"
+      },
+      "id": "shape-1",
+      "name": "📦 Shape Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1700,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "allIncomingItems",
+        "options": {}
+      },
+      "id": "resp-1",
+      "name": "📤 Respond to Caller",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        1920,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "🔔 Webhook (from Apps Script)": {
+      "main": [
+        [
+          {
+            "node": "✅ Validate Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "✅ Validate Input": {
+      "main": [
+        [
+          {
+            "node": "🔑 Get Access Token",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🔑 Get Access Token": {
+      "main": [
+        [
+          {
+            "node": "📖 Read Current Stock",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "📖 Read Current Stock": {
+      "main": [
+        [
+          {
+            "node": "🧮 Compute Delta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🧮 Compute Delta": {
+      "main": [
+        [
+          {
+            "node": "🆕 Needs adjusting?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🆕 Needs adjusting?": {
+      "main": [
+        [
+          {
+            "node": "✏️ Post Adjustment",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "📦 Shape Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "✏️ Post Adjustment": {
+      "main": [
+        [
+          {
+            "node": "📦 Shape Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "📦 Shape Result": {
+      "main": [
+        [
+          {
+            "node": "📤 Respond to Caller",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "active": false,
+  "pinData": {},
+  "tags": []
+}

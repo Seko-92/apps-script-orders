@@ -53,12 +53,6 @@
       --mute-soft:    rgba(245,245,242,0.30);
       --mute-faint:   rgba(245,245,242,0.12);
       --rule:         rgba(255,212,0,0.16);
-      /* Height of the sticky channel section head. Load-bearing: .pick-head
-         sticks at exactly this offset, so the two are one number, not two. */
-      /* height of the channel header — the ONE sticky element per column */
-      --sec-h:        44px;
-      /* the rail that ties an order's band to its rows */
-      --grp:          rgba(245,245,242,0.22);
       --dawn:         0;    /* 0 deep night .. 1 about to open — driven by JS */
     }
 
@@ -966,18 +960,10 @@
     .pick-row {
       display: flex;
       flex-direction: column;
-      gap: 4px;
-      /* The 44px ✓ Pick button already sets the row's floor, so padding here
-         buys nothing but scroll. Trimmed to give the list back ~1 row per
-         screen without touching a single touch target. */
-      padding: 6px 18px;
-      border-bottom: 1px solid rgba(245,245,242,0.07);
+      gap: 5px;
+      padding: 10px 22px;
+      border-bottom: 1px solid var(--mute-faint);
     }
-    /* ⚠ ONE LEFT EDGE, ONE MEANING, IN PRIORITY ORDER.
-       Membership is the quiet default; an exception overrides it, because a
-       broken row must never be mistaken for an ordinary member of a group.
-       Source order IS the priority here — do not reorder these three. */
-    .pick-row.in-group { box-shadow: inset 3px 0 0 var(--grp); }
     .pick-row.noted { box-shadow: inset 3px 0 0 var(--brand-yellow); }
     /* ⚠ FIXED LANES, not `auto`. Every row is its OWN grid, so an `auto`
        column sizes to that row's content only — a ×10 qty chip is wider than
@@ -986,31 +972,12 @@
        staggered, and a list whose whole job is to be scanned top-to-bottom
        cannot afford a ragged left edge on any column. Fixed widths make the
        lanes line up the way a printed pick list does. */
-    /* ⚠ NAMED AREAS, NOT AUTO-PLACEMENT. Auto-placement puts children in the
-       next free column, so a row WITHOUT a ✓ Pick button (a PREPARING line)
-       used to drop its PREP marker one lane left of where every button sat —
-       the action column was straight only for the rows that had a button.
-       Named areas pin PREP and ✓ Pick to the same lane by construction.
-       The COUNT lane is the wide one: on a full-width row it takes the space
-       that was previously several hundred pixels of nothing between the order
-       id and the button, and on rows with no count it simply absorbs it as
-       before, so the button column never moves. */
     .pick-main {
       display: grid;
-      /* minmax(0,…) not a bare 1fr — a bare 1fr floors at max-content, so a
-         long count line could push the action column off the right edge. */
-      grid-template-columns: 124px 112px 54px auto minmax(0, 1fr) auto;
-      grid-template-areas: "loc sku qty meta count act";
+      grid-template-columns: 108px 92px 54px 1fr auto auto;
       align-items: center;
-      gap: 12px;
+      gap: 14px;
     }
-    .pick-loc    { grid-area: loc; }
-    .pick-sku    { grid-area: sku; }
-    .pick-qty    { grid-area: qty; }
-    .pick-meta   { grid-area: meta; }
-    .pick-count  { grid-area: count; }
-    .pick-status { grid-area: act; }
-    .pick-do     { grid-area: act; }
     /* console action — mark picked (PENDING → PREPARING) */
     /* 44px MINIMUM — this is the only write action on the board, it sits
        inches from a row that is itself tappable, and a mis-tap silently flips
@@ -1085,240 +1052,11 @@
       color: var(--brand-rim);
       letter-spacing: 0.01em;
       white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
     }
-    /* "NOT FOUND" or "G-35 * 2" is ~2x the width of "J-27". Step the type down
-       rather than let it run under the SKU, or widen the lane for everyone and
-       lose the space the meta column needs. */
-    .pick-loc.long  { font-size: 17px; }
-    .pick-loc.xlong { font-size: 15px; letter-spacing: 0; }
-    /* The pack-size suffix is a warehouse note, not part of the routing key —
-       it stops competing with the aisle it is attached to. */
-    .pick-loc .loc-pack { color: var(--mute-soft); font-weight: 400; }
-    /* TWO SHELVES, one lane. The divider recedes so the two places read as two
-       things rather than one long code. */
-    .pick-loc.dual .loc-sep {
-      font-style: normal;
-      font-weight: 400;
-      color: var(--mute-soft);
-      padding: 0 3px;
-    }
-    .pick-loc.dual .loc-tok { font-weight: 700; }
-
-    /* ─────────── ◩ SHELF COUNT ───────────
-       A second line under the row, not another column — the row grid is
-       already six lanes and this appears on a minority of rows. It reads as an
-       aside to the line above it, which is exactly what it is. */
-    /* Inline on the row now, so a counted line is the SAME HEIGHT as any
-       other. That was the other half of the ragged-rhythm complaint: rows with
-       a count were twice the height of rows without, and the list lost its
-       beat. It wraps to its own line again on a phone (see the 620 block),
-       where there is no width to spare. */
-    .pick-count {
-      display: flex;
-      align-items: center;
-      flex-wrap: wrap;
-      gap: 8px;
-      font-family: 'Roboto Mono', monospace;
-      font-size: 12px;
-      color: var(--mute);
-      min-width: 0;
-    }
-    .pc-sys { white-space: nowrap; }
-    .pc-other { color: var(--amber-warn); opacity: 0.9; cursor: help; }
-    .pc-dev   { color: var(--red-alert); font-weight: 700; }
-    .pc-short { color: var(--amber-warn); }
-    .pc-btn {
-      font-family: 'Oswald', sans-serif;
-      font-size: 11px;
-      letter-spacing: 0.1em;
-      text-transform: uppercase;
-      color: var(--mute);
-      background: transparent;
-      border: 1px solid var(--mute-faint);
-      border-radius: 6px;
-      /* 32px, not 44 — this is a deliberate, unhurried action on a minority of
-         rows, and it sits nowhere near ✓ Pick's lane, so it cannot be caught
-         by a mis-tap aimed at the one button that changes an order. */
-      min-height: 32px;
-      padding: 0 12px;
-      cursor: pointer;
-    }
-    .pc-btn:hover { color: var(--brand-rim); border-color: var(--brand-rim); }
-    .pc-btn.has   { color: var(--paper); border-color: var(--mute-soft); }
-    .pc-btn:disabled { opacity: 0.5; cursor: default; }
-    /* Amber, not red and not green: this is a legitimate correction, not a
-       destructive act and not a routine confirm. Same reasoning that made
-       Force Expand amber rather than danger-red. */
-    .pc-adj {
-      font-family: 'Oswald', sans-serif;
-      font-size: 11px;
-      letter-spacing: 0.1em;
-      text-transform: uppercase;
-      color: var(--amber-warn);
-      background: rgba(255,184,77,0.10);
-      border: 1px solid rgba(255,184,77,0.45);
-      border-radius: 6px;
-      min-height: 32px;
-      padding: 0 12px;
-      cursor: pointer;
-    }
-    .pc-adj:hover { background: rgba(255,184,77,0.20); color: #fff; }
-    .pc-adj:disabled { opacity: 0.5; cursor: default; }
-    /* A second correction is legitimate but rarer — quieter than the first. */
-    .pc-adj.again { color: var(--mute); background: transparent;
-                    border-color: var(--mute-faint); }
-    .pc-adj.again:hover { color: var(--amber-warn); border-color: rgba(255,184,77,0.45); }
-
-    /* THE RECEIPT. Amber while we have only our own word for it, green once
-       the board can actually SEE the number it asked for. */
-    .pc-zoho {
-      font-family: 'Oswald', sans-serif;
-      font-size: 11px; font-weight: 600;
-      letter-spacing: 0.08em; text-transform: uppercase;
-      padding: 3px 8px; border-radius: 5px; white-space: nowrap; cursor: help;
-    }
-    .pc-zoho.pending {
-      color: var(--amber-warn);
-      background: rgba(255,184,77,0.12);
-      border: 1px solid rgba(255,184,77,0.4);
-      animation: zohoWait 1.9s ease-in-out infinite;
-    }
-    .pc-zoho.done {
-      color: var(--green-soft);
-      background: rgba(76,175,80,0.14);
-      border: 1px solid rgba(76,175,80,0.45);
-    }
-    @keyframes zohoWait { 0%,100% { opacity: 1 } 50% { opacity: 0.55 } }
-    @media (prefers-reduced-motion: reduce) { .pc-zoho.pending { animation: none } }
-
-    @media (max-width: 620px) {
-      .pick-count { padding-left: 12px; }
-    }
-
-    /* ─────────── THE NUMBER PAD ───────────
-       Same frosted-veil language as the sheet's commit modals, so the two
-       surfaces read as one product. */
-    .numpad {
-      position: fixed; inset: 0; z-index: 60;
-      display: flex; align-items: center; justify-content: center;
-      padding: 20px;
-      background: rgba(14,14,13,0.72);
-      -webkit-backdrop-filter: blur(4px) saturate(0.9);
-              backdrop-filter: blur(4px) saturate(0.9);
-    }
-    .np-card {
-      width: 100%; max-width: 400px;
-      background: var(--ink-card);
-      border: 1px solid var(--ink-rim);
-      border-top: 3px solid var(--brand-yellow);
-      border-radius: 16px;
-      padding: 18px 18px 16px;
-      box-shadow: 0 24px 60px rgba(0,0,0,0.6);
-    }
-    .np-card.adjust { border-top-color: var(--amber-warn); }
-    .np-title {
-      font-family: 'Oswald', sans-serif; font-weight: 700;
-      font-size: 17px; letter-spacing: 0.14em; text-transform: uppercase;
-      color: var(--brand-yellow);
-    }
-    .np-card.adjust .np-title { color: var(--amber-warn); }
-    .np-sub {
-      font-family: 'Roboto Mono', monospace; font-size: 13px;
-      color: var(--mute); margin-top: 3px;
-    }
-    .np-context {
-      font-family: 'Roboto Mono', monospace; font-size: 12.5px;
-      line-height: 1.65; color: var(--mute);
-      border-top: 1px solid var(--mute-faint);
-      margin-top: 12px; padding-top: 10px; white-space: pre-wrap;
-    }
-    .np-context b { color: var(--paper); font-weight: 700; }
-    .np-context i { color: var(--amber-warn); font-style: normal; }
-    .np-value {
-      font-family: 'Roboto Mono', monospace; font-weight: 700;
-      font-size: 46px; line-height: 1.1; text-align: center;
-      color: var(--paper); margin: 14px 0 2px;
-      border-bottom: 2px solid var(--mute-faint); padding-bottom: 8px;
-    }
-    .np-value.blank { color: var(--mute-soft); }
-    .np-note {
-      font-family: 'Roboto Mono', monospace; font-size: 11.5px;
-      text-align: center; color: var(--mute-soft); min-height: 16px;
-      margin-top: 6px;
-    }
-    .np-keys {
-      display: grid; grid-template-columns: repeat(3, 1fr);
-      gap: 8px; margin-top: 12px;
-    }
-    .np-key {
-      font-family: 'Roboto Mono', monospace; font-weight: 700; font-size: 22px;
-      /* 58px — comfortably past the 44px floor. This gets used mid-pick, one
-         handed, and a mis-key here writes a wrong stock number. */
-      min-height: 58px;
-      color: var(--paper);
-      background: rgba(245,245,242,0.05);
-      border: 1px solid var(--mute-faint);
-      border-radius: 10px; cursor: pointer;
-      transition: background 0.12s, transform 0.06s;
-    }
-    .np-key:hover  { background: rgba(245,245,242,0.11); }
-    .np-key:active { transform: scale(0.95); }
-    .np-key.fn { font-family: 'Oswald', sans-serif; font-size: 14px;
-                 letter-spacing: 0.08em; color: var(--mute); }
-    .np-actions { display: grid; grid-template-columns: 1fr 1.3fr; gap: 8px; margin-top: 12px; }
-    .np-btn {
-      font-family: 'Oswald', sans-serif; font-weight: 600; font-size: 14px;
-      letter-spacing: 0.1em; text-transform: uppercase;
-      min-height: 50px; border-radius: 10px; cursor: pointer;
-    }
-    .np-cancel { background: transparent; border: 1px solid var(--mute-faint); color: var(--mute); }
-    .np-cancel:hover { color: var(--paper); border-color: var(--mute-soft); }
-    .np-ok {
-      background: rgba(76,175,80,0.18); border: 1px solid rgba(76,175,80,0.5);
-      color: var(--green-soft);
-    }
-    .np-ok:hover { background: rgba(76,175,80,0.3); color: #fff; }
-    .np-card.adjust .np-ok {
-      background: rgba(255,184,77,0.16); border-color: rgba(255,184,77,0.5);
-      color: var(--amber-warn);
-    }
-    .np-card.adjust .np-ok:hover { background: rgba(255,184,77,0.28); color: #fff; }
-    .np-btn:disabled { opacity: 0.45; cursor: default; }
-
-    @media (max-width: 620px) {
-      .np-key { min-height: 52px; font-size: 20px; }
-      .np-value { font-size: 40px; }
-    }
-
-    /* ─────────── MOUSE AFFORDANCES ───────────
-       The board is touch-first, so the tap targets carried `title` text that
-       only ever surfaced on the desk board — where it popped an OS tooltip
-       over the sticky order band. Hover styling says the same thing without
-       painting over anything, and is invisible on a tablet. */
-    .pick-row:hover { background: rgba(245,245,242,0.035); }
-    .pick-sku, .pick-meta { cursor: pointer; }
-    .pick-sku:hover  { color: var(--brand-yellow); }
-    .pick-meta:hover { color: var(--brand-rim); text-decoration: underline; }
     .pick-loc.missing { color: var(--red-alert); font-weight: 500; font-size: 15px; }
     /* No shelf = this row cannot be walked. Make it look wrong at a glance
        rather than only on reading it. */
-    /* ⚠ A MISSING SHELF IS NOT A FAULT — corrected from the floor 2026-08-11.
-       Plenty of parts legitimately have no location recorded, so painting the
-       whole row red said "something is wrong here" about a perfectly normal
-       line, every time. Red is the loudest thing this board has and it was
-       being spent on the most common non-event.
-       It now reads as ABSENT rather than BROKEN: the shelf text dims, and the
-       row is left alone. The red row treatment moved to the one thing that
-       genuinely warrants it — see .pick-row.deviance. */
-    .pick-row.noloc { background: none; }
-    .pick-loc.missing { color: var(--mute-soft); font-weight: 400; }
-
-    /* THE COUNTED SHELF THAT DISAGREES. Rare, actionable, and the reason the
-       count feature exists — so this is what earns the alarm colour. */
-    .pick-row.deviance { background: rgba(255,107,107,0.055); }
-    .pick-row.deviance { box-shadow: inset 3px 0 0 var(--red-alert); }
+    .pick-row.noloc { background: rgba(255,107,107,0.05); box-shadow: inset 3px 0 0 var(--red-alert); }
     /* Unexpanded kit — not pickable off a shelf until someone decides.
        Outlined rather than filled so it reads as a NOTE on the SKU, not as a
        third status competing with GRAB / PREP at the end of the row. */
@@ -1369,18 +1107,8 @@
        floor note or a missing shelf stacks outboard at 3→6px and loses
        nothing: both already carry their own text or background too. */
     .pick-row { position: relative; }
-    /* ⚠ THE THREAD ONLY APPEARS WHEN IT TELLS THEM APART.
-       A DIRECT order that IS one kit had a coloured spine on every one of its
-       rows — the same fact repeated five times, which is precisely why GRAB
-       was deleted from all eleven lines. Worse, the dashed variant read as a
-       rendering fault rather than a deliberate mark; it was reported as a bug,
-       and that reading was fair.
-       The order group now answers "which rows go in one box". The thread is
-       kept for the ONLY case the group cannot answer: an order carrying TWO OR
-       MORE kits, where you do need to know which parts belong to which box.
-       It sits OUTBOARD of the group rail so both can be read at once. */
     .pick-row.kitted::before {
-      content: ''; position: absolute; left: 3px; top: 0; bottom: 0;
+      content: ''; position: absolute; left: 0; top: 0; bottom: 0;
       width: 3px; background: var(--kc); pointer-events: none;
     }
     .pick-row.kitted.kit-dash::before {
@@ -1388,18 +1116,12 @@
         to bottom, var(--kc) 0 8px, transparent 8px 15px);
     }
     .pick-row.kitted.noted { box-shadow: inset 6px 0 0 var(--brand-yellow); }
-    .pick-row.kitted.deviance { box-shadow: inset 6px 0 0 var(--red-alert); }
+    .pick-row.kitted.noloc { box-shadow: inset 6px 0 0 var(--red-alert); }
 
     /* THE STRIP — completeness, which is ONE fact about the kit and therefore
        is not repeated on every row (the same reason GRAB was deleted from all
        eleven lines). Present only while something is still missing. */
-    /* Sits ABOVE both channel headers, so it has to read as a quieter
-       different thing — a note about work in progress, not a third table. */
-    .kitstrip {
-      flex: 0 0 auto;
-      border-bottom: 1px solid var(--mute-faint);
-      opacity: 0.82;
-    }
+    .kitstrip { flex: 0 0 auto; border-bottom: 1px solid var(--mute-faint); }
     .kitstrip.hidden { display: none; }
     .kitline {
       position: relative;
@@ -1440,273 +1162,35 @@
        rows, which is the same redundancy that got GRAB deleted.
        ⚠ AGE MODE ONLY. In aisle order consecutive rows are usually different
        orders, so a header per row would be pure noise. */
-    /* ⚠ THE BAND IS A LABEL FOR THE GROUP BELOW IT, NOT A DIVIDER.
-       It used to be a full-width tinted strip with its own bottom border —
-       the same silhouette as the channel header above and the kit strip above
-       that, so the list arrived as a stack of near-identical bars and the eye
-       had nothing to rank. Now it reads as the top edge of its own group:
-       quiet ground, and a RAIL it shares with its rows (see .in-group) so the
-       band and the lines under it are visibly one object — which is what the
-       sheet's gold box and the print's order band both do.
-       The GAP above is what separates one order from the next. Proximity is
-       the most reliable grouping cue there is and it costs no ink. */
     .pick-head {
-      display: flex; align-items: center; gap: 10px;
-      padding: 9px 18px 7px;
-      margin-top: 12px;
-      background: transparent;
-      box-shadow: inset 3px 0 0 var(--grp);
+      display: flex; align-items: center; gap: 12px;
+      padding: 7px 22px;
+      background: rgba(245,245,242,0.04);
+      border-bottom: 1px solid var(--mute-faint);
+      box-shadow: inset 3px 0 0 var(--mute-soft);
       cursor: pointer;
     }
-    .pick-sec + .pick-head { margin-top: 0; }
-    .pick-head:hover { background: rgba(245,245,242,0.05); }
+    .pick-head:hover { background: rgba(245,245,242,0.07); }
     .ph-id {
       font-family: 'Roboto Mono', monospace;
-      font-size: 12.5px; font-weight: 700;
-      color: rgba(245,245,242,0.82); letter-spacing: 0.02em; white-space: nowrap;
+      font-size: 13px; font-weight: 700;
+      color: var(--paper); letter-spacing: 0.02em; white-space: nowrap;
     }
     .ph-meta {
       font-family: 'Oswald', sans-serif;
-      font-size: 10.5px; letter-spacing: 0.1em; text-transform: uppercase;
-      color: var(--mute-soft); white-space: nowrap;
+      font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase;
+      color: var(--mute); white-space: nowrap;
     }
     .ph-age {
       margin-left: auto;
       font-family: 'Roboto Mono', monospace;
       font-size: 12px; color: var(--mute); white-space: nowrap;
     }
-    /* past the 3h redline — same threshold the OLDEST WAITING card paints.
-       Overrides the group rail: lateness outranks membership. */
+    /* past the 3h redline — same threshold the OLDEST WAITING card paints */
     .pick-head.late { box-shadow: inset 3px 0 0 var(--red-alert); }
     .pick-head.late .ph-age { color: var(--red-alert); }
-
-    /* ─────────── THE ORDER ACCORDION (DIRECT only) ───────────
-       A DIRECT order is a box you assemble one at a time, so the section's
-       native shape is a stack of boxes with one open — NOT a flat list with a
-       mode switch over it. No toggle, no preference to set before working, and
-       nothing for a shared tablet to inherit from the last picker.
-
-       ⚠ A SHUT CARD MUST STILL NAME ITS AISLES. This board's standing rule is
-       that a list which looks complete but isn't is worse than one that admits
-       it, so collapsing must never be the same as hiding: the shut line always
-       carries the line count AND the shelves still to walk, which is exactly
-       the kit strip's proven "name the aisle, that is the actionable part". */
-    .ph-tog {
-      font-size: 11px;
-      color: var(--mute);
-      width: 10px;
-      flex: 0 0 10px;
-      transition: transform 0.16s ease, color 0.16s;
-    }
-    .pick-head:hover .ph-tog { color: var(--brand-rim); }
-    .pick-head.shut .ph-tog { transform: rotate(-90deg); }
-    .ph-aisles {
-      font-family: 'Roboto Mono', monospace;
-      font-size: 12px;
-      color: var(--brand-rim);
-      letter-spacing: 0.02em;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      min-width: 0;
-      flex: 1 1 auto;
-    }
-    /* the id is its own target — tap it for the order, tap anywhere else to
-       open/shut. Mirrors the rows, where the SKU and the order id are the two
-       taps and the row itself is not one. */
-    .ph-id { cursor: pointer; }
-    .ph-id:hover { color: var(--brand-yellow); }
-    /* An open card gets a hairline down its whole body so the box reads as one
-       object, the way the sheet's gold box and the print's order band do. */
-    .pick-head.open { box-shadow: inset 3px 0 0 var(--brand-yellow); }
-    .pick-head.open.late { box-shadow: inset 3px 0 0 var(--red-alert); }
-    .pick-head.shut { background-image: none; }
-    /* A SPLIT order — this band covers only part of it. Red and unmistakable,
-       the same treatment the sheet gives a DIRECT order that has been broken
-       across two blocks: a damaged, continuing thing, never a tidy whole. */
-    .pick-head.split { box-shadow: inset 3px 0 0 var(--red-alert); }
-    .pick-head.split .ph-meta { color: var(--red-alert); font-weight: 600; }
     /* the header says the order, so the rows stop repeating it */
-    .pick-row.in-group .pick-meta { display: none; }
-
-    /* ─────────── THE TWO-COLUMN SPLIT ───────────
-       DEFAULT (wall board, >1200px) = one scroller, the two lists stacked
-       inside it. Byte-for-byte the behaviour the wall has always had; the
-       columns only appear where the board is a hand tool. */
-    .picksplit {
-      flex: 1;
-      min-height: 0;
-      display: flex;
-      flex-direction: column;
-      overflow-y: auto;
-    }
-    .picksplit::-webkit-scrollbar { width: 0; }
-    /* ⚠ THE COLUMNS DELIBERATELY DO NOT CARRY `.feed-list`.
-       They did at first, to reuse its list styling — and it cost two rounds of
-       chasing. `.feed-list` sets `flex: 1; overflow-y: auto` and is declared
-       ~270 lines further down, so at equal specificity it won and both columns
-       became fixed-height independent scrollers: a dead band between the
-       blocks on the wall, a clipped list on the tablet. Bumping specificity
-       fixed the cascade on paper and the live board still misbehaved.
-       So the conflict is gone by CONSTRUCTION instead: `.pickcol` owns
-       everything it needs and shares no class with a panel that wants to be a
-       scroller. Nothing 270 lines away can reach these elements now.
-       LESSON: when a rule has to out-specify another to work, prefer removing
-       the shared hook over winning the cascade — cascades get re-broken. */
-    .pickcol {
-      list-style: none;
-      flex: 0 0 auto;      /* natural height — the PARENT scrolls up here */
-      overflow: visible;
-      min-height: 0;
-      padding: 0;
-      margin: 0;
-    }
-    /* the columns need the same "there is more below" fade the feed has */
-    .pickcol.overflowing {
-      -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 46px), transparent 100%);
-              mask-image: linear-gradient(to bottom, #000 calc(100% - 46px), transparent 100%);
-    }
-    /* ⚠ flex: 0 0 auto — WITHOUT IT THIS GETS CRUSHED.
-       .picksplit is a flex column whose .pickcol children carry flex-grow, so
-       a plain block sibling keeps the default flex-shrink:1 and is squeezed to
-       a sliver. That is the message "cut in half" on the landscape tablet.
-       The columns are also taken out entirely when there is nothing to show,
-       so an empty list cannot leave a stray scroll area behind the message. */
-    .pick-none {
-      display: none;
-      flex: 0 0 auto;
-      width: 100%;
-      padding: 44px 18px;
-      text-align: center;
-    }
-    .picksplit.nothing .pick-none { display: block; }
-    .picksplit.nothing .pickcol   { display: none; }
-
-    /* ─────────── CHANNEL SWITCH (tool layout only) ───────────
-       Replaces the two section headers when only one list is on screen: the
-       lit tab IS the header, so nothing is said twice. Both counts stay
-       visible, which is the whole reason this beats simply hiding a column —
-       you never lose sight of the other job. */
-    .chantabs { display: none; }
-    .ct {
-      flex: 1 1 0;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 10px;
-      min-height: 46px;                /* > 44px — it is a primary control */
-      background: transparent;
-      border: none;
-      border-bottom: 2px solid transparent;
-      font-family: 'Oswald', sans-serif;
-      font-size: 16px;
-      letter-spacing: 0.16em;
-      text-transform: uppercase;
-      color: var(--mute);
-      cursor: pointer;
-      transition: color 0.15s, border-color 0.15s, background 0.15s;
-    }
-    .ct b {
-      font-family: 'Roboto Mono', monospace;
-      font-size: 14px;
-      font-weight: 700;
-      letter-spacing: 0;
-    }
-    .ct:hover { color: var(--paper); }
-    .ct.on { color: var(--brand-yellow); border-bottom-color: var(--brand-yellow); }
-    .ct[data-ch="DIRECT"].on { color: #cfe0e8; border-bottom-color: #8fa3ad; }
-    .ct.none { opacity: 0.42; }        /* nothing waiting on that side */
-
-    /* The nudge. It TELLS, it never MOVES you — a board that changes what you
-       are looking at while you are looking at it is the "mode with no exit"
-       mistake this board has made once already. */
-    .othernudge {
-      display: none;
-      padding: 10px 18px;
-      font-family: 'Oswald', sans-serif;
-      font-size: 13px;
-      letter-spacing: 0.1em;
-      text-transform: uppercase;
-      color: var(--brand-rim);
-      background: rgba(255,212,0,0.07);
-      border-bottom: 1px solid var(--mute-faint);
-      cursor: pointer;
-    }
-    .othernudge:hover { background: rgba(255,212,0,0.12); }
-
-    /* ─────────── CHANNEL SECTION HEAD ───────────
-       eBay and DIRECT are two different JOBS, not one list with a mixed
-       column — an eBay order is ~1 line and the aisle walk IS the work, a
-       DIRECT order is a multi-line box you assemble one order at a time.
-       The SHEET has drawn this line since the DIRECT divider existed and the
-       PRINT since the section heads; the board was the only surface that
-       flattened both into a single aisle run, so the picker had to rebuild
-       the boxes in their head as they walked.
-
-       STICKY on purpose: on a tablet this list is scrolled, and "which table
-       am I in" has to survive scrolling or the split only helps at the top. */
-    /* ⚠ THIS IS A TABLE HEADER, NOT A LABEL. First pass made it a thin strip
-       with 15px text — the same silhouette as the order bands underneath it,
-       so the eye could not tell a CHANNEL from an ORDER and the two tables
-       read as one undifferentiated run of strips. A header has to out-weigh
-       everything it governs: darker ground, bigger type, more air. Same job
-       the print's "eBay Orders / Direct Orders" section heads do on paper. */
-    .pick-sec {
-      position: sticky;
-      top: 0;
-      z-index: 3;
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      height: var(--sec-h);
-      padding: 0 18px;
-      /* MUST be opaque — rows scroll underneath it. */
-      background: var(--ink);
-      border-bottom: 2px solid var(--brand-yellow);
-      box-shadow: 0 2px 10px rgba(0,0,0,0.45);
-    }
-    .pick-sec.direct { border-bottom-color: #8fa3ad; }
-    .ps-name {
-      font-family: 'Oswald', sans-serif;
-      font-weight: 700;
-      font-size: 19px;
-      letter-spacing: 0.2em;
-      text-transform: uppercase;
-      color: var(--brand-yellow);
-      white-space: nowrap;
-      line-height: 1;
-    }
-    .pick-sec.direct .ps-name { color: #cfe0e8; }
-    .ps-count {
-      font-family: 'Roboto Mono', monospace;
-      font-size: 12px;
-      color: var(--mute);
-      white-space: nowrap;
-      margin-left: auto;          /* counts sit right, name owns the left */
-    }
-    .ps-more {
-      margin-left: auto;
-      font-family: 'Roboto Mono', monospace;
-      font-size: 12px;
-      color: var(--red-alert);
-      white-space: nowrap;
-    }
-    /* ⚠ ORDER BANDS ARE DELIBERATELY *NOT* STICKY — and this was a real bug.
-       Sibling sticky elements sharing a `top` do not push each other; each
-       pins at the same offset and the later one simply paints over the
-       earlier. With one band per order that meant two, three, four bands
-       stacked in the same 30px of screen, half-covering one another — which
-       is exactly what the 2026-08-10 desktop screenshot showed.
-       Making them push would mean giving every order its OWN containing
-       block, i.e. wrapping each group in an element — a real restructure to
-       buy an affordance almost nobody needs: in DIRECT the accordion keeps one
-       short order open, and an eBay order is 1–5 lines. So: ONE sticky element
-       per column, the channel header, which cannot collide with anything.
-       The GROUP RAIL below is what keeps a scrolled row tied to its order. */
-    .pick-head {
-      background-color: transparent;
-      background-image: none;
-    }
+    #pickList.grouped .pick-meta { display: none; }
     .kitline + .kitline { border-top: 1px solid var(--mute-faint); }
     .kitline:hover { background: rgba(245,245,242,0.05); }
     .kit-name {
@@ -1734,45 +1218,31 @@
       white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     }
 
-    /* ⚠ NO ELLIPSIS HERE, AND THE LANE FITS THE BADGE.
-       The KIT badge renders INSIDE this element, so a 92px lane clipped
-       "159093 KIT" down to "159093 …" — the picker lost the one marker that
-       says "this is not a box on a shelf, it needs a decision" and saw a
-       meaningless ellipsis instead. A six-digit SKU never needs truncating;
-       what it needs is room for its badge. */
     .pick-sku {
       font-family: 'Roboto Mono', monospace;
       font-size: 15px;
       color: var(--paper);
       white-space: nowrap;
-      display: flex;
-      align-items: center;
-      gap: 6px;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
-    .pick-sku .pick-kit { flex: 0 0 auto; }
-    /* ⚠ ONE SHAPE, ALWAYS. ×1 used to be bare text and ×2 a bordered chip, so
-       the quantity column changed silhouette from row to row and the list read
-       as ragged even though every value was aligned. The BOX is now constant —
-       same size, same padding, same baseline on every row — and only its INK
-       changes above one. The signal survives; the jitter does not. */
     .pick-qty {
       font-family: 'Oswald', sans-serif;
       font-weight: 700;
       font-size: 20px;
       color: var(--mute);
-      min-width: 46px;
-      text-align: center;
-      border: 1px solid transparent;
-      border-radius: 7px;
-      padding: 1px 8px;
+      min-width: 40px;
+      text-align: right;
     }
     /* Anything above one is a different job — carrying two is not carrying
        eight. Only then does it earn brand colour and a box. */
     .pick-qty.multi {
       color: var(--brand-yellow);
       background: rgba(255,212,0,0.10);
-      border-color: rgba(255,212,0,0.30);
-      font-size: 20px;
+      border: 1px solid rgba(255,212,0,0.30);
+      border-radius: 7px;
+      padding: 1px 8px;
+      font-size: 22px;
     }
     .pick-meta {
       font-family: 'Roboto Mono', monospace;
@@ -2355,25 +1825,8 @@
        .board prefix rather than a bare .mid.
        ================================================================== */
 
-    /* ---------- the FLOOR TOOL layout ----------
-       ⚠ WIDTH ALONE WAS THE WRONG TEST, and the real device proved it.
-       The design note that rejected a FLOOR/MONITOR toggle rested on "every
-       device anyone could name lands correctly on screen size alone". The
-       warehouse tablet is 800×1280, so PORTRAIT (800) matched and LANDSCAPE
-       (1280) did not — the same device, in the same hands, on the same shift,
-       got the tool in one orientation and the wall monitor in the other.
-
-       `pointer: coarse` asks the question that actually matters: is this
-       thing being TOUCHED? That is what makes it a tool. The width ceiling
-       keeps a genuinely large touch display (a wall panel someone taps) on
-       the monitor layout, so the rule still reads as role rather than input
-       trivia. A laptop with both a trackpad and a touchscreen reports `fine`
-       for its PRIMARY pointer, so the Riyadh desk board is unaffected.
-
-       This is the override the earlier pass said it would build "if a real
-       case appears". One appeared. It is still not a toggle — nobody has to
-       set anything, and a shared tablet cannot inherit a wrong choice. */
-    @media (max-width: 1200px), (pointer: coarse) and (max-width: 1600px) {
+    /* ---------- tablet landscape / small laptop ---------- */
+    @media (max-width: 1200px) {
       .board { padding: 14px 18px 12px; gap: 12px; }
       /* ─────── BELOW 1200px THE BOARD IS A TOOL, NOT A WALL ───────
          Measured on the real tablet: the pick list showed FIVE of
@@ -2401,134 +1854,15 @@
          the 104px already written at 620px has never once applied. */
       .grab-numwrap { flex: 0 0 92px; width: 92px; height: 92px; }
 
-      /* ⚠ THE FEED LEAVES THE TABLET ENTIRELY (2026-08-10).
-         It used to keep ~29% of the width here. AS IT LANDS is a record of
-         what already happened — the same retrospective category as RECEIVED
-         TODAY, which this board already demoted for being the biggest number
-         and the least actionable thing on it. And its one URGENT job, "an
-         order just arrived", was taken over by the beacon: edge glow, chime,
-         and the aisle to walk to. What was left was furniture in a tool
-         somebody holds while walking.
-         It stays in full above 1200px, where the board is a monitor and
-         ambient awareness is exactly the point. */
+      /* The list is the tool; the feed becomes a ticker beside it. */
       .board .mid,
       .board.mode-busy .mid,
       .board.mode-balanced .mid,
-      .board.mode-quiet .mid { grid-template-columns: 1fr; }
-      .mid > .feed.ambient { display: none; }
+      .board.mode-quiet .mid { grid-template-columns: 2.4fr 1fr; }
 
       /* 44px on the button is a hard floor (mis-tap = a flipped order),
          so the row gives its height back from padding instead. */
       .pick-row { padding: 7px 18px; }
-      :root { --sec-h: 40px; }
-      .pick-sec { padding: 0 18px; }
-      .ps-name { font-size: 13px; }
-
-      /* ⚠ ONE JOB, FULL WIDTH. Side-by-side columns were the first answer and
-         they assumed pickers work both channels at once — the floor says they
-         do NOT, so each column was costing half a tablet for a job nobody was
-         doing. That is where the cramped rows and the empty middle came from.
-         The switch above carries BOTH counts, so nothing is lost by showing
-         one list: you can always see what is waiting on the other side. */
-      /* ─────────── THE HERO SHRINKS BECAUSE THE LIST IS THE JOB ───────────
-         On a tool the cards were taking a quarter of the screen for three
-         numbers, and one of those numbers was being printed TWICE: the
-         eBay/Direct breakdown says exactly what the channel tabs below it say.
-         So the breakdown goes, the decoration goes (ring, orbit, share bar —
-         all ambient, and ambient is a monitor's job), and the three cards sit
-         in one short row. The numbers stay big enough to read at arm's length;
-         everything around them was what cost the height. */
-      /* ⚠ ONE STRIP, NOT THREE CARDS. Stripping the decoration left ORDERS TO
-         GRAB holding a whole card for a single digit, with the other two
-         carrying a sub-line — so a third of the row read as empty. Cards are
-         for things with substance; three short facts want one strip.
-         Label and value sit on the SAME LINE here, which is what actually
-         removes the height, and hairline dividers replace three borders. */
-      .hero {
-        grid-template-columns: auto auto 1fr;
-        gap: 0;
-        background: var(--ink-card);
-        border: 1px solid var(--ink-rim);
-        border-radius: 12px;
-        overflow: hidden;
-      }
-      .hero > div {
-        min-height: 0;
-        padding: 10px 16px;
-        background: none;
-        border: none;
-        border-radius: 0;
-        display: flex;
-        flex-direction: row;
-        align-items: baseline;
-        /* ⚠ flex-start, NOT the inherited space-between. `.mini` spreads its
-           children apart by design — right for a tall card, wrong inside a
-           wide strip cell, where it flung "getting old" to the far edge of the
-           screen, hundreds of pixels from the duration it describes. A label
-           that far from its number stops being a label. */
-        justify-content: flex-start;
-        gap: 9px;
-      }
-      .hero > div + div { border-left: 1px solid var(--mute-faint); }
-      .grab-label, .mini-label { margin: 0; white-space: nowrap; }
-      .mini-core { display: flex; align-items: baseline; gap: 9px; }
-      .mini-sub, .grab-sub { margin: 0; white-space: nowrap; }
-      /* ⚠ STYLE THESE, DO NOT UNHIDE THEM.
-         `.grab-active` and `.grab-clear` are the two halves of a state
-         machine — base CSS hides `.grab-clear` and `.grab.clear` swaps them.
-         Writing a bare `.grab-clear { display: flex }` here beat that rule on
-         source order and pinned BOTH halves visible, so the hero read
-         "8" and "All caught up · nothing waiting" side by side. The number
-         said there was work and the words said there was none, in the same
-         card, and the card's entire job is to answer that one question.
-         Scope every display to the state that owns it. */
-      .grab:not(.clear) .grab-active { display: flex; align-items: baseline; gap: 9px; }
-      .grab.clear .grab-clear { display: flex; align-items: baseline; gap: 9px; }
-      .grab-clear-mark { font-size: 18px; }
-      .grab-breakdown, .grab-ring, .grab-orbit, .grab-share { display: none; }
-      .grab-active { gap: 0; }
-      .grab-numwrap { flex: 0 0 auto; width: auto; height: auto; min-height: 0; }
-      .grab-num { font-size: 30px; line-height: 1; }
-      .grab-label, .mini-label { font-size: 10px; letter-spacing: 0.12em; }
-      .mini-value { font-size: 30px; line-height: 1; }
-      .mini-bar, .mini-share { display: none; }
-      .mini-sub, .grab-sub { font-size: 10px; }
-      .grab-clear-head { font-size: 22px; }
-
-      /* The header was wrapping "RESTING · OFF HOURS", the date and the clock
-         onto extra lines, which is the ragged look. Nothing here is worth a
-         second line on a tool. */
-      .hdr { align-items: center; }
-      .hdr-words { font-size: 11px; letter-spacing: 0.14em; }
-      .hdr-clock-time { font-size: 20px; white-space: nowrap; }
-      .hdr-clock-date, .hdr-clock-hijri { font-size: 9px; white-space: nowrap; }
-      .live, .wx { white-space: nowrap; font-size: 11px; }
-      .pray { white-space: nowrap; }
-
-      .chantabs { display: flex; border-bottom: 1px solid var(--mute-faint); }
-      .othernudge:not(.hidden) { display: block; }
-      .pick-sec { display: none; }          /* the lit tab IS the header */
-      .picksplit { flex-direction: column; overflow: hidden; }
-      .pickcol {
-        flex: 1 1 auto;
-        min-width: 0;
-        overflow-y: auto;
-        -webkit-overflow-scrolling: touch;
-      }
-      .pickcol::-webkit-scrollbar { width: 0; }
-      body.ch-ebay   #pickListDirect { display: none; }
-      body.ch-direct #pickListEbay   { display: none; }
-      .pick-row  { padding: 7px 14px; }
-      .pick-head { padding: 6px 14px; }
-      /* the meta lane goes first when the row is half as wide */
-      .pick-main {
-        grid-template-columns: 104px 104px 46px auto minmax(0, 1fr) auto;
-        grid-template-areas: "loc sku qty meta count act";
-        gap: 9px;
-      }
-      .pick-loc  { font-size: 18px; }
-      .pick-loc.long  { font-size: 15px; }
-      .pick-loc.xlong { font-size: 13px; }
 
       /* The chips were sized for a 1900px wall. On a tablet the same padding
          and gaps left them shoulder to shoulder. */
@@ -2556,28 +1890,9 @@
       /* Version string is the first thing nobody needs on a small screen. */
       .ftr-stat span:last-child { display: none; }
 
-      /* ⚠ PORTRAIT USED TO GIVE THE HERO TWO ROWS — a full-width GRAB card
-         plus a pair below it, ~400px before the list even started, on the
-         narrowest screen the board runs on. With the cards stripped to a label
-         and a number they fit in ONE row of three, and the list gets that
-         height back. This block sits AFTER the tool block, so it has to agree
-         with it rather than quietly undo it. */
-      /* Portrait keeps the same one-strip shape, just tighter. It sits AFTER
-         the tool block so it has to agree with it rather than undo it. */
-      .hero { grid-template-columns: auto auto 1fr; }
-      .hero > div { min-height: 0; padding: 9px 11px; gap: 7px; }
-      .grab { grid-column: auto; }
-      .grab-num, .mini-value { font-size: 25px; }
-      .grab-label, .mini-label { font-size: 9px; letter-spacing: 0.08em; }
-      .mini-sub, .grab-sub { font-size: 9px; }
-
-      /* ⚠ THE HEADER STOPPED BEING THREE RAGGED ROWS. Brand left, readouts
-         right, prayer centred underneath — each row with ONE alignment
-         instead of three competing ones. */
-      .hdr { grid-template-columns: auto auto; row-gap: 6px; align-items: center; }
-      .hdr-brand { grid-row: 1; grid-column: 1; justify-self: start; }
-      .hdr-right { grid-row: 1; grid-column: 2; justify-self: end; }
-      .pray { grid-row: 2; grid-column: 1 / -1; justify-self: center; }
+      .hero { grid-template-columns: 1fr 1fr; }
+      .hero > div { min-height: 132px; }
+      .grab { grid-column: 1 / -1; }          /* the primary metric spans */
 
       .board .mid,
       .board.mode-busy .mid,
@@ -2585,16 +1900,6 @@
       .board.mode-quiet .mid { grid-template-columns: 1fr; }
       .mid > .feed { min-height: 0; }
       .mid > .feed:nth-child(2) { max-height: 44vh; }
-
-      /* ⚠ SIDE-BY-SIDE ENDS HERE. Below 900px the board stops being a
-         fixed-height canvas (see above) and the whole page scrolls — nesting
-         two independently-scrolling columns inside a scrolling page is the
-         one arrangement guaranteed to trap a finger on the wrong scroller.
-         Back to one column, sections stacked. */
-      .picksplit { flex-direction: column; overflow: visible; }
-      .pickcol { flex: 0 0 auto; overflow: visible; }
-      .pickcol.empty { display: none; }
-      .pickcol + .pickcol:not(.empty) { border-left: none; }
     }
 
     /* ---------- phone ---------- */
@@ -2620,11 +1925,7 @@
          on top, the confirmation detail beneath. */
       .pick-main {
         grid-template-columns: auto auto 1fr auto;
-        grid-template-columns: auto auto 1fr auto;
-        grid-template-areas:
-          "loc   qty  .     act"
-          "sku   sku  meta  meta"
-          "count count count count";
+        grid-template-areas: "loc qty . do" "sku sku meta meta";
         gap: 4px 10px;
       }
       .pick-loc  { grid-area: loc; font-size: 19px; }
@@ -2632,14 +1933,8 @@
       .pick-sku  { grid-area: sku; font-size: 14px; }
       .pick-meta { grid-area: meta; text-align: right; }
       .pick-status { display: none; }         /* the ✓ PICK button implies it */
-      .pick-do   { grid-area: act; }
-      .pick-count { grid-area: count; padding-top: 2px; }
+      .pick-do   { grid-area: do; }
       .pick-row  { padding: 10px 12px; }
-      :root { --sec-h: 36px; }
-      .pick-sec  { padding: 0 12px; gap: 8px; }
-      .pick-head { padding: 6px 12px; }
-      .ps-name   { font-size: 12px; }
-      .ps-count  { font-size: 11px; }
 
       /* The kit strip STAYS on the phone — it is the definition of "something
          someone would act on". Only the meter goes: the "N of M" beside it
@@ -2793,26 +2088,6 @@
       </span>
     </div>
 
-    <!-- NUMBER PAD — the board's own entry surface for a quantity.
-         ⚠ A KEYPAD, NOT A TEXT FIELD. On the tablet a text input summons the
-         OS keyboard, which covers half the screen and resizes the viewport, to
-         type two digits. Ten big targets do the same job without any of that,
-         and they can be hit with a glove on. -->
-    <div class="numpad hidden" id="numPad">
-      <div class="np-card" id="npCard">
-        <div class="np-title" id="npTitle"></div>
-        <div class="np-sub" id="npSub"></div>
-        <div class="np-context" id="npContext"></div>
-        <div class="np-value" id="npValue">0</div>
-        <div class="np-note" id="npNote"></div>
-        <div class="np-keys" id="npKeys"></div>
-        <div class="np-actions">
-          <button class="np-btn np-cancel" id="npCancel">Cancel</button>
-          <button class="np-btn np-ok" id="npOk">Save</button>
-        </div>
-      </div>
-    </div>
-
     <!-- NEW-ORDER BEACON — for the picker who is NOT looking at the board.
          Says where to go, not just that something happened. Tap to dismiss. -->
     <div class="beacon-strip hidden" id="beaconStrip" title="Tap to dismiss">
@@ -2837,27 +2112,9 @@
         <!-- KITS IN PROGRESS — the rows carry membership (a coloured spine),
              this carries completeness and the aisles still to walk. -->
         <div class="kitstrip hidden" id="kitStrip"></div>
-        <!-- ONE JOB AT A TIME (tool layout only). The floor confirmed pickers
-             do not work both channels at once, so two side-by-side columns
-             were holding half a tablet for work nobody was doing. Above the
-             tool breakpoint this is hidden and both lists show, because that
-             is what monitoring means. -->
-        <div class="chantabs" id="chanTabs">
-          <button class="ct" data-ch="EBAY"><span>eBay</span><b id="ctEbay">0</b></button>
-          <button class="ct" data-ch="DIRECT"><span>Direct</span><b id="ctDirect">0</b></button>
-        </div>
-        <div class="othernudge hidden" id="otherNudge"></div>
-        <!-- TWO LISTS, ONE PANEL. Above 1200px they stack inside a single
-             scroller and read exactly as the one continuous list they always
-             were (the wall board is unchanged). On the tablet they become two
-             independently-scrolling columns — the eBay/DIRECT split made
-             spatial, so the aisle walk and the boxes are both on screen at
-             once instead of one scrolling past the other. -->
-        <div class="picksplit" id="pickSplit">
-          <ul class="pickcol" id="pickListEbay"></ul>
-          <ul class="pickcol" id="pickListDirect"></ul>
-          <div class="feed-empty pick-none" id="pickNone">nothing open to pick</div>
-        </div>
+        <ul class="feed-list" id="pickList">
+          <li class="feed-empty">nothing open to pick</li>
+        </ul>
       </div>
       <!-- RIGHT PANEL — Floor Notes when active, else the live event feed -->
       <div class="feed ambient" id="rightPanel">
@@ -2991,7 +2248,26 @@
     <div class="drw-body" id="drwBody"></div>
   </div>
 
-  <script>
+  
+<script>
+  window.__MOCK_TICK = {"cockpit": {"ebayGrab": 6, "directGrab": 5, "ebayPending": 6, "directPending": 5, "shippedToday": 41, "receivedToday": 57, "oldestPendingMinutes": 214, "pastRedlineCount": 3, "receivedEbay": 38, "receivedDirect": 19, "prepQueueCount": 7, "timeline": [], "orderAgeMin": {"SO-24612": 2900, "SO-24618": 200, "SO-24631": 45, "SO-24620": 400, "24-14979-87359": 310, "24-15001-22107": 95, "24-15003-91882": 20, "24-15004-11290": 12}}, "alerts": {"paidShipping": {"count": 2, "rows": []}}, "api": null, "picker": "Shipping - Yassin 1", "lastSync": "4m", "lastSyncMinutes": 4, "paceCar": null, "openOrders": [{"channel": "DIRECT", "orderId": "SO-24612", "sku": "162198", "qty": 4, "location": "A-9", "status": "PENDING", "note": "\u21b3 from KIT-160029", "isKit": false, "kit": "160029"}, {"channel": "EBAY", "orderId": "24-14979-87359", "sku": "194244", "qty": 1, "location": "A-14", "status": "PENDING", "note": "", "isKit": false}, {"channel": "DIRECT", "orderId": "SO-24631", "sku": "183220", "qty": 2, "location": "A-22", "status": "PENDING", "note": "\u21b3 from KIT-158679", "isKit": false, "kit": "158679"}, {"channel": "DIRECT", "orderId": "SO-24618", "sku": "171003", "qty": 1, "location": "A-51", "status": "PENDING", "note": "\u21b3 from KIT-217475", "isKit": false, "kit": "217475"}, {"channel": "DIRECT", "orderId": "SO-24612", "sku": "167517", "qty": 2, "location": "B-12", "status": "PREPARING", "note": "\u21b3 from KIT-160029", "isKit": false, "kit": "160029"}, {"channel": "EBAY", "orderId": "24-15001-22107", "sku": "165447", "qty": 2, "location": "B-30", "status": "PENDING", "note": "** call before shipping", "isKit": false}, {"channel": "DIRECT", "orderId": "SO-24618", "sku": "168138", "qty": 1, "location": "B-44", "status": "PENDING", "note": "\u21b3 from KIT-217475", "isKit": false, "kit": "217475"}, {"channel": "DIRECT", "orderId": "SO-24612", "sku": "155394", "qty": 1, "location": "C-2", "status": "PENDING", "note": "\u21b3 from KIT-160029", "isKit": false, "kit": "160029"}, {"channel": "EBAY", "orderId": "24-15003-91882", "sku": "176688", "qty": 8, "location": "C-18", "status": "PENDING", "note": "", "isKit": false}, {"channel": "DIRECT", "orderId": "SO-24631", "sku": "190455", "qty": 1, "location": "C-30", "status": "PENDING", "note": "\u21b3 from KIT-158679", "isKit": false, "kit": "158679"}, {"channel": "DIRECT", "orderId": "SO-24618", "sku": "159579", "qty": 1, "location": "D-7", "status": "PREPARING", "note": "\u21b3 from KIT-217475", "isKit": false, "kit": "217475"}, {"channel": "DIRECT", "orderId": "SO-24620", "sku": "217871", "qty": 1, "location": "K-55", "status": "PENDING", "note": "", "isKit": true}, {"channel": "EBAY", "orderId": "24-15004-11290", "sku": "172764", "qty": 1, "location": "NOT FOUND", "status": "PENDING", "note": "", "isKit": false}], "openOrdersTotal": 13, "kits": [{"key": "SO-24618|217475", "parent": "217475", "order": "SO-24618", "total": 5, "done": 2, "hue": 1, "dash": 0, "left": ["A-51", "B-44"]}, {"key": "SO-24612|160029", "parent": "160029", "order": "SO-24612", "total": 6, "done": 2, "hue": 0, "dash": 0, "left": ["A-9", "C-2"]}, {"key": "SO-24631|158679", "parent": "158679", "order": "SO-24631", "total": 4, "done": 1, "hue": 0, "dash": 1, "left": ["A-22", "C-30"]}], "serverTime": "2026-08-07T09:14:00Z"};
+  window.fetch = function (url, opts) {
+    var body = {}; try { body = JSON.parse((opts||{}).body||'{}'); } catch (e) {}
+    var res = { ok: true };
+    if (body.action === 'boardTick')  res = Object.assign({ ok: true }, window.__MOCK_TICK);
+    if (body.action === 'boardRadio') res = { ok: true, nowPlaying: '' };
+    return Promise.resolve({ ok: true, json: function () { return Promise.resolve(res); } });
+  };
+  // PREVIEW ONLY — flip to AGE so the order grouping is visible. On the real
+  // board this is the picker's own toggle (or a tap on OLDEST WAITING).
+  window.addEventListener('load', function () {
+    setTimeout(function () {
+      var b = document.querySelector('.sortsw-opt[data-mode="age"]');
+      if (b) b.click();
+    }, 1200);
+  });
+</script>
+<script>
     // ===================================================================
     // HQ FLOOR BOARD — client (v1.0)
     // ===================================================================
@@ -3060,16 +2336,9 @@
       document.getElementById('fsToggle').addEventListener('click', toggleFullscreen);
       document.getElementById('beaconStrip').addEventListener('click', beaconClear);
       // Someone CAN scroll on the tablet — drop the fade once they reach the end.
-      ['pickListEbay', 'pickListDirect', 'pickSplit', 'feedList'].forEach(function (id) {
+      ['pickList', 'feedList'].forEach(function (id) {
         var el = document.getElementById(id);
         if (el) el.addEventListener('scroll', function () { markOverflow(el); });
-      });
-      document.getElementById('chanTabs').addEventListener('click', function (ev) {
-        var b = ev.target && ev.target.closest ? ev.target.closest('.ct') : null;
-        if (b) setChannel(b.getAttribute('data-ch'));
-      });
-      document.getElementById('otherNudge').addEventListener('click', function () {
-        setChannel(activeChannel === 'DIRECT' ? 'EBAY' : 'DIRECT');
       });
       document.getElementById('sortSw').addEventListener('click', function (ev) {
         var o = ev.target && ev.target.closest ? ev.target.closest('.sortsw-opt') : null;
@@ -3095,16 +2364,9 @@
       breatheOn = localStorage.getItem('floorBreathe') !== '0';   // default ON
       applyBreathe();
       document.getElementById('breatheBtn').addEventListener('click', toggleBreathe);
-      // ONE delegated handler on the split, so it covers both columns and
-      // survives every rebuild of their contents.
-      document.getElementById('pickSplit').addEventListener('click', function (e) {
-        if (!e.target || !e.target.closest) return;
-        var b = e.target.closest('.pick-do');
-        if (b) { markPicked(b.getAttribute('data-order'), b.getAttribute('data-sku'), b); return; }
-        var c = e.target.closest('.pc-btn');
-        if (c) { askCount(c); return; }
-        var a = e.target.closest('.pc-adj');
-        if (a) askAdjust(a);
+      document.getElementById('pickList').addEventListener('click', function (e) {
+        var b = e.target && e.target.closest ? e.target.closest('.pick-do') : null;
+        if (b) markPicked(b.getAttribute('data-order'), b);
       });
       generateStars();
       setWarmth();
@@ -3412,8 +2674,7 @@
       paintKitStrip(tick.kits);
       // Overlay any just-tapped rows the server hasn't confirmed yet — a tick
       // served from n8n's 15s cache can still be showing the old status.
-      paintPickList(applyPickOverrides((tick.openOrders || []).slice()),
-                    tick.openOrdersTotal, tick.openOrdersBy);
+      paintPickList(applyPickOverrides((tick.openOrders || []).slice()), tick.openOrdersTotal);
       paintUnits(tick.openOrders || [], tick.openOrdersTotal);
       // RAW rows — applyPickOverrides fakes a status the server has not
       // confirmed, which would make an optimistic pick look like a fresh
@@ -3778,33 +3039,19 @@
        teaches people to ignore beacons. */
     var BEACON_REPEAT_MS = 20000;   // re-chime cadence while unacknowledged
     var BEACON_LIFE_MS   = 180000;  // give up after 3 minutes
-    var BEACON_PRESENT_MS = 60000;  // "someone is at this screen" window
-    var SEEN_TTL_MS = 45 * 60000;   // how long an order stays "already seen"
-    var seenOrders  = null;         // id -> ms last seen waiting; null = first tick
+    var seenOrders  = null;         // null = first tick; never fire on it
     var beaconIds   = null;         // ids this beacon is currently about
     var beaconTimer = null, beaconDeath = null;
-    var lastHumanMs = 0;            // last interaction with this screen
-
-    /* ⚠ ANY interaction counts as "a human is here". Used only to silence the
-       REPEAT — never the first chime, and never the visual beacon. */
-    ['mousemove', 'keydown', 'wheel', 'touchstart', 'pointerdown'].forEach(function (ev) {
-      window.addEventListener(ev, function () { lastHumanMs = Date.now(); },
-                              { passive: true });
-    });
 
     function beaconCheck(rows) {
       rows = rows || [];
-      var t = Date.now();
-      var firstTickEver = (seenOrders === null);
-      if (firstTickEver) seenOrders = {};
-
       var now = {}, fresh = [];
       for (var i = 0; i < rows.length; i++) {
         var id = String(rows[i].orderId || '').trim();
         if (!id) continue;
         var waiting = String(rows[i].status).toUpperCase() === 'PENDING';
         if (waiting) now[id] = 1;
-        if (waiting && !firstTickEver && !seenOrders[id]) fresh.push(rows[i]);
+        if (waiting && seenOrders && !seenOrders[id]) fresh.push(rows[i]);
       }
       // Anything we are beaconing about that is no longer waiting = grabbed.
       if (beaconIds) {
@@ -3812,21 +3059,8 @@
         for (var k = 0; k < beaconIds.length; k++) if (now[beaconIds[k]]) stillWaiting = true;
         if (!stillWaiting) beaconClear();
       }
-      if (fresh.length) beaconFire(fresh);
-
-      // ⚠ SEEN IS STICKY, NOT "WHAT THE LAST TICK HELD".
-      // This used to be `seenOrders = now`, i.e. only ever the previous tick's
-      // waiting set. The board reads a THREE-TIER pipe (n8n's 15s cache → the
-      // published cell → Apps Script live) and those tiers have different
-      // freshness, so a payload can legitimately flap: order X present, absent,
-      // present. Under the old rule the third tick saw X as brand new and fired
-      // the beacon AGAIN — which is why a single arriving order could chime
-      // over and over instead of once. An id now stays "seen" for 45 minutes
-      // regardless of which tier answered, so one arrival = one announcement.
-      for (var a in now) seenOrders[a] = t;
-      for (var b in seenOrders) {
-        if (t - seenOrders[b] > SEEN_TTL_MS) delete seenOrders[b];
-      }
+      if (seenOrders && fresh.length) beaconFire(fresh);
+      seenOrders = now;
     }
 
     function beaconFire(fresh) {
@@ -3845,15 +3079,6 @@
       chime(r.channel === 'DIRECT' ? 'newDirect' : 'newEbay');
       if (beaconTimer) clearInterval(beaconTimer);
       beaconTimer = setInterval(function () {
-        // ⚠ THE REPEAT IS FOR AN EMPTY ROOM, NOT FOR A PERSON.
-        // It exists so an order cannot land unnoticed while the picker is
-        // across the floor. At a desk it is just noise — the first chime and
-        // the pulsing strip have already done the job, and nine more beeps
-        // over three minutes actively teach people to mute the board.
-        // So: if anyone has touched this screen in the last minute, stay
-        // quiet. Walk away and it starts calling again by itself. No setting,
-        // and the same file behaves correctly on the wall and at the desk.
-        if (Date.now() - lastHumanMs < BEACON_PRESENT_MS) return;
         chime(r.channel === 'DIRECT' ? 'newDirect' : 'newEbay');
       }, BEACON_REPEAT_MS);
 
@@ -3925,99 +3150,6 @@
        claiming to be the newest thing on the floor. */
     var pickMode = 'aisle';
     var orderAge = {};
-    /* Mirrors DASHBOARD.countMaxHand. Change BOTH — the server decides what to
-       send, this decides what to offer, and they must agree or the board asks
-       for counts on shelves nobody counts. */
-    var COUNT_MAX_HAND = 25;
-
-    /* ─────────── "DID THAT ADJUSTMENT GO THROUGH?" ───────────
-       A toast could not answer this: it is gone in four seconds and the
-       question gets asked a minute later, which is why the first version sent
-       someone to Zoho to check.
-       ⚠ THE INDICATION IS TIED TO REALITY, NOT TO A TIMER. The board holds
-       "I asked Zoho for N" and only turns it into "Zoho is at N" once the tick
-       actually reports that number — which means the confirmation is evidence
-       rather than an assumption. Same shape as pickOverride, which holds an
-       optimistic status until the server agrees.
-       The lag is real and worth knowing: Zoho changes instantly, but the board
-       reads HAND from the sheet, which the Zoho Stock mirror refreshes about
-       every two minutes. So "syncing" is honest, not a spinner for show.
-       ⚠ Client-side only. A hard reload loses it, and a second tablet will not
-       show it — for that window the permanent record is Zoho's own adjustment
-       and the Activity Log. Acceptable because the window closes itself: once
-       the mirror catches up, every board sees the corrected number. */
-    var adjustSeen = {};                    // sku -> { target, confirmed, until }
-    var ADJUST_SEEN_MS = 10 * 60000;
-
-    function noteAdjust(sku, target) {
-      adjustSeen[String(sku)] = { target: target, confirmed: false,
-                                  until: Date.now() + ADJUST_SEEN_MS };
-    }
-
-    /* Resolve against what the tick now reports, and expire the record. */
-    function adjustStateFor(sku, handN) {
-      var rec = adjustSeen[String(sku)];
-      if (!rec) return null;
-      if (rec.until < Date.now()) { delete adjustSeen[String(sku)]; return null; }
-      if (!rec.confirmed && handN !== null && handN === rec.target) rec.confirmed = true;
-      return rec;
-    }
-
-    /* ─────────── WHICH JOB IS ON SCREEN (tool layout only) ───────────
-       Above the tool breakpoint both lists show and this is inert — the class
-       still goes on <body>, but the CSS that acts on it lives inside the tool
-       media query, so a monitor is unaffected.
-       ⚠ Deliberately NOT persisted. A shared tablet inheriting the last
-       picker's channel is the same liability that made a role toggle the wrong
-       answer here — and unlike a preference, this one is one tap to correct. */
-    var TOOL_MQ = '(max-width: 1200px), (pointer: coarse) and (max-width: 1600px)';
-    var activeChannel = null;          // null = not chosen yet this session
-    function isToolLayout() {
-      try { return window.matchMedia(TOOL_MQ).matches; } catch (e) { return false; }
-    }
-    function setChannel(ch) {
-      activeChannel = (ch === 'DIRECT') ? 'DIRECT' : 'EBAY';
-      document.body.classList.toggle('ch-ebay',   activeChannel === 'EBAY');
-      document.body.classList.toggle('ch-direct', activeChannel === 'DIRECT');
-      var opts = document.querySelectorAll('.ct');
-      for (var i = 0; i < opts.length; i++) {
-        opts[i].classList.toggle('on', opts[i].getAttribute('data-ch') === activeChannel);
-      }
-      if (lastTick) {
-        paintPickList(applyPickOverrides((lastTick.openOrders || []).slice()),
-                      lastTick.openOrdersTotal, lastTick.openOrdersBy);
-      }
-    }
-
-    /* Counts on both tabs, and the nudge when the side you are on runs dry.
-       ⚠ IT NEVER SWITCHES FOR YOU. Moving someone to a different list while
-       they are reading it — possibly mid-scroll, possibly about to tap ✓ Pick
-       on a row that is no longer under their finger — is worse than letting
-       them tap once. So: say it, do not do it. */
-    function paintChannelTabs(counts) {
-      var e = num(counts && counts.EBAY), dct = num(counts && counts.DIRECT);
-      document.getElementById('ctEbay').textContent   = e;
-      document.getElementById('ctDirect').textContent = dct;
-      var tabs = document.querySelectorAll('.ct');
-      for (var i = 0; i < tabs.length; i++) {
-        var isE = tabs[i].getAttribute('data-ch') === 'EBAY';
-        tabs[i].classList.toggle('none', (isE ? e : dct) === 0);
-      }
-
-      // First paint of the session lands on the side that actually has work.
-      if (activeChannel === null) setChannel(e === 0 && dct > 0 ? 'DIRECT' : 'EBAY');
-
-      var mine  = (activeChannel === 'DIRECT') ? dct : e;
-      var other = (activeChannel === 'DIRECT') ? e : dct;
-      var nudge = document.getElementById('otherNudge');
-      var show  = isToolLayout() && mine === 0 && other > 0;
-      nudge.classList.toggle('hidden', !show);
-      if (show) {
-        var word = (activeChannel === 'DIRECT') ? 'eBay' : 'Direct';
-        nudge.textContent = 'This side is clear — ' + word + ' has ' + other +
-                            (other === 1 ? ' line' : ' lines') + ' waiting  →';
-      }
-    }
 
     function setPickMode(mode) {
       if (mode !== 'aisle' && mode !== 'age') return;
@@ -4030,39 +3162,13 @@
       }
       if (lastTick) {
         paintPickList(applyPickOverrides((lastTick.openOrders || []).slice()),
-                      lastTick.openOrdersTotal, lastTick.openOrdersBy);
+                      lastTick.openOrdersTotal);
       }
     }
 
     function sortForMode(rows) {
-      if (pickMode !== 'age') {
-        // The server already emits eBay-then-DIRECT, so this is normally a
-        // no-op — Array.sort is stable, so within a channel the server's aisle
-        // and SO-grouping order survives untouched.
-        //
-        // ⚠ IT IS NOT REDUNDANT. The board reads a three-tier pipe (n8n cache →
-        // published cell → Apps Script live), and the third tier is served by a
-        // PINNED /exec version. If that tier ever answers from a deploy older
-        // than the split, rows arrive in pure aisle order — and withSections
-        // would then emit a section head at every channel change, i.e. an
-        // eBay/Direct/eBay/Direct ladder that reads as a broken board. One
-        // stable sort here makes the split a property of the BOARD rather than
-        // of which tier happened to answer.
-        return rows.slice().sort(function (a, b) {
-          return ((a.channel === 'DIRECT') ? 1 : 0) - ((b.channel === 'DIRECT') ? 1 : 0);
-        });
-      }
-      // ⚠ CHANNEL STAYS PRIMARY IN AGE MODE TOO. The split is STRUCTURAL — it
-      // is which job you are doing — while aisle/age is only the order within
-      // a job. Letting age re-interleave the two channels would undo the split
-      // the moment a picker tapped the toggle, which is the "mode with no exit"
-      // shape this board has been bitten by before.
-      // Array.sort is stable and the server order is aisle-within-order, so
-      // every order's lines stay contiguous and in walk order inside its block.
+      if (pickMode !== 'age') return rows;      // server order IS aisle order
       return rows.slice().sort(function (a, b) {
-        var ca = (a.channel === 'DIRECT') ? 1 : 0;
-        var cb = (b.channel === 'DIRECT') ? 1 : 0;
-        if (ca !== cb) return ca - cb;
         var aa = orderAge[String(a.orderId || '').trim()];
         var ab = orderAge[String(b.orderId || '').trim()];
         var am = (aa === undefined) ? 1 : 0, bm = (ab === undefined) ? 1 : 0;
@@ -4159,12 +3265,12 @@
       }
     }
 
-    function paintPickList(rows, total, byChannel) {
+    function paintPickList(rows, total) {
       rows = sortForMode(rows || []);
+      var list = document.getElementById('pickList');
       // Say so when the walk is truncated. A pick list that looks complete but
       // isn't is worse than one that admits it — the picker would finish the
-      // list believing the floor was clear. The per-SECTION "+N more" is the
-      // one that tells you WHICH half was cut; this stays as the grand total.
+      // list believing the floor was clear.
       var hidden = Math.max(0, (num(total) || rows.length) - rows.length);
       document.getElementById('pickCount').textContent =
         rows.length
@@ -4172,55 +3278,17 @@
              (hidden ? '  ·  +' + hidden + ' more' : ''))
           : '';
 
-      seedOrderAccordion(rows);
-      var items = withSections(rows, byChannel);
+      // drop the empty placeholder once real rows arrive
+      var emptyEl = list.querySelector('.feed-empty');
+      if (emptyEl && rows.length) emptyEl.remove();
 
-      // ONE display list, TWO containers. Splitting here rather than running
-      // withSections twice keeps the section/band/row decisions in a single
-      // place — the columns are a LAYOUT fact, not a second set of rules.
-      var byCol = { EBAY: [], DIRECT: [] };
-      for (var i = 0; i < items.length; i++) {
-        byCol[items[i].channel === 'DIRECT' ? 'DIRECT' : 'EBAY'].push(items[i]);
-      }
-
-      var ebayEl   = document.getElementById('pickListEbay');
-      var directEl = document.getElementById('pickListDirect');
-      reconcileInto(ebayEl,   byCol.EBAY);
-      reconcileInto(directEl, byCol.DIRECT);
-
-      // The switch reports what is OPEN ON THE FLOOR, not what survived the
-      // cap — otherwise a truncated side would advertise fewer lines than it
-      // holds, which is the same lie the section heads refuse to tell.
-      var liveCounts = {
-        EBAY:   num(byChannel && byChannel.EBAY)   || countRows(byCol.EBAY),
-        DIRECT: num(byChannel && byChannel.DIRECT) || countRows(byCol.DIRECT)
-      };
-      paintChannelTabs(liveCounts);
-
-      ebayEl.classList.toggle('empty',   !byCol.EBAY.length);
-      directEl.classList.toggle('empty', !byCol.DIRECT.length);
-      document.getElementById('pickSplit').classList.toggle('nothing', !rows.length);
-
-      // The pick list hits the same edge whenever the beacon adds its band.
-      markOverflow(ebayEl);
-      markOverflow(directEl);
-      markOverflow(document.getElementById('pickSplit'));
-    }
-
-    function countRows(items) {
-      var c = 0;
-      for (var i = 0; i < items.length; i++) if (items[i].kind === 'row') c++;
-      return c;
-    }
-
-    /* The keyed reconcile, pointed at one container. Unchanged in behaviour —
-       rows still enter and exit, headers are still reused rather than rebuilt
-       so a repaint never scrolls the list out from under a finger. */
-    function reconcileInto(list, items) {
-      if (!list) return;
+      // In age mode the list is order-grouped, so it gets headers and the rows
+      // stop repeating the order id. See the .pick-head CSS note.
+      list.classList.toggle('grouped', pickMode === 'age');
+      var items = withOrderGroups(rows);
 
       // index what is already on screen (ignore anything mid-exit). Keyed on
-      // data-key, which covers sections and bands as well as rows.
+      // data-key, which now covers headers as well as rows.
       var existing = {};
       var domRows = list.querySelectorAll('[data-key]');
       for (var i = 0; i < domRows.length; i++) {
@@ -4236,13 +3304,11 @@
         nextKeys[it.key] = true;
         var rowEl = existing[it.key];
         if (rowEl) {
-          if      (it.kind === 'sec')  fillPickSec(rowEl, it);
-          else if (it.kind === 'head') fillPickHead(rowEl, it);
-          else                         fillPickRow(rowEl, it.row);   // e.g. GRAB → PREP
+          if (it.kind === 'head') fillPickHead(rowEl, it);
+          else                    fillPickRow(rowEl, it.row);   // e.g. GRAB → PREP
           rowEl.classList.remove('exit');
         } else {
-          rowEl = (it.kind === 'sec')  ? buildPickSec(it)
-                : (it.kind === 'head') ? buildPickHead(it)
+          rowEl = (it.kind === 'head') ? buildPickHead(it)
                                        : buildPickRow(it.row, !firstTick);
         }
         var ref = anchor ? anchor.nextSibling : list.firstChild;
@@ -4254,13 +3320,23 @@
       for (var k in existing) {
         if (!nextKeys[k]) animateRowOut(existing[k]);
       }
+
+      // empty state (only when nothing is left, even mid-exit)
+      if (!rows.length && !list.querySelector('.pick-row:not(.exit)') && !list.querySelector('.feed-empty')) {
+        var li = document.createElement('li');
+        li.className = 'feed-empty';
+        li.textContent = 'nothing open to pick';
+        list.appendChild(li);
+      }
+      // The pick list hits the same edge whenever the beacon adds its band.
+      markOverflow(list);
     }
 
     function animateRowOut(node) {
       if (!node || node.classList.contains('exit')) return;
-      // A header has no exit animation, and a label hanging over rows that have
-      // already left would read as a bug. Take it out at once.
-      if (node.classList.contains('pick-head') || node.classList.contains('pick-sec')) {
+      // An order header has no exit animation, and a group label hanging over
+      // rows that have already left would read as a bug. Take it out at once.
+      if (node.classList.contains('pick-head')) {
         if (node.parentNode) node.parentNode.removeChild(node);
         return;
       }
@@ -4273,9 +3349,6 @@
     function fillPickRow(li, r) {
       li.setAttribute('data-key', pickKey(r));
       li.innerHTML = '';
-      // Set by withSections: this row sits under an order band, so it drops
-      // its own order id rather than repeating the band on every line.
-      li.classList.toggle('in-group', !!r._grouped);
 
       var main = document.createElement('div');
       main.className = 'pick-main';
@@ -4284,66 +3357,11 @@
       loc.className = 'pick-loc';
       var locTxt = String(r.location || '').trim();
       if (!locTxt || locTxt.toUpperCase() === 'NOT FOUND') {
-        loc.classList.add('missing');    // dimmed: absent, not broken
-        li.classList.add('noloc');
+        loc.classList.add('missing');
+        li.classList.add('noloc');       // the whole row reads as broken
         locTxt = locTxt || '—';
       }
-      // ⚠ "L-208/C-51" IS TWO SHELVES, NOT A LONG CODE — confirmed with the
-      // floor. Both are real places the part might be, so neither can be
-      // dropped or dimmed; what was wrong was rendering them as one 10-char
-      // run that overflowed the lane and shrank to near-illegible.
-      // Split on the slash and let each shelf be its own token, with the
-      // divider itself quiet. Two short tokens read faster than one long
-      // string AND fit the lane at a size the eye can take from a distance —
-      // which is the whole job of this column.
-      loc.classList.remove('long', 'xlong', 'dual');
-      var parts = locTxt.split('/');
-      var longest = 0;
-      for (var pi = 0; pi < parts.length; pi++) {
-        longest = Math.max(longest, parts[pi].trim().length);
-      }
-      if (parts.length > 1) {
-        loc.classList.add('dual');
-        loc.textContent = '';
-        for (var pj = 0; pj < parts.length; pj++) {
-          if (pj) {
-            var sep = document.createElement('i');
-            sep.className = 'loc-sep';
-            sep.textContent = '/';
-            loc.appendChild(sep);
-          }
-          var tok = document.createElement('b');
-          tok.className = 'loc-tok';
-          tok.textContent = parts[pj].trim();
-          loc.appendChild(tok);
-        }
-        // A dual shelf is ALWAYS at least two tokens plus a divider, so it
-        // never fits at full size — step it down once by definition, and
-        // again only if a single shelf is itself long. Sized on the LONGEST
-        // token, not the joined string: two 5-character shelves do not need
-        // the type dropped as far as one 11-character run would.
-        loc.classList.add(longest > 6 ? 'xlong' : 'long');
-      } else {
-        // "G-35 * 2" is a shelf plus a pack-size note. Split them so the note
-        // recedes and the aisle — the thing you navigate by — stays loud.
-        var pack = locTxt.match(/^(.*?)(\s*\*\s*\d+)$/);
-        if (pack) {
-          loc.textContent = '';
-          var shelfTok = document.createElement('span');
-          shelfTok.textContent = pack[1].trim();
-          var packTok = document.createElement('span');
-          packTok.className = 'loc-pack';
-          packTok.textContent = ' ' + pack[2].trim();
-          packTok.title = 'Warehouse pack size — one sellable unit is packed as ' +
-                          pack[2].replace(/\D/g, '') + ' pieces';
-          loc.appendChild(shelfTok); loc.appendChild(packTok);
-          if (pack[1].trim().length > 6) loc.classList.add('long');
-        } else {
-          loc.textContent = locTxt;
-          if      (locTxt.length > 9) loc.classList.add('xlong');
-          else if (locTxt.length > 6) loc.classList.add('long');
-        }
-      }
+      loc.textContent = locTxt;
 
       var sku = document.createElement('span');
       sku.className = 'pick-sku';
@@ -4352,11 +3370,7 @@
       // so neither can ever reach the row's ✓ Pick button — a mis-tap that
       // silently flips an order to PREPARING would be far worse than a missed
       // lookup.
-      // ⚠ NO `title` HERE. On the tablet a native tooltip never appears, but on
-      // the desk board hovering a SKU popped an OS tooltip that covered the
-      // sticky order band above it — reported as the list not reading cleanly.
-      // The affordance is carried by the hover style instead, which costs
-      // nothing on touch and does not overlay anything on a mouse.
+      sku.title = 'Tap for stock, shelf and which kits use it';
       sku.addEventListener('click', function (ev) {
         ev.preventDefault(); ev.stopPropagation();
         openPartDrawer(r.sku, r);
@@ -4381,68 +3395,31 @@
 
       var meta = document.createElement('span');
       meta.className = 'pick-meta';
-      // Channel word dropped — the section head this row sits under says it,
-      // and it was printing on every line of the list. Rows that also sit
-      // under an ORDER band hide this entirely (see .pick-row.in-group).
-      meta.textContent = r.orderId || '';
+      meta.textContent = (r.channel === 'DIRECT' ? 'Direct' : 'eBay') + ' · ' + (r.orderId || '');
+      meta.title = 'Tap for this order: rows, timeline, notes';
       meta.addEventListener('click', function (ev) {
         ev.preventDefault(); ev.stopPropagation();
         openOrderDrawer(r.orderId);
       });
 
-      // ── ◩ SHELF COUNT ── built BEFORE the row is assembled, because it is
-      // now a CELL of the row grid rather than a line underneath it.
-      //
-      // Appears ONLY on a shelf someone would actually count: the system knows
-      // a number AND it is low enough to count in one go. The floor's own rule
-      // — nobody counts a hundred pistons mid-pick — so above the threshold
-      // the board says nothing rather than asking for a number it will not get.
-      //
-      // ⚠ IT SHOWS ITS WORKING AND ASSERTS NOTHING. HAND is what the system
-      // believes is sellable, which is NET of units committed to other open
-      // lines; the picker counts what is physically there. Those differ
-      // whenever another open order holds the same SKU — so the board names
-      // that case instead of quietly flagging a correct shelf as wrong. The
-      // decision stays with the person holding the parts.
-      var isPrep = String(r.status).toUpperCase() === 'PREPARING';
-      var handN  = (typeof r.hand === 'number') ? r.hand : null;
-      var countEl = null;
-      if (handN !== null && handN <= COUNT_MAX_HAND && !isPrep) {
-        countEl = buildCountLine(r, handN);
-        // The alarm colour belongs to a counted shelf that DISAGREES — rare,
-        // actionable, and the whole reason the count exists. Not to a part
-        // that simply has no shelf recorded.
-        var cnt = (typeof r.left === 'number') ? r.left : null;
-        li.classList.toggle('deviance',
-          cnt !== null && cnt !== Math.max(0, handN - (num(r.qty) || 0)));
-      } else {
-        li.classList.remove('deviance');
-      }
-
       // GRAB used to print on EVERY row. A column that says the same thing on
       // all eleven lines carries no information — it is just the name of the
       // panel repeated. PENDING is the norm and the ✓ Pick button already says
-      // it; only the EXCEPTION gets a marker. PREP and ✓ Pick share the `act`
-      // grid area, so the action column is straight whichever one a row has.
-      main.appendChild(loc); main.appendChild(sku); main.appendChild(qty);
-      main.appendChild(meta);
-      if (countEl) main.appendChild(countEl);
+      // it; only the EXCEPTION gets a marker. The lane keeps its width so the
+      // buttons stay in one straight column down the list.
+      var isPrep = String(r.status).toUpperCase() === 'PREPARING';
+      var st = document.createElement('span');
+      st.className = 'pick-status ' + (isPrep ? 'prep' : 'pend');
+      st.textContent = isPrep ? 'PREP' : '';
 
-      // ⚠ EXACTLY ONE of these, and they share the `act` grid area. Appending
-      // an empty status span alongside the button put two elements in one
-      // cell; naming the area makes that an overlap rather than a no-op.
-      if (isPrep) {
-        var st = document.createElement('span');
-        st.className = 'pick-status prep';
-        st.textContent = 'PREP';
-        main.appendChild(st);
-      } else {
-        // console action — only PENDING rows get "✓ Pick" (→ PREPARING)
+      main.appendChild(loc); main.appendChild(sku); main.appendChild(qty);
+      main.appendChild(meta); main.appendChild(st);
+      // console action — only PENDING rows get "✓ Pick" (→ PREPARING)
+      if (!isPrep) {
         var doBtn = document.createElement('button');
         doBtn.className = 'pick-do';
         doBtn.textContent = '✓ Pick';
         doBtn.setAttribute('data-order', r.orderId || '');
-        doBtn.setAttribute('data-sku', r.sku || '');
         main.appendChild(doBtn);
       }
       li.appendChild(main);
@@ -4452,10 +3429,7 @@
       // Classes are cleared first because fillPickRow also runs on REUSE, and
       // a stale hue would outlive the kit it belonged to.
       li.classList.remove('kit-c0', 'kit-c1', 'kit-dash');
-      // Only when the order holds MORE THAN ONE kit — otherwise the order
-      // group already says which rows go in one box, and a spine on every row
-      // is the same fact printed N times.
-      var kh = r._multiKit ? kitHue[kitKeyOf(r)] : null;
+      var kh = kitHue[kitKeyOf(r)];
       li.classList.toggle('kitted', !!kh);
       if (kh) {
         li.classList.add('kit-c' + kh.hue);
@@ -4890,165 +3864,10 @@
         '<div class="drw-empty">' + esc(msg) + '</div>';
     }
 
-    /* How many of this SKU other OPEN lines are already holding. The board is
-       the only surface that can see this — the sheet shows one row at a time —
-       and it is the difference between "the shelf is wrong" and "the shelf is
-       fine, the rest is spoken for". */
-    function committedElsewhere(r) {
-      var rows = (lastTick && lastTick.openOrders) || [];
-      var other = 0;
-      for (var i = 0; i < rows.length; i++) {
-        if (String(rows[i].sku) !== String(r.sku)) continue;
-        if (String(rows[i].orderId) === String(r.orderId)) continue;
-        other += num(rows[i].qty) || 0;
-      }
-      return other;
-    }
-
-    function buildCountLine(r, handN) {
-      var wrap = document.createElement('div');
-      wrap.className = 'pick-count';
-
-      var qtyN     = num(r.qty) || 0;
-      // ⚠ NEVER BELOW ZERO. A shelf holding 1 with 2 on the order rendered
-      // "0 → -1 left", which is not a quantity anyone can go and count. The
-      // shelf simply runs out — and the fact that it cannot cover the line is
-      // said in words below, where it means something.
-      var rawLeft  = handN - qtyN;
-      var expected = Math.max(0, rawLeft);
-      var short    = rawLeft < 0 ? -rawLeft : 0;
-      var counted  = (typeof r.left === 'number') ? r.left : null;
-      var other    = committedElsewhere(r);
-
-      var sys = document.createElement('span');
-      sys.className = 'pc-sys';
-      sys.textContent = 'on hand ' + handN + ' → ' + expected + ' left';
-      wrap.appendChild(sys);
-
-      // The system says the shelf cannot cover this line. That is worth saying
-      // plainly BEFORE the picker walks, not implying with a negative number.
-      if (short > 0) {
-        var sh = document.createElement('span');
-        sh.className = 'pc-short';
-        sh.textContent = short + ' short of this line';
-        sh.title = 'The system has ' + handN + ' on hand but this line needs ' +
-                   qtyN + '. Count the shelf — it may simply be wrong.';
-        wrap.appendChild(sh);
-      }
-
-      if (other > 0) {
-        var oc = document.createElement('span');
-        oc.className = 'pc-other';
-        oc.textContent = '· ' + other + ' more spoken for';
-        oc.title = other + ' unit(s) of this SKU are committed to other open ' +
-                   'orders. If those are still on the shelf, expect ' +
-                   (expected + other) + ' rather than ' + expected + '.';
-        wrap.appendChild(oc);
-      }
-
-      // ⚠ RENDERED BEFORE the deviance chip and INDEPENDENT of it. Once Zoho
-      // is corrected the deviance disappears on its own — and if the receipt
-      // hung off the deviance it would vanish at exactly the moment it became
-      // the good news.
-      var adj = adjustStateFor(r.sku, handN);
-      if (adj) {
-        var z = document.createElement('span');
-        z.className = 'pc-zoho ' + (adj.confirmed ? 'done' : 'pending');
-        z.textContent = adj.confirmed ? '✓ zoho at ' + adj.target
-                                      : '⟳ zoho ← ' + adj.target;
-        z.title = adj.confirmed
-          ? 'Confirmed — the board can now see ' + adj.target + ' on hand.'
-          : 'Zoho was set to ' + adj.target + '. The board reads stock from the ' +
-            'mirror, which refreshes about every two minutes, so this turns into ' +
-            'a tick once it catches up.';
-        wrap.appendChild(z);
-      }
-
-      var btn = document.createElement('button');
-      btn.className = 'pc-btn' + (counted !== null ? ' has' : '');
-      // Blank is the normal case: a shelf that agreed needs no number.
-      btn.textContent = (counted !== null) ? ('counted ' + counted) : 'count';
-      btn.setAttribute('data-order', r.orderId || '');
-      btn.setAttribute('data-sku', r.sku || '');
-      btn.setAttribute('data-expected', String(expected));
-      wrap.appendChild(btn);
-
-      if (counted !== null && counted !== expected) {
-        var dev = document.createElement('span');
-        var diff = counted - expected;
-        dev.className = 'pc-dev';
-        dev.textContent = (diff > 0 ? '+' : '') + diff + ' vs system';
-        wrap.appendChild(dev);
-      }
-
-      // ⚠ ONLY WHERE A COUNT DISAGREES — or where one already has, so a second
-      // correction stays possible. An adjustment is the exception to the
-      // exception; offering it on every counted row would invite corrections
-      // nobody needs. But once a picker has adjusted, they may well need to
-      // again, so the button does NOT disappear on success.
-      if ((counted !== null && counted !== expected) || adj) {
-        var adjBtn = document.createElement('button');
-        adjBtn.className = 'pc-adj' + (adj ? ' again' : '');
-        adjBtn.textContent = adj ? 'fix again' : 'fix zoho';
-        adjBtn.setAttribute('data-order', r.orderId || '');
-        adjBtn.setAttribute('data-sku', r.sku || '');
-        adjBtn.setAttribute('data-counted', String(counted === null ? expected : counted));
-        adjBtn.setAttribute('data-qty', String(qtyN));
-        adjBtn.setAttribute('data-hand', String(handN));
-        adjBtn.setAttribute('data-other', String(other));
-        wrap.appendChild(adjBtn);
-      }
-      return wrap;
-    }
-
     function buildPickRow(r, animate) {
       var li = document.createElement('li');
       li.className = 'pick-row' + (animate ? ' enter' : '');
       fillPickRow(li, r);
-      return li;
-    }
-
-    /* A CHANNEL section head — "eBay · 12 lines" / "Direct · 3 orders · 18
-       lines". Carries the channel word that used to print on every single row,
-       and its OWN truncation count so a picker can see which half of the floor
-       is being cut rather than one pooled number. Not tappable: it is a label
-       for a block, and there is no single order or part behind it. */
-    function fillPickSec(li, s) {
-      li.setAttribute('data-key', s.key);
-      li.innerHTML = '';
-      li.classList.toggle('direct', s.channel === 'DIRECT');
-
-      var name = document.createElement('span');
-      name.className = 'ps-name';
-      name.textContent = (s.channel === 'DIRECT') ? 'Direct' : 'eBay';
-
-      var count = document.createElement('span');
-      count.className = 'ps-count';
-      // Orders only where they mean something. eBay is ~1 line per order, so
-      // "12 orders · 12 lines" would be the same number printed twice.
-      var parts = [];
-      if (s.channel === 'DIRECT' && s.orders) {
-        parts.push(s.orders + (s.orders === 1 ? ' order' : ' orders'));
-      }
-      parts.push(s.lines + (s.lines === 1 ? ' line' : ' lines'));
-      count.textContent = parts.join('  ·  ');
-
-      li.appendChild(name); li.appendChild(count);
-
-      if (s.hidden > 0) {
-        var more = document.createElement('span');
-        more.className = 'ps-more';
-        more.style.marginLeft = '0';
-        more.textContent = '+' + s.hidden + ' not shown';
-        more.title = 'Open on the floor but past this list’s cap — clear some first';
-        li.appendChild(more);
-      }
-    }
-
-    function buildPickSec(s) {
-      var li = document.createElement('li');
-      li.className = 'pick-sec';
-      fillPickSec(li, s);
       return li;
     }
 
@@ -5059,57 +3878,15 @@
     function fillPickHead(li, g) {
       li.setAttribute('data-key', g.key);
       li.innerHTML = '';
-      li.classList.toggle('collapsible', !!g.collapsible);
-      li.classList.toggle('shut', !!g.shut);
-      li.classList.toggle('open', !!g.collapsible && !g.shut);
-
-      if (g.collapsible) {
-        var tog = document.createElement('span');
-        tog.className = 'ph-tog';
-        tog.textContent = '▾';          // rotated by CSS when shut
-        li.appendChild(tog);
-      }
 
       var id = document.createElement('span');
       id.className = 'ph-id';
       id.textContent = g.orderId || '—';
-      // Tap the ID for the order dossier, tap anywhere else to open/shut.
-      // Mirrors the rows exactly, where the SKU and the order id are the two
-      // targets and the row body is not one.
-      id.addEventListener('click', function (ev) {
-        ev.preventDefault(); ev.stopPropagation();
-        openOrderDrawer(g.orderId);
-      });
 
       var meta = document.createElement('span');
       meta.className = 'ph-meta';
-      // The channel word lives on the section head above now — printing it
-      // again here would be the same repetition one level down.
-      //
-      // A SPLIT order says so, loudly and in its own words: "3 of 5 lines ·
-      // rest below". Never a bare count that reads as the whole order.
-      if (g.split) {
-        meta.textContent = g.n + ' of ' + g.total + ' lines  ·  rest below';
-        li.classList.add('split');
-      } else {
-        meta.textContent = g.n + (g.n === 1 ? ' line' : ' lines');
-        li.classList.remove('split');
-      }
-
-      li.appendChild(id); li.appendChild(meta);
-
-      // A shut card carries the shelves still to walk, so collapsing hides
-      // rows without ever hiding the work.
-      if (g.shut && g.aisles && g.aisles.length) {
-        var ai = document.createElement('span');
-        ai.className = 'ph-aisles';
-        var shown = g.aisles.slice(0, 6);
-        ai.textContent = shown.join('  ·  ') +
-                         (g.aisles.length > shown.length
-                            ? '  +' + (g.aisles.length - shown.length) : '');
-        ai.title = g.aisles.join(' · ');
-        li.appendChild(ai);
-      }
+      meta.textContent = (g.channel === 'DIRECT' ? 'Direct' : 'eBay') +
+                         '  ·  ' + g.n + (g.n === 1 ? ' line' : ' lines');
 
       var age = document.createElement('span');
       age.className = 'ph-age';
@@ -5118,205 +3895,52 @@
       age.textContent = (g.age === undefined) ? '' : (fmtDur(g.age) + ' waiting');
 
       li.classList.toggle('late', g.age !== undefined && g.age >= 180);
-      li.appendChild(age);
-      // no li.title — see the note in fillPickRow about tooltips covering the
-      // sticky band. The chevron already says what tapping does.
+      li.appendChild(id); li.appendChild(meta); li.appendChild(age);
+      li.title = 'Tap for this order: rows, timeline, notes';
     }
 
     function buildPickHead(g) {
       var li = document.createElement('li');
       li.className = 'pick-head';
       fillPickHead(li, g);
-      li.addEventListener('click', function () {
-        if (li.classList.contains('collapsible')) toggleOrder(g.orderId);
-        else openOrderDrawer(g.orderId);
-      });
+      li.addEventListener('click', function () { openOrderDrawer(g.orderId); });
       return li;
     }
 
-    /* Build the flat display list the reconcile keys on: a CHANNEL section
-       head wherever the channel changes, an ORDER band wherever a multi-line
-       order starts, then the rows.
-
-       TWO RULES, and they are different on purpose:
-
-       · The CHANNEL split is unconditional. It is the thing the pickers asked
-         for and it is what every other surface already does.
-
-       · The ORDER band is unconditional in DIRECT and earns-its-place in eBay.
-         ⚠ NOT a cosmetic inconsistency — the two channels mean different
-         things by "order". A DIRECT order is a physical BOX you assemble, so
-         the band is its lid: the sheet paints a gold box around every DIRECT
-         SO group including one-row ones, and the print gives every DIRECT
-         order a header regardless of item count. Skipping the band on a
-         one-line box was tried first and it renders WRONG — the naked row
-         sits directly under the previous order's rows and reads as part of
-         that box, which on this board means packing a part into the wrong
-         customer's carton.
-         An eBay "order" is just a shipping label with ~1 line, so there a
-         band over a single row is only the row's own id printed twice — the
-         same redundancy that got GRAB deleted from all eleven rows. A 2+ line
-         eBay order does get one.
-
-       Rows under a band are marked so they can drop their own meta. */
-    function withSections(rows, byChannel) {
-      var out = [], prevCh = null, prevOid = null, usedKeys = {};
-      byChannel = byChannel || {};
-
-      // Distinct kits per order — the thread is only drawn where it separates
-      // two boxes inside one order (see the .pick-row.kitted note in the CSS).
-      var kitsPerOrder = {};
-      for (var q = 0; q < rows.length; q++) {
-        var qid = String(rows[q].orderId || '').trim();
-        if (!qid || !rows[q].kit) continue;
-        if (!kitsPerOrder[qid]) kitsPerOrder[qid] = {};
-        kitsPerOrder[qid][rows[q].kit] = 1;
-      }
-      for (var q2 = 0; q2 < rows.length; q2++) {
-        var q2id = String(rows[q2].orderId || '').trim();
-        var km = kitsPerOrder[q2id];
-        rows[q2]._multiKit = !!(km && Object.keys(km).length > 1);
-      }
-
-      // ⚠ TOTAL LINES PER ORDER, over the WHOLE list — not the contiguous run.
-      // The band used to report its run length, which is a lie the moment an
-      // order is split: on 2026-08-10 eBay order 08-15017-44806 had five lines
-      // and another order's rows sorted between the fourth and the fifth, so
-      // the band read "4 LINES" over four of five and the picker had no reason
-      // to look further. The server now anchors orders so they stay contiguous,
-      // but this is the half that CANNOT LIE regardless — the same two-level
-      // rule the sheet settled on after the split-order incident: fix the
-      // source, and make the renderer incapable of showing a fragment as whole.
-      var orderTotal = {};
-      for (var t = 0; t < rows.length; t++) {
-        var tid = String(rows[t].orderId || '').trim();
-        if (tid) orderTotal[tid] = (orderTotal[tid] || 0) + 1;
-      }
-
+    /* Interleave a header wherever the sales order changes. Age mode only —
+       see the CSS note. Returns a flat display list the reconcile can key on
+       exactly as it already keys rows. */
+    function withOrderGroups(rows) {
+      if (pickMode !== 'age') return rows.map(function (r) {
+        return { key: pickKey(r), kind: 'row', row: r };
+      });
+      var out = [], prev = null, usedKeys = {};
       for (var i = 0; i < rows.length; i++) {
-        var r    = rows[i];
-        var ch   = (r.channel === 'DIRECT') ? 'DIRECT' : 'EBAY';
-        var oid  = String(r.orderId || '').trim();
-
-        if (ch !== prevCh) {
-          // Count this channel's run, and how many distinct orders it holds.
-          var lines = 0, orders = {}, nOrders = 0;
-          for (var j = i; j < rows.length; j++) {
-            var cj = (rows[j].channel === 'DIRECT') ? 'DIRECT' : 'EBAY';
-            if (cj !== ch) break;
-            lines++;
-            var oj = String(rows[j].orderId || '').trim();
-            if (oj && !orders[oj]) { orders[oj] = 1; nOrders++; }
-          }
-          out.push({
-            key: 'S|' + ch, kind: 'sec', channel: ch,
-            lines: lines, orders: nOrders,
-            // hidden = open on the floor but past this channel's own cap
-            hidden: Math.max(0, (num(byChannel[ch]) || lines) - lines)
-          });
-          prevCh  = ch;
-          prevOid = null;         // force a band re-evaluation inside the new section
-        }
-
-        if (oid !== prevOid) {
+        var oid = String(rows[i].orderId || '').trim();
+        if (oid !== prev) {
           var n = 0;
-          for (var k = i; k < rows.length; k++) {
-            if (String(rows[k].orderId || '').trim() !== oid ||
-                ((rows[k].channel === 'DIRECT') ? 'DIRECT' : 'EBAY') !== ch) break;
+          for (var j = i; j < rows.length; j++) {
+            if (String(rows[j].orderId || '').trim() !== oid) break;
             n++;
           }
-          var shut = (ch === 'DIRECT') && !isOrderOpen(oid);
-          if (oid && (ch === 'DIRECT' || n > 1)) {
-            // ⚠ Keys MUST be unique — the reconcile indexes on data-key, so two
-            // bands sharing one key would collapse into a single node in the
-            // wrong place. One order cannot appear in two blocks under the
-            // current sort, but that is a property of the sort, not a
-            // guarantee. Suffix any repeat rather than depend on it.
-            var hk = 'H|' + oid;
-            if (usedKeys[hk]) hk += '|' + i;
-            usedKeys[hk] = 1;
-            out.push({
-              key: hk, kind: 'head', collapsible: (ch === 'DIRECT'), shut: shut,
-              orderId: oid, channel: ch, n: n, age: orderAge[oid],
-              // what the ORDER really holds, and whether this band covers it
-              total: orderTotal[oid] || n,
-              split: (orderTotal[oid] || n) > n,
-              // ⚠ A SHUT CARD STILL NAMES ITS AISLES. Collapsing must never be
-              // the same as hiding — the shut line has to stay actionable on
-              // its own, which on this floor means the shelves still to walk.
-              // PENDING only: a PREPARING line is already in the picker's hand.
-              aisles: shut ? runAisles(rows, i, n) : null
-            });
-            // mark this run's rows so they stop repeating the order id
-            for (var m = i; m < i + n; m++) rows[m]._grouped = true;
-          } else {
-            // Clear the WHOLE run, not just the first row — a run of blank-SO
-            // rows enters this branch once but has to leave none of them
-            // carrying a stale flag from an earlier paint.
-            for (var m2 = i; m2 < i + n; m2++) rows[m2]._grouped = false;
-          }
-          prevOid = oid;
+          // ⚠ Keys MUST be unique — the reconcile indexes on data-key, so two
+          // headers sharing one key would collapse into a single node in the
+          // wrong place. One order cannot appear in two blocks today (every
+          // row of it shares the order's age, and the sort is stable), but
+          // that is a property of the CURRENT sort, not a guarantee. Suffix
+          // any repeat rather than depend on it.
+          var hk = 'H|' + oid;
+          if (usedKeys[hk]) hk += '|' + i;
+          usedKeys[hk] = 1;
+          out.push({
+            key: hk, kind: 'head',
+            orderId: oid, channel: rows[i].channel, n: n, age: orderAge[oid]
+          });
+          prev = oid;
         }
-        // A shut order contributes its band and nothing else.
-        if (!(ch === 'DIRECT' && oid && !isOrderOpen(oid))) {
-          out.push({ key: pickKey(r), kind: 'row', channel: ch, row: r });
-        }
+        out.push({ key: pickKey(rows[i]), kind: 'row', row: rows[i] });
       }
       return out;
-    }
-
-    /* Distinct shelves still to FIND in one order's run of rows, in walk
-       order. PREPARING lines are excluded — those are already grabbed, so
-       listing them would send a picker back for something in their own hand. */
-    function runAisles(rows, start, n) {
-      var seen = {}, out = [];
-      for (var i = start; i < start + n; i++) {
-        if (String(rows[i].status).toUpperCase() === 'PREPARING') continue;
-        var loc = String(rows[i].location || '').trim();
-        if (!loc || loc.toUpperCase() === 'NOT FOUND' || seen[loc]) continue;
-        seen[loc] = 1; out.push(loc);
-      }
-      return out;
-    }
-
-    /* ─────────── THE ORDER ACCORDION ───────────
-       Which DIRECT orders are open. THE PICKER'S CHOICE, and the board never
-       overrules it: a poll that auto-collapsed what someone had opened would
-       fight them every 20 seconds, which is the fastest way to make a good
-       idea unusable. Deliberately NOT persisted to localStorage — this is a
-       shared tablet, and inheriting the last picker's open box is the same
-       liability that made a mode toggle the wrong answer here. */
-    var directOpen = {};        // orderId -> true
-    var directTouched = false;  // has anyone chosen yet this session?
-
-    function isOrderOpen(oid) { return !!directOpen[oid]; }
-
-    function toggleOrder(oid) {
-      directTouched = true;
-      if (directOpen[oid]) delete directOpen[oid]; else directOpen[oid] = true;
-      if (lastTick) {
-        paintPickList(applyPickOverrides((lastTick.openOrders || []).slice()),
-                      lastTick.openOrdersTotal, lastTick.openOrdersBy);
-      }
-    }
-
-    /* On the very first paint, open the order at the top of the DIRECT block —
-       oldest in aisle mode, oldest in age mode, either way the one to work
-       next. After that the picker owns it. Stale ids are pruned so a finished
-       order can't silently re-open weeks later if its number comes round. */
-    function seedOrderAccordion(rows) {
-      var live = {};
-      for (var i = 0; i < rows.length; i++) {
-        if (rows[i].channel === 'DIRECT') live[String(rows[i].orderId || '').trim()] = 1;
-      }
-      for (var k in directOpen) if (!live[k]) delete directOpen[k];
-      if (directTouched) return;
-      for (var j = 0; j < rows.length; j++) {
-        if (rows[j].channel !== 'DIRECT') continue;
-        var oid = String(rows[j].orderId || '').trim();
-        if (oid) directOpen[oid] = true;
-        return;
-      }
     }
 
     // ---------- CONSOLE: mark picked (PENDING → PREPARING) ----------
@@ -5353,299 +3977,59 @@
       return rows;
     }
 
-    /* The optimistic flip must match what the server will do EXACTLY — a
-       whole-order override against a one-line write would flip five rows on
-       screen, then snap four of them back on the next tick. */
-    function setPickOverride(orderId, sku, status) {
+    function setPickOverride(orderId, status) {
+      // One tap can cover several rows of the same order (multi-line SOs).
       var rows = (lastTick && lastTick.openOrders) || [];
       var touched = false;
       for (var i = 0; i < rows.length; i++) {
-        if (!_pickRowMatches(rows[i], orderId, sku)) continue;
+        if (String(rows[i].orderId) !== String(orderId)) continue;
         pickOverride[pickKey(rows[i])] = { status: status, until: Date.now() + PICK_OVERRIDE_MS };
         touched = true;
       }
       if (touched) paintPickList(applyPickOverrides((rows || []).slice()),
-                                 lastTick && lastTick.openOrdersTotal,
-                                 lastTick && lastTick.openOrdersBy);
+                                 lastTick && lastTick.openOrdersTotal);
     }
 
-    /* Same match rule as the server: order id, plus SKU when one was sent.
-       Two lines of the same SKU on one order are one physical grab, so both
-       flip — which is also what _resolveStatusTargetRows does. */
-    function _pickRowMatches(row, orderId, sku) {
-      if (String(row.orderId) !== String(orderId)) return false;
-      if (!sku) return true;                       // whole-order call
-      return String(row.sku) === String(sku);
-    }
-
-    function clearPickOverride(orderId, sku) {
+    function clearPickOverride(orderId) {
       var rows = (lastTick && lastTick.openOrders) || [];
       for (var i = 0; i < rows.length; i++) {
-        if (_pickRowMatches(rows[i], orderId, sku)) delete pickOverride[pickKey(rows[i])];
+        if (String(rows[i].orderId) === String(orderId)) delete pickOverride[pickKey(rows[i])];
       }
       paintPickList(applyPickOverrides((rows || []).slice()),
-                    lastTick && lastTick.openOrdersTotal,
-                    lastTick && lastTick.openOrdersBy);
+                    lastTick && lastTick.openOrdersTotal);
     }
 
-    /* ⚠ ONE LINE PER TAP. The button lives on a ROW and the picker taps it
-       holding THAT part, so the SKU travels with the order id all the way to
-       the sheet. Before this, one tap flipped every line of the sales order —
-       on a five-line box that marked four parts picked that were still on
-       their shelves, and it made the kit strip useless by jumping 0 of 5
-       straight to 5 of 5. */
-    function markPicked(orderId, sku, btn) {
+    function markPicked(orderId, btn) {
       if (!orderId) return;
       if (btn) { btn.disabled = true; btn.textContent = '…'; }
 
-      setPickOverride(orderId, sku, 'PREPARING');   // flip NOW
-      showPickedToast(orderId, sku);                // and confirm NOW
+      setPickOverride(orderId, 'PREPARING');   // flip NOW
+      showPickedToast(orderId);                // and confirm NOW
 
-      hqCall('boardStatus', { orderId: orderId, sku: sku, status: 'PREPARING' })
+      hqCall('boardStatus', { orderId: orderId, status: 'PREPARING' })
         .then(function (r) {
           if (r && r.ok) { pollSoon(); return; }
-          clearPickOverride(orderId, sku);      // server refused — put it back
+          clearPickOverride(orderId);          // server refused — put it back
           hideToast();
           if (btn) { btn.disabled = false; btn.textContent = '✓ Pick'; }
         })
         .catch(function () {
-          clearPickOverride(orderId, sku);
+          clearPickOverride(orderId);
           hideToast();
           if (btn) { btn.disabled = false; btn.textContent = '✓ Pick'; }
         });
     }
 
-    /* ─────────── THE NUMBER PAD ───────────
-       One component, two callers. Replaces the native prompt() the first cut
-       used: on a tablet a text field summons the OS keyboard, which covers
-       half the screen and resizes the viewport to collect two digits, and it
-       looks like it belongs to a different product. */
-    var npCfg = null;
-
-    function openNumPad(cfg) {
-      npCfg = cfg;
-      var card = document.getElementById('npCard');
-      card.classList.toggle('adjust', cfg.tone === 'adjust');
-      document.getElementById('npTitle').textContent = cfg.title || '';
-      document.getElementById('npSub').textContent   = cfg.sub || '';
-      var ctx = document.getElementById('npContext');
-      ctx.innerHTML = cfg.contextHtml || '';
-      ctx.style.display = cfg.contextHtml ? '' : 'none';
-      document.getElementById('npNote').textContent = cfg.note || '';
-      document.getElementById('npOk').textContent   = cfg.confirmLabel || 'Save';
-      npSet(cfg.value === undefined || cfg.value === null ? '' : String(cfg.value));
-      document.getElementById('numPad').classList.remove('hidden');
-    }
-
-    function npClose() {
-      npCfg = null;
-      document.getElementById('numPad').classList.add('hidden');
-    }
-
-    function npSet(v) {
-      npCfg.value = v;
-      var el = document.getElementById('npValue');
-      var blank = (v === '');
-      // Blank is MEANINGFUL on a count — it is how a picker says "the shelf
-      // agreed" — so it gets its own wording rather than reading as an error.
-      el.textContent = blank ? (npCfg.blankLabel || '—') : v;
-      el.classList.toggle('blank', blank);
-      document.getElementById('npOk').disabled = blank && !npCfg.allowBlank;
-    }
-
-    function npPress(k) {
-      if (!npCfg) return;
-      var v = npCfg.value;
-      if (k === 'clr')      v = '';
-      else if (k === 'del') v = v.slice(0, -1);
-      else if (v.length < 5) v = (v === '0' ? '' : v) + k;
-      npSet(v);
-    }
-
-    (function buildNumPad() {
-      var keys = document.getElementById('npKeys');
-      var order = ['1','2','3','4','5','6','7','8','9','clr','0','del'];
-      for (var i = 0; i < order.length; i++) {
-        var k = order[i];
-        var b = document.createElement('button');
-        b.className = 'np-key' + (k === 'clr' || k === 'del' ? ' fn' : '');
-        b.textContent = k === 'clr' ? 'CLEAR' : (k === 'del' ? '⌫' : k);
-        b.setAttribute('data-k', k);
-        keys.appendChild(b);
-      }
-      keys.addEventListener('click', function (e) {
-        var b = e.target && e.target.closest ? e.target.closest('.np-key') : null;
-        if (b) npPress(b.getAttribute('data-k'));
-      });
-      document.getElementById('npCancel').addEventListener('click', npClose);
-      document.getElementById('npOk').addEventListener('click', function () {
-        var cfg = npCfg;
-        if (!cfg) return;
-        npClose();
-        cfg.onConfirm(cfg.value);
-      });
-      // Tap the veil to dismiss — the same escape every drawer on this board
-      // already has. A modal with no way out is the one shape this board has
-      // been bitten by before.
-      document.getElementById('numPad').addEventListener('click', function (e) {
-        if (e.target && e.target.id === 'numPad') npClose();
-      });
-      document.addEventListener('keydown', function (e) {
-        if (document.getElementById('numPad').classList.contains('hidden')) return;
-        if (e.key === 'Escape') { npClose(); return; }
-        if (e.key === 'Enter')  { document.getElementById('npOk').click(); return; }
-        if (e.key === 'Backspace') { npPress('del'); e.preventDefault(); return; }
-        if (/^[0-9]$/.test(e.key)) npPress(e.key);
-      });
-    })();
-
-    function askCount(btn) {
-      var orderId  = btn.getAttribute('data-order');
-      var sku      = btn.getAttribute('data-sku');
-      var expected = btn.getAttribute('data-expected');
-      openNumPad({
-        tone: 'count',
-        title: 'Shelf count',
-        sub: sku,
-        contextHtml: 'System expects <b>' + esc(expected) + '</b> left after this pick.',
-        note: 'Leave blank if the shelf agrees',
-        value: '',
-        blankLabel: 'agrees',
-        allowBlank: true,
-        confirmLabel: 'Save count',
-        onConfirm: function (val) { saveCount(btn, orderId, sku, val); }
-      });
-    }
-
-    function saveCount(btn, orderId, sku, val) {
-      btn.disabled = true;
-      var was = btn.textContent;
-      btn.textContent = '…';
-      hqCall('boardLeft', { orderId: orderId, sku: sku, count: val })
-        .then(function (res) {
-          btn.disabled = false;
-          if (!res || !res.ok) {
-            btn.textContent = was;
-            toast('✕ ' + ((res && res.error) || 'Could not save that count'), 8000);
-            return;
-          }
-          toast(val === ''
-                  ? '✓ ' + sku + ' — shelf agreed, count cleared'
-                  : '✓ ' + sku + ' counted ' + val, 4500);
-          pollSoon();                                 // the sheet is the truth
-        })
-        .catch(function () { btn.disabled = false; btn.textContent = was; });
-    }
-
-    /* ⚠ THE BOARD SUGGESTS, THE PICKER CONFIRMS — it does not derive and fire.
-       Zoho drops `available_stock` when a sales order is created but only drops
-       `stock_on_hand` when the order SHIPS, so the units already in the
-       picker's hand are still part of Zoho's on-hand at this moment. The
-       board's best guess is therefore (what is on the shelf + what you just
-       pulled) — and that is wrong as soon as another open order's units have
-       also been pulled and not yet shipped, which the board cannot see.
-       So it shows its whole arithmetic, pre-fills the answer, and lets the
-       person standing at the shelf correct it. They can see what has been
-       pulled; no server can. */
-    function askAdjust(btn) {
-      var orderId = btn.getAttribute('data-order');
-      var sku     = btn.getAttribute('data-sku');
-      var counted = num(btn.getAttribute('data-counted'));
-      var qty     = num(btn.getAttribute('data-qty'));
-      var hand    = num(btn.getAttribute('data-hand'));
-      var other   = num(btn.getAttribute('data-other'));
-      var suggest = counted + qty;
-
-      var ctx = 'Zoho on hand now  <b>' + hand + '</b>\n' +
-                'You counted       <b>' + counted + '</b> on the shelf\n' +
-                'You pulled        <b>' + qty + '</b> for this order\n' +
-                'Suggested         <b>' + suggest + '</b>  (' + counted + ' + ' + qty + ')\n' +
-                'Zoho only removes stock when the order ships.';
-      if (other > 0) {
-        ctx += '\n<i>⚠ ' + other + ' more committed on other open orders — if those are\n' +
-               'also already pulled, the answer is ' + (suggest + other) + '.</i>';
-      }
-
-      openNumPad({
-        tone: 'adjust',
-        title: 'Correct Zoho stock',
-        sub: sku,
-        contextHtml: ctx,
-        note: 'You can see the shelf — change it if you know better',
-        value: String(suggest),
-        allowBlank: false,
-        confirmLabel: 'Set on hand',
-        onConfirm: function (val) { sendAdjust(btn, orderId, sku, val); }
-      });
-    }
-
-    function sendAdjust(btn, orderId, sku, val) {
-      var target = parseFloat(String(val).trim());
-      if (isNaN(target) || target < 0) { toast('That is not a quantity'); return; }
-
-      btn.disabled = true;
-      var was = btn.textContent;
-      btn.textContent = '…';
-      // ⚠ SAY IT IS HAPPENING, not just that it happened. This round trip runs
-      // Apps Script → n8n → a Zoho read → a Zoho write, which is seconds, not
-      // milliseconds — and in the first version the only sign of life was a
-      // three-dot button, so the picker had no idea anything had been sent.
-      // The long TTL is deliberate: the result replaces this message, and if
-      // the call dies silently the "sending" state is the evidence.
-      toast('⟳ Sending ' + sku + ' to Zoho…', 30000);
-      hqCall('boardAdjust', { sku: sku, target: target, orderId: orderId })
-        .then(function (res) {
-          btn.disabled = false;
-          if (!res || !res.ok) {
-            btn.textContent = was;
-            toast('✕ ' + ((res && res.error) || 'Zoho refused that adjustment'), 8000);
-            chime('error');
-            return;
-          }
-          if (!res.noop) noteAdjust(sku, num(res.after));
-          toast(res.noop
-                  ? '✓ ' + sku + ' already at ' + res.before + ' — nothing to change'
-                  : '✅ Zoho updated · ' + sku + '  ' + res.before + ' → ' + res.after +
-                    '  (' + (res.delta > 0 ? '+' : '') + res.delta + ')', 7000);
-          chime('caughtUp');            // the write landed — say so out loud too
-          // Repaint now so the receipt appears on the row immediately, rather
-          // than waiting up to 20s for the next tick.
-          if (lastTick) {
-            paintPickList(applyPickOverrides((lastTick.openOrders || []).slice()),
-                          lastTick.openOrdersTotal, lastTick.openOrdersBy);
-          }
-          pollSoon();
-        })
-        .catch(function () {
-          btn.disabled = false; btn.textContent = was;
-          toast('✕ Could not reach the server — nothing was sent', 8000);
-          chime('error');
-        });
-    }
-
-    /* A message with no undo — distinct from the pick toast, which has one. */
-    function toast(msg, ms) {
-      var t = document.getElementById('ctoast');
-      document.getElementById('ctoastMsg').textContent = msg;
-      var u = document.getElementById('ctoastUndo');
-      if (u) u.style.display = 'none';
-      t.classList.add('show');
-      clearTimeout(t._timer);
-      t._timer = setTimeout(hideToast, ms || 4000);
-    }
-
-    function unpick(orderId, sku) {
-      setPickOverride(orderId, sku, 'PENDING');
-      hqCall('boardStatus', { orderId: orderId, sku: sku, status: 'PENDING' })
+    function unpick(orderId) {
+      setPickOverride(orderId, 'PENDING');
+      hqCall('boardStatus', { orderId: orderId, status: 'PENDING' })
         .then(function () { pollSoon(); })
-        .catch(function () { clearPickOverride(orderId, sku); });
+        .catch(function () { clearPickOverride(orderId); });
     }
-    function showPickedToast(orderId, sku) {
+    function showPickedToast(orderId) {
       var t = document.getElementById('ctoast');
-      // Name the LINE, not the order — the tap only moved one of them.
-      document.getElementById('ctoastMsg').textContent =
-        '✓ ' + (sku ? sku + ' · ' : '') + orderId + ' → preparing';
-      document.getElementById('ctoastUndo').onclick = function () { unpick(orderId, sku); hideToast(); };
+      document.getElementById('ctoastMsg').textContent = '✓ ' + orderId + ' → preparing';
+      document.getElementById('ctoastUndo').onclick = function () { unpick(orderId); hideToast(); };
       t.classList.add('show');
       clearTimeout(t._timer);
       t._timer = setTimeout(hideToast, 6000);

@@ -416,6 +416,7 @@ function triggerZohoPriceBulkWrite(items) {
 }
 
 
+
 /**
  * Internal: fire a Header-Auth-protected webhook and translate the response
  * into the {ok, message, code} shape the sidebar expects.
@@ -465,5 +466,86 @@ function _fireAuthedWebhook(url, successMessage) {
   } catch (err) {
     Logger.log("Webhook fire error (" + url + "): " + err.toString());
     return { ok: false, message: "Connection error: " + (err && err.message ? err.message : err), code: 0 };
+  }
+}
+
+
+/**
+ * Fire the Zoho INVENTORY ADJUSTMENT proxy — correct one SKU's on-hand quantity
+ * from a physical count.
+ *
+ * ⚠ The proxy computes the DELTA itself. Zoho's adjustment API takes
+ * `quantity_adjusted` (a change, not a new total), so the target has to be
+ * turned into a change against Zoho's CURRENT stock — and that read has to
+ * happen inside the same execution as the write. Doing the subtraction here,
+ * against the Zoho Stock mirror, would use a number up to two minutes old and
+ * any sale in that window would land a wrong correction.
+ *
+ * ⚠ `max_delta` travels WITH the request. The proxy enforces it, so the guard
+ * survives a caller that forgets it — same shape as the price proxy's sanity
+ * gate, which is checked on both sides on purpose.
+ *
+ * @param {Object} p { item_id, sku, target, max_delta, reason }
+ * @returns {{ok:boolean, message:string, data:Object=}}
+ */
+function triggerZohoStockAdjust(p) {
+  p = p || {};
+  var url = N8N_ZOHO_STOCK_ADJUST_WEBHOOK_URL;
+  if (!url) {
+    return { ok: false, message: "Stock-adjust webhook URL not configured (check Secrets.js)" };
+  }
+  var itemId = String(p.item_id || "").trim();
+  if (!itemId) return { ok: false, message: "item_id is empty — can't adjust" };
+
+  var target = parseFloat(p.target);
+  if (!isFinite(target) || target < 0) {
+    return { ok: false, message: "target must be zero or more (got " + p.target + ")" };
+  }
+
+  try {
+    var options = {
+      method:             'post',
+      muteHttpExceptions: true,
+      followRedirects:    true,
+      headers: {
+        'X-API-Token':                APP_SECRET_TOKEN,
+        'ngrok-skip-browser-warning': 'true',
+        'User-Agent':                 'GoogleAppsScript'
+      },
+      contentType: 'application/json',
+      payload: JSON.stringify({
+        item_id:   itemId,
+        sku:       String(p.sku || ""),
+        target:    target,
+        max_delta: parseFloat(p.max_delta) || 50,
+        reason:    String(p.reason || "Physical count")
+      })
+    };
+
+    var response = UrlFetchApp.fetch(url, options);
+    var code     = response.getResponseCode();
+    var body     = response.getContentText();
+
+    if (code !== 200 && code !== 204) {
+      if (code === 401 || code === 403) {
+        return { ok: false, code: code, message: "Auth rejected by n8n (X-API-Token mismatch)" };
+      }
+      if (code === 404) {
+        return { ok: false, code: code, message: "Workflow not active in n8n — toggle it on" };
+      }
+      return { ok: false, code: code, message: "n8n returned " + code + ": " + String(body).slice(0, 300) };
+    }
+
+    var data = {};
+    try { data = JSON.parse(body); } catch (e) {
+      return { ok: false, message: "Unreadable response from n8n: " + String(body).slice(0, 300) };
+    }
+    if (data && data.ok === false) {
+      return { ok: false, message: data.message || "Proxy refused the adjustment", data: data };
+    }
+    return { ok: true, message: data.message || "Adjustment applied", data: data };
+
+  } catch (err) {
+    return { ok: false, message: "Could not reach n8n: " + err };
   }
 }

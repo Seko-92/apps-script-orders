@@ -70,7 +70,17 @@ var DASHBOARD = {
   // changes — a new order landing — can lag, and the Telegram ping is the
   // real-time alert for those. The board is an ambient display.
   tickCacheKey: 'dashTick',
-  tickCacheSec: 45
+  tickCacheSec: 45,
+
+  // ⚠ THE COUNT PROMPT ONLY APPEARS ON A SHELF SOMEONE WOULD ACTUALLY COUNT.
+  // The floor's own rule (2026-08-11): a deviance is checked on low-quantity
+  // items, because counting a hundred pistons mid-pick is not a thing anyone
+  // does. Above this the board stays silent rather than asking for a number
+  // nobody is going to produce — the same mark-the-exception discipline that
+  // took GRAB off all eleven rows.
+  // 25 matches what the floor described; the sidebar's low-stock badge uses
+  // 20, so they are deliberately close but not coupled.
+  countMaxHand: 25
 };
 
 
@@ -201,6 +211,10 @@ function _buildDashboardTick() {
     // it has to be lifted onto the tick explicitly or the board can never tell
     // it's showing a truncated walk.
     openOrdersTotal: (openOrders && openOrders.total) || (openOrders || []).length,
+    // Per-channel totals before the cap, so each SECTION can report its own
+    // "+N more" instead of one pooled number that hides which half was cut.
+    // Same array-property lifting problem as `total` above.
+    openOrdersBy: (openOrders && openOrders.byChannel) || { EBAY: 0, DIRECT: 0 },
     // Kits in progress — same lifting problem as `total` above.
     kits:       (openOrders && openOrders.kits) || [],
     serverTime: new Date().toISOString()
@@ -223,15 +237,26 @@ function _buildDashboardTick() {
  * (PREPARING is reversible/non-terminal/no-customer-impact, and the team
  * already has this exact toggle via the Telegram buttons.)
  */
-function boardSetStatus(orderId, status) {
+function boardSetStatus(orderId, status, sku) {
   orderId = String(orderId || '').trim();
   status  = String(status  || '').trim().toUpperCase();
+  sku     = String(sku     || '').trim();
   if (!orderId) return { ok: false, error: 'No order' };
   if (status !== 'PENDING' && status !== 'PREPARING') {
     return { ok: false, error: 'Board may only set PENDING or PREPARING' };
   }
   try {
-    var res = updateOrderStatus(orderId, status, { source: 'board', syncTelegram: true });
+    // ⚠ ONE LINE, NOT THE WHOLE ORDER — reported from the floor 2026-08-10.
+    // ✓ Pick sits on a ROW, so a picker taps it having grabbed THAT part. It
+    // was flipping every line of the sales order, which on a five-line box
+    // meant one tap marked four parts picked that were still on their shelves.
+    // It also silently broke the kit strip: progress jumped 0 of 5 → 5 of 5 in
+    // one tap, so the counter that exists to stop a half-packed box shipping
+    // could never show a half-packed box.
+    // A SKU is passed whenever the tap came from a row. Omitting it keeps the
+    // whole-order behaviour for any caller that genuinely means the order.
+    var target = sku ? { orderId: orderId, sku: sku } : orderId;
+    var res = updateOrderStatus(target, status, { source: 'board', syncTelegram: true });
     // The board polls straight after a pick — without this it would be served a
     // cached tick still showing PENDING.
     _dashBustTickCache();
@@ -239,6 +264,86 @@ function boardSetStatus(orderId, status) {
   } catch (e) {
     console.error('boardSetStatus: ' + e);
     return { ok: false, error: String(e) };
+  }
+}
+
+
+// =======================================================================================
+// PUBLIC: board console — record a physical count into ◩ LEFT
+// =======================================================================================
+
+/**
+ * Write the picker's physical shelf count to ◩ LEFT for ONE line.
+ *
+ * THE WORKFLOW THIS REPLACES (described by the floor, 2026-08-11): the picker
+ * pulls the line, glances at the shelf, and if what remains matches what the
+ * system said would remain they type NOTHING. Only a DEVIANCE gets written —
+ * then today they carry it on paper to a PC and correct Zoho. This kills the
+ * paper and the walk; the Zoho correction stays a separate, reviewed step.
+ *
+ * ⚠ SCOPE IS DELIBERATELY TINY, exactly like boardSetStatus. This writes ONE
+ * CELL in ONE COLUMN. It cannot touch status, quantity, price or stock, so the
+ * public board URL gains no new power over inventory — the number lands on the
+ * sheet where a human already decides what to do with it.
+ *
+ * ⚠ Rows are resolved by orderId + SKU INSIDE the lock, never by a row number
+ * from the client. A polling client's row number can be stale by the time it
+ * arrives (the 2026-05-08 shifted-row incident); values cannot be.
+ *
+ * @param {string} orderId
+ * @param {string} sku
+ * @param {number|string} count  the physical count; "" clears the cell
+ * @returns {{ok:boolean, count:number, cleared:boolean, error:string=}}
+ */
+function boardSetLeft(orderId, sku, count) {
+  orderId = String(orderId || '').trim();
+  sku     = String(sku     || '').trim();
+  var raw = String(count == null ? '' : count).trim();
+  if (!orderId || !sku) return { ok: false, error: 'Need an order and a SKU' };
+
+  var clearing = (raw === '');
+  var n = clearing ? null : parseFloat(raw.replace(/[^0-9.\-]/g, ''));
+  if (!clearing && (isNaN(n) || n < 0)) {
+    return { ok: false, error: 'Count must be zero or more' };
+  }
+
+  var lock = LockService.getScriptLock();
+  try {
+    if (!lock.tryLock(15000)) return { ok: false, error: 'Sheet busy — try again' };
+
+    var sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(MAIN_SHEET_NAME);
+    if (!sheet) return { ok: false, error: 'No sheet' };
+    var lastRow = sheet.getLastRow();
+    if (lastRow < Schema.dataStartRow) return { ok: false, error: 'No rows' };
+
+    var rows = _resolveStatusTargetRows(sheet, { orderId: orderId, sku: sku }, lastRow);
+    if (!rows.length) return { ok: false, error: 'Line not found — it may have shipped' };
+
+    for (var i = 0; i < rows.length; i++) {
+      sheet.getRange(rows[i], Schema.cols.LEFT).setValue(clearing ? '' : n);
+    }
+    SpreadsheetApp.flush();
+
+    // The count is a real operational event — who counted what, and when.
+    // Best-effort: a logging failure must never lose the number itself.
+    try {
+      // ⚠ POSITIONAL, not an options object:
+      //   (event, orderId, sku, qty, source, detail, picker, note)
+      // The picker is left UNDEFINED on purpose — logActivity reads G2 itself
+      // for warehouse-side sources, which is the one place that value is
+      // authoritative. Passing "" would override it with nothing.
+      logActivity('NOTE', orderId, sku, '', 'board',
+                  clearing ? 'Shelf count cleared'
+                           : 'Shelf count ◩ LEFT = ' + n);
+    } catch (e) { console.log('boardSetLeft log: ' + e); }
+
+    _dashBustTickCache();
+    return { ok: true, count: clearing ? 0 : n, cleared: clearing, rows: rows.length };
+  } catch (e) {
+    console.error('boardSetLeft: ' + e);
+    return { ok: false, error: String(e) };
+  } finally {
+    try { lock.releaseLock(); } catch (e) {}
   }
 }
 
@@ -448,6 +553,13 @@ function _dashOpenOrders() {
       location: String(data[i][Schema.idx("LOCATION")] || "").trim(),
       status:   status,
       note:     note,
+      // ◩ HAND / ◩ LEFT — free, because this scan already reads the full row
+      // width for the paid-shipping tally. HAND is what the system believes is
+      // on the shelf BEFORE this line is pulled (the 2026-05-09 ruling: HAND =
+      // MI.available, never decremented per row). LEFT is the picker's physical
+      // count, and it is an EXCEPTION FIELD — blank means the shelf agreed.
+      hand:     _dashNumOrNull(data[i][Schema.idx("HAND")]),
+      left:     _dashNumOrNull(data[i][Schema.idx("LEFT")]),
       // A kit row that hasn't been expanded yet can't actually be picked from
       // the shelf — its components aren't on the sheet. Flagging it stops a
       // picker walking to a K-* aisle expecting a box. Components themselves
@@ -513,25 +625,219 @@ function _dashOpenOrders() {
   // items. Capping after the sort makes the omission predictable (the far end of
   // the walk) — and `openOrdersTotal` on the tick lets the board SAY it's
   // truncated instead of looking complete.
-  //
-  // Aisle order is NATURAL, not lexical — compareLocations() in Helpers.js.
-  // A-9 must come before A-50 on a list whose entire job is the walk order.
-  out.sort(function (a, b) {
-    var la = String(a.location || ""), lb = String(b.location || "");
-    var am = (!la || la.toUpperCase() === "NOT FOUND") ? 1 : 0;
-    var bm = (!lb || lb.toUpperCase() === "NOT FOUND") ? 1 : 0;
-    if (am !== bm) return am - bm;
-    var byLoc = compareLocations(la, lb);
-    if (byLoc !== 0) return byLoc;
-    return String(a.sku).localeCompare(String(b.sku));
-  });
+  // ⚠ ORDER ANCHORS — so a multi-line order cannot be split by another
+  // order's rows. See _dashComparePickRows for the full reasoning.
+  _dashSetOrderAnchors(out);
+  out.sort(_dashComparePickRows);
 
-  var capped = out.length > DASHBOARD.pickListCap
-                 ? out.slice(0, DASHBOARD.pickListCap) : out;
-  capped.total     = out.length;    // all three read by _buildDashboardTick
+  var capped = _dashCapPerChannel(out, DASHBOARD.pickListCap);
+  capped.total     = out.length;    // all four read by _buildDashboardTick
   capped.paidCount = paidCount;     // before JSON serialisation drops them
   capped.kits      = kits;
+  capped.byChannel = { EBAY:   _dashCountChannel(out, "EBAY"),
+                       DIRECT: _dashCountChannel(out, "DIRECT") };
   return capped;
+}
+
+
+/**
+ * Aisle order WITHIN one block. Natural, not lexical — compareLocations() in
+ * Helpers.js. A-9 must come before A-50 on a list whose entire job is the walk.
+ * Rows with no shelf sink to the bottom of their own block rather than the
+ * bottom of the whole list, so a box's missing part stays beside its box.
+ *
+ * @param {Object} a
+ * @param {Object} b
+ * @returns {number}
+ */
+function _dashCompareAisle(a, b) {
+  var byLoc = _dashCompareShelf(a.location, b.location);
+  if (byLoc !== 0) return byLoc;
+  return String(a.sku).localeCompare(String(b.sku));
+}
+
+
+/**
+ * SHELF ONLY — no SKU tiebreak.
+ *
+ * ⚠ Split out because the anchor comparison must NOT fall through to a SKU.
+ * When two orders anchor on the same shelf, the anchor rows' SKUs would decide
+ * which order came first — an arbitrary answer that also flips whenever an
+ * unrelated line is added. The order id is the deterministic tiebreak there,
+ * and it can only be reached if this stops at the shelf.
+ *
+ * @param {string} la
+ * @param {string} lb
+ * @returns {number}
+ */
+function _dashCompareShelf(la, lb) {
+  la = String(la || ""); lb = String(lb || "");
+  var am = (!la || la.toUpperCase() === "NOT FOUND") ? 1 : 0;
+  var bm = (!lb || lb.toUpperCase() === "NOT FOUND") ? 1 : 0;
+  if (am !== bm) return am - bm;
+  return compareLocations(la, lb);
+}
+
+
+/**
+ * THE PICK-LIST ORDER — channel first, then the rule each channel is actually
+ * picked by.
+ *
+ * ⚠ THIS IS NOT A COSMETIC SPLIT. Every other surface already draws this line
+ * and the board was the only one that didn't:
+ *
+ *   - the SHEET sorts eBay by status→location and DIRECT by SALES ORDER then
+ *     location within the order (_compareDirectRows, OrderService.js), with a
+ *     gold box painted around each SO group;
+ *   - the PRINT renders two separate tables under "eBay Orders" / "Direct
+ *     Orders" section heads, and gives DIRECT a per-order band as well.
+ *
+ * They are two different JOBS. An eBay order is ~1 line: the aisle walk IS the
+ * work. A DIRECT order is a multi-line box you assemble, usually with expanded
+ * kit components scattered across the floor — you work it one order at a time.
+ * Interleaving them by pure aisle order asked the picker to hold both jobs in
+ * their head at once and rebuild the boxes mentally as they went.
+ *
+ * DIRECT groups run in SALES ORDER order (ascending = oldest first, and
+ * deterministic), matching the sheet exactly. Aisle order applies WITHIN each
+ * order. Age-based triage is the board's own Age toggle, client-side.
+ *
+ * @param {Object} a
+ * @param {Object} b
+ * @returns {number}
+ */
+function _dashComparePickRows(a, b) {
+  var ca = (a.channel === "DIRECT") ? 1 : 0;
+  var cb = (b.channel === "DIRECT") ? 1 : 0;
+  if (ca !== cb) return ca - cb;          // eBay block, then DIRECT block
+
+  var idA = String(a.orderId || "").trim();
+  var idB = String(b.orderId || "").trim();
+
+  if (ca === 1) {
+    // DIRECT — keep an order's lines together, in SO order (oldest first, and
+    // deterministic). The accordion works one box at a time, so age beats
+    // walk order here.
+    if (!idA && idB) return 1;            // an SO-less row sinks
+    if (idA && !idB) return -1;
+    if (idA !== idB) return idA.localeCompare(idB);
+    return _dashCompareAisle(a, b);
+  }
+
+  // ⚠ eBay: ANCHOR the whole order at its EARLIEST shelf, then keep its lines
+  // together. Pure aisle order looks right and is quietly wrong the moment an
+  // order has more than one line: on 2026-08-10 order 08-15017-44806 had five
+  // lines at E-89 / F-6 / F-28 / F-51 / L-208, and another order's rows at
+  // J-8 and J-27 sorted between the fourth and the fifth. The board banded the
+  // contiguous four as "4 LINES" and stranded the fifth further down under its
+  // own id — so a picker who worked the band would have shipped four of five
+  // and had no reason to suspect otherwise.
+  //
+  // That is the SAME defect the sheet hit on 2026-08-07, where an insert split
+  // a DIRECT order and the painter drew it as two complete boxes. The ruling
+  // then was: fix the source so contiguity holds BY CONSTRUCTION, and make the
+  // renderer incapable of claiming a fragment is whole. Both halves apply here
+  // — this is the source half; withSections carries the safety net.
+  //
+  // Anchoring at the earliest shelf (rather than by order id) keeps the walk
+  // intact: a single-line order anchors to its own shelf and slots exactly
+  // where it always did, so the common eBay case is unchanged.
+  if (idA !== idB) {
+    var byAnchor = _dashCompareShelf((a._anchor || a).location,
+                                     (b._anchor || b).location);
+    if (byAnchor !== 0) return byAnchor;
+    return idA.localeCompare(idB);        // same anchor shelf → deterministic
+  }
+  return _dashCompareAisle(a, b);
+}
+
+
+/**
+ * Stamp every row with its ORDER's earliest shelf, so the comparator can keep a
+ * multi-line order together without needing to see the whole array.
+ *
+ * Single-line orders anchor to themselves, which is why adding this changes
+ * nothing for the ordinary eBay line.
+ *
+ * @param {Array<Object>} rows
+ */
+function _dashSetOrderAnchors(rows) {
+  var best = {};
+  for (var i = 0; i < rows.length; i++) {
+    var id = String(rows[i].orderId || "").trim();
+    if (!id) continue;
+    if (!best[id] ||
+        _dashCompareShelf(rows[i].location, best[id].location) < 0) best[id] = rows[i];
+  }
+  for (var j = 0; j < rows.length; j++) {
+    var jid = String(rows[j].orderId || "").trim();
+    rows[j]._anchor = { location: (jid && best[jid] ? best[jid] : rows[j]).location };
+  }
+}
+
+
+/**
+ * Cap EACH channel independently.
+ *
+ * ⚠ A single global cap could starve one channel to nothing: 55 open eBay
+ * lines would leave 5 slots for DIRECT, so a picker looking at the DIRECT
+ * section would see a fragment of one box and no sign that seven more orders
+ * existed. Each channel gets its own budget, and each reports its own "+N
+ * more" — the truncation stays legible per section instead of pooling into
+ * one number that hides which half was cut.
+ *
+ * Payload size is guarded downstream regardless: Published.js trims the
+ * pick list to 25 rows rather than exceed the 50K cell limit.
+ *
+ * @param {Array<Object>} rows  already sorted by _dashComparePickRows
+ * @param {number} cap          per-channel maximum
+ * @returns {Array<Object>}
+ */
+function _dashCapPerChannel(rows, cap) {
+  var kept = [], seen = { EBAY: 0, DIRECT: 0 };
+  for (var i = 0; i < rows.length; i++) {
+    var ch = (rows[i].channel === "DIRECT") ? "DIRECT" : "EBAY";
+    if (seen[ch] >= cap) continue;
+    seen[ch]++;
+    kept.push(rows[i]);
+  }
+  return kept;
+}
+
+
+/**
+ * How many rows of one channel, BEFORE the cap — so the board can say how many
+ * it is not showing, per section.
+ *
+ * @param {Array<Object>} rows
+ * @param {string} channel
+ * @returns {number}
+ */
+function _dashCountChannel(rows, channel) {
+  var n = 0;
+  for (var i = 0; i < rows.length; i++) {
+    var ch = (rows[i].channel === "DIRECT") ? "DIRECT" : "EBAY";
+    if (ch === channel) n++;
+  }
+  return n;
+}
+
+
+/**
+ * A cell as a number, or null when it holds nothing usable.
+ *
+ * ⚠ NOT `|| null` — that would turn a real 0 into null, and 0 is the single
+ * most important value here: an empty shelf. Same falsy-zero trap that made
+ * the printed pick list show a blank Hand cell for a genuinely out-of-stock
+ * part (2026-07-20).
+ *
+ * @param {*} v
+ * @returns {number|null}
+ */
+function _dashNumOrNull(v) {
+  if (v === null || v === undefined || v === "") return null;
+  var n = parseFloat(String(v).replace(/[^0-9.\-]/g, ''));
+  return isNaN(n) ? null : n;
 }
 
 
