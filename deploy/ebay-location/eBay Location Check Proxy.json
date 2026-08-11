@@ -1,0 +1,171 @@
+{
+  "name": "eBay Location Check Proxy",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## 📍 eBay Location Check Proxy (READ-ONLY)\n\nServes the **Location Update** sheet's \"⇊ Fetch eBay Locations\" sidebar button. Receives `{ items: [{sku, itemId}] }` from Apps Script, calls Trading API **GetItem** per item, extracts the **\"Model Year\"** item specific (= the physical location field this business uses on eBay), and responds **synchronously** with `{ ok, count, results: [{sku, itemId, ok, location, error}] }` so the sheet can paint match/mismatch verdicts instantly.\n\n**Read-only** — GetItem only. Cannot write anything to eBay.\n\n**Quota:** shared Trading API pool (5,000/day). One GetItem per unique SKU per button press — a 50-row sheet costs 1% of the pool.\n\n**Setup on import (2 steps):**\n1. Bind the existing **Header Auth account** credential on the Webhook node (X-API-Token = APP_SECRET_TOKEN).\n2. Open **🔑 Get eBay Access Token** and replace the two `<<PASTE...>>` placeholders with the SAME values used in MAIN → \"1. Get Access Token\" (the Basic authorization header value, and the refresh_token in the body). Or simply copy that node from MAIN and rewire it in place of this one.\n\nThen **activate**. Webhook path `ebay-location-check` must stay as-is (matches N8N_EBAY_LOCATION_WEBHOOK_URL in Secrets.js).",
+        "height": 420,
+        "width": 460
+      },
+      "id": "sticky-setup-notes-0001",
+      "name": "📌 Setup notes",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -380,
+        -60
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "ebay-location-check",
+        "authentication": "headerAuth",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-ebay-loc-check-01",
+      "name": "🔔 Webhook (from Apps Script)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        140,
+        60
+      ],
+      "webhookId": "ebay-location-check",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "2BmoxH9c3WtbdS9x",
+          "name": "Header Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// =====================================================================\n// VALIDATE ITEMS\n//\n// Body: { items: [{ sku, itemId }] }\n// READ-ONLY proxy — the only eBay call downstream is GetItem. Rejects a\n// malformed or oversized batch before any network spend. Apps Script caps\n// at 120 (LOCATION_UPDATE.fetchCap); this is the independent server-side\n// guard — a guard that lives only in the caller is a guard a future\n// caller forgets.\n// =====================================================================\n\nconst body = $input.first().json.body || $input.first().json;\nconst rawItems = Array.isArray(body.items) ? body.items : [];\n\nif (rawItems.length === 0) {\n  throw new Error('No items in request body — expected { items: [{sku, itemId}] }');\n}\n\nconst MAX = 150;  // hard server-side cap (Apps Script caps lower, 120)\nif (rawItems.length > MAX) {\n  throw new Error('Batch too large (' + rawItems.length + ') — hard cap is ' + MAX + ' per call');\n}\n\nconst valid = [];\nconst prefailed = [];\n\nfor (const it of rawItems) {\n  const sku = String((it && it.sku) || '').trim();\n  const itemId = String((it && it.itemId) || '').trim();\n\n  if (!sku) continue;  // nothing to key the result on — drop silently\n  if (!/^\\d{6,}$/.test(itemId)) {\n    prefailed.push({ sku, itemId, ok: false, location: '', error: 'missing/invalid itemId' });\n    continue;\n  }\n  valid.push({ sku, itemId });\n}\n\nif (valid.length === 0 && prefailed.length === 0) {\n  throw new Error('No usable items in request body');\n}\n\nreturn [{ json: { valid, prefailed } }];"
+      },
+      "id": "validate-items-ebay-loc-1",
+      "name": "✅ Validate Items",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        340,
+        60
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.ebay.com/identity/v1/oauth2/token",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/x-www-form-urlencoded"
+            },
+            {
+              "name": "Authorization",
+              "value": "Basic <<PASTE_BASIC_AUTH_VALUE_FROM_MAIN_TOKEN_NODE>>"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "string",
+        "body": "grant_type=refresh_token&refresh_token=<<PASTE_REFRESH_TOKEN_FROM_MAIN_TOKEN_NODE>>",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "get-ebay-token-loc-check1",
+      "name": "🔑 Get eBay Access Token",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        540,
+        60
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// =====================================================================\n// GETITEM LOCATIONS — the item's physical location, LIVE from eBay\n//\n// The business stores each item's warehouse location in the \"Model Year\"\n// item specific on the eBay listing (the same field MAIN's sync mirrors\n// into Master Inventory's \"C:Model Year\" column). This node calls Trading\n// API GetItem per item and extracts that one value.\n//\n// Chunked-parallel (5 at a time, 200ms between chunks) — same helper the\n// eBay orders workflow's node 8.5 uses per order batch, gentled for the\n// larger batches a whole-sheet check can send. Per-item try/catch so one\n// dead listing never aborts the batch.\n//\n// ⚠ REGEX NOTE (CLAUDE.md Gotchas #14/#15): every tag match uses a LITERAL\n// regex with \\b word-boundary — eBay returns attributed tags\n// (<CurrentPrice currencyID=...>) and <Name> must not match <NameValueList>.\n// Never rebuild these with new RegExp(`...`) — string-built regexes need\n// double-escaped backslashes and have bitten this project twice.\n// =====================================================================\n\nconst LOCATION_SPECIFIC = 'Model Year';   // the item specific that holds the location\nconst CHUNK = 5;\n\nconst token = $('🔑 Get eBay Access Token').first().json.access_token;\nif (!token) throw new Error('Get eBay Access Token returned no access_token — check the Basic auth + refresh token pasted into that node');\n\nconst input = $('✅ Validate Items').first().json;\nconst valid = input.valid || [];\nconst results = (input.prefailed || []).slice();\n\nconst headers = {\n  'X-EBAY-API-CALL-NAME':           'GetItem',\n  'X-EBAY-API-COMPATIBILITY-LEVEL': '967',\n  'X-EBAY-API-SITEID':              '0',\n  'X-EBAY-API-IAF-TOKEN':           token,\n  'Content-Type':                   'text/xml'\n};\n\nconst decodeEntities = (s) => String(s)\n  .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')\n  .replace(/&quot;/g, '\"').replace(/&#0?39;/g, \"'\").replace(/&apos;/g, \"'\");\n\nconst getOne = async (it) => {\n  const body = '<?xml version=\"1.0\" encoding=\"utf-8\"?>\\n' +\n    '<GetItemRequest xmlns=\"urn:ebay:apis:eBLBaseComponents\">' +\n    '<ItemID>' + it.itemId + '</ItemID>' +\n    '<DetailLevel>ReturnAll</DetailLevel>' +\n    '<IncludeItemSpecifics>true</IncludeItemSpecifics>' +\n    '</GetItemRequest>';\n\n  try {\n    const xml = await this.helpers.httpRequest({\n      method:  'POST',\n      url:     'https://api.ebay.com/ws/api.dll',\n      headers,\n      body,\n      timeout: 15000\n    });\n\n    const ackMatch = String(xml).match(/<Ack\\b[^>]*>([\\s\\S]*?)<\\/Ack>/);\n    const ack = ackMatch ? ackMatch[1] : '';\n    if (ack !== 'Success' && ack !== 'Warning') {\n      const shortMsg = String(xml).match(/<ShortMessage\\b[^>]*>([\\s\\S]*?)<\\/ShortMessage>/);\n      return { sku: it.sku, itemId: it.itemId, ok: false, location: '',\n               error: 'GetItem Ack=' + (ack || 'none') + (shortMsg ? ' — ' + shortMsg[1] : '') };\n    }\n\n    // Walk the NameValueList blocks for the location specific.\n    // <Name\\b will NOT match <NameValueList> (V is a word char → no boundary).\n    let location = '';\n    const blocks = String(xml).match(/<NameValueList\\b[^>]*>[\\s\\S]*?<\\/NameValueList>/g) || [];\n    for (const block of blocks) {\n      const nameMatch = block.match(/<Name\\b[^>]*>([\\s\\S]*?)<\\/Name>/);\n      if (!nameMatch || decodeEntities(nameMatch[1]).trim() !== LOCATION_SPECIFIC) continue;\n      const valueMatch = block.match(/<Value\\b[^>]*>([\\s\\S]*?)<\\/Value>/);\n      if (valueMatch) location = decodeEntities(valueMatch[1]).trim();\n      break;\n    }\n\n    return { sku: it.sku, itemId: it.itemId, ok: true, location, error: '' };\n  } catch (e) {\n    const msg = (e && e.message) ? e.message : String(e);\n    return { sku: it.sku, itemId: it.itemId, ok: false, location: '', error: msg.slice(0, 200) };\n  }\n};\n\nfor (let i = 0; i < valid.length; i += CHUNK) {\n  const chunk = valid.slice(i, i + CHUNK);\n  const settled = await Promise.all(chunk.map(getOne));\n  for (const r of settled) results.push(r);\n  if (i + CHUNK < valid.length) await new Promise(r => setTimeout(r, 200));\n}\n\nconst okCount = results.filter(r => r.ok).length;\nconsole.log(`📍 Location check: ${okCount} ok, ${results.length - okCount} failed of ${results.length}`);\n\nreturn [{ json: { ok: true, count: results.length, results } }];"
+      },
+      "id": "getitem-locations-node-01",
+      "name": "📍 GetItem Locations",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        740,
+        60
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {}
+      },
+      "id": "respond-ebay-loc-check-1",
+      "name": "📤 Respond to Caller",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        940,
+        60
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "🔔 Webhook (from Apps Script)": {
+      "main": [
+        [
+          {
+            "node": "✅ Validate Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "✅ Validate Items": {
+      "main": [
+        [
+          {
+            "node": "🔑 Get eBay Access Token",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🔑 Get eBay Access Token": {
+      "main": [
+        [
+          {
+            "node": "📍 GetItem Locations",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "📍 GetItem Locations": {
+      "main": [
+        [
+          {
+            "node": "📤 Respond to Caller",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "YzMu-oLIz-2-JfoQgGgqm",
+    "callerPolicy": "workflowsFromSameOwner"
+  }
+}

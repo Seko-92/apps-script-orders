@@ -3962,9 +3962,10 @@ body.dark-theme .footer-version { border-color: #2c2c2c; }
       <div class="card-toggle">▼</div>
     </div>
     <div class="card-body">
-      <button class="btn-primary" onclick="run('openLocationUpdate')">Open Sheet</button>
+      <button class="btn-primary" id="luFetchBtn" onclick="fetchEbayLocationsNow()"><span id="luFetchText">⇊ Fetch eBay Locations</span></button>
+      <button class="btn-secondary" onclick="run('openLocationUpdate')">Open Sheet</button>
       <button class="btn-secondary" onclick="run('sortLocationUpdateByLocation')">Sort by Location A→Z</button>
-      <div class="empty-hint">Type SKU → <strong>timestamp</strong> auto-stamps. <strong>LOCATION</strong> is manually edited by the picker. <strong>#</strong> is a formula; persists even when SKU is cleared.</div>
+      <div class="empty-hint"><strong>Fetch</strong> asks eBay LIVE for every row's location and paints the verdict in <strong>◉ EBAY LOC</strong>: green = matches the typed LOCATION · red = disagrees (or blank on eBay) · gray = SKU not on eBay / check failed. Type SKU → <strong>timestamp</strong> auto-stamps + SKU links to its listing. <strong>LOCATION</strong> stays manually edited.</div>
       <details class="card-more">
         <summary>More tools</summary>
         <div class="card-more-content">
@@ -5346,6 +5347,76 @@ function triggerVerifyShippedNow() {
       playSound('error');
     })
     .triggerVerifyShipped();
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// LIVE EBAY LOCATION CHECK — Location Update sheet (added 2026-08-11)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+var isFetchingEbayLoc = false;
+var EBAY_LOC_FETCH_COOLDOWN = 15 * 1000; // 15s — each fetch spends one GetItem per unique SKU (shared Trading API pool)
+
+/* fetchEbayLocationsNow() — fires fetchEbayLocationsLive() (LocationUpdate.js):
+   resolves every row's itemId from MI, asks eBay LIVE via the n8n eBay
+   Location Check Proxy, writes ◉ EBAY LOC + verdict colors in one pass.
+   Server returns a summary STRING ("✅ 23 checked · 19 match · 2 MISMATCH…"
+   or "❌ …" when nothing was written) — classified here by prefix. */
+function fetchEbayLocationsNow() {
+  if (isFetchingEbayLoc) {
+    status.className = 'error';
+    status.textContent = 'Location check already running…';
+    return;
+  }
+  if (typeof google === 'undefined' || !google.script) return;
+
+  var btn = document.getElementById('luFetchBtn');
+  var txt = document.getElementById('luFetchText');
+
+  isFetchingEbayLoc = true;
+  if (btn) { btn.classList.add('spinning'); btn.disabled = true; }
+  if (txt) txt.textContent = 'Checking eBay…';
+  status.className = 'syncing';
+  status.textContent = 'Asking eBay for live locations… (a few seconds per 10 items)';
+
+  google.script.run
+    .withSuccessHandler(function(result) {
+      var clearBtn = function() {
+        if (btn) { btn.classList.remove('spinning'); btn.disabled = false; }
+        if (txt) txt.textContent = '⇊ Fetch eBay Locations';
+        isFetchingEbayLoc = false;
+      };
+
+      var msg = String(result || 'Done');
+      var failed = msg.indexOf('❌') === 0;
+
+      if (failed) {
+        clearBtn();
+        status.className = 'error';
+        status.textContent = msg;
+        playSound('error');
+        return;
+      }
+
+      status.className = 'success';
+      status.textContent = msg;
+      playSound('syncDone');
+      // Cooldown before the button re-arms — the whole sheet was just checked;
+      // an immediate re-fire would only re-spend the same GetItem calls.
+      setTimeout(function() {
+        clearBtn();
+        status.className = '';
+        status.textContent = 'Ready';
+      }, EBAY_LOC_FETCH_COOLDOWN);
+    })
+    .withFailureHandler(function(err) {
+      if (btn) { btn.classList.remove('spinning'); btn.disabled = false; }
+      if (txt) txt.textContent = '⇊ Fetch eBay Locations';
+      isFetchingEbayLoc = false;
+      status.className = 'error';
+      status.textContent = 'Location check error: ' + (err && err.message ? err.message : err);
+      playSound('error');
+    })
+    .fetchEbayLocationsLive();
 }
 
 /* openPricePushFromSidebar() — reads the highlighted rows on the Price Audit

@@ -416,6 +416,75 @@ function triggerZohoPriceBulkWrite(items) {
 }
 
 
+/**
+ * Ask eBay for each item's LIVE location (the "Model Year" item specific) via
+ * the n8n eBay Location Check Proxy, and wait for the per-SKU result
+ * (synchronous — the Location Update sheet paints verdicts from it).
+ *
+ * READ-ONLY on the eBay side: the proxy only calls Trading API GetItem.
+ * Caller (fetchEbayLocationsLive) caps the batch at LOCATION_UPDATE.fetchCap;
+ * the proxy's validate node enforces its own cap too — a guard that lives
+ * only in the caller is a guard a future caller forgets.
+ *
+ * @param {Array<{sku:string, itemId:string}>} items
+ * @returns {{ok:boolean, message:string, code?:number, data?:{
+ *            ok:boolean, count:number,
+ *            results:Array<{sku, itemId, ok, location, error}>}}}
+ */
+function triggerEbayLocationCheck(items) {
+  var url = N8N_EBAY_LOCATION_WEBHOOK_URL;
+  if (!url) {
+    return { ok: false, message: "eBay location-check webhook URL not configured (check Secrets.js)" };
+  }
+  if (!Array.isArray(items) || items.length === 0) {
+    return { ok: false, message: "No items to check" };
+  }
+
+  try {
+    var options = {
+      method:             'post',
+      muteHttpExceptions: true,
+      followRedirects:    true,
+      headers: {
+        'X-API-Token':                APP_SECRET_TOKEN,
+        'ngrok-skip-browser-warning': 'true',
+        'User-Agent':                 'GoogleAppsScript'
+      },
+      contentType: 'application/json',
+      payload:     JSON.stringify({ items: items })
+    };
+
+    var response = UrlFetchApp.fetch(url, options);
+    var code     = response.getResponseCode();
+    var body     = response.getContentText();
+
+    if (code !== 200 && code !== 204) {
+      if (code === 401 || code === 403) {
+        return { ok: false, code: code, message: "Auth rejected by n8n (X-API-Token mismatch)" };
+      }
+      if (code === 404) {
+        return { ok: false, code: code, message: "Workflow not active in n8n — toggle it on" };
+      }
+      if (code === 500) {
+        var errMsg = body;
+        try { var parsed = JSON.parse(body); errMsg = parsed.message || parsed.error || body; } catch (_) {}
+        return { ok: false, code: code, message: errMsg };
+      }
+      return { ok: false, code: code, message: "n8n returned HTTP " + code + ": " + body.substring(0, 200) };
+    }
+
+    var parsedBody;
+    try { parsedBody = JSON.parse(body); }
+    catch (parseErr) {
+      return { ok: false, code: code, message: "n8n returned malformed JSON: " + body.substring(0, 200) };
+    }
+
+    return { ok: true, code: code, message: "Live location check complete", data: parsedBody };
+  } catch (err) {
+    return { ok: false, message: "Location-check request failed: " + (err.message || err) };
+  }
+}
+
 
 /**
  * Internal: fire a Header-Auth-protected webhook and translate the response
