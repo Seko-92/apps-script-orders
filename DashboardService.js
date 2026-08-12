@@ -554,10 +554,16 @@ function _dashOpenOrders() {
       status:   status,
       note:     note,
       // ◩ HAND / ◩ LEFT — free, because this scan already reads the full row
-      // width for the paid-shipping tally. HAND is what the system believes is
-      // on the shelf BEFORE this line is pulled (the 2026-05-09 ruling: HAND =
-      // MI.available, never decremented per row). LEFT is the picker's physical
-      // count, and it is an EXCEPTION FIELD — blank means the shelf agreed.
+      // width for the paid-shipping tally.
+      // HAND = MI.available / Zoho.available_stock, never decremented per row
+      // (the 2026-05-09 ruling). ⚠ It is the figure the picker should find on
+      // the shelf BEFORE pulling THIS line — it is NOT "what will be left
+      // afterwards". The board subtracting qty from it was the 2026-08-12
+      // false-deviance bug: every correct ×1 shelf reported "+1 vs system" and
+      // FIX ZOHO would have pushed hand+1 into Zoho. Subtract qty ONLY once the
+      // line is PREPARING, i.e. once the units have actually left the shelf.
+      // LEFT is the picker's physical count, an EXCEPTION FIELD — blank means
+      // the shelf agreed.
       hand:     _dashNumOrNull(data[i][Schema.idx("HAND")]),
       left:     _dashNumOrNull(data[i][Schema.idx("LEFT")]),
       // A kit row that hasn't been expanded yet can't actually be picked from

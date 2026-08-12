@@ -432,8 +432,13 @@ body.ch-direct #pickListDirect { display: block; }
   .pickcol { column-count: 2; column-gap: 0; column-fill: auto; column-rule: 1px solid var(--line); }
   .pick-row, .pick-head, .pick-sec { break-inside: avoid; }
   .pick-row, .pick-head { -webkit-column-break-inside: avoid; }
-  /* half-width columns: the count lane keeps its buttons, sheds its prose */
-  .pick-count .pc-sys, .pick-count .pc-other { display: none; }
+  /* Half-width columns shed the count lane's PROSE — but NOT the reference
+     number. This rule used to hide .pc-sys too, back when it read "on hand 14
+     → 13 left"; it is now "should be 9", and it is the single number the
+     picker is being asked to match. Hiding it in landscape would leave half
+     of every shift unable to see the target without opening the numpad. */
+  .pick-count .pc-other { display: none; }
+  .pick-count .pc-sys { max-width: 92px; }
 }
 
 /* ── ≤1400px: the footer sheds the sync text (the LIVE dot carries state) ── */
@@ -1944,15 +1949,20 @@ body.ch-direct #pickListDirect { display: block; }
       main.appendChild(sub);
 
       // ── ◩ shelf count — its own named lane; buildCountLine is unchanged ──
+      // ⚠ THE COUNT SURVIVES THE PICK (2026-08-12). It used to be gated on
+      // `!isPrep`, so tapping ✓ Pick destroyed the button — while the feature
+      // was designed around counting the shelf AFTER pulling. The intended
+      // flow was literally impossible, which is what the floor reported.
+      // Now it stays, and the reference number follows the shelf instead.
       var handN  = (typeof r.hand === 'number') ? r.hand : null;
       var countEl = null;
-      if (handN !== null && handN <= COUNT_MAX_HAND && !isPrep) {
-        countEl = buildCountLine(r, handN);
+      if (handN !== null && handN <= COUNT_MAX_HAND) {
+        countEl = buildCountLine(r, handN, isPrep);
         // The alarm colour belongs to a counted shelf that DISAGREES — rare,
         // actionable, and the whole reason the count exists.
         var cnt = (typeof r.left === 'number') ? r.left : null;
         li.classList.toggle('deviance',
-          cnt !== null && cnt !== Math.max(0, handN - (num(r.qty) || 0)));
+          cnt !== null && cnt !== shelfExpectation(r, handN, isPrep));
       } else {
         li.classList.remove('deviance');
       }
@@ -2415,34 +2425,73 @@ body.ch-direct #pickListDirect { display: block; }
        and it is the difference between "the shelf is wrong" and "the shelf is
        fine, the rest is spoken for". */
     function committedElsewhere(r) {
+      return otherHolders(r).total;
+    }
+
+    /* Split by whether those other lines have been PULLED yet, because the two
+       halves live in different places and mean different things:
+         pending  — still ON the shelf, so a count includes them
+         prepping — already in someone's hand: OFF the shelf but still inside
+                    the building, so Zoho's on-hand must still count them
+                    (Zoho only drops stock_on_hand when an order SHIPS).
+       That split is what lets the Zoho suggestion be DERIVED rather than
+       guessed at with a caveat. */
+    function otherHolders(r) {
       var rows = (lastTick && lastTick.openOrders) || [];
-      var other = 0;
+      var pending = 0, prepping = 0;
       for (var i = 0; i < rows.length; i++) {
         if (String(rows[i].sku) !== String(r.sku)) continue;
         if (String(rows[i].orderId) === String(r.orderId)) continue;
-        other += num(rows[i].qty) || 0;
+        var q = num(rows[i].qty) || 0;
+        if (String(rows[i].status).toUpperCase() === 'PREPARING') prepping += q;
+        else pending += q;
       }
-      return other;
+      return { pending: pending, prepping: prepping, total: pending + prepping };
     }
 
-    function buildCountLine(r, handN) {
+    /* ONE NUMBER: what should be on that shelf RIGHT NOW.
+       ⚠ THE 2026-08-12 CORRECTION. This used to render "on hand 14 → 13 left"
+       — two numbers, and the picker had to work out which one to match. Worse,
+       it scored the count against the POST-pull figure (hand − qty) while a
+       picker naturally counts the shelf as they find it. A correct shelf was
+       therefore flagged "+1 vs system" on every ×1 line (seen live on two rows
+       at once), and FIX ZOHO would then have pushed hand+1 into Zoho —
+       inflating stock by exactly one order's worth. CLAUDE.md predicted this
+       symptom verbatim.
+       Now the reference FOLLOWS the shelf, and says which state it is in:
+         not yet pulled  → the shelf should hold `hand`
+         pulled (PREP)   → your units are gone, so `hand − qty`
+       so the picker matches one number in either order of working, and the
+       Zoho target is derived from the same state instead of assumed. */
+    function shelfExpectation(r, handN, isPrep) {
+      var qtyN = num(r.qty) || 0;
+      return isPrep ? Math.max(0, handN - qtyN) : handN;
+    }
+
+    function buildCountLine(r, handN, isPrep) {
       var wrap = document.createElement('div');
       wrap.className = 'pick-count';
 
       var qtyN     = num(r.qty) || 0;
+      var expected = shelfExpectation(r, handN, isPrep);
       // ⚠ NEVER BELOW ZERO. A shelf holding 1 with 2 on the order rendered
-      // "0 → -1 left", which is not a quantity anyone can go and count. The
-      // shelf simply runs out — and the fact that it cannot cover the line is
-      // said in words below, where it means something.
-      var rawLeft  = handN - qtyN;
-      var expected = Math.max(0, rawLeft);
-      var short    = rawLeft < 0 ? -rawLeft : 0;
+      // "-1 left", which is not a quantity anyone can go and count. The shelf
+      // simply runs out — and the fact that it cannot cover the line is said
+      // in words below, where it means something.
+      var short    = (handN - qtyN) < 0 ? (qtyN - handN) : 0;
       var counted  = (typeof r.left === 'number') ? r.left : null;
-      var other    = committedElsewhere(r);
+      var holders  = otherHolders(r);
+      var other    = holders.total;
 
       var sys = document.createElement('span');
       sys.className = 'pc-sys';
-      sys.textContent = 'on hand ' + handN + ' → ' + expected + ' left';
+      sys.textContent = 'should be ' + expected;
+      sys.title = isPrep
+        ? 'You have pulled ' + qtyN + ' for this line, so the shelf should now '
+          + 'hold ' + expected + ' (' + handN + ' − ' + qtyN + '). Count it.'
+        : 'The system believes this shelf holds ' + expected + ' right now, '
+          + 'before you pull anything. Count it — if it agrees, leave the '
+          + 'count blank.';
       wrap.appendChild(sys);
 
       // The system says the shelf cannot cover this line. That is worth saying
@@ -2460,9 +2509,13 @@ body.ch-direct #pickListDirect { display: block; }
         var oc = document.createElement('span');
         oc.className = 'pc-other';
         oc.textContent = '· ' + other + ' more spoken for';
-        oc.title = other + ' unit(s) of this SKU are committed to other open ' +
-                   'orders. If those are still on the shelf, expect ' +
-                   (expected + other) + ' rather than ' + expected + '.';
+        // Say WHERE those units are, because the two halves land differently:
+        // pending ones are still on the shelf you are about to count; prepped
+        // ones have already been carried off it.
+        oc.title = other + ' unit(s) of this SKU are committed to other open orders'
+          + (holders.pending  ? ' · ' + holders.pending + ' not yet pulled (still on this shelf)' : '')
+          + (holders.prepping ? ' · ' + holders.prepping + ' already pulled (off the shelf, not yet shipped)' : '')
+          + '.';
         wrap.appendChild(oc);
       }
 
@@ -2491,13 +2544,18 @@ body.ch-direct #pickListDirect { display: block; }
       btn.setAttribute('data-order', r.orderId || '');
       btn.setAttribute('data-sku', r.sku || '');
       btn.setAttribute('data-expected', String(expected));
+      btn.setAttribute('data-prep', isPrep ? '1' : '0');
       wrap.appendChild(btn);
 
+      // "vs shelf", not "vs system" — it is the SHELF the picker just counted
+      // and the shelf figure they were asked to match.
       if (counted !== null && counted !== expected) {
         var dev = document.createElement('span');
         var diff = counted - expected;
         dev.className = 'pc-dev';
-        dev.textContent = (diff > 0 ? '+' : '') + diff + ' vs system';
+        dev.textContent = (diff > 0 ? '+' : '') + diff + ' vs shelf';
+        dev.title = 'Counted ' + counted + ', expected ' + expected +
+                    (isPrep ? ' (after your pull).' : ' on the shelf.');
         wrap.appendChild(dev);
       }
 
@@ -2515,7 +2573,10 @@ body.ch-direct #pickListDirect { display: block; }
         adjBtn.setAttribute('data-counted', String(counted === null ? expected : counted));
         adjBtn.setAttribute('data-qty', String(qtyN));
         adjBtn.setAttribute('data-hand', String(handN));
-        adjBtn.setAttribute('data-other', String(other));
+        // ⚠ Only the ALREADY-PULLED units are added back to a Zoho on-hand:
+        // pending ones were included in the shelf count the picker just took.
+        adjBtn.setAttribute('data-otherprep', String(holders.prepping));
+        adjBtn.setAttribute('data-pulled', isPrep ? String(qtyN) : '0');
         wrap.appendChild(adjBtn);
       }
       return wrap;
@@ -3023,7 +3084,13 @@ body.ch-direct #pickListDirect { display: block; }
         tone: 'count',
         title: 'Shelf count',
         sub: sku,
-        contextHtml: 'System expects <b>' + esc(expected) + '</b> left after this pick.',
+        // States the ASSUMPTION, because the board learns you pulled only when
+        // you tap ✓ Pick — and a picker often lifts the part first. Saying
+        // which side of the pull this number assumes lets them correct for it.
+        contextHtml: 'The shelf should hold <b>' + esc(expected) + '</b> right now.\n' +
+                     (btn.getAttribute('data-prep') === '1'
+                        ? 'Counted with your units already pulled.'
+                        : 'Counted before you pull this line.'),
         note: 'Leave blank if the shelf agrees',
         value: '',
         blankLabel: 'agrees',
@@ -3064,22 +3131,34 @@ body.ch-direct #pickListDirect { display: block; }
        person standing at the shelf correct it. They can see what has been
        pulled; no server can. */
     function askAdjust(btn) {
-      var orderId = btn.getAttribute('data-order');
-      var sku     = btn.getAttribute('data-sku');
-      var counted = num(btn.getAttribute('data-counted'));
-      var qty     = num(btn.getAttribute('data-qty'));
-      var hand    = num(btn.getAttribute('data-hand'));
-      var other   = num(btn.getAttribute('data-other'));
-      var suggest = counted + qty;
+      var orderId   = btn.getAttribute('data-order');
+      var sku       = btn.getAttribute('data-sku');
+      var counted   = num(btn.getAttribute('data-counted'));
+      var qty       = num(btn.getAttribute('data-qty'));
+      var hand      = num(btn.getAttribute('data-hand'));
+      // ⚠ 2026-08-12 — this is now DERIVED, not assumed. It used to be a flat
+      // `counted + qty`, which silently assumed the count was taken AFTER the
+      // pull. With a pre-pull count that over-states Zoho by one line's worth
+      // every single time (the exact "consistently one order's worth off"
+      // failure CLAUDE.md warned to watch for). Add back only what is genuinely
+      // OFF the shelf but still IN the building: your units if you have already
+      // pulled them, plus any other line already prepped.
+      var pulled    = num(btn.getAttribute('data-pulled'));      // 0 unless PREPARING
+      var otherPrep = num(btn.getAttribute('data-otherprep'));
+      var suggest   = counted + pulled + otherPrep;
+
+      var sum = String(counted);
+      if (pulled)    sum += ' + ' + pulled + ' yours';
+      if (otherPrep) sum += ' + ' + otherPrep + ' other';
 
       var ctx = 'Zoho on hand now  <b>' + hand + '</b>\n' +
                 'You counted       <b>' + counted + '</b> on the shelf\n' +
-                'You pulled        <b>' + qty + '</b> for this order\n' +
-                'Suggested         <b>' + suggest + '</b>  (' + counted + ' + ' + qty + ')\n' +
+                (pulled    ? 'Already pulled    <b>' + pulled + '</b> for this order\n' : '') +
+                (otherPrep ? 'Pulled elsewhere  <b>' + otherPrep + '</b> on other orders\n' : '') +
+                'Suggested         <b>' + suggest + '</b>  (' + sum + ')\n' +
                 'Zoho only removes stock when the order ships.';
-      if (other > 0) {
-        ctx += '\n<i>⚠ ' + other + ' more committed on other open orders — if those are\n' +
-               'also already pulled, the answer is ' + (suggest + other) + '.</i>';
+      if (!pulled && !otherPrep) {
+        ctx += '\n<i>Nothing is pulled yet, so the shelf IS the on-hand.</i>';
       }
 
       openNumPad({
