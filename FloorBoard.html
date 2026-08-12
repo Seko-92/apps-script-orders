@@ -3,7 +3,11 @@
 <head>
   <base target="_top">
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- viewport-fit=cover: OPT IN to edge-to-edge so env(safe-area-inset-*)
+       report REAL values. Without it the insets read 0 while Android still
+       draws the page under its gesture-nav bar — which is the 2026-08-12
+       footer bug: the page had no way to learn the bar was there. -->
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <!-- Add-to-Home-Screen: launches chrome-less, which removes the viewport
        problem at the source (no URL bar => 100vh == 100dvh == visible).
        These were dropped back when the board was served from Apps Script,
@@ -65,6 +69,23 @@
   --mute: rgba(245,245,242,0.55);  --mute-soft: rgba(245,245,242,0.30);
   --mute-faint: rgba(245,245,242,0.12);
   --rule: rgba(255,212,0,0.16);  --rule-strong: rgba(255,212,0,0.34);
+
+  /* ── SYSTEM-BAR INSETS ────────────────────────────────────────────────
+     Android's gesture-nav bar and iOS's home indicator OVERLAY the page —
+     they are not part of the CSS viewport, so 100dvh happily includes the
+     strip underneath them. Every surface that has no system bar (desktop,
+     the wall, a headless render, an installed chrome-less PWA) reports 0,
+     so these are inert everywhere they aren't needed.
+     ONE definition, used by every bottom-anchored element below — change
+     the reservation here, not at eight call sites. */
+  --safe-t: env(safe-area-inset-top,    0px);
+  --safe-b: env(safe-area-inset-bottom, 0px);
+  --safe-l: env(safe-area-inset-left,   0px);
+  --safe-r: env(safe-area-inset-right,  0px);
+
+  /* Footer content lane. Everything anchored to the bottom measures from
+     here, so the footer's height is stated ONCE. */
+  --ftr-h: 52px;
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
 html, body { height: 100%; }
@@ -76,8 +97,13 @@ button { font: inherit; }
 .board.booting .bar-grab, .board.booting .tabs-row { opacity: 0.4; }
 
 /* ── TOP BAR — the only chrome ────────────────────────────────────── */
-.bar { display: flex; align-items: center; gap: 14px; padding: 0 16px;
-       height: 56px; flex: none; background: var(--g1);
+/* Height GROWS by the top inset while the content lane stays exactly 56px,
+   so the bar's own ground paints under a status bar instead of the clock
+   being clipped by it — the mirror of the footer bug, pre-empted for the
+   Add-to-Home-Screen path the meta tags above invite. */
+.bar { display: flex; align-items: center; gap: 14px;
+       padding: var(--safe-t, 0px) calc(16px + var(--safe-r, 0px)) 0 calc(16px + var(--safe-l, 0px));
+       height: calc(56px + var(--safe-t, 0px)); flex: none; background: var(--g1);
        border-bottom: 1px solid var(--line); }
 .hdr-mono { background: var(--act); color: var(--g0); font-family: var(--disp);
             font-weight: 700; font-size: var(--fs-row); padding: 2px 9px;
@@ -277,8 +303,16 @@ body.ch-direct #pickListDirect { display: block; }
                text-transform: uppercase; padding-right: 12px; }
 
 /* ── FOOTER + TODAY DRAWER + MENU ─────────────────────────────────── */
-.ftr { flex: none; height: 52px; display: flex; align-items: center; gap: 14px;
-       padding: 0 16px; background: var(--g1); border-top: 1px solid var(--line);
+/* ⚠ THE FOOTER IS THE LAST 52px OF THE PAGE — which is exactly what the
+   gesture-nav bar covers. Reported from the tablet 2026-08-12 in BOTH
+   orientations: PRINT, the picker id and the ⋯ menu were sitting under the
+   system bar. box-sizing:border-box is global, so height GROWS by the inset
+   while the content lane stays 52px: the footer's ground paints under the
+   bar, its controls stay above it. Reachable, not merely visible. */
+.ftr { flex: none; height: calc(var(--ftr-h) + var(--safe-b, 0px));
+       display: flex; align-items: center; gap: 14px;
+       padding: 0 calc(16px + var(--safe-r, 0px)) var(--safe-b, 0px) calc(16px + var(--safe-l, 0px));
+       background: var(--g1); border-top: 1px solid var(--line);
        position: relative; }
 .today-bar { display: flex; align-items: center; gap: 8px; font-family: var(--disp);
              font-size: var(--fs-sub); letter-spacing: 0.08em; text-transform: uppercase;
@@ -297,12 +331,31 @@ body.ch-direct #pickListDirect { display: block; }
 #footSync { font-family: var(--mono); font-size: var(--fs-lab); color: var(--t3);
             white-space: nowrap; }
 
-.today-sheet { position: fixed; left: 0; right: 0; bottom: 52px; z-index: 45;
+/* Sits ON the footer, so it rides up with the footer's inset.
+   ⚠ SHADOW ONLY WHEN OPEN. translateY(105%) parks the sheet 5% of its own
+   height BELOW its resting top — but a 40px upward shadow still reached back
+   over the footer, painting a permanent dark haze there (this is the "drawer
+   doesn't look fully closed" half of the 2026-08-12 report). A closed drawer
+   must cast nothing. */
+.today-sheet { position: fixed; left: 0; right: 0;
+               bottom: calc(var(--ftr-h) + var(--safe-b, 0px)); z-index: 45;
                background: var(--g1); border-top: 2px solid var(--line-brand);
-               transform: translateY(105%); transition: transform 0.25s ease;
+               /* ⚠ A percentage translate is a percentage of THIS ELEMENT'S
+                  OWN HEIGHT — it knows nothing about the `bottom` offset that
+                  holds the sheet up off the screen edge. The old
+                  translateY(105%) therefore only concealed the sheet when
+                  0.05 × height ≥ 52px, i.e. above 1040px tall. It never is,
+                  so a strip always peeked over the footer, and the amount
+                  CHANGED WITH FEED LENGTH — which is why it read as "the
+                  drawer isn't fully closed" (reported 2026-08-12).
+                  Travel its own height PLUS the offset it sits on, + 4px so
+                  the brand top-border cannot hairline through. */
+               transform: translateY(calc(100% + var(--ftr-h) + var(--safe-b, 0px) + 4px));
+               transition: transform 0.25s ease, box-shadow 0.25s ease;
                max-height: 62dvh; display: flex; flex-direction: column;
-               box-shadow: 0 -14px 40px rgba(0,0,0,0.5); }
-.today-sheet.open { transform: translateY(0); }
+               box-shadow: none; }
+.today-sheet.open { transform: translateY(0);
+                    box-shadow: 0 -14px 40px rgba(0,0,0,0.5); }
 .ts-head { display: flex; align-items: center; gap: 14px; padding: 12px 16px;
            border-bottom: 1px solid var(--line); flex: none; }
 .ts-head h3 { font-family: var(--disp); font-weight: 600; font-size: var(--fs-row);
@@ -347,7 +400,8 @@ body.ch-direct #pickListDirect { display: block; }
 .feed-order { color: var(--t2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .feed-chan { margin-left: auto; color: var(--t3); font-size: var(--fs-lab); flex: none; }
 
-.menu-pop { position: fixed; right: 12px; bottom: 60px; z-index: 50;
+.menu-pop { position: fixed; right: calc(12px + var(--safe-r, 0px));
+            bottom: calc(60px + var(--safe-b, 0px)); z-index: 50;
             background: var(--g2); border: 1px solid var(--line); border-radius: 8px;
             padding: 6px; display: flex; flex-direction: column; gap: 2px;
             box-shadow: 0 10px 30px rgba(0,0,0,0.5); min-width: 180px; }
@@ -360,7 +414,8 @@ body.ch-direct #pickListDirect { display: block; }
                       font-variant-emoji: text; }
 .menu-item.on .ftr-ico { color: var(--act); }
 
-.connlost { position: fixed; left: 50%; bottom: 64px; transform: translateX(-50%);
+.connlost { position: fixed; left: 50%; bottom: calc(64px + var(--safe-b, 0px));
+            transform: translateX(-50%);
             background: var(--alarm); color: var(--g0); font-family: var(--disp);
             font-size: var(--fs-sub); letter-spacing: 0.1em; text-transform: uppercase;
             padding: 8px 18px; border-radius: 5px; display: none; z-index: 60; }
@@ -392,7 +447,11 @@ body.ch-direct #pickListDirect { display: block; }
   /* The phone is a GLANCE surface, not the picking device — the tablet is.
      So it keeps the list and sheds every ornament that would otherwise
      overflow a 390px bar. */
-  .bar { gap: 9px; padding: 0 10px; }
+  /* ⚠ These are `padding` SHORTHANDS and this block is last in the sheet —
+     they must re-state the safe-area insets or they silently reset them to 0
+     and the phone loses the footer exactly like the tablet did. */
+  .bar { gap: 9px;
+         padding: var(--safe-t, 0px) calc(10px + var(--safe-r, 0px)) 0 calc(10px + var(--safe-l, 0px)); }
   .pray, #footSync { display: none; }
   .live span { display: none; }               /* the DOT still carries state */
   .bar-clock #clockDate { display: none; }
@@ -403,7 +462,8 @@ body.ch-direct #pickListDirect { display: block; }
                border-top: 1px solid var(--line); padding: 6px 10px; }
   .ct { height: 46px; }
   .today-bar { font-size: var(--fs-lab); }
-  .ftr { padding: 0 10px; gap: 8px; }
+  .ftr { padding: 0 calc(10px + var(--safe-r, 0px)) var(--safe-b, 0px) calc(10px + var(--safe-l, 0px));
+         gap: 8px; }
   .radio { display: none; }                    /* footer has no room for it */
   .pick-row { grid-template-columns: 84px minmax(0,1fr) 48px 96px;
               grid-template-areas: "shelf main qty act" "count count count count";
@@ -430,7 +490,7 @@ body.ch-direct #pickListDirect { display: block; }
 /* Easter egg — tap the HQ mark 5× */
     .egg {
       position: fixed;
-      left: 50%; bottom: 56px;
+      left: 50%; bottom: calc(56px + var(--safe-b, 0px));
       transform: translateX(-50%) translateY(20px);
       background: var(--brand-yellow);
       color: var(--ink);
@@ -449,7 +509,7 @@ body.ch-direct #pickListDirect { display: block; }
 /* console toast (mark-picked feedback + undo) */
     .ctoast {
       position: fixed;
-      left: 50%; bottom: 60px;
+      left: 50%; bottom: calc(60px + var(--safe-b, 0px));
       transform: translateX(-50%) translateY(20px);
       display: flex; align-items: center; gap: 16px;
       background: var(--ink-card);
@@ -490,7 +550,10 @@ body.ch-direct #pickListDirect { display: block; }
     .numpad {
       position: fixed; inset: 0; z-index: 60;
       display: flex; align-items: center; justify-content: center;
-      padding: 20px;
+      /* centred, so it only meets an edge on a short landscape viewport —
+         but a 58px key half-covered by the nav bar is a mis-tap */
+      padding: calc(20px + var(--safe-t, 0px)) calc(20px + var(--safe-r, 0px))
+               calc(20px + var(--safe-b, 0px)) calc(20px + var(--safe-l, 0px));
       background: rgba(14,14,13,0.72);
       -webkit-backdrop-filter: blur(4px) saturate(0.9);
               backdrop-filter: blur(4px) saturate(0.9);
@@ -668,6 +731,9 @@ body.ch-direct #pickListDirect { display: block; }
 .drw-back.on { opacity: 1; pointer-events: auto; }
 .drw {
       position: fixed; left: 0; right: 0; bottom: 0; z-index: 41;
+      /* bottom-anchored sheet: its ground reaches the screen edge, its
+         content stops above the system bar */
+      padding-bottom: var(--safe-b, 0px);
       max-height: 86vh; max-height: 86dvh;
       display: flex; flex-direction: column;
       background: var(--ink-card);
