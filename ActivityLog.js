@@ -89,7 +89,16 @@ var ACTIVITY_LOG = {
 
   // Sources that should capture the current picker (G2) on log write.
   // Anything not in this set leaves PICKER blank (e.g., n8n automation events).
-  warehouseSources: ["telegram", "manual", "manual-edit", "sidebar-bulk", "sidebar"],
+  // ⚠ "board" ADDED 2026-08-12. Every Floor Board write (✓ Pick, shelf count,
+  // Zoho stock adjustment, picker-set) logs with source "board" and
+  // deliberately leaves the picker arg undefined — DashboardService.js and
+  // StockAdjust.js both say in comments that logActivity "reads G2 itself for
+  // warehouse-side sources". It did not, because "board" was missing here, so
+  // EVERY board action was landing in the log unattributed. The stock
+  // adjustment even hard-refuses without a Pick ID, captures the picker
+  // server-side, and writes the name into Zoho's own adjustment reason — and
+  // the PICKER column beside it was still blank. Intent and config now agree.
+  warehouseSources: ["telegram", "manual", "manual-edit", "sidebar-bulk", "sidebar", "board"],
 
   // Retention window — anything older than this gets purged by the daily trigger
   retentionDays: 90
