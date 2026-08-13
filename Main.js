@@ -89,6 +89,21 @@ function onChangeInstallable(e) {
     try {
       setupDuplicateSalesOrderHighlighting();
     } catch (err) { /* silent */ }
+
+    // ⚠ A HUMAN DELETING OR INSERTING ROWS IS A CHANGE THE BOARD MUST SEE.
+    // Reported 2026-08-14: rows deleted from the sheet stayed on the Floor
+    // Board for minutes. Every dirty-flag chokepoint was one of OUR writes —
+    // doPost, updateOrderStatus, boardSetStatus, boardSetLeft, boardAdjust —
+    // and none of them is a person editing the sheet by hand. So a manual
+    // change never invalidated the published tick and the board kept serving
+    // the last copy until the 8-minute keep-fresh republish.
+    //
+    // It barely showed before 2026-08-13, because every poll fell through to
+    // Apps Script live behind a 45s cache. Once n8n could actually READ the
+    // published cell, this went from ~45s to up to 8 minutes — and the
+    // dangerous direction is not a stale delete but a manually TYPED order
+    // being invisible to the floor for that long.
+    try { _dashBustTickCache(); } catch (err) { /* best-effort */ }
   }
 }
 
@@ -212,6 +227,21 @@ function onEditInstallable(e) {
   } catch (err) {
     Logger.log("orderLinkOnEdit (installable) error: " + err);
   }
+
+  // ⚠ LAST, AND ON PURPOSE: tell the board the sheet moved under it.
+  // Companion to the same call in onChangeInstallable — see the long note
+  // there. That one covers row inserts/deletes; this covers a person typing
+  // into All Orders (a manual order, a status, a qty, a location).
+  //
+  // Scoped to the MAIN sheet so editing Prep Queue, Kit Registry or the audit
+  // sheets does not force a tick rebuild they cannot affect. Runs last because
+  // the handlers above are what actually change the row — invalidating before
+  // them could republish the pre-edit state and pin the stale copy for another
+  // whole minute.
+  try {
+    var _sh = e && e.range && e.range.getSheet();
+    if (_sh && _sh.getName() === MAIN_SHEET_NAME) _dashBustTickCache();
+  } catch (err) { /* best-effort — never block an edit on the board's freshness */ }
 }
 
 /**
