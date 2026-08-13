@@ -272,8 +272,17 @@ body.ch-direct #pickListDirect { display: block; }
 .pc-sys { color: var(--t3); }
 .pc-short { color: var(--alarm); font-weight: 700; }
 .pc-other { color: var(--t3); }
-.pc-zoho.pending { color: var(--money); }
-.pc-zoho.done { color: var(--ok); }
+/* THE RECEIPT IS ALSO THE DOOR BACK IN (2026-08-13, floor feedback #3).
+   Once an adjustment exists this replaces BOTH the red deviance chip and the
+   separate fix button, so the row reads "done" instead of "still broken" —
+   but tapping it reopens the numpad, because a first correction can itself be
+   wrong. One affordance, not two saying different things. */
+.pc-zoho { min-height: 40px; padding: 0 12px; border: 1px solid transparent;
+           background: none; border-radius: 6px; font-family: var(--mono);
+           font-size: var(--fs-lab); cursor: pointer; }
+.pc-zoho.pending { color: var(--money); border-color: rgba(255,184,77,0.45); }
+.pc-zoho.done { color: var(--ok); border-color: rgba(76,175,80,0.45); }
+.pc-zoho:active { background: rgba(255,255,255,0.08); }
 .pc-btn { min-height: 40px; padding: 0 12px; border: 1px solid var(--line);
           background: var(--g3); color: var(--t2); border-radius: 6px;
           font-family: var(--disp); font-size: var(--fs-lab); letter-spacing: 0.08em;
@@ -319,15 +328,29 @@ body.ch-direct #pickListDirect { display: block; }
              color: var(--t2); cursor: pointer; white-space: nowrap; }
 .today-bar b { color: var(--t1); font-family: var(--mono); }
 .ftr-right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+/* ⚠ THIS IS A BUTTON, NOT A READOUT — reported from the floor 2026-08-13.
+   askForPicker() was built, tested and live, but its ONLY door was tapping
+   PRINT and being refused. A capability you can only reach by failing first
+   is not a capability the floor has. Now the chip itself opens the list.
+   Sized as a real target (40px) because it is one. */
 .ftr-picker { font-family: var(--mono); font-size: var(--fs-lab); color: var(--t3);
-              white-space: nowrap; }
-.ftr-picker.unset { color: var(--money); }
+              white-space: nowrap; border: 1px solid var(--line); background: none;
+              padding: 9px 12px; border-radius: 5px; cursor: pointer; min-height: 40px; }
+.ftr-picker b { color: var(--t1); font-weight: 500; }
+.ftr-picker:active { background: rgba(255,255,255,0.08); }
+/* Unset BLOCKS printing, so it is loud — the border carries it too, not just
+   the ink, or it reads as one more dim label in a dim bar. */
+.ftr-picker.unset { color: var(--money); border-color: var(--money); }
 .ftr-btn { font-family: var(--disp); font-size: var(--fs-sub); letter-spacing: 0.1em;
            text-transform: uppercase; color: var(--t2); border: 1px solid var(--line);
            background: none; padding: 9px 14px; border-radius: 5px; cursor: pointer;
            min-height: 40px; }
 .ftr-btn.primary { color: var(--g0); background: var(--act); border-color: var(--act);
                    font-weight: 600; }
+.ftr-btn:active { background: rgba(255,255,255,0.08); }
+/* Fullscreen ACTIVE. The label already flips Full→Exit; the border carries it
+   too so the mode reads from across the bar without reading the word. */
+.ftr-btn.on { color: var(--act); border-color: var(--line-brand); }
 #footSync { font-family: var(--mono); font-size: var(--fs-lab); color: var(--t3);
             white-space: nowrap; }
 
@@ -938,7 +961,15 @@ body.ch-direct #pickListDirect { display: block; }
       </div>
       <div class="ftr-right">
         <span id="footSync">sync —</span>
-        <span class="ftr-picker" id="footPicker" title="Pick ID — required before printing">picker —</span>
+        <!-- ⚠ FULLSCREEN LIVES IN THE BAR, NOT THE ⋯ MENU — floor report
+             2026-08-13: "the picker can't see it inside the three dots."
+             A kiosk control nobody can find is a kiosk control nobody uses.
+             Deliberately NOT adjacent to Print: a mis-tap on Full is free, a
+             mis-tap on Print costs a document, so the picker chip sits between
+             them. The WORD, never a glyph — ⛶ rendered as "::" on the real
+             tablet (2026-08-07). -->
+        <button class="ftr-btn" id="fsToggle" title="Fullscreen (tap on the tablet)">Full</button>
+        <button class="ftr-picker" id="footPicker" title="Tap to set who is picking">picker —</button>
         <button class="ftr-btn primary" id="printBtn" title="Print the pick list — PREPARING rows">Print</button>
         <button class="ftr-btn" id="menuBtn" title="More">⋯</button>
       </div>
@@ -980,7 +1011,6 @@ body.ch-direct #pickListDirect { display: block; }
       <a class="menu-item" href="/arcade" title="Break-room cabinet — six games">
         <i class="ftr-ico">▶</i><span>Arcade</span>
       </a>
-      <span class="menu-item" id="fsToggle" title="Fullscreen (tap on the tablet)">Full</span>
       <span class="menu-item" id="soundToggle" title="Sound — distinct chime per event">
         <i class="ftr-ico">♪</i><span class="ftr-lbl">off</span>
       </span>
@@ -1113,7 +1143,10 @@ body.ch-direct #pickListDirect { display: block; }
         var c = e.target.closest('.pc-btn');
         if (c) { askCount(c); return; }
         var a = e.target.closest('.pc-adj');
-        if (a) askAdjust(a);
+        if (a) { askAdjust(a); return; }
+        // The receipt is the re-fix door once a correction exists (#3).
+        var z = e.target.closest('.pc-zoho');
+        if (z) askAdjust(z);
       });
       // Today drawer — everything ambient, one tap away.
       document.getElementById('todayBar').addEventListener('click', function () {
@@ -1121,6 +1154,12 @@ body.ch-direct #pickListDirect { display: block; }
       });
       document.getElementById('todayClose').addEventListener('click', function () {
         document.getElementById('todaySheet').classList.remove('open');
+      });
+      // WHO IS PICKING — the footer chip is the door. Before 2026-08-13 the
+      // only way in was tapping PRINT and being refused, so the floor believed
+      // the Pick ID could only be set from a PC.
+      document.getElementById('footPicker').addEventListener('click', function () {
+        askForPicker(false);
       });
       // ⋯ menu (arcade — SAME TAB — · fullscreen · sound)
       document.getElementById('menuBtn').addEventListener('click', function (ev) {
@@ -1198,7 +1237,12 @@ body.ch-direct #pickListDirect { display: block; }
     var HQ_API    = '/api/board';
     var HQ_NATIVE = (typeof google !== 'undefined' && google.script && google.script.run);
 
-    function hqCall(action, body) {
+    /* READ actions only — see the retry note below. Writes are absent on
+       purpose and must stay absent. */
+    var HQ_RETRYABLE = { boardTick: 1, boardPickers: 1, boardPart: 1,
+                         boardPartLite: 1, boardOrder: 1, boardRadio: 1 };
+
+    function hqCall(action, body, _attempt) {
       var payload = body || {};
 
       if (HQ_NATIVE) {
@@ -1222,6 +1266,29 @@ body.ch-direct #pickListDirect { display: block; }
       }).then(function (r) {
         if (!r.ok) throw new Error('HTTP ' + r.status);
         return r.json();
+      }).then(function (res) {
+        // ⚠ THE PROXY ANSWERS 200 EVEN WHEN THE HOP FAILED. n8n's tier-3 code
+        // node deliberately never throws (a thrown node returns no body at
+        // all), so a dead Apps Script hop arrives here as a perfectly healthy
+        // HTTP 200 carrying {error:"proxy: …"}. Measured 2026-08-13: an
+        // intermittent 404 burst on /exec, roughly 1 call in 6 during a bad
+        // patch. Callers were reading that as "the server said no" — which is
+        // how tapping the picker reported "No pickers configured" when the
+        // sheet had four. Same shape as the long-standing Zoho gotcha: status
+        // 200 with an error body.
+        if (res && res.error && !res.ok) {
+          // Reads are safe to retry; WRITES ARE NOT. A duplicated boardStatus,
+          // boardAdjust, boardLeft or boardSetPicker is worse than a visible
+          // failure, so those surface immediately and let the picker decide.
+          if (HQ_RETRYABLE[action] && !_attempt) {
+            return new Promise(function (res2) { setTimeout(res2, 700); })
+              .then(function () { return hqCall(action, body, 1); });
+          }
+          var e = new Error(res.error);
+          e.transport = true;          // "we could not reach it", not "it said no"
+          throw e;
+        }
+        return res;
       });
     }
 
@@ -1957,12 +2024,15 @@ body.ch-direct #pickListDirect { display: block; }
       var handN  = (typeof r.hand === 'number') ? r.hand : null;
       var countEl = null;
       if (handN !== null && handN <= COUNT_MAX_HAND) {
-        countEl = buildCountLine(r, handN, isPrep);
+        countEl = buildCountLine(r, handN);
         // The alarm colour belongs to a counted shelf that DISAGREES — rare,
         // actionable, and the whole reason the count exists.
         var cnt = (typeof r.left === 'number') ? r.left : null;
+        // Same rule as the chip: a row whose disagreement has already been
+        // pushed to Zoho is not an outstanding problem, so it stops burning red
+        // while the 2-min mirror catches up.
         li.classList.toggle('deviance',
-          cnt !== null && cnt !== shelfExpectation(r, handN, isPrep));
+          cnt !== null && cnt !== shelfExpectation(handN) && !adjustStateFor(r.sku, handN));
       } else {
         li.classList.remove('deviance');
       }
@@ -2055,7 +2125,7 @@ body.ch-direct #pickListDirect { display: block; }
         // Anything other than success: close the window we optimistically
         // claimed, so a failure never leaves a blank orphan tab behind.
         closePrintWindow(win);
-        if (res && res.needsPicker)     return askForPicker();
+        if (res && res.needsPicker)     return askForPicker(true);
         // Say what actually went wrong. `error` is what the n8n proxy returns
         // when the hop itself fails (timeout, oversize) — reading only `reason`
         // turned every transport failure into a useless generic message.
@@ -2071,13 +2141,29 @@ body.ch-direct #pickListDirect { display: block; }
 
     function closePrintWindow(w) { try { if (w && !w.closed) w.close(); } catch (e) {} }
 
-    /** No picker set — offer the list rather than sending them to the sheet. */
-    function askForPicker() {
+    /**
+     * Offer the sheet's own Pick ID list rather than sending anyone to a PC.
+     *
+     * TWO ENTRY POINTS, and they must not behave the same:
+     *   thenPrint = true  — print refused because no picker was set. Choosing
+     *                       one drops straight back into printing.
+     *   thenPrint = false — the picker tapped the footer chip to say who they
+     *                       are. Choosing one just confirms and closes. It must
+     *                       NOT claim a window: with no print to follow, that
+     *                       window is an orphan blank tab on the tablet.
+     */
+    function askForPicker(thenPrint) {
+      if (!drwOpen) drwShow('Who is picking?', thenPrint ? 'required before printing' : 'sets who the shift is filed under');
       document.getElementById('drwTitle').textContent = 'Who is picking?';
-      document.getElementById('drwSub').textContent = 'required before printing';
+      document.getElementById('drwSub').textContent =
+        thenPrint ? 'required before printing' : 'sets who the shift is filed under';
       document.getElementById('drwBody').innerHTML = '<div class="drw-spin">loading pickers…</div>';
 
       hqCall('boardPickers', {}).then(function (res) {
+        // ⚠ Only say "not configured" when the sheet ACTUALLY answered with an
+        // empty list. A transport failure now throws (see hqCall) and lands in
+        // the .catch below, so this message can no longer be pinned on the
+        // sheet when the real fault was the hop.
         if (!res || !res.ok || !res.pickers || !res.pickers.length) {
           return drwFail('No pickers configured. Set the Pick ID dropdown in the sheet.');
         }
@@ -2087,24 +2173,45 @@ body.ch-direct #pickListDirect { display: block; }
           h += '<button class="drw-link ghost" style="display:block;width:100%;margin:8px 0;text-align:left;" ' +
                'data-picker="' + esc(p) + '">' + esc(p.replace(/\n/g, ' · ')) + '</button>';
         });
-        document.getElementById('drwBody').innerHTML = h;
+        var body = document.getElementById('drwBody');
+        body.innerHTML = h;
 
-        document.getElementById('drwBody').addEventListener('click', function (ev) {
+        // ⚠ ASSIGNMENT, NOT addEventListener. innerHTML replaces the CHILDREN
+        // but this element persists, so a listener added per call STACKS: open
+        // the list three times and one tap fires three boardSetPicker calls
+        // (and claims three windows). Harmless while the only door was a print
+        // refusal; a footer button makes it routine. onclick replaces.
+        body.onclick = function (ev) {
           var b = ev.target.closest('[data-picker]');
           if (!b) return;
           var who = b.getAttribute('data-picker');
-          document.getElementById('drwBody').innerHTML = '<div class="drw-spin">setting picker…</div>';
+          body.innerHTML = '<div class="drw-spin">setting picker…</div>';
           // Tapping a picker IS a gesture, so a window claimed here is allowed
-          // too — otherwise choosing a picker would print into nothing.
+          // too — otherwise choosing a picker would print into nothing. Only
+          // claim it when a print is actually going to follow.
           var w2 = null;
-          try { w2 = window.open('', '_blank'); } catch (e) { w2 = null; }
+          if (thenPrint) { try { w2 = window.open('', '_blank'); } catch (e) { w2 = null; } }
           hqCall('boardSetPicker', { picker: who }).then(function (r) {
-            if (r && r.ok) { startPrint(w2); return; }   // straight back into printing
+            if (r && r.ok) {
+              if (thenPrint) { startPrint(w2); return; }   // straight back into printing
+              // Land it on the chip NOW — the picker just told us who they are
+              // and should not watch a spinner for it. Held against stale ticks
+              // by pickerOverride, exactly like an optimistic ✓ Pick.
+              pickerOverride = { name: who, until: Date.now() + PICK_OVERRIDE_MS };
+              paintPickerChip(who);
+              drwClose();
+              pollSoon();                                  // let the server view catch up
+              return;
+            }
             closePrintWindow(w2);
             drwFail((r && r.message) || 'Could not set the picker.');
           }).catch(function (e) { drwFail(String(e.message || e)); });
-        });
-      }).catch(function (e) { drwFail(String(e.message || e)); });
+        };
+      }).catch(function (e) {
+        drwFail(e && e.transport
+          ? 'Could not reach the sheet just now — the connection dropped on the way. Tap the picker again.'
+          : String(e.message || e));
+      });
     }
 
     /**
@@ -2449,31 +2556,40 @@ body.ch-direct #pickListDirect { display: block; }
       return { pending: pending, prepping: prepping, total: pending + prepping };
     }
 
-    /* ONE NUMBER: what should be on that shelf RIGHT NOW.
-       ⚠ THE 2026-08-12 CORRECTION. This used to render "on hand 14 → 13 left"
-       — two numbers, and the picker had to work out which one to match. Worse,
-       it scored the count against the POST-pull figure (hand − qty) while a
-       picker naturally counts the shelf as they find it. A correct shelf was
-       therefore flagged "+1 vs system" on every ×1 line (seen live on two rows
-       at once), and FIX ZOHO would then have pushed hand+1 into Zoho —
-       inflating stock by exactly one order's worth. CLAUDE.md predicted this
-       symptom verbatim.
-       Now the reference FOLLOWS the shelf, and says which state it is in:
-         not yet pulled  → the shelf should hold `hand`
-         pulled (PREP)   → your units are gone, so `hand − qty`
-       so the picker matches one number in either order of working, and the
-       Zoho target is derived from the same state instead of assumed. */
-    function shelfExpectation(r, handN, isPrep) {
-      var qtyN = num(r.qty) || 0;
-      return isPrep ? Math.max(0, handN - qtyN) : handN;
+    /* ONE NUMBER: HAND. Nothing else, no arithmetic.
+     *
+     * ⚠ THE 2026-08-13 RULING (floor feedback #5) — READ BEFORE "IMPROVING".
+     * The board must NOT predict what a shelf will hold. HAND on the sheet is
+     * already the correct, near-live figure and a great deal of work went into
+     * making it so; every source it can come from sees its OWN channel's sales
+     * first:
+     *   DIRECT / manual / prep rows → Zoho available_stock, pushed every 2 min
+     *   automated eBay rows         → MI, written LIVE FROM EBAY (GetItem) by
+     *                                 the orders workflow at arrival
+     * So the board's job here is to READ that number and hand it to the picker.
+     *
+     * This deliberately replaces the 2026-08-12 model, which subtracted the
+     * line's qty once the row went PREPARING. That was itself a fix for a worse
+     * bug (scoring every correct ×1 shelf as "+1 vs system"), but it was still
+     * the board doing arithmetic on top of a number that is already right —
+     * and two projections in a row is how you get a count nobody trusts.
+     *
+     * Kept as a FUNCTION rather than inlined on purpose: it is the single
+     * source for the label, the numpad target and the deviance test, so those
+     * three cannot drift apart again. */
+    function shelfExpectation(handN) {
+      return handN;
     }
 
-    function buildCountLine(r, handN, isPrep) {
+    /* ⚠ NO isPrep PARAMETER, deliberately. It was dropped 2026-08-13 with the
+       projection it fed: nothing in this line may depend on whether the row has
+       been picked, because on hand does not depend on that either. */
+    function buildCountLine(r, handN) {
       var wrap = document.createElement('div');
       wrap.className = 'pick-count';
 
       var qtyN     = num(r.qty) || 0;
-      var expected = shelfExpectation(r, handN, isPrep);
+      var expected = shelfExpectation(handN);
       // ⚠ NEVER BELOW ZERO. A shelf holding 1 with 2 on the order rendered
       // "-1 left", which is not a quantity anyone can go and count. The shelf
       // simply runs out — and the fact that it cannot cover the line is said
@@ -2486,12 +2602,10 @@ body.ch-direct #pickListDirect { display: block; }
       var sys = document.createElement('span');
       sys.className = 'pc-sys';
       sys.textContent = 'should be ' + expected;
-      sys.title = isPrep
-        ? 'You have pulled ' + qtyN + ' for this line, so the shelf should now '
-          + 'hold ' + expected + ' (' + handN + ' − ' + qtyN + '). Count it.'
-        : 'The system believes this shelf holds ' + expected + ' right now, '
-          + 'before you pull anything. Count it — if it agrees, leave the '
-          + 'count blank.';
+      // One sentence, one number, and it does not change when you pick — the
+      // board reports on-hand, it does not predict it.
+      sys.title = 'On hand is ' + expected + '. Count the shelf — if it agrees, '
+                + 'leave the count blank.';
       wrap.appendChild(sys);
 
       // The system says the shelf cannot cover this line. That is worth saying
@@ -2525,15 +2639,21 @@ body.ch-direct #pickListDirect { display: block; }
       // the good news.
       var adj = adjustStateFor(r.sku, handN);
       if (adj) {
-        var z = document.createElement('span');
+        var z = document.createElement('button');
         z.className = 'pc-zoho ' + (adj.confirmed ? 'done' : 'pending');
         z.textContent = adj.confirmed ? '✓ zoho at ' + adj.target
                                       : '⟳ zoho ← ' + adj.target;
-        z.title = adj.confirmed
+        z.title = (adj.confirmed
           ? 'Confirmed — the board can now see ' + adj.target + ' on hand.'
           : 'Zoho was set to ' + adj.target + '. The board reads stock from the ' +
             'mirror, which refreshes about every two minutes, so this turns into ' +
-            'a tick once it catches up.';
+            'a tick once it catches up.') + '  Tap to correct it again.';
+        // Carries the same payload the fix button did — it IS the fix button now.
+        z.setAttribute('data-order', r.orderId || '');
+        z.setAttribute('data-sku', r.sku || '');
+        z.setAttribute('data-counted', String(counted === null ? expected : counted));
+        z.setAttribute('data-qty', String(qtyN));
+        z.setAttribute('data-hand', String(handN));
         wrap.appendChild(z);
       }
 
@@ -2544,39 +2664,43 @@ body.ch-direct #pickListDirect { display: block; }
       btn.setAttribute('data-order', r.orderId || '');
       btn.setAttribute('data-sku', r.sku || '');
       btn.setAttribute('data-expected', String(expected));
-      btn.setAttribute('data-prep', isPrep ? '1' : '0');
+      // data-prep retired 2026-08-13 — the expectation no longer depends on it.
       wrap.appendChild(btn);
 
       // "vs shelf", not "vs system" — it is the SHELF the picker just counted
       // and the shelf figure they were asked to match.
-      if (counted !== null && counted !== expected) {
+      // ⚠ SUPPRESSED ONCE A FIX EXISTS (2026-08-13). Red on this board means
+      // "act". The picker HAS acted; the mirror simply has not caught up yet
+      // (~2 min). Leaving it red for those two minutes made a resolved row keep
+      // shouting, which is precisely how red stops being believed. Nothing is
+      // hidden: COUNTED still says what was counted, the receipt says what was
+      // pushed, and when the mirror lands the deviance is gone by construction.
+      if (counted !== null && counted !== expected && !adj) {
         var dev = document.createElement('span');
         var diff = counted - expected;
         dev.className = 'pc-dev';
         dev.textContent = (diff > 0 ? '+' : '') + diff + ' vs shelf';
-        dev.title = 'Counted ' + counted + ', expected ' + expected +
-                    (isPrep ? ' (after your pull).' : ' on the shelf.');
+        dev.title = 'Counted ' + counted + ' on the shelf, on hand says ' + expected + '.';
         wrap.appendChild(dev);
       }
 
-      // ⚠ ONLY WHERE A COUNT DISAGREES — or where one already has, so a second
-      // correction stays possible. An adjustment is the exception to the
-      // exception; offering it on every counted row would invite corrections
-      // nobody needs. But once a picker has adjusted, they may well need to
-      // again, so the button does NOT disappear on success.
-      if ((counted !== null && counted !== expected) || adj) {
+      // ⚠ ONLY WHERE A COUNT DISAGREES AND NOTHING HAS BEEN DONE ABOUT IT.
+      // This used to also render when `adj` existed, as "fix again" — which is
+      // right in principle (a first correction can be wrong) but left a
+      // just-fixed row carrying an amber call-to-action forever. Re-fixing now
+      // lives on the RECEIPT itself, which is a button: one affordance, and the
+      // row reads finished. Floor feedback #3, 2026-08-13.
+      if (counted !== null && counted !== expected && !adj) {
         var adjBtn = document.createElement('button');
-        adjBtn.className = 'pc-adj' + (adj ? ' again' : '');
-        adjBtn.textContent = adj ? 'fix again' : 'fix zoho';
+        adjBtn.className = 'pc-adj';
+        adjBtn.textContent = 'fix zoho';
         adjBtn.setAttribute('data-order', r.orderId || '');
         adjBtn.setAttribute('data-sku', r.sku || '');
         adjBtn.setAttribute('data-counted', String(counted === null ? expected : counted));
         adjBtn.setAttribute('data-qty', String(qtyN));
         adjBtn.setAttribute('data-hand', String(handN));
-        // ⚠ Only the ALREADY-PULLED units are added back to a Zoho on-hand:
-        // pending ones were included in the shelf count the picker just took.
-        adjBtn.setAttribute('data-otherprep', String(holders.prepping));
-        adjBtn.setAttribute('data-pulled', isPrep ? String(qtyN) : '0');
+        // data-pulled / data-otherprep were removed 2026-08-13 with the
+        // projection they fed — the target is now simply what was counted.
         wrap.appendChild(adjBtn);
       }
       return wrap;
@@ -2911,6 +3035,8 @@ body.ch-direct #pickListDirect { display: block; }
     // backstop if the server never agrees.
     var pickOverride = {};                 // key -> { status, until }
     var PICK_OVERRIDE_MS = 45000;
+    // Same idea, one value: who the footer chip says is picking. See paintFooter.
+    var pickerOverride = null;             // { name, until }
 
     function applyPickOverrides(rows) {
       var now = Date.now(), k;
@@ -3084,13 +3210,11 @@ body.ch-direct #pickListDirect { display: block; }
         tone: 'count',
         title: 'Shelf count',
         sub: sku,
-        // States the ASSUMPTION, because the board learns you pulled only when
-        // you tap ✓ Pick — and a picker often lifts the part first. Saying
-        // which side of the pull this number assumes lets them correct for it.
-        contextHtml: 'The shelf should hold <b>' + esc(expected) + '</b> right now.\n' +
-                     (btn.getAttribute('data-prep') === '1'
-                        ? 'Counted with your units already pulled.'
-                        : 'Counted before you pull this line.'),
+        // ⚠ NO PULL-STATE CAVEAT ANY MORE (2026-08-13). This used to say which
+        // side of the pull the number assumed, because the number moved. It no
+        // longer moves: on hand is on hand, and the board does not predict it.
+        contextHtml: 'On hand is <b>' + esc(expected) + '</b>.\n' +
+                     'Count what is physically on the shelf.',
         note: 'Leave blank if the shelf agrees',
         value: '',
         blankLabel: 'agrees',
@@ -3143,23 +3267,19 @@ body.ch-direct #pickListDirect { display: block; }
       // failure CLAUDE.md warned to watch for). Add back only what is genuinely
       // OFF the shelf but still IN the building: your units if you have already
       // pulled them, plus any other line already prepped.
-      var pulled    = num(btn.getAttribute('data-pulled'));      // 0 unless PREPARING
-      var otherPrep = num(btn.getAttribute('data-otherprep'));
-      var suggest   = counted + pulled + otherPrep;
+      // ⚠ 2026-08-13 (floor feedback #5) — THE SUGGESTION IS THE COUNT.
+      // It used to be `counted + pulled + otherPrep`: the board adding back
+      // units it believed were off the shelf but still in the building. That is
+      // the same projection the "should be" line just stopped doing, and it is
+      // the board guessing at physical reality it cannot see. What the picker
+      // can see is the shelf, and they just counted it — so that IS the number,
+      // pre-filled and still editable by the person standing in front of it.
+      var suggest = counted;
 
-      var sum = String(counted);
-      if (pulled)    sum += ' + ' + pulled + ' yours';
-      if (otherPrep) sum += ' + ' + otherPrep + ' other';
-
-      var ctx = 'Zoho on hand now  <b>' + hand + '</b>\n' +
-                'You counted       <b>' + counted + '</b> on the shelf\n' +
-                (pulled    ? 'Already pulled    <b>' + pulled + '</b> for this order\n' : '') +
-                (otherPrep ? 'Pulled elsewhere  <b>' + otherPrep + '</b> on other orders\n' : '') +
-                'Suggested         <b>' + suggest + '</b>  (' + sum + ')\n' +
-                'Zoho only removes stock when the order ships.';
-      if (!pulled && !otherPrep) {
-        ctx += '\n<i>Nothing is pulled yet, so the shelf IS the on-hand.</i>';
-      }
+      var ctx = 'On hand now   <b>' + hand + '</b>\n' +
+                'You counted   <b>' + counted + '</b> on the shelf\n' +
+                'Setting to    <b>' + suggest + '</b>\n' +
+                '<i>The shelf is the truth — this sets on hand to what you counted.</i>';
 
       openNumPad({
         tone: 'adjust',
@@ -3380,12 +3500,33 @@ body.ch-direct #pickListDirect { display: block; }
       document.getElementById('liveText').textContent = text;
     }
 
-    function paintFooter(tick) {
-      var picker = (tick.picker || '').trim();
+    /* ONE WRITER for the chip, so the optimistic paint and the tick paint can
+       never disagree about its markup (the `_ftrPaint` lesson: two writers to
+       one chip is how the label got wiped last time). */
+    function paintPickerChip(picker) {
       var pk = document.getElementById('footPicker');
-      pk.innerHTML = picker ? ('picker · <b>' + esc(picker) + '</b>') : 'no picker set';
+      // DISPLAY ONLY — the stored value keeps its full "Shipping - Name Id"
+      // form (the sheet's dropdown owns that). But every entry starts with
+      // that prefix, so showing it spends the whole chip on a constant and
+      // truncates the one part that identifies anybody: "Shipping - Ya…".
+      var shown = picker ? picker.replace(/\n/g, ' · ').replace(/^\s*shipping\s*-\s*/i, '') : '';
+      pk.innerHTML = shown ? ('picker · <b>' + esc(shown) + '</b>') : 'no picker set';
       // Amber only when it BLOCKS something — print refuses without a Pick ID.
       pk.classList.toggle('unset', !picker);
+    }
+
+    function paintFooter(tick) {
+      var picker = (tick.picker || '').trim();
+      // SAME STALE-TICK RULE AS ✓ PICK. boardSetPicker is never cached but the
+      // next boardTick can be served from n8n's 15s cache and still carry the
+      // OLD name — without this the chip shows the new picker, snaps back to
+      // "no picker set", then flips again. Hold until the server agrees.
+      if (pickerOverride) {
+        if (Date.now() > pickerOverride.until) pickerOverride = null;      // backstop
+        else if (picker === pickerOverride.name) pickerOverride = null;    // server agrees
+        else picker = pickerOverride.name;
+      }
+      paintPickerChip(picker);
       // Show just the sync TIME — freshness STATE lives in the live indicator,
       // which is off-hours-aware (no scary STALE when the shop is simply closed).
       var raw = tick.lastSync ? String(tick.lastSync) : '';
