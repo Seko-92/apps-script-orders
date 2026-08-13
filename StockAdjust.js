@@ -229,3 +229,167 @@ function boardAdjustStock(sku, target, orderId) {
            before: res.before, after: res.target, delta: res.delta || 0,
            picker: picker, message: res.message };
 }
+
+
+// =======================================================================================
+// AUDIT — who moved this stock, and can we trust it?
+// =======================================================================================
+//
+// TWO JOBS, one function.
+//
+// 1. THE ONE-OFF. Until 2026-08-12 the board scored a shelf count against
+//    `hand − qty` (what the shelf would hold AFTER pulling) while a picker
+//    counts it as they find it (BEFORE pulling). A correct shelf therefore read
+//    as short by exactly the line's qty, and FIX ZOHO then suggested
+//    `counted + qty` — pushing MORE into Zoho than was really there. Live
+//    evidence the day it was found: B-83 on hand 5, ×1, counted 5, flagged
+//    "+1 vs system"; confirming would have set Zoho to 6 against a true 5.
+//    Zoho pushes stock to eBay, so an inflated on-hand is an oversell waiting
+//    to happen. Anything adjusted from the board BEFORE the cutoff is worth a
+//    second look — especially a POSITIVE delta, which is the bug's signature.
+//
+// 2. THE STANDING TOOL. "Who changed this stock number, and when?" is a
+//    question that gets asked at the worst possible moment. This answers it
+//    from the Activity Log without opening Zoho.
+//
+// ⚠ PICKER MAY BE BLANK on rows before 2026-08-12 — `board` was missing from
+// ACTIVITY_LOG.warehouseSources, so the column was never filled for board
+// writes. It is NOT lost: Zoho's own adjustment `reason` has carried the
+// picker's name all along, and the DETAIL below gives you the adjustment id to
+// look it up with.
+//
+// ⚠ A NO-OP IS LOGGED TOO ("Stock confirmed at N"). That is deliberate — it
+// keeps "checked it, nothing moved" distinguishable from "actually moved it".
+// Those can never have caused harm, so they are counted and not listed.
+//
+// ⚠ FAILURES ARE NOT LOGGED — boardAdjustStock returns before the log line on
+// error, so a refused push leaves no row here. Absence is not proof.
+//
+// Usage (Apps Script editor → Run). Output goes to the EXECUTION LOG, not the
+// return value — the Run button does not display return values.
+//   auditBoardStockAdjustments()        → everything in the log
+//   auditBoardStockAdjustments(30)      → last 30 days only
+
+var STOCK_AUDIT = {
+  // The day the shelf-count model was corrected. Adjustments logged before
+  // this could have been computed from the wrong reference.
+  fixedOn: '2026-08-12'
+};
+
+function auditBoardStockAdjustments(days) {
+  var out = [];
+  function say(line) { out.push(line); }
+
+  try {
+    var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    var sheet = ss.getSheetByName(ACTIVITY_LOG.sheetName);
+    if (!sheet) { console.log('No Activity Log sheet.'); return 'No Activity Log sheet.'; }
+
+    var last = sheet.getLastRow();
+    if (last < ACTIVITY_LOG.dataStartRow) {
+      console.log('Activity Log is empty.'); return 'Activity Log is empty.';
+    }
+
+    var rows = sheet.getRange(ACTIVITY_LOG.dataStartRow, 1,
+                              last - ACTIVITY_LOG.dataStartRow + 1,
+                              ACTIVITY_LOG.dataWidth).getValues();
+
+    var tz     = ss.getSpreadsheetTimeZone() || 'America/Chicago';
+    var cutoff = new Date(STOCK_AUDIT.fixedOn + 'T00:00:00');
+    var since  = (days && days > 0) ? new Date(Date.now() - days * 86400000) : null;
+
+    var moved = [], suspect = [], noops = 0, scanned = 0;
+
+    for (var i = 0; i < rows.length; i++) {
+      var r      = rows[i];
+      var source = String(r[ACTIVITY_LOG.idx('SOURCE')] || '').trim().toLowerCase();
+      var detail = String(r[ACTIVITY_LOG.idx('DETAIL')] || '');
+      if (source !== 'board') continue;
+      if (detail.indexOf('Zoho stock') !== 0 && detail.indexOf('Stock confirmed') !== 0) continue;
+
+      var when = r[ACTIVITY_LOG.idx('TIMESTAMP')];
+      if (!(when instanceof Date)) continue;
+      if (since && when < since) continue;
+      scanned++;
+
+      if (detail.indexOf('Stock confirmed') === 0) { noops++; continue; }
+
+      // "Zoho stock 5 → 6 (+1) · adj 12345"
+      var m = detail.match(/Zoho stock\s+(-?\d+(?:\.\d+)?)\s*→\s*(-?\d+(?:\.\d+)?)/);
+      var adj = detail.match(/adj\s+(\S+)/);
+      var rec = {
+        when:   when,
+        stamp:  Utilities.formatDate(when, tz, 'yyyy-MM-dd HH:mm'),
+        sku:    String(r[ACTIVITY_LOG.idx('SKU')] || ''),
+        order:  String(r[ACTIVITY_LOG.idx('ORDER_ID')] || ''),
+        picker: String(r[ACTIVITY_LOG.idx('PICKER')] || '').trim(),
+        before: m ? parseFloat(m[1]) : null,
+        after:  m ? parseFloat(m[2]) : null,
+        adjId:  adj ? adj[1] : '',
+        detail: detail
+      };
+      rec.delta = (rec.before !== null && rec.after !== null) ? (rec.after - rec.before) : null;
+      moved.push(rec);
+      if (when < cutoff) suspect.push(rec);
+    }
+
+    moved.sort(function (a, b) { return a.when - b.when; });
+    suspect.sort(function (a, b) { return a.when - b.when; });
+
+    say('');
+    say('════════ BOARD STOCK ADJUSTMENTS ════════');
+    say('scanned ' + scanned + ' board stock events'
+        + (days ? '  (last ' + days + ' days)' : '  (all time)'));
+    say('  ' + moved.length + ' actually moved stock');
+    say('  ' + noops + (noops === 1 ? ' was a confirmation' : ' were confirmations')
+        + ' — nothing changed');
+    say('');
+
+    if (!moved.length) {
+      say('Nothing to review: the board has never moved a stock number.');
+    } else {
+      say('──── every adjustment, oldest first ────');
+      for (var j = 0; j < moved.length; j++) {
+        var a = moved[j];
+        say('  ' + a.stamp + '  ' + a.sku
+            + '  ' + a.before + ' → ' + a.after
+            + ' (' + (a.delta > 0 ? '+' : '') + a.delta + ')'
+            + (a.picker ? '  by ' + a.picker : '  by ??? (see Zoho reason)')
+            + (a.adjId ? '  · adj ' + a.adjId : '')
+            + (a.order && a.order !== '(stock)' ? '  · ' + a.order : ''));
+      }
+    }
+
+    say('');
+    say('──── the ' + STOCK_AUDIT.fixedOn + ' shelf-count window ────');
+    if (!suspect.length) {
+      say('  ✅ CLEAR — no board adjustment predates the fix, so none could have');
+      say('     been computed from the wrong reference.');
+    } else {
+      say('  ⚠ ' + suspect.length + ' adjustment(s) predate the fix. A POSITIVE delta is');
+      say('    the bug signature (it pushed counted + qty instead of counted).');
+      say('    Verify each against Zoho → Inventory → Adjustments using the adj id.');
+      for (var k = 0; k < suspect.length; k++) {
+        var s = suspect[k];
+        say('    ' + (s.delta > 0 ? '⚠ INFLATED?' : '  probably fine')
+            + '  ' + s.stamp + '  ' + s.sku
+            + '  ' + s.before + ' → ' + s.after
+            + ' (' + (s.delta > 0 ? '+' : '') + s.delta + ')'
+            + (s.adjId ? '  · adj ' + s.adjId : ''));
+      }
+    }
+    say('');
+    say('⚠ Failed pushes are NOT logged, so absence here is not proof none were');
+    say('  attempted. Zoho keeps the authoritative record either way.');
+    say('═════════════════════════════════════════');
+
+  } catch (err) {
+    say('audit failed: ' + (err.message || err));
+  }
+
+  // ⚠ console.log, not just a return: the editor's Run button does not display
+  // return values, only logged output. (Cost an evening on getPublishedTick.)
+  var text = out.join('\n');
+  console.log(text);
+  return text;
+}
