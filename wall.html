@@ -2,7 +2,7 @@
 <html>
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#0e0e0d">
 <title>HQ · Wall</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -35,19 +35,37 @@
   --t1: #f5f5f2;  --t2: rgba(245,245,242,0.64);  --t3: rgba(245,245,242,0.38);
   --act: #ffd400;  --ok: #4caf50;  --alarm: #ff6b6b;  --money: #ffb84d;
   --kit-a: #63ffff;  --kit-b: #b163ff;
+  /* the night dial's own two golds + its dawn driver (0 deep night .. 1 about
+     to open, set per second by updateRestAmbient — CSS reads it, never JS) */
+  --brand-rim: #ffd966;  --brand-soft: #fff4b0;  --dawn: 0;
   --fs-hero: 72px; --fs-big: 34px; --fs-shelf: 24px; --fs-row: 18px; --fs-sub: 14px; --fs-lab: 12px;
   --disp: 'Oswald', sans-serif;  --mono: 'Roboto Mono', monospace;  --body: 'Roboto', sans-serif;
+  /* ⚠ SYSTEM BARS. This page draws edge-to-edge (viewport-fit=cover), so on a
+     tablet Android's gesture-nav bar and iOS's home indicator OVERLAY the last
+     ~25px. Defined ONCE here, consumed by every element that touches an edge:
+     .hdr · .beacon · .rail · .chan-direct · .chan ul · .connlost · .restveil.
+     Zero on a wall display / desktop, so the 16:9 layout is untouched.
+     Headless has no system bars — see design-lab/diag-wall-safe.js, which
+     overrides these tokens to prove the chain. A render alone CANNOT catch it. */
+  --safe-t: env(safe-area-inset-top, 0px);
+  --safe-b: env(safe-area-inset-bottom, 0px);
+  --safe-l: env(safe-area-inset-left, 0px);
+  --safe-r: env(safe-area-inset-right, 0px);
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
 html, body { height: 100%; }
 body { background: var(--g0); color: var(--t1); font-family: var(--body); overflow: hidden; }
 .wall { height: 100dvh; display: grid;
-        grid-template-rows: 64px auto 1fr;
+        grid-template-rows: calc(64px + var(--safe-t)) auto 1fr;
         grid-template-columns: 340px 1fr 1fr;
         grid-template-areas: "hdr hdr hdr" "beacon beacon beacon" "rail ebay direct"; }
 
 /* ── HEADER ────────────────────────────────────────────────────────────── */
-.hdr { grid-area: hdr; display: flex; align-items: center; gap: 24px; padding: 0 28px;
+/* Height GROWS by the top inset (the grid row above) while the content lane
+   stays exactly 64px — so the header's own ground paints UNDER the status bar
+   while the clock and live dot stay below it. Same trick as the tool's footer. */
+.hdr { grid-area: hdr; display: flex; align-items: center; gap: 24px;
+       padding: var(--safe-t) calc(28px + var(--safe-r)) 0 calc(28px + var(--safe-l));
        background: var(--g1); border-bottom: 1px solid var(--line-brand); }
 .hdr-hq { background: var(--act); color: var(--g0); font-family: var(--disp);
           font-weight: 700; font-size: 22px; padding: 3px 12px; letter-spacing: 0.04em; }
@@ -75,7 +93,8 @@ body { background: var(--g0); color: var(--t1); font-family: var(--body); overfl
 
 /* ── BEACON — full width, reaches across the floor ─────────────────────── */
 .beacon { grid-area: beacon; display: none; align-items: center; gap: 18px;
-          padding: 10px 28px; background: rgba(255,212,0,0.14);
+          padding: 10px calc(28px + var(--safe-r)) 10px calc(28px + var(--safe-l));
+          background: rgba(255,212,0,0.14);
           border-bottom: 1px solid var(--line-brand); cursor: pointer; }
 .beacon.show { display: flex; animation: bpulse 2.2s ease-in-out infinite; }
 @keyframes bpulse { 0%,100% { background: rgba(255,212,0,0.10); } 50% { background: rgba(255,212,0,0.20); } }
@@ -90,7 +109,8 @@ body { background: var(--g0); color: var(--t1); font-family: var(--body); overfl
 
 /* ── METRICS RAIL ──────────────────────────────────────────────────────── */
 .rail { grid-area: rail; display: flex; flex-direction: column; gap: 12px;
-        padding: 16px; background: var(--g1); border-right: 1px solid var(--line);
+        padding: 16px 16px calc(16px + var(--safe-b)) calc(16px + var(--safe-l));
+        background: var(--g1); border-right: 1px solid var(--line);
         overflow: hidden; min-height: 0; }
 /* ⚠ min-width:0 — a grid child defaults to min-width:auto, so its content
    REFUSES to shrink and overflows the card's own border (the "1 aisle" ran
@@ -149,14 +169,20 @@ body { background: var(--g0); color: var(--t1); font-family: var(--body); overfl
 /* ── CHANNEL COLUMNS ───────────────────────────────────────────────────── */
 .chan { min-width: 0; overflow: hidden; display: flex; flex-direction: column; min-height: 0; }
 .chan-ebay { grid-area: ebay; border-right: 1px solid var(--line); }
-.chan-direct { grid-area: direct; }
+.chan-direct { grid-area: direct; padding-right: var(--safe-r); }
 .chan-head { display: flex; align-items: baseline; gap: 14px; padding: 14px 24px 10px;
              border-bottom: 2px solid var(--line-brand); flex: none; }
 .chan-head h2 { font-family: var(--disp); font-weight: 600; font-size: 22px;
                 letter-spacing: 0.14em; text-transform: uppercase; }
 .chan-head .cnt { font-family: var(--mono); font-size: var(--fs-sub); color: var(--t2); }
 .chan-head .over { margin-left: auto; font-family: var(--mono); font-size: var(--fs-sub); color: var(--alarm); }
-.chan ul { list-style: none; overflow: hidden; flex: 1; min-height: 0; }
+/* ⚠ MARGIN, not padding. `overflow` clips at the PADDING box, so padding-bottom
+   would let rows flow into the reserved strip and stay visible UNDER the system
+   bar — the list caps at 24 rows, so it always overflows and always would.
+   A margin shrinks the flex item itself, moving the clip line up to the safe
+   edge. Caught by diag-wall-safe.js on the first run of the fix, not by eye. */
+.chan ul { list-style: none; overflow: hidden; flex: 1; min-height: 0;
+           margin-bottom: var(--safe-b); }
 .chan .none { padding: 26px 24px; font-family: var(--mono); font-size: var(--fs-sub); color: var(--t3); }
 
 .wband { display: flex; align-items: center; gap: 14px; min-height: 42px; padding: 4px 24px;
@@ -203,21 +229,136 @@ body { background: var(--g0); color: var(--t1); font-family: var(--body); overfl
 .wmore { padding: 12px 24px; font-family: var(--mono); font-size: var(--fs-sub); color: var(--alarm); }
 
 /* ── STATES ────────────────────────────────────────────────────────────── */
-.connlost { position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%);
+.connlost { position: fixed; left: 50%; bottom: calc(26px + var(--safe-b)); transform: translateX(-50%);
             background: var(--alarm); color: var(--g0); font-family: var(--disp);
             font-size: var(--fs-sub); letter-spacing: 0.1em; text-transform: uppercase;
             padding: 8px 18px; border-radius: 5px; display: none; z-index: 60; }
 .connlost.show { display: block; }
-.restveil { position: fixed; inset: 0; background: rgba(14,14,13,0.62);
-            backdrop-filter: blur(2px); display: none; z-index: 30;
-            align-items: center; justify-content: center; flex-direction: column; gap: 10px; }
+/* ── REST STATE — the night DIAL, migrated from the pre-port board 2026-08-13.
+   Replaces the simple veil v1 this page shipped with. The framing that earned
+   it (2026-06-06): this board is watched mostly in the EVENING from Riyadh, so
+   the RESTING state is the PRIMARY experience, not a fallback — it deserves to
+   be the most beautiful screen here. Verbatim port: dial + both flanks + dawn
+   + embers + the straggler footnote. Ported wholesale, only the token names
+   remapped to this page's palette. ────────────────────────────────────────── */
+.restveil { position: fixed; inset: 0; display: none; z-index: 30;
+            padding: var(--safe-t) var(--safe-r) var(--safe-b) var(--safe-l);
+            overflow: hidden; align-items: center; justify-content: center;
+            gap: clamp(34px, 6.5vw, 104px);
+            background: radial-gradient(120% 100% at 50% 36%, #1c1c19 0%, #141412 56%, #0d0d0c 100%);
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.04), inset 0 0 90px rgba(0,0,0,0.55); }
 .restveil.show { display: flex; }
-.restveil .rv-clock { font-family: var(--disp); font-weight: 300; font-size: 96px;
-                      letter-spacing: 0.06em; color: var(--t1); }
-.restveil .rv-line { font-family: var(--mono); font-size: var(--fs-row); color: var(--t2); }
-.restveil .rv-sub { font-family: var(--mono); font-size: var(--fs-sub); color: var(--t3); }
+
+/* sparse, faint warm motes — a whisper of life, not a campfire */
+.rest-embers { position: absolute; inset: 0; z-index: 1; pointer-events: none; }
+.ember { position: absolute; bottom: -8px; border-radius: 50%;
+         background: rgba(255,247,228,0.9); opacity: 0;
+         animation-name: emberRise; animation-timing-function: linear;
+         animation-iteration-count: infinite; }
+@keyframes emberRise {
+  0%   { transform: translateY(0) translateX(0); opacity: 0; }
+  14%  { opacity: 0.26; }
+  86%  { opacity: 0.18; }
+  100% { transform: translateY(-320px) translateX(14px); opacity: 0; }
+}
+
+/* ── THE DIAL — a fine instrument.
+   ⚠ The whole dial scales as ONE unit off its own font-size, and every face
+   value is in `em`. That is what keeps the clock text and the tick ring in
+   proportion at any height — fixed-px text overlapped the ring on shorter
+   screens (2026-06-06). Do not convert these to px. ────────────────────── */
+/* ⚠ THIS ONE NUMBER IS THE DIAL'S SIZE. Everything else is em off it, so the
+   ring, ticks, jewel and face all follow — change it and nothing else.
+   Raised from the pre-port's 16.5px cap because the dial used to live inside
+   a panel on the board and now owns the whole screen. 576px at 1080p. */
+.dial { position: relative; font-size: clamp(10px, 2.40vh, 24px);
+        width: 24em; height: 24em; display: flex; align-items: center; justify-content: center; }
+.dial-bezel {
+  position: absolute; inset: 0; border-radius: 50%;
+  background: conic-gradient(from 0deg,
+    rgba(255,247,228,0) 0deg, rgba(255,247,228,0.16) 70deg,
+    rgba(255,247,228,0) 160deg, rgba(255,212,0,0.10) 285deg, rgba(255,247,228,0) 360deg);
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 1px), #000 calc(100% - 0.5px));
+          mask: radial-gradient(farthest-side, transparent calc(100% - 1px), #000 calc(100% - 0.5px));
+  animation: dialSpin 90s linear infinite; opacity: 0.85;
+}
+/* ⚠ TICK GEOMETRY IS IN `em`, DELIBERATELY. The dial's contract is that it
+   scales as ONE unit off .dial's font-size — but this ring's insets and mask
+   radii were PX in the original, so the ticks kept their absolute size while
+   the dial grew: at a larger cap the fine 60-line ring degraded into sparse
+   dashes and the hour marks into triangles. The comment was right and the
+   code wasn't. Converted at the tuned base (16.5px), so the ported size is
+   visually unchanged and every OTHER size is now correct too. Proven by
+   shoot-dial-scale.js — render it before touching these numbers. */
+/* minute ticks — 60 faint hairlines */
+.dial-ticks {
+  position: absolute; inset: 0.97em; border-radius: 50%;
+  background: repeating-conic-gradient(from -0.15deg, rgba(245,245,242,0.22) 0deg 0.3deg, transparent 0.3deg 6deg);
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 0.485em), #000 calc(100% - 0.424em));
+          mask: radial-gradient(farthest-side, transparent calc(100% - 0.485em), #000 calc(100% - 0.424em));
+}
+/* hour ticks — 12 longer, brighter */
+.dial-ticks::after {
+  content: ""; position: absolute; inset: -0.424em; border-radius: 50%;
+  background: repeating-conic-gradient(from -0.5deg, rgba(245,245,242,0.40) 0deg 1deg, transparent 1deg 30deg);
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 0.788em), #000 calc(100% - 0.424em));
+          mask: radial-gradient(farthest-side, transparent calc(100% - 0.788em), #000 calc(100% - 0.424em));
+}
+/* the seconds — a single gold jewel gliding once per minute, phase-aligned in JS */
+.dial-sweep { position: absolute; inset: 0; z-index: 2; animation: dialSpin 60s linear infinite; }
+.dial-dot { position: absolute; top: 0.424em; left: 50%; margin-left: -0.182em;
+            width: 0.364em; height: 0.364em; border-radius: 50%; background: var(--act);
+            box-shadow: 0 0 8px rgba(255,212,0,0.85), 0 0 18px rgba(255,212,0,0.40); }
+@keyframes dialSpin { to { transform: rotate(360deg); } }
+
+/* ── NIGHT-HAND — the slow second hand: the night filling the rim, empty at
+   ~5PM, full at ~9AM, a glowing head riding the front. ─────────────────── */
+.dial-night { position: absolute; inset: 0; z-index: 2; overflow: visible; transform: rotate(-90deg); }
+.dial-night .track { fill: none; stroke: rgba(255,212,0,0.055); stroke-width: 0.9; }
+.dial-night .fill  { fill: none; stroke: var(--act); stroke-width: 1.15; stroke-linecap: round;
+                     filter: drop-shadow(0 0 1.4px rgba(255,212,0,0.6)); transition: stroke 0.9s ease; }
+.dial-night .head  { fill: var(--brand-soft);
+                     filter: drop-shadow(0 0 2.4px rgba(255,212,0,0.95)) drop-shadow(0 0 5px rgba(255,212,0,0.45)); }
+/* dawn halo — a faint amber bloom behind the face as morning nears */
+.dial-halo { position: absolute; inset: 14%; border-radius: 50%; z-index: 1; pointer-events: none;
+             background: radial-gradient(circle, rgba(255,176,80, calc(0.16 * var(--dawn))) 0%, transparent 70%);
+             transition: background 1s ease; }
+/* dawn wash — warm light rising from the floor of the scene as open nears */
+.rest-dawn { position: absolute; inset: 0; z-index: 1; pointer-events: none;
+             background: radial-gradient(135% 95% at 50% 124%,
+               rgba(255,168,70, calc(0.18 * var(--dawn))) 0%,
+               rgba(255,120,40, calc(0.08 * var(--dawn))) 34%, transparent 64%);
+             transition: background 1.2s ease; }
+.rest-line.dawn { color: rgba(255,176,80,0.62); }
+
+.dial-face { position: relative; z-index: 3; display: flex; flex-direction: column;
+             align-items: center; text-align: center; }
+.rest-greet { font-family: var(--disp); font-weight: 300; font-size: 1.05em;
+              letter-spacing: 0.30em; text-transform: uppercase; color: var(--t2); }
+.rest-clock { font-family: var(--disp); font-weight: 300; font-size: 4.6em; line-height: 1.12;
+              color: var(--t1); letter-spacing: 0.05em; }
+.rest-line  { font-family: var(--disp); font-weight: 300; font-size: 0.82em; letter-spacing: 0.34em;
+              text-transform: uppercase; color: var(--t3); margin-top: 0.3em; }
+
+/* flanking readouts — the day behind (left) · the night ahead (right).
+   Narrative symmetry: day-that-was ← now → night-ahead. */
+.rest-side { display: flex; flex-direction: column; gap: clamp(20px, 3.4vh, 38px); z-index: 2; }
+.rest-left  { text-align: right; align-items: flex-end; }
+.rest-right { text-align: left;  align-items: flex-start; }
+.rs-group { display: flex; flex-direction: column; gap: 5px; }
+.rs-label { font-family: var(--disp); font-weight: 400; font-size: 12px; letter-spacing: 0.26em;
+            text-transform: uppercase; color: var(--t3); }
+.rs-num { font-family: var(--disp); font-weight: 300; font-size: clamp(28px, 4.6vh, 42px);
+          line-height: 1; color: var(--brand-rim); letter-spacing: 0.01em; white-space: nowrap; }
+.rs-num-sm { font-size: clamp(17px, 2.7vh, 24px); letter-spacing: 0.04em; }
+/* the lone straggler is a quiet footnote at the very bottom */
+.rest-foot { position: absolute; left: 0; right: 0; z-index: 3; text-align: center;
+             bottom: calc(clamp(16px, 3.4vh, 32px) + var(--safe-b)); }
+.rest-straggler { font-family: var(--mono); font-size: 12px; color: var(--t3); letter-spacing: 0.08em; }
+.rest-straggler:empty { display: none; }
+
 @media (prefers-reduced-motion: reduce) {
-  .beacon.show, .edge.show { animation: none; }
+  .beacon.show, .edge.show, .dial-bezel, .dial-sweep, .ember { animation: none !important; }
 }
 </style>
 </head>
@@ -308,9 +449,55 @@ body { background: var(--g0); color: var(--t1); font-family: var(--body); overfl
 </div>
 
 <div class="restveil" id="restveil">
-  <div class="rv-clock" id="rvClock">—:—</div>
-  <div class="rv-line" id="rvLine">the floor is at rest</div>
-  <div class="rv-sub" id="rvSub"></div>
+  <div class="rest-dawn"></div>
+  <div class="rest-embers" id="restEmbers"></div>
+
+  <!-- LEFT — the day behind -->
+  <div class="rest-side rest-left">
+    <div class="rs-group">
+      <div class="rs-label">Shipped today</div>
+      <div class="rs-num" id="restShipped">—</div>
+    </div>
+    <div class="rs-group">
+      <div class="rs-label">Received</div>
+      <div class="rs-num" id="restReceived">—</div>
+    </div>
+  </div>
+
+  <!-- CENTER — the dial -->
+  <div class="dial">
+    <div class="dial-bezel"></div>
+    <div class="dial-ticks"></div>
+    <div class="dial-halo"></div>
+    <!-- night-hand: r=47 in a 100 viewBox, circumference = 2·π·47 = 295.31 -->
+    <svg class="dial-night" viewBox="0 0 100 100">
+      <circle class="track" cx="50" cy="50" r="47"></circle>
+      <circle class="fill" id="nightFill" cx="50" cy="50" r="47" stroke-dasharray="0 295.31"></circle>
+      <circle class="head" id="nightHead" cx="97" cy="50" r="1.5"></circle>
+    </svg>
+    <div class="dial-sweep" id="dialSweep"><i class="dial-dot"></i></div>
+    <div class="dial-face">
+      <div class="rest-greet" id="restGreet">Good evening</div>
+      <div class="rest-clock" id="rvClock">—:—</div>
+      <div class="rest-line" id="restLine">the floor is at rest</div>
+    </div>
+  </div>
+
+  <!-- RIGHT — the night ahead -->
+  <div class="rest-side rest-right">
+    <div class="rs-group">
+      <div class="rs-label">Opens in</div>
+      <div class="rs-num" id="restOpens">—</div>
+    </div>
+    <div class="rs-group">
+      <div class="rs-label">Next prayer</div>
+      <div class="rs-num rs-num-sm" id="restPrayer">—</div>
+    </div>
+  </div>
+
+  <div class="rest-foot">
+    <div class="rest-straggler" id="restStraggler"></div>
+  </div>
 </div>
 <div class="connlost" id="connLost">lost the line · retrying</div>
 
@@ -405,8 +592,141 @@ function tickClock() {
     now.toLocaleTimeString('en-US', { timeZone: TZ, hour: 'numeric', minute: '2-digit' });
   var d = now.toLocaleDateString('en-US', { timeZone: TZ, weekday: 'long', month: 'short', day: 'numeric' });
   document.getElementById('dateBox').innerHTML = esc(d) + '<br>' + esc(hijriLine || '');
+  updateRestAmbient();
 }
 setInterval(tickClock, 1000);
+
+// ---------- THE NIGHT DIAL — the living rest scene -------------------------
+// Migrated verbatim from the pre-port Floor Board 2026-08-13. Per-TICK values
+// (shipped/received/straggler) come from paintRest; the per-SECOND life (clock,
+// countdown, prayer, night arc, dawn) is updateRestAmbient, driven off the
+// clock interval that already runs. It returns immediately unless the scene is
+// actually showing, so it costs nothing during the working day.
+var restEmbersBuilt = false, restDialAligned = false;
+
+function paintRest(tick, c) {
+  var h = houstonHour();
+  document.getElementById('restGreet').textContent =
+    h < 12 ? 'Good morning' : (h < 17 ? 'Good afternoon' : (h < 21 ? 'Good evening' : 'Good night'));
+  // restLine ('at rest' / 'about to wake') is owned by updateRestAmbient — it
+  // is dawn-aware and ticks per second, so setting it here too would fight it.
+  var sEl = document.getElementById('restShipped');  if (sEl) sEl.textContent = num(c.shippedToday);
+  var rEl = document.getElementById('restReceived'); if (rEl) rEl.textContent = num(c.receivedToday);
+
+  // The lone straggler earns a quiet footnote — one order left on the floor is
+  // the whole reason someone glances at a resting board.
+  var orders = tick.openOrders || [], strEl = document.getElementById('restStraggler');
+  if (orders.length === 1) {
+    var o = orders[0];
+    strEl.textContent = 'still on the floor — ' + (o.location || '—') + ' · ' + (o.sku || '') + ' ×' + (o.qty || 1);
+  } else {
+    strEl.textContent = '';
+  }
+  buildEmbers();
+}
+
+function buildEmbers() {
+  if (restEmbersBuilt) return;
+  var box = document.getElementById('restEmbers');
+  if (!box) return;
+  var html = '';
+  for (var i = 0; i < 7; i++) {
+    var left = (Math.random() * 100).toFixed(1);
+    var dur  = (Math.random() * 10 + 14).toFixed(1);
+    var del  = (Math.random() * 14).toFixed(1);
+    var sz   = (Math.random() * 1.3 + 1.4).toFixed(1);
+    html += '<span class="ember" style="left:' + left + '%;width:' + sz + 'px;height:' + sz +
+            'px;animation-duration:' + dur + 's;animation-delay:' + del + 's;"></span>';
+  }
+  box.innerHTML = html;
+  restEmbersBuilt = true;
+}
+
+function minsToOpen() {
+  // Next open = the next Mon–Fri 09:00 Houston. Weekends are skipped, so a
+  // Friday evening correctly reads "2d 17h", not "17h".
+  var now = new Date();
+  var hp = now.toLocaleTimeString('en-US', { timeZone: TZ, hour12: false, hour: '2-digit', minute: '2-digit' }).split(':');
+  var nowMin = parseInt(hp[0], 10) * 60 + parseInt(hp[1], 10);
+  var order = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  var d = order.indexOf(now.toLocaleDateString('en-US', { timeZone: TZ, weekday: 'short' }));
+  var openMin = 9 * 60;
+  var isWeekday = function (i) { return i >= 1 && i <= 5; };
+  var total;
+  if (isWeekday(d) && nowMin < openMin) {
+    total = openMin - nowMin;                          // opens later today
+  } else {
+    total = 1440 - nowMin;                             // rest of today
+    var dd = (d + 1) % 7;
+    while (!isWeekday(dd)) { total += 1440; dd = (dd + 1) % 7; }   // skip Sat/Sun
+    total += openMin;                                  // then to 09:00
+  }
+  if (total >= 1440) {
+    var dys = Math.floor(total / 1440), hrs = Math.round((total % 1440) / 60);
+    if (hrs === 24) { dys += 1; hrs = 0; }
+    return dys + 'd ' + hrs + 'h';
+  }
+  return fmtDur(total);
+}
+
+function smoothstep(t) { t = Math.min(1, Math.max(0, t)); return t * t * (3 - 2 * t); }
+
+function updateRestAmbient() {
+  var veil = document.getElementById('restveil');
+  if (!veil || !veil.classList.contains('show')) return;
+
+  // Phase-align the seconds jewel to real time, ONCE. A CSS animation starts
+  // whenever the element does; a negative delay is what makes it agree with
+  // the wall clock instead of merely sweeping at the right speed.
+  if (!restDialAligned) {
+    var sweep = document.getElementById('dialSweep');
+    if (sweep) {
+      var dd = new Date();
+      sweep.style.animationDelay = '-' + (dd.getSeconds() + dd.getMilliseconds() / 1000).toFixed(2) + 's';
+      restDialAligned = true;
+    }
+  }
+
+  var oe = document.getElementById('restOpens'); if (oe) oe.textContent = minsToOpen();
+  // The header pill reads "🕌 ASR · 3:42" — strip the glyph for the flank.
+  var pe = document.getElementById('restPrayer');
+  if (pe) {
+    var pr = document.getElementById('pray');
+    var txt = (pr && pr.classList.contains('on')) ? (pr.textContent || '').replace(/^🕌\s*/, '').trim() : '';
+    pe.textContent = txt || '—';
+  }
+
+  // ── NIGHT-HAND + DAWN — the night fills the rim toward open (5PM → 9AM) ──
+  var REST_START = 17 * 60, REST_LEN = 960;            // 5PM, 16h
+  var hp2 = new Date().toLocaleTimeString('en-US', { timeZone: TZ, hour12: false, hour: '2-digit', minute: '2-digit' }).split(':');
+  var modNow = parseInt(hp2[0], 10) * 60 + parseInt(hp2[1], 10);
+  var nm = (modNow >= REST_START) ? (modNow - REST_START)
+         : (modNow < 9 * 60)     ? (modNow + 1440 - REST_START)
+         : null;                                        // null = weekend daytime
+  var inRest = (nm !== null);
+  var prog = inRest ? Math.min(1, nm / REST_LEN) : 0;
+  var nf = document.getElementById('nightFill'), nh = document.getElementById('nightHead');
+  if (nf) {
+    var CIRC = 295.31;
+    nf.setAttribute('stroke-dasharray', (CIRC * prog).toFixed(2) + ' ' + CIRC.toFixed(2));
+  }
+  if (nh) {
+    var ang = (prog * 360 - 90) * Math.PI / 180;        // start at 12 o'clock
+    nh.setAttribute('cx', (50 + 47 * Math.cos(ang)).toFixed(2));
+    nh.setAttribute('cy', (50 + 47 * Math.sin(ang)).toFixed(2));
+    nh.style.opacity = inRest ? 1 : 0;
+  }
+  var dawn = inRest ? smoothstep((prog - 0.78) / 0.22) : 0;   // warms ~5:30AM → open
+  document.documentElement.style.setProperty('--dawn', dawn.toFixed(3));
+  if (nf) nf.style.stroke = dawn > 0.02
+    ? 'color-mix(in srgb, var(--act) ' + (100 - dawn * 45).toFixed(0) + '%, var(--money))'
+    : 'var(--act)';
+  var ln = document.getElementById('restLine');
+  if (ln) {
+    if (inRest && dawn > 0.55) { ln.textContent = 'the floor is about to wake'; ln.classList.add('dawn'); }
+    else { ln.textContent = 'the floor is at rest'; ln.classList.remove('dawn'); }
+  }
+}
 
 // ---------- prayer + hijri (best-effort ambience; page never depends on it) --
 var hijriLine = '';
@@ -616,16 +936,12 @@ function onTick(tick) {
   else if (sync < 60)  setLive('idle',  'idle · ' + syncTxt);
   else                 setLive('stale', 'stale · ' + syncTxt);
 
-  var veil = document.getElementById('restveil');
+  // The night dial takes the screen only when the shop is closed AND there is
+  // effectively nothing left waiting — the same rule the veil v1 used.
   var resting = off && grab <= 1;
-  veil.classList.toggle('show', resting);
-  if (resting) {
-    document.getElementById('rvLine').textContent =
-      'the floor is at rest · shipped ' + ship + ' today';
-    var h = houstonHour();
-    var opens = h >= 17 ? (24 - h + 9) : (9 - h);
-    document.getElementById('rvSub').textContent = 'opens in about ' + opens + 'h · Houston';
-  }
+  document.getElementById('restveil').classList.toggle('show', resting);
+  if (resting) { paintRest(tick, c); updateRestAmbient(); }
+
   firstTick = false;
 }
 
