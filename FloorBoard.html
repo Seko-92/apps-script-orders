@@ -327,7 +327,14 @@ body.ch-direct #pickListDirect { display: block; }
              font-size: var(--fs-sub); letter-spacing: 0.08em; text-transform: uppercase;
              color: var(--t2); cursor: pointer; white-space: nowrap; }
 .today-bar b { color: var(--t1); font-family: var(--mono); }
-.ftr-right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+/* ⚠ flex:none — THE ACTIONS ARE NEVER THE THING THAT YIELDS. Reported from the
+   tablet 2026-08-14: with a station playing, the radio's now-playing text grew
+   the footer ~188px past an 800px portrait screen and shoved PRINT and the ⋯
+   menu off the right edge entirely. Flex children shrink by default, so the bar
+   was negotiating between an ambient song title and the picker's only write
+   controls. It isn't a negotiation: ornament yields, function does not. */
+.ftr-right { margin-left: auto; display: flex; align-items: center; gap: 10px;
+             flex: none; }
 /* ⚠ THIS IS A BUTTON, NOT A READOUT — reported from the floor 2026-08-13.
    askForPicker() was built, tested and live, but its ONLY door was tapping
    PRINT and being refused. A capability you can only reach by failing first
@@ -468,6 +475,16 @@ body.ch-direct #pickListDirect { display: block; }
 @media (max-width: 1400px) {
   #footSync { display: none; }
   .ftr { gap: 10px; }
+}
+
+/* ── ≤1100px: the radio keeps its CONTROLS, sheds its NOW-PLAYING TEXT ──
+   Tablet PORTRAIT is 800px wide and lands here; LANDSCAPE is 1280px and does
+   not, which matches the report exactly — the footer only broke in portrait.
+   ▶/▮▮ and the ▾ station picker survive because they DO something; the track
+   title is ambient and it is what grew unboundedly with whatever the station
+   happened to be playing. */
+@media (max-width: 1100px) {
+  .radio-meta { display: none; }
 }
 
 /* ── PHONE ≤620px ─────────────────────────────────────────────────── */
@@ -670,6 +687,9 @@ body.ch-direct #pickListDirect { display: block; }
       display: flex;
       align-items: center;
       gap: 9px;
+      /* Yields before anything else in the bar — see .ftr-right. */
+      flex: 0 1 auto;
+      min-width: 0;
       font-family: 'Roboto Mono', monospace;
       font-size: 12px;
       color: var(--mute-soft);
@@ -688,7 +708,11 @@ body.ch-direct #pickListDirect { display: block; }
 .radio.on .radio-btn { color: var(--brand-yellow); border-color: var(--rule); }
 .radio-meta {
       cursor: pointer;
-      min-width: 84px;
+      /* ⚠ min-width was 84px, which stopped it collapsing and made the whole
+         radio an immovable ~403px block. 0 lets it ellipsis away under
+         pressure; below 1100px it is hidden outright (see the media block) —
+         an 84px-wide song title reads "Radio Or…" and is worth nothing. */
+      min-width: 0;
       max-width: 280px;
       overflow: hidden;
       text-overflow: ellipsis;
