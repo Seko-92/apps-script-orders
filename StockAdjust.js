@@ -298,21 +298,37 @@ function auditBoardStockAdjustments(days) {
     var cutoff = new Date(STOCK_AUDIT.fixedOn + 'T00:00:00');
     var since  = (days && days > 0) ? new Date(Date.now() - days * 86400000) : null;
 
-    var moved = [], suspect = [], noops = 0, scanned = 0;
+    var moved = [], suspect = [], unparsed = [], noops = 0, scanned = 0;
+    var kinds = {};   // what KIND of board event, by count
 
     for (var i = 0; i < rows.length; i++) {
       var r      = rows[i];
       var source = String(r[ACTIVITY_LOG.idx('SOURCE')] || '').trim().toLowerCase();
       var detail = String(r[ACTIVITY_LOG.idx('DETAIL')] || '');
       if (source !== 'board') continue;
-      if (detail.indexOf('Zoho stock') !== 0 && detail.indexOf('Stock confirmed') !== 0) continue;
 
       var when = r[ACTIVITY_LOG.idx('TIMESTAMP')];
       if (!(when instanceof Date)) continue;
       if (since && when < since) continue;
       scanned++;
 
-      if (detail.indexOf('Stock confirmed') === 0) { noops++; continue; }
+      // ⚠ CLASSIFY EVERY BOARD EVENT, don't silently drop the ones we are not
+      // auditing. The first version filtered to "Zoho stock…" up front and then
+      // printed `null → null` for anything that slipped through — a diagnostic
+      // that cannot say WHY it failed is worse than no diagnostic. The board
+      // writes four shapes (StockAdjust.js:216, DashboardService.js:346 and
+      // :967, plus updateOrderStatus' batch), so name them all.
+      var kind =
+        detail.indexOf('Zoho stock')      === 0 ? 'stock ADJUSTMENT' :
+        detail.indexOf('Stock confirmed') === 0 ? 'stock confirmation (no-op)' :
+        detail.indexOf('Shelf count')     === 0 ? 'shelf count' :
+        detail.indexOf('picker set')      === 0 ? 'picker set' :
+        /^from\s/i.test(detail)                 ? 'status change (✓ Pick)' :
+        'other';
+      kinds[kind] = (kinds[kind] || 0) + 1;
+
+      if (kind === 'stock confirmation (no-op)') { noops++; continue; }
+      if (kind !== 'stock ADJUSTMENT') continue;
 
       // "Zoho stock 5 → 6 (+1) · adj 12345"
       var m = detail.match(/Zoho stock\s+(-?\d+(?:\.\d+)?)\s*→\s*(-?\d+(?:\.\d+)?)/);
@@ -328,7 +344,20 @@ function auditBoardStockAdjustments(days) {
         adjId:  adj ? adj[1] : '',
         detail: detail
       };
-      rec.delta = (rec.before !== null && rec.after !== null) ? (rec.after - rec.before) : null;
+      // ⚠ If the numbers will not parse, say so and SHOW THE RAW TEXT. Never
+      // print a made-up "null → null" as though it were a reading.
+      // ⚠ AND STILL COUNT IT FOR THE WINDOW. The first version dropped these
+      // before the cutoff check, so a log where EVERY adjustment was unreadable
+      // reported "✅ CLEAR" — the most reassuring possible answer, produced by
+      // seeing nothing at all. An audit must never mistake "I could not read
+      // it" for "there is nothing there".
+      if (!m) {
+        unparsed.push(rec);
+        if (when < cutoff) suspect.push(rec);
+        continue;
+      }
+
+      rec.delta = rec.after - rec.before;
       moved.push(rec);
       if (when < cutoff) suspect.push(rec);
     }
@@ -338,15 +367,32 @@ function auditBoardStockAdjustments(days) {
 
     say('');
     say('════════ BOARD STOCK ADJUSTMENTS ════════');
-    say('scanned ' + scanned + ' board stock events'
+    say('scanned ' + scanned + ' events with source "board"'
         + (days ? '  (last ' + days + ' days)' : '  (all time)'));
-    say('  ' + moved.length + ' actually moved stock');
+    say('');
+    say('  what the board actually logged:');
+    for (var kname in kinds) {
+      if (kinds.hasOwnProperty(kname)) say('    ' + kinds[kname] + '  ' + kname);
+    }
+    say('');
+    say('  ' + moved.length + ' adjustment(s) moved stock and parsed cleanly');
     say('  ' + noops + (noops === 1 ? ' was a confirmation' : ' were confirmations')
         + ' — nothing changed');
+    if (unparsed.length) {
+      say('  ⚠ ' + unparsed.length + ' claimed to be an adjustment but the numbers');
+      say('    would not parse — RAW TEXT below so we can see why:');
+      for (var u = 0; u < unparsed.length; u++) {
+        say('      ' + unparsed[u].stamp + '  ' + unparsed[u].sku
+            + '  |' + unparsed[u].detail + '|');
+      }
+    }
     say('');
 
     if (!moved.length) {
-      say('Nothing to review: the board has never moved a stock number.');
+      say(unparsed.length
+        ? 'No adjustment parsed cleanly — see the unreadable ones above. They DID '
+          + 'move stock; only the reporting of it was lost.'
+        : 'Nothing to review: the board has never moved a stock number.');
     } else {
       say('──── every adjustment, oldest first ────');
       for (var j = 0; j < moved.length; j++) {
@@ -371,10 +417,14 @@ function auditBoardStockAdjustments(days) {
       say('    Verify each against Zoho → Inventory → Adjustments using the adj id.');
       for (var k = 0; k < suspect.length; k++) {
         var s = suspect[k];
-        say('    ' + (s.delta > 0 ? '⚠ INFLATED?' : '  probably fine')
-            + '  ' + s.stamp + '  ' + s.sku
-            + '  ' + s.before + ' → ' + s.after
-            + ' (' + (s.delta > 0 ? '+' : '') + s.delta + ')'
+        var verdict = (s.delta === null || s.delta === undefined) ? '? UNREADABLE'
+                    : (s.delta > 0 ? '⚠ INFLATED?' : '  probably fine');
+        var figures = (s.before === null || s.before === undefined)
+                    ? ('set to ' + (s.detail.match(/→\s*(-?\d+(?:\.\d+)?)/) || [])[1]
+                       + ' — before/delta were never recorded, check Zoho')
+                    : (s.before + ' → ' + s.after
+                       + ' (' + (s.delta > 0 ? '+' : '') + s.delta + ')');
+        say('    ' + verdict + '  ' + s.stamp + '  ' + s.sku + '  ' + figures
             + (s.adjId ? '  · adj ' + s.adjId : ''));
       }
     }

@@ -609,6 +609,21 @@ function triggerZohoStockAdjust(p) {
     try { data = JSON.parse(body); } catch (e) {
       return { ok: false, message: "Unreadable response from n8n: " + String(body).slice(0, 300) };
     }
+    // ⚠ THE ADJUSTMENT PROXY RESPONDS WITH AN ARRAY. Its "Respond to Caller"
+    // node uses respondWith:allIncomingItems, which serialises n8n ITEMS —
+    // i.e. [{ok,before,after,delta,adjustment_id,…}] — not a bare object.
+    // Reading .before / .delta / .adjustment_id off the array yields undefined,
+    // and that is exactly how EVERY stock adjustment since 2026-08-10 logged
+    //     "Zoho stock undefined → 6 (undefined)"
+    // with no adjustment id, and told the picker "✅ Zoho updated · undefined
+    // → 11 (undefined)" in the success toast. The WRITE always worked — only
+    // the reporting of it was lost, which is why nobody caught it for days.
+    // Found 2026-08-14 by auditBoardStockAdjustments() printing raw DETAIL.
+    // ⚠ Also unbroke the no-op branch: d.noop was undefined too, so "already
+    // at N — nothing to adjust" could never be reported as such.
+    // Sibling proxies (board, kits, eBay location) respond with `json` and are
+    // unaffected — checked, not assumed.
+    if (Array.isArray(data)) data = data[0] || {};
     if (data && data.ok === false) {
       return { ok: false, message: data.message || "Proxy refused the adjustment", data: data };
     }
