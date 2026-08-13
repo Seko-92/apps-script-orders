@@ -178,10 +178,20 @@ function _buildDashboardTick() {
   // paidShipping.count, for the amber strip. That count is now produced by
   // _dashOpenOrders inside a row scan that was happening anyway, so seven sheet
   // reads per tick disappear.
-  var base = { cockpit: null, lastSync: '', picker: '' };
+  var base = { cockpit: null, lastSync: '', picker: '', pickers: [] };
   try { base.cockpit  = getDashboardSnapshot(); } catch (e) { console.error('tick.cockpit: '  + e); }
   try { base.lastSync = getLastSyncFromSheet(); } catch (e) { console.error('tick.lastSync: ' + e); }
   try { base.picker   = getCurrentPicker();     } catch (e) { console.error('tick.picker: '   + e); }
+  // ⚠ THE PICK ID LIST RIDES ALONG (2026-08-14). Tapping the footer picker chip
+  // used to fire boardPickers — a 3-6s round trip, of which ~3s is just the
+  // fixed cost of reaching Apps Script through n8n, to fetch four strings that
+  // change roughly never. Carried on the tick instead, the drawer opens with
+  // ZERO server calls. It is a data-validation read on a cell we already touch
+  // for `picker`, and the tick is now built about once a minute rather than
+  // once per poll, so it is nearly free. boardPickers stays as the fallback for
+  // a board whose tick predates this.
+  try { base.pickers  = (getBoardPickers() || {}).pickers || []; }
+  catch (e) { console.error('tick.pickers: ' + e); }
 
   var pace = null;
   var openOrders = [];
@@ -203,6 +213,7 @@ function _buildDashboardTick() {
     api:        null,          // board never renders API quota; key kept for shape
 
     picker:     base.picker   || '',
+    pickers:    base.pickers  || [],   // see the note in _buildDashboardTick
     lastSync:   base.lastSync || '',
     paceCar:    pace,
     openOrders: openOrders,

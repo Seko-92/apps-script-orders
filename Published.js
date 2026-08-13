@@ -86,11 +86,31 @@ var PUBLISHED = {
   // is an ambient display, (b) the Telegram ping is the real-time alert for
   // arrivals, and (c) ✓ Pick already flips optimistically on the device.
   //
-  // If 5 minutes proves too slow once the board actually reads this, the fix is
-  // NOT a faster timer — it is publishing INLINE on the doPost insert path,
-  // which is machine-facing (n8n waits, no human does) and costs only as much
-  // as real order volume. Deliberately not built yet: measure first.
-  triggerMinutes: 5
+  // ⚠ WAS 5, NOW 1 (2026-08-14) — and the note above about "measure first" is
+  // exactly what happened, so here is the measurement.
+  //
+  // Until 2026-08-13 n8n could not read this cell at ALL (its Google Sheets
+  // credential had an allowed-domains restriction that matched nothing), so the
+  // publish was written every 5 min and thrown away every time while Apps
+  // Script rebuilt the tick on essentially every poll — roughly 960 rebuilds a
+  // day against a ~90 min quota. Fixing the credential took the board from
+  // 7.5-35s to 0.65s AND handed back nearly all of that runtime budget.
+  //
+  // That budget is what pays for this. At 5 min the served tick was measured
+  // between 31s and 272s old; cross-device status (tablet A picks a row, tablet
+  // B still lists it) could lag ~5 min, which is a double-walk risk once two
+  // pickers are on the floor. A 1-minute timer bounds it at ~1 min, and a run
+  // that finds nothing dirty is a property read, not a rebuild.
+  //
+  // ⚠ STILL NOT inline-publish-on-write. publishBoardTick() does a FULL rebuild
+  // (~7-14s) and Apps Script serialises executions, so publishing inline on
+  // ✓ Pick would let a picker tapping five rows queue them into a jam. Arrivals
+  // publish inline (OrderService doPost) because that path is machine-facing
+  // and nobody waits on it. The dirty flag plus this timer is the right lever.
+  //
+  // ⚠ CHANGING THIS NUMBER DOES NOTHING ON ITS OWN — the interval is baked into
+  // the trigger when it is created. Re-run setupPublishedTick() to re-arm.
+  triggerMinutes: 1
 };
 
 

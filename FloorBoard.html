@@ -2157,8 +2157,15 @@ body.ch-direct #pickListDirect { display: block; }
       document.getElementById('drwTitle').textContent = 'Who is picking?';
       document.getElementById('drwSub').textContent =
         thenPrint ? 'required before printing' : 'sets who the shift is filed under';
-      document.getElementById('drwBody').innerHTML = '<div class="drw-spin">loading pickers…</div>';
+      // ⭐ INSTANT PATH (2026-08-14). The tick now carries the Pick ID list, so
+      // this drawer opens with ZERO server calls. Asking boardPickers cost 3-6s
+      // — of which ~3s is purely the fixed price of reaching Apps Script through
+      // n8n — to fetch four strings that change roughly never.
+      var known = (lastTick && lastTick.pickers) || [];
+      if (known.length) { paintPickerList(known, thenPrint); return; }
 
+      // FALLBACK: a board reading a tick published before `pickers` existed.
+      document.getElementById('drwBody').innerHTML = '<div class="drw-spin">loading pickers…</div>';
       hqCall('boardPickers', {}).then(function (res) {
         // ⚠ Only say "not configured" when the sheet ACTUALLY answered with an
         // empty list. A transport failure now throws (see hqCall) and lands in
@@ -2167,9 +2174,20 @@ body.ch-direct #pickListDirect { display: block; }
         if (!res || !res.ok || !res.pickers || !res.pickers.length) {
           return drwFail('No pickers configured. Set the Pick ID dropdown in the sheet.');
         }
+        paintPickerList(res.pickers, thenPrint);
+      }).catch(function (e) {
+        drwFail(e && e.transport
+          ? 'Could not reach the sheet just now — the connection dropped on the way. Tap the picker again.'
+          : String(e.message || e));
+      });
+    }
+
+    /** Paint the list and own the choice. Shared by the instant and fallback paths. */
+    function paintPickerList(pickers, thenPrint) {
+      {
         var h = '<div class="drw-banner">The pick list records who printed it, and every ' +
                 'status change for the rest of the shift is filed under this name.</div>';
-        res.pickers.forEach(function (p) {
+        pickers.forEach(function (p) {
           h += '<button class="drw-link ghost" style="display:block;width:100%;margin:8px 0;text-align:left;" ' +
                'data-picker="' + esc(p) + '">' + esc(p.replace(/\n/g, ' · ')) + '</button>';
         });
@@ -2205,13 +2223,14 @@ body.ch-direct #pickListDirect { display: block; }
             }
             closePrintWindow(w2);
             drwFail((r && r.message) || 'Could not set the picker.');
-          }).catch(function (e) { drwFail(String(e.message || e)); });
+          }).catch(function (e) {
+            closePrintWindow(w2);
+            drwFail(e && e.transport
+              ? 'Could not reach the sheet just now — nothing was set. Try again.'
+              : String(e.message || e));
+          });
         };
-      }).catch(function (e) {
-        drwFail(e && e.transport
-          ? 'Could not reach the sheet just now — the connection dropped on the way. Tap the picker again.'
-          : String(e.message || e));
-      });
+      }
     }
 
     /**

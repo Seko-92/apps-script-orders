@@ -20,6 +20,41 @@
     },
     {
       "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "is-board-tick",
+              "leftValue": "={{ Boolean($json.body && $json.body.action === 'boardTick') }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        220,
+        0
+      ],
+      "id": "gate-is-board-tick",
+      "name": "1b. Is boardTick?"
+    },
+    {
+      "parameters": {
         "url": "https://sheets.googleapis.com/v4/spreadsheets/1yCsQsRL5WPOwWPCFcUekZpVgsN-aSfh6Efx3GzQv8Pg/values/__Published%21A1",
         "authentication": "predefinedCredentialType",
         "nodeCredentialType": "googleSheetsOAuth2Api",
@@ -32,8 +67,8 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        220,
-        0
+        440,
+        -120
       ],
       "onError": "continueRegularOutput",
       "alwaysOutputData": true
@@ -47,7 +82,7 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        440,
+        660,
         0
       ],
       "onError": "continueRegularOutput"
@@ -63,7 +98,7 @@
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1,
       "position": [
-        660,
+        880,
         0
       ]
     }
@@ -73,7 +108,7 @@
       "main": [
         [
           {
-            "node": "2. Read Published Tick",
+            "node": "1b. Is boardTick?",
             "type": "main",
             "index": 0
           }
@@ -96,6 +131,24 @@
         [
           {
             "node": "4. Respond to Board",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "1b. Is boardTick?": {
+      "main": [
+        [
+          {
+            "node": "2. Read Published Tick",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "3. Serve or Forward",
             "type": "main",
             "index": 0
           }
