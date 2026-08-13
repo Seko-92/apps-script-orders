@@ -103,7 +103,11 @@ function pushSingleStockAdjustBySku(sku, targetOnHand, opts) {
     sku:       sku,
     target:    target,
     max_delta: opts.force ? STOCK_ADJUST.maxQty : STOCK_ADJUST.maxDelta,
-    reason:    opts.reason || STOCK_ADJUST.reason
+    reason:    opts.reason || STOCK_ADJUST.reason,
+    // Free-text only — the proxy folds this into the adjustment's DESCRIPTION,
+    // never its reason. See the note in boardAdjustStock for why that
+    // distinction is load-bearing.
+    picker:    String(opts.picker || '')
   });
 
   if (!res || !res.ok) {
@@ -215,13 +219,21 @@ function boardAdjustStock(sku, target, orderId) {
   // SHIPMENT…). One new entry per picker, forever, in a list humans pick from
   // in the Zoho UI. Spotted by the user opening Adjust Stock and seeing them.
   //
-  // So the reason stays CONSTANT — one clean entry — and attribution lives
-  // where it belongs: our Activity Log carries the picker, before → after,
-  // the delta and Zoho's own adjustmentId, which is the durable cross-
-  // reference. If the name is ever wanted on the Zoho side, the proxy's
-  // `description` field is the right home (free text, already carries the SKU,
-  // creates no dropdown entries) — NOT this one.
-  var res = pushSingleStockAdjustBySku(sku, target, { reason: STOCK_ADJUST.reason });
+  // So the reason stays CONSTANT — one clean entry — and the NAME goes in the
+  // adjustment's `description` instead: free text, per-record, unbounded by
+  // design, and already displayed on the Zoho record beside the SKU.
+  //
+  // ⚠ WHY IT IS WORTH SENDING AT ALL, given our Activity Log already has it:
+  // that log is 90-DAY ROLLING (purgeOldActivityLog, daily 3am). Stock
+  // adjustments are the highest-stakes write this board makes — they reach eBay
+  // within minutes and can cause an oversell — and "who changed this number?"
+  // is precisely the question that surfaces long after the fact. Zoho keeps its
+  // adjustment records forever, so this is the copy that outlives the purge.
+  // Zoho's own "Created By" cannot help: it is the OAuth service account
+  // (Yahya Awis) on every board adjustment, and always will be short of
+  // creating a Zoho user per picker.
+  var res = pushSingleStockAdjustBySku(sku, target,
+                                       { reason: STOCK_ADJUST.reason, picker: picker });
   if (!res || !res.ok) {
     return { ok: false, error: (res && res.message) || 'Adjustment failed' };
   }

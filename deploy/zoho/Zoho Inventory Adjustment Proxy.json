@@ -42,7 +42,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// ✅ Validate — fail fast, before any Zoho call.\nconst b = $json.body || $json;\nconst itemId = String(b.item_id || '').trim();\nconst sku    = String(b.sku || '').trim();\nconst target = parseFloat(b.target);\nconst maxDel = parseFloat(b.max_delta) || 50;\nconst reason = String(b.reason || 'Physical count').slice(0, 200);\n\nif (!itemId)                    throw new Error('Missing item_id');\nif (!isFinite(target))          throw new Error('target must be a number');\nif (target < 0 || target > 10000) throw new Error(`target ${target} outside sanity bounds [0, 10000]`);\n\nreturn [{ json: { itemId, sku, target, maxDel, reason } }];"
+        "jsCode": "// ✅ Validate — fail fast, before any Zoho call.\nconst b = $json.body || $json;\nconst itemId = String(b.item_id || '').trim();\nconst sku    = String(b.sku || '').trim();\nconst target = parseFloat(b.target);\nconst maxDel = parseFloat(b.max_delta) || 50;\nconst reason = String(b.reason || 'Physical count').slice(0, 200);\n// Free text for the adjustment DESCRIPTION. It must never reach `reason`:\n// Zoho's Reason is a managed dropdown and every distinct string becomes a\n// permanent entry in it (we polluted it with one per picker before\n// 2026-08-14). Description is per-record free text and creates nothing.\nconst picker = String(b.picker || '').trim().slice(0, 60);\n\nif (!itemId)                    throw new Error('Missing item_id');\nif (!isFinite(target))          throw new Error('target must be a number');\nif (target < 0 || target > 10000) throw new Error(`target ${target} outside sanity bounds [0, 10000]`);\n\nreturn [{ json: { itemId, sku, target, maxDel, reason, picker } }];"
       },
       "id": "val-1",
       "name": "✅ Validate Input",
@@ -177,7 +177,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ date: $now.toFormat('yyyy-MM-dd'), reason: $json.reason, adjustment_type: 'quantity', description: 'HQ Floor Board physical count · ' + $json.sku, line_items: [ { item_id: $json.itemId, quantity_adjusted: $json.delta } ] }) }}",
+        "jsonBody": "={{ JSON.stringify({ date: $now.toFormat('yyyy-MM-dd'), reason: $json.reason, adjustment_type: 'quantity', description: 'HQ Floor Board physical count · ' + $json.sku + ($('✅ Validate Input').first().json.picker ? ' · ' + $('✅ Validate Input').first().json.picker : ''), line_items: [ { item_id: $json.itemId, quantity_adjusted: $json.delta } ] }) }}",
         "options": {
           "timeout": 20000
         }

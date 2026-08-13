@@ -587,7 +587,12 @@ function triggerZohoStockAdjust(p) {
         sku:       String(p.sku || ""),
         target:    target,
         max_delta: parseFloat(p.max_delta) || 50,
-        reason:    String(p.reason || "Physical count")
+        reason:    String(p.reason || "Physical count"),
+        // ⚠ FREE TEXT, and it must stay out of `reason`. Zoho's adjustment
+        // Reason is a MANAGED DROPDOWN — every distinct string becomes a
+        // permanent entry — whereas `description` is per-record free text. The
+        // proxy folds this in there. Capped because it is a label, not a note.
+        picker:    String(p.picker || "").slice(0, 60)
       })
     };
 
