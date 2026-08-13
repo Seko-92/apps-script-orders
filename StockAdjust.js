@@ -204,8 +204,24 @@ function boardAdjustStock(sku, target, orderId) {
                     'attributable to someone.' };
   }
 
-  var res = pushSingleStockAdjustBySku(sku, target,
-                                       { reason: STOCK_ADJUST.reason + ' · ' + picker });
+  // ⚠ THE PICKER'S NAME DOES **NOT** GO IN `reason` (2026-08-14).
+  // Zoho's adjustment Reason is not free text — it is a MANAGED DROPDOWN, and
+  // every distinct string we send becomes a PERMANENT new entry in it. We had
+  // already polluted the team's picker with:
+  //     Physical count (warehouse floor)
+  //     Physical count (warehouse floor) · Hatem21332
+  //     Physical count (warehouse floor) · AShamma · 12343
+  // sitting beside the real ones (Damaged goods, Stocktaking results, KIT,
+  // SHIPMENT…). One new entry per picker, forever, in a list humans pick from
+  // in the Zoho UI. Spotted by the user opening Adjust Stock and seeing them.
+  //
+  // So the reason stays CONSTANT — one clean entry — and attribution lives
+  // where it belongs: our Activity Log carries the picker, before → after,
+  // the delta and Zoho's own adjustmentId, which is the durable cross-
+  // reference. If the name is ever wanted on the Zoho side, the proxy's
+  // `description` field is the right home (free text, already carries the SKU,
+  // creates no dropdown entries) — NOT this one.
+  var res = pushSingleStockAdjustBySku(sku, target, { reason: STOCK_ADJUST.reason });
   if (!res || !res.ok) {
     return { ok: false, error: (res && res.message) || 'Adjustment failed' };
   }
