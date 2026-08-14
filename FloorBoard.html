@@ -208,6 +208,20 @@ body.ch-direct #pickListDirect { display: block; }
 .kitchip.kit-h0 i { background: var(--kit-a); }
 .kitchip.kit-h1 i { background: var(--kit-b); }
 .kitchip.kit-hd i { background: transparent; border: 2px dashed var(--kit-a); }
+/* HOLD — amber, the board's existing "blocked, waiting on a person" colour:
+   literally the same token the unset-picker chip uses (.ftr-picker.unset).
+   ⚠ DELIBERATELY NOT --alarm (#ff6b6b, RED). Red on this board means "something
+   disagrees, ACT on it" — it was moved off NOT FOUND for exactly that reason.
+   A hold is a deliberate pause with an owner, not a fault, and spending red on
+   it is how red stops being believed.
+   ⚠ The token is NAMED --money (it started life on paid shipping) but it is the
+   board's only amber; the unset-picker chip already borrows it for this same
+   "blocked pending a person" meaning. Do not swap it for --alarm. */
+.kitchip.holdchip   { color: var(--money); border-color: var(--money);
+                      background: rgba(255,184,77,0.12); font-weight: 700; }
+.kitchip.holdchip i { background: var(--money); border-radius: 1px;
+                      width: 7px; height: 9px;
+                      box-shadow: inset 3px 0 0 rgba(0,0,0,0.55); }  /* ⏸ pause bars */
 .kitchip.kit-h1.kit-hd i { border-color: var(--kit-b); }
 
 /* channel cap notice ("+N past the cap") */
@@ -1657,6 +1671,30 @@ body.ch-direct #pickListDirect { display: block; }
       return false;
     }
 
+    /* ─────────── HOLD — "picked is fine, do NOT buy the label" ───────────
+       Floor workflow, 2026-08-15: mid-pick a buyer asks for expedited shipping,
+       or an engine serial needs verifying. The shipping-responsible person
+       writes a hold, and the order gets picked, prepared, and SET ASIDE until
+       they say how to ship it. 3–5 times a week.
+
+       ⚠ WHAT IS HELD IS THE LABEL, NOT THE PICKING. Picking must stay
+       available — stalling it just moves the delay later. So this marks the
+       order and changes nothing else: ✓ Pick still works, rows are untouched.
+
+       ⚠ AND THE BOARD CANNOT ENFORCE IT. The label is bought in eBay's Seller
+       Hub, not here. This makes the hold impossible to MISS; it cannot make it
+       impossible to ignore. Stated plainly so nobody builds trust it can't
+       carry.
+
+       ⚠ MATCHES ANYWHERE IN THE NOTE, whole word, any case (user's call). A
+       hold is often APPENDED to a row that already carries a note, so
+       requiring it to lead would silently miss the common case. A buyer note
+       containing "hold" lighting up is loud and harmless; a real hold going
+       quiet is the failure that already happened once. FAIL TOWARD SHOWING. */
+    function noteHasHold(noteText) {
+      return /\bHOLD\b/i.test(String(noteText || ''));
+    }
+
     function humanNote(noteText) {
       var raw = String(noteText || '').trim();
       if (!raw) return { text: '', warn: '' };
@@ -2942,6 +2980,23 @@ body.ch-direct #pickListDirect { display: block; }
                          num(kl[kc].done) + '/' + num(kl[kc].total);
         li.appendChild(chip);
       }
+      /* ⏸ HOLD — a NAMED CHIP, not a recoloured row.
+         ⚠ NOT RED, and the user caught this: red on this board already means
+         "something disagrees, act on it" (the deviance rule), and the NOT FOUND
+         fix was specifically about not spending red on a non-fault. A hold is
+         not a fault — it is a deliberate pause with an owner. Painting it red
+         would teach the floor that red sometimes means nothing is wrong, which
+         is how red stops being believed.
+         AMBER because amber here already means "blocked, waiting on a person" —
+         the same thing the unset-picker chip says. And a chip carries the WORD,
+         so it cannot be misread as a colour whose meaning you have to remember. */
+      if (g.held) {
+        var hc = document.createElement('span');
+        hc.className = 'kitchip holdchip';
+        hc.innerHTML = '<i></i>HOLD';
+        hc.title = 'Held — pick and prepare it, but do NOT buy the shipping label until this is lifted';
+        li.appendChild(hc);
+      }
       // An unexpanded kit is a DECISION — a shut card must not hide it.
       if (g.hasKitRow) {
         var kd = document.createElement('span');
@@ -3059,6 +3114,22 @@ body.ch-direct #pickListDirect { display: block; }
         rows[q2]._kitThread = !!(nKits > 1 || (nKits === 1 && hasLooseLine[q2id]));
       }
 
+      /* HELD ORDERS — one pass over the same rows. A hold is about the
+         SHIPMENT, so it belongs to the ORDER: written on line 3, it must still
+         reach whoever is working line 12. You cannot part-ship an order, so
+         holding any line holds all of it.
+         ⚠ Reads kitNote too — a hold written on a collapsed kit parent is
+         carried down there, and it would be perverse for the one place the
+         note had to be rescued from to be the one place it stopped counting. */
+      var heldOrder = {};
+      for (var q3 = 0; q3 < rows.length; q3++) {
+        var q3id = String(rows[q3].orderId || '').trim();
+        if (!q3id || heldOrder[q3id]) continue;
+        if (noteHasHold(rows[q3].note) || noteHasHold(rows[q3].kitNote)) {
+          heldOrder[q3id] = true;
+        }
+      }
+
       // ⚠ TOTAL LINES PER ORDER, over the WHOLE list — not the contiguous run.
       // The band used to report its run length, which is a lie the moment an
       // order is split: on 2026-08-10 eBay order 08-15017-44806 had five lines
@@ -3121,6 +3192,7 @@ body.ch-direct #pickListDirect { display: block; }
               orderId: oid, channel: ch, n: n, age: orderAge[oid],
               kits: kitsByOrder[oid] || null,
               hasKitRow: runHasKit(rows, i, n),
+              held: !!heldOrder[oid],
               // what the ORDER really holds, and whether this band covers it
               total: orderTotal[oid] || n,
               split: (orderTotal[oid] || n) > n,
