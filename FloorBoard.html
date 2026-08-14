@@ -1173,8 +1173,18 @@ body.ch-direct #pickListDirect { display: block; }
       var hqMark = document.querySelector('.hdr-mono');
       if (hqMark) hqMark.addEventListener('click', onHqTap);
       requestWakeLock();
+      /* ⚠ COME BACK FAST (2026-08-15). This board is carried around a warehouse
+         and loses wifi in the aisles. Without these it waits for its own
+         schedule after a dropout — the picker walks back into range, glances at
+         it, and it is still showing the pre-outage picture. Both signals are
+         free and the browser already emits them; pollSoon is idempotent and
+         cheap, and it no-ops into pollUrgent if a tick is genuinely in flight. */
       document.addEventListener('visibilitychange', function () {
-        if (document.visibilityState === 'visible') requestWakeLock();
+        if (document.visibilityState === 'visible') { requestWakeLock(); pollSoon(); }
+      });
+      window.addEventListener('online', function () {
+        document.getElementById('connLost').classList.remove('show');
+        pollSoon();
       });
       // ONE delegated handler on the split, so it covers both columns and
       // survives every rebuild of their contents.
@@ -1284,6 +1294,23 @@ body.ch-direct #pickListDirect { display: block; }
     var HQ_RETRYABLE = { boardTick: 1, boardPickers: 1, boardPart: 1,
                          boardPartLite: 1, boardOrder: 1, boardRadio: 1 };
 
+    /* ⚠⚠ EVERY REQUEST IS BOUNDED (2026-08-15). fetch has NO timeout of its
+       own, and this board is carried around a warehouse on wifi — so a request
+       made while the picker walks out of range does not fail, it HANGS, for as
+       long as the OS takes to give up. Three things went wrong with that:
+
+         · the pick reverted "after a while" with no message, which is
+           indistinguishable from the TTL bug the floor actually reported
+         · pollBusy stayed true for the whole hang, so nothing could force a
+           refresh — including a reconnect
+         · the hang landed in pollLastMs and drove the slow-server backoff, so
+           the board went QUIETEST right after the wifi came back
+
+       Writes get longer than reads because they take the script lock and now
+       publish inline; a read is a cached cell and has no business taking 15s. */
+    var HQ_READ_TIMEOUT_MS  = 15000;
+    var HQ_WRITE_TIMEOUT_MS = 25000;
+
     function hqCall(action, body, _attempt) {
       var payload = body || {};
 
@@ -1301,11 +1328,38 @@ body.ch-direct #pickListDirect { display: block; }
       }
 
       payload.action = action;
+
+      // Abort the request rather than let it hang. AbortController is guarded
+      // because a board that cannot abort must still WORK — it just loses the
+      // bound, which is exactly today's behaviour.
+      var ctrl  = (typeof AbortController === 'function') ? new AbortController() : null;
+      var limit = HQ_RETRYABLE[action] ? HQ_READ_TIMEOUT_MS : HQ_WRITE_TIMEOUT_MS;
+      var timedOut = false;
+      var killer = ctrl ? setTimeout(function () { timedOut = true; ctrl.abort(); }, limit) : null;
+      function done(v) { if (killer) clearTimeout(killer); return v; }
+      function failed(e) {
+        if (killer) clearTimeout(killer);
+        if (timedOut) {
+          // Say WHICH kind of failure. "Timed out" is a transport fault, never
+          // the sheet refusing — same distinction hqCall already draws below.
+          var t = new Error('timed out after ' + Math.round(limit / 1000) + 's');
+          t.transport = true;
+          throw t;
+        }
+        if (e && !e.transport) e.transport = true;   // network-level, not a refusal
+        throw e;
+      }
+
       return fetch(HQ_API, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify(payload)
+        body:    JSON.stringify(payload),
+        signal:  ctrl ? ctrl.signal : undefined
       }).then(function (r) {
+        // The bound is on the NETWORK WAIT. Once headers are back, stop the
+        // clock — otherwise a slow retry below could be reported as a timeout
+        // that never happened.
+        if (killer) { clearTimeout(killer); killer = null; }
         if (!r.ok) throw new Error('HTTP ' + r.status);
         return r.json();
       }).then(function (res) {
@@ -1345,7 +1399,7 @@ body.ch-direct #pickListDirect { display: block; }
           throw e;
         }
         return res;
-      });
+      }).then(done, failed);
     }
 
     // ---------- poll ----------
@@ -1383,7 +1437,14 @@ body.ch-direct #pickListDirect { display: block; }
 
       hqCall('boardTick')
         .then(function (t) { pollLastMs = Date.now() - started; onTick(t); })
-        .catch(function (e) { pollLastMs = Date.now() - started; onFail(e); })
+        /* ⚠ A FAILURE MUST NOT FEED THE BACKOFF (2026-08-15). pollLastMs exists
+           to answer "how long does this server take to do the work", and
+           schedulePoll waits that long again so we never hammer a slow one. A
+           timeout answers a different question — "how long until we gave up" —
+           and folding it in made the board go QUIET for up to 90s starting the
+           moment a picker walked back into wifi range. Reset instead: the next
+           attempt goes at the normal 20s cadence, which is not hammering. */
+        .catch(function (e) { pollLastMs = 0; onFail(e); })
         .then(schedulePoll, schedulePoll);   // always reschedule, either way
     }
 
@@ -3317,7 +3378,55 @@ body.ch-direct #pickListDirect { display: block; }
     // reports the new status (or the row leaves the list), with a TTL as the
     // backstop if the server never agrees.
     var pickOverride = {};                 // key -> { status, until }
-    var PICK_OVERRIDE_MS = 45000;
+    /* ⚠⚠ THE TTL MUST OUTLAST THE PUBLISH CHAIN, NOT THE TYPICAL CASE (2026-08-15).
+       Reported from the floor: a picked row un-picked itself "after a while" and
+       the ✓ Pick button came back, a couple of times a day. This constant was
+       45s — measured against a chain that is 45s TYPICAL and 95s WORST:
+
+         tap → dirty flag → 1-min publish trigger → 15s n8n cache → 20s poll
+
+       So the backstop expired exactly where the answer usually arrives, and well
+       before the answer sometimes arrives. Whether a pick stuck was decided by
+       where the tap landed relative to the publish trigger — a coin flip, which
+       is precisely why it looked intermittent and unreproducible.
+
+       boardSetStatus now publishes INLINE, which removes the 0–60s trigger wait
+       for a lone tap. But the inline publish is DEBOUNCED at 15s, so on a burst
+       (a picker working a twelve-line order) every tap after the first still
+       rides the flag and pays the full 95s. This TTL is what covers that, and
+       the two fixes are complementary — do not drop one because the other is in.
+
+       Raising it is safe because the TTL is NOT how a refusal is corrected: every
+       failure path calls clearPickOverride explicitly. The TTL only ever fires
+       when a response never arrived at all. */
+    var PICK_OVERRIDE_MS = 120000;   // FLOOR — the healthy-pipe worst case
+    var PUBLISH_LAG_MS   = 75000;    // 60s publish trigger + 15s n8n cache
+
+    /* ⚠⚠ AND THE POLL IS ADAPTIVE, WHICH IS THE TRAP UNDER THE TRAP.
+       schedulePoll() stretches the interval toward POLL_MAX_MS (90s) whenever
+       ticks are slow, so ANY fixed TTL is sized against the pipe we happened to
+       have when we wrote it — and gets too short exactly when the pipe degrades,
+       which is the moment it is most needed.
+
+       That is not hypothetical: tier 2 failed SILENTLY FOR A WEEK in August and
+       uncached ticks ran 7.5–35s. At 35s ticks the poll stretches to 35s and the
+       chain becomes 60 + 15 + 35 = 110s; degrade a little further and a flat
+       120s is short again. Fixing the constant alone would have re-armed the
+       same bug for the next bad week.
+
+       So DERIVE it from the cadence we are actually running: outlast the publish
+       lag plus two real polls, never below the floor. Healthy (20s poll) this is
+       115s and the floor wins, so nothing changes on a good day.
+
+       ⚠ The asymmetry says be generous. Too long shows a row as picked when a
+       write silently vanished — which needs the RESPONSE to be lost outright,
+       since refusals clear the override explicitly. Too short un-picks a row in
+       front of the picker and costs a second tap on the floor's busiest action.
+       Same reasoning that made PICKER_OVERRIDE_MS 5 minutes. */
+    function pickOverrideUntil() {
+      var pollWait = Math.min(Math.max(POLL_MS, pollLastMs || 0), POLL_MAX_MS);
+      return Date.now() + Math.max(PICK_OVERRIDE_MS, PUBLISH_LAG_MS + 2 * pollWait);
+    }
     /* ⚠ THE PICKER OVERRIDE OUTLIVES A ROW OVERRIDE ON PURPOSE (2026-08-14).
        A row override masks the SERVER's view of a status, so it must expire
        fast or it hides real state. The picker override masks nothing — it holds
@@ -3356,7 +3465,7 @@ body.ch-direct #pickListDirect { display: block; }
       var touched = false;
       for (var i = 0; i < rows.length; i++) {
         if (!_pickRowMatches(rows[i], orderId, sku)) continue;
-        pickOverride[pickKey(rows[i])] = { status: status, until: Date.now() + PICK_OVERRIDE_MS };
+        pickOverride[pickKey(rows[i])] = { status: status, until: pickOverrideUntil() };
         touched = true;
       }
       if (touched) paintPickList(applyPickOverrides((rows || []).slice()),
@@ -3425,9 +3534,19 @@ body.ch-direct #pickListDirect { display: block; }
           }
         })
         .catch(function () {
+          /* ⚠⚠ A FAILED PICK MUST SAY SO (2026-08-15). This branch used to
+             clear the override and restore the button IN SILENCE — so a wifi
+             blip in the aisles produced EXACTLY the symptom the floor reported:
+             the row flips, then comes back with no explanation. And because
+             fetch had no timeout, the hang ran for tens of seconds first, which
+             is where "after a while" came from. So the report probably had TWO
+             causes, and the TTL was only one of them.
+             sendAdjust has always spoken up on this same failure. The most
+             frequent write on the board was the one staying quiet. */
           clearPickOverride(orderId, sku);
-          hideToast();
           if (btn) { btn.disabled = false; btn.textContent = '✓ Pick'; }
+          toast('✕ Could not reach the sheet — this pick was NOT saved. Tap it again.', 8000);
+          chime('error');
         });
     }
 

@@ -355,6 +355,29 @@ function boardSetStatus(orderId, status, sku) {
     // The board polls straight after a pick — without this it would be served a
     // cached tick still showing PENDING.
     _dashBustTickCache();
+    // ⚠ PUBLISH INLINE — ✓ Pick is the most frequent HUMAN action on the board,
+    // and until 2026-08-15 it was the only one still riding the dirty flag alone.
+    // That cost it the full 1-min trigger wait (45s typical / 95s worst end to
+    // end), which outlived the client's optimistic override and un-picked the row
+    // in front of the picker. Reported from the floor; see PICK_OVERRIDE_MS.
+    //
+    // ⚠ AFTER THE LOCK, NOT INSIDE IT. updateOrderStatus takes and releases its
+    // own lock; this runs once that is done, so a ~3.5s rebuild can never extend
+    // lock contention on the floor's most frequent write. The picker is not
+    // waiting on it either — the row flipped optimistically on the tap.
+    //
+    // ⚠ NOT in updateOrderStatus. Machine paths (n8n sweeps) and the Telegram
+    // PREP tap deliberately stay on the flag — the 2026-08-14 ruling. This is the
+    // board path only.
+    //
+    // Best-effort by contract: the cell is already written and keep-fresh is the
+    // backstop, so a publish failure must never turn a successful pick into an
+    // error on the tablet.
+    try {
+      if (typeof publishBoardTickInline === 'function') publishBoardTickInline(undefined, 'pick');
+    } catch (e) {
+      console.log('boardSetStatus inline publish: ' + e);
+    }
     return { ok: !!(res && res.count), count: (res && res.count) || 0, status: status };
   } catch (e) {
     console.error('boardSetStatus: ' + e);
