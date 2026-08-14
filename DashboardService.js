@@ -234,6 +234,56 @@ function _buildDashboardTick() {
 
 
 // =======================================================================================
+// THE ATTRIBUTION CHOKEPOINT for board writes
+// =======================================================================================
+
+/**
+ * Refuse a warehouse-side board write when no Pick ID is set.
+ *
+ * ⚠ THE GAP THIS CLOSES, reported from the floor 2026-08-14: printing has
+ * refused without a Pick ID since 2026-05-01 and stock adjustment since
+ * 2026-08-11 — but ✓ Pick and the shelf count never asked, and ✓ Pick is by far
+ * the most frequent thing the floor does. So a shift that happened not to print
+ * produced an entire day of Activity Log rows with a blank PICKER, and nothing
+ * on the board did more than tint a chip amber.
+ *
+ * ⚠ THIS IS NOT AN OCCASIONAL STATE — IT IS HOW EVERY MORNING STARTS.
+ * `resetDailyPickIds` blanks F2 back to the dropdown's placeholder at 4am ON
+ * PURPOSE, so yesterday's picker cannot roll forward onto today's work. The
+ * first action of a shift is a pick, never a print — so the reset was
+ * guaranteeing the very gap it exists to prevent. Printing was the chokepoint
+ * on paper; picking is the chokepoint in practice.
+ *
+ * ⚠ RETURNS `needsPicker` SO THE CLIENT CAN OFFER THE DOOR. The board opens its
+ * own Pick ID list (which now rides on the tick, so it costs nothing) and then
+ * REPLAYS the action, so the picker never loses the tap they made. A refusal
+ * that only says "go set it somewhere else" is the mistake the footer chip
+ * already taught us: a capability you can only reach by failing first is not a
+ * capability the floor has.
+ *
+ * ⚠ WHAT THIS DOES **NOT** DO — stated plainly. F2 is ONE cell for the whole
+ * sheet, so this guarantees a name is PRESENT, not that it is the RIGHT one:
+ * with two people picking at once, whoever set the Pick ID owns both their
+ * work. Accepted 2026-08-14 (user's call: one shared Pick ID per shift). The
+ * fix if that ever bites is a per-device picker, which means the server taking
+ * the name per call instead of reading F2 — a different trust model, not a
+ * tweak.
+ *
+ * @returns {{ok:boolean, picker:string=, needsPicker:boolean=, error:string=}}
+ */
+function _boardRequirePicker() {
+  var picker = '';
+  try { picker = getCurrentPicker(); } catch (e) { picker = ''; }
+  if (picker) return { ok: true, picker: picker };
+  return {
+    ok: false,
+    needsPicker: true,
+    error: 'Set the Pick ID first — every pick is filed under a name.'
+  };
+}
+
+
+// =======================================================================================
 // PUBLIC: board console — mark an order picked (PENDING ↔ PREPARING ONLY)
 // =======================================================================================
 
@@ -256,6 +306,12 @@ function boardSetStatus(orderId, status, sku) {
   if (status !== 'PENDING' && status !== 'PREPARING') {
     return { ok: false, error: 'Board may only set PENDING or PREPARING' };
   }
+  // ⚠ BEFORE THE LOCK, deliberately — this is one cell read and it must not
+  // extend the time the script lock is held on the floor's most frequent write.
+  // It also gates the UNDO (→ PENDING) on purpose: reverting a pick is a
+  // warehouse-side decision and deserves a name for exactly the same reason.
+  var gate = _boardRequirePicker();
+  if (!gate.ok) return gate;
   try {
     // ⚠ ONE LINE, NOT THE WHOLE ORDER — reported from the floor 2026-08-10.
     // ✓ Pick sits on a ROW, so a picker taps it having grabbed THAT part. It
@@ -317,6 +373,13 @@ function boardSetLeft(orderId, sku, count) {
   if (!clearing && (isNaN(n) || n < 0)) {
     return { ok: false, error: 'Count must be zero or more' };
   }
+
+  // Same chokepoint as ✓ Pick — and before the lock for the same reason. In
+  // practice this costs the floor nothing: ✓ Pick almost always comes first, so
+  // the Pick ID is already set by the time anyone counts a shelf. It closes the
+  // one remaining door: counting BEFORE picking anything.
+  var gate = _boardRequirePicker();
+  if (!gate.ok) return gate;
 
   var lock = LockService.getScriptLock();
   try {
@@ -966,6 +1029,18 @@ function setBoardPicker(value) {
     try {
       logActivity("NOTE", "", "", 0, "board", "picker set to " + want);
     } catch (e) { /* best-effort */ }
+
+    // ⚠ THE PICKER IS PART OF THE TICK, so setting it IS a change to the tick
+    // (2026-08-14). Without this the board served a cached payload still saying
+    // "no picker" for up to a minute after someone had just identified
+    // themselves — invisible while the chip was only cosmetic, but the moment
+    // ✓ Pick started gating on it, the client's 45s override would expire into
+    // a stale tick and ask AGAIN mid-shift. It also fixes cross-device latency:
+    // a second tablet now learns the shift's picker within ~1 min rather than
+    // waiting on the 8-minute keep-fresh republish.
+    // Same lesson as the 2026-08-14 human-edit regression: enumerate EVERY door
+    // that changes data the cache holds, not just the obvious ones.
+    try { _dashBustTickCache(); } catch (e) { /* best-effort */ }
 
     return { ok: true, picker: want, message: "" };
   } catch (err) {

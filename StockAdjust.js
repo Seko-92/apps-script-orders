@@ -203,7 +203,12 @@ function boardAdjustStock(sku, target, orderId) {
   var picker = '';
   try { picker = getCurrentPicker(); } catch (e) { picker = ''; }
   if (!picker) {
+    // ⚠ `needsPicker` added 2026-08-14 so the board can OFFER the picker list
+    // and replay the adjustment, instead of printing a red toast telling the
+    // floor to go and fix something on a screen they are not standing at. The
+    // refusal itself is unchanged — this is about the door, not the gate.
     return { ok: false,
+             needsPicker: true,
              error: 'Set the Pick ID before adjusting stock — a correction has to be ' +
                     'attributable to someone.' };
   }

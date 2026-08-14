@@ -1300,7 +1300,21 @@ body.ch-direct #pickListDirect { display: block; }
         // how tapping the picker reported "No pickers configured" when the
         // sheet had four. Same shape as the long-standing Zoho gotcha: status
         // 200 with an error body.
-        if (res && res.error && !res.ok) {
+        // ⚠ "THE HOP FAILED" AND "THE SERVER SAID NO" ARE NOT THE SAME THING
+        // (2026-08-14). The 08-13 fix above tested `res.error && !res.ok`,
+        // which also caught every legitimate refusal our OWN code returns —
+        // they all carry {ok:false, error:"…"}. So "Set the Pick ID before
+        // adjusting stock" and "Line not found — it may have shipped" were both
+        // being thrown as transport failures, and the floor was told "could not
+        // reach the server" when the server had answered clearly and correctly.
+        // The 08-13 bug, inverted.
+        //
+        // THE DISCRIMINATOR IS THE `ok` KEY ITSELF, and it is exact: the n8n
+        // code node returns {error: 'proxy: …'} with NO `ok` property, while
+        // every board function returns an explicit ok:false. Checked against
+        // both proxy JSONs and every board return shape, not assumed.
+        var serverAnswered = res && Object.prototype.hasOwnProperty.call(res, 'ok');
+        if (res && res.error && !serverAnswered) {
           // Reads are safe to retry; WRITES ARE NOT. A duplicated boardStatus,
           // boardAdjust, boardLeft or boardSetPicker is worse than a visible
           // failure, so those surface immediately and let the picker decide.
@@ -2168,25 +2182,38 @@ body.ch-direct #pickListDirect { display: block; }
     /**
      * Offer the sheet's own Pick ID list rather than sending anyone to a PC.
      *
-     * TWO ENTRY POINTS, and they must not behave the same:
+     * THREE ENTRY POINTS, and they must not behave the same:
      *   thenPrint = true  — print refused because no picker was set. Choosing
      *                       one drops straight back into printing.
-     *   thenPrint = false — the picker tapped the footer chip to say who they
-     *                       are. Choosing one just confirms and closes. It must
-     *                       NOT claim a window: with no print to follow, that
-     *                       window is an orphan blank tab on the tablet.
+     *   thenRun   = fn    — a WRITE was refused (✓ Pick, shelf count, stock
+     *                       adjust). Choosing a picker replays that exact
+     *                       action, so the tap is never lost. Added 2026-08-14.
+     *   neither           — the picker tapped the footer chip to say who they
+     *                       are. Choosing one just confirms and closes.
+     *
+     * ⚠ ONLY THE PRINT PATH MAY CLAIM A WINDOW. `window.open` survives only
+     * while a user gesture is on the stack, so it is claimed on the tap — but
+     * with no print to follow it leaves an orphan blank tab on the tablet.
+     * That is why thenRun is a SEPARATE argument rather than folding print into
+     * a generic callback: the window decision has to stay explicit.
+     *
+     * @param {boolean}   thenPrint
+     * @param {Function=} thenRun   replayed after the picker is set
+     * @param {string=}   why       drawer subtitle — say what was interrupted
      */
-    function askForPicker(thenPrint) {
-      if (!drwOpen) drwShow('Who is picking?', thenPrint ? 'required before printing' : 'sets who the shift is filed under');
+    function askForPicker(thenPrint, thenRun, why) {
+      var sub = why || (thenPrint ? 'required before printing'
+                                  : (thenRun ? 'required before this action'
+                                             : 'sets who the shift is filed under'));
+      if (!drwOpen) drwShow('Who is picking?', sub);
       document.getElementById('drwTitle').textContent = 'Who is picking?';
-      document.getElementById('drwSub').textContent =
-        thenPrint ? 'required before printing' : 'sets who the shift is filed under';
+      document.getElementById('drwSub').textContent = sub;
       // ⭐ INSTANT PATH (2026-08-14). The tick now carries the Pick ID list, so
       // this drawer opens with ZERO server calls. Asking boardPickers cost 3-6s
       // — of which ~3s is purely the fixed price of reaching Apps Script through
       // n8n — to fetch four strings that change roughly never.
       var known = (lastTick && lastTick.pickers) || [];
-      if (known.length) { paintPickerList(known, thenPrint); return; }
+      if (known.length) { paintPickerList(known, thenPrint, thenRun); return; }
 
       // FALLBACK: a board reading a tick published before `pickers` existed.
       document.getElementById('drwBody').innerHTML = '<div class="drw-spin">loading pickers…</div>';
@@ -2198,7 +2225,7 @@ body.ch-direct #pickListDirect { display: block; }
         if (!res || !res.ok || !res.pickers || !res.pickers.length) {
           return drwFail('No pickers configured. Set the Pick ID dropdown in the sheet.');
         }
-        paintPickerList(res.pickers, thenPrint);
+        paintPickerList(res.pickers, thenPrint, thenRun);
       }).catch(function (e) {
         drwFail(e && e.transport
           ? 'Could not reach the sheet just now — the connection dropped on the way. Tap the picker again.'
@@ -2207,7 +2234,7 @@ body.ch-direct #pickListDirect { display: block; }
     }
 
     /** Paint the list and own the choice. Shared by the instant and fallback paths. */
-    function paintPickerList(pickers, thenPrint) {
+    function paintPickerList(pickers, thenPrint, thenRun) {
       {
         var h = '<div class="drw-banner">The pick list records who printed it, and every ' +
                 'status change for the rest of the shift is filed under this name.</div>';
@@ -2239,9 +2266,14 @@ body.ch-direct #pickListDirect { display: block; }
               // Land it on the chip NOW — the picker just told us who they are
               // and should not watch a spinner for it. Held against stale ticks
               // by pickerOverride, exactly like an optimistic ✓ Pick.
-              pickerOverride = { name: who, until: Date.now() + PICK_OVERRIDE_MS };
+              pickerOverride = { name: who, until: Date.now() + PICKER_OVERRIDE_MS };
               paintPickerChip(who);
               drwClose();
+              // ⚠ SET THE OVERRIDE BEFORE REPLAYING. thenRun re-enters the
+              // action that was refused, and that action asks
+              // currentPickerName() again — if the override were not already in
+              // place it would find nobody and open this drawer a second time.
+              if (thenRun) { pollSoon(); thenRun(); return; }
               pollSoon();                                  // let the server view catch up
               return;
             }
@@ -3078,6 +3110,15 @@ body.ch-direct #pickListDirect { display: block; }
     // backstop if the server never agrees.
     var pickOverride = {};                 // key -> { status, until }
     var PICK_OVERRIDE_MS = 45000;
+    /* ⚠ THE PICKER OVERRIDE OUTLIVES A ROW OVERRIDE ON PURPOSE (2026-08-14).
+       A row override masks the SERVER's view of a status, so it must expire
+       fast or it hides real state. The picker override masks nothing — it holds
+       a value the picker just chose themselves — and its two failure modes are
+       wildly asymmetric: too long shows the right name a little early, too
+       short asks "who is picking?" again in the middle of a shift. setBoardPicker
+       now busts the tick cache so the server usually agrees within ~1 min; this
+       is only the backstop behind that. */
+    var PICKER_OVERRIDE_MS = 300000;   // 5 min
     // Same idea, one value: who the footer chip says is picking. See paintFooter.
     var pickerOverride = null;             // { name, until }
 
@@ -3142,6 +3183,20 @@ body.ch-direct #pickListDirect { display: block; }
        straight to 5 of 5. */
     function markPicked(orderId, sku, btn) {
       if (!orderId) return;
+
+      /* ⚠ WHO IS PICKING — asked HERE, not only at PRINT (2026-08-14).
+         Every pick is filed under a name, and the 4am reset means the day
+         always starts with no name set. Printing has always refused; picking
+         never did, so a shift that printed nothing logged a whole day of picks
+         against nobody.
+         Checked on the CLIENT first purely so the row does not flip and snap
+         back — the real gate is server-side, and the `needsPicker` branch below
+         catches the case where this device's view of the picker was stale. */
+      if (!currentPickerName()) {
+        return requirePicker('required before picking',
+                             function () { markPicked(orderId, sku, btn); });
+      }
+
       if (btn) { btn.disabled = true; btn.textContent = '…'; }
 
       setPickOverride(orderId, sku, 'PREPARING');   // flip NOW
@@ -3153,6 +3208,13 @@ body.ch-direct #pickListDirect { display: block; }
           clearPickOverride(orderId, sku);      // server refused — put it back
           hideToast();
           if (btn) { btn.disabled = false; btn.textContent = '✓ Pick'; }
+          // The gate fired on a device that thought it had a picker (F2 cleared
+          // mid-shift, or a tick old enough to still name one). Offer the door
+          // and REPLAY — the picker does not lose the tap they already made.
+          if (r && r.needsPicker) {
+            requirePicker('required before picking',
+                          function () { markPicked(orderId, sku, btn); });
+          }
         })
         .catch(function () {
           clearPickOverride(orderId, sku);
@@ -3268,6 +3330,13 @@ body.ch-direct #pickListDirect { display: block; }
     }
 
     function saveCount(btn, orderId, sku, val) {
+      // The numpad is already closed by the time onConfirm runs (npOk calls
+      // npClose first), so the picker drawer opens cleanly on top of nothing.
+      // `val` rides in the closure, so the replay saves the number they typed.
+      if (!currentPickerName()) {
+        return requirePicker('required before saving a count',
+                             function () { saveCount(btn, orderId, sku, val); });
+      }
       btn.disabled = true;
       var was = btn.textContent;
       btn.textContent = '…';
@@ -3276,6 +3345,10 @@ body.ch-direct #pickListDirect { display: block; }
           btn.disabled = false;
           if (!res || !res.ok) {
             btn.textContent = was;
+            if (res && res.needsPicker) {
+              return requirePicker('required before saving a count',
+                                   function () { saveCount(btn, orderId, sku, val); });
+            }
             toast('✕ ' + ((res && res.error) || 'Could not save that count'), 8000);
             return;
           }
@@ -3356,6 +3429,15 @@ body.ch-direct #pickListDirect { display: block; }
           btn.disabled = false;
           if (!res || !res.ok) {
             btn.textContent = was;
+            // This refusal has existed since 2026-08-11 but had NO DOOR — it
+            // told the floor to go and set a Pick ID somewhere they were not
+            // standing. Offer the list and replay the adjustment; the target
+            // they typed rides in the closure.
+            if (res && res.needsPicker) {
+              hideToast();               // drop the "⟳ Sending…" 30s message
+              return requirePicker('required before adjusting stock',
+                                   function () { sendAdjust(btn, orderId, sku, val); });
+            }
             toast('✕ ' + ((res && res.error) || 'Zoho refused that adjustment'), 8000);
             chime('error');
             return;
@@ -3393,9 +3475,29 @@ body.ch-direct #pickListDirect { display: block; }
     }
 
     function unpick(orderId, sku) {
+      // Reverting a pick is a warehouse decision too, so it carries a name for
+      // the same reason. In practice this can only fire if F2 was cleared
+      // between the pick and the undo.
+      if (!currentPickerName()) {
+        return requirePicker('required before changing a pick',
+                             function () { unpick(orderId, sku); });
+      }
       setPickOverride(orderId, sku, 'PENDING');
       hqCall('boardStatus', { orderId: orderId, sku: sku, status: 'PENDING' })
-        .then(function () { pollSoon(); })
+        .then(function (r) {
+          // ⚠ THIS USED TO IGNORE THE ANSWER. A refused undo left the
+          // optimistic PENDING flip sitting on the row until the next tick
+          // quietly corrected it — so the board briefly showed a pick as undone
+          // when the sheet still had it PREPARING.
+          if (r && r.ok) { pollSoon(); return; }
+          clearPickOverride(orderId, sku);
+          if (r && r.needsPicker) {
+            requirePicker('required before changing a pick',
+                          function () { unpick(orderId, sku); });
+          } else {
+            toast('✕ ' + ((r && r.error) || 'Could not undo that pick'), 6000);
+          }
+        })
         .catch(function () { clearPickOverride(orderId, sku); });
     }
     function showPickedToast(orderId, sku) {
@@ -3558,17 +3660,57 @@ body.ch-direct #pickListDirect { display: block; }
       pk.classList.toggle('unset', !picker);
     }
 
-    function paintFooter(tick) {
-      var picker = (tick.picker || '').trim();
-      // SAME STALE-TICK RULE AS ✓ PICK. boardSetPicker is never cached but the
-      // next boardTick can be served from n8n's 15s cache and still carry the
-      // OLD name — without this the chip shows the new picker, snaps back to
-      // "no picker set", then flips again. Hold until the server agrees.
+    /**
+     * Who this DEVICE currently believes is picking — '' when nobody is set.
+     *
+     * SAME STALE-TICK RULE AS ✓ PICK. boardSetPicker is never cached but the
+     * next boardTick can be served from n8n's 15s cache and still carry the OLD
+     * name — without this the chip shows the new picker, snaps back to "no
+     * picker set", then flips again. Hold until the server agrees.
+     *
+     * ⚠ ONE IMPLEMENTATION ON PURPOSE (2026-08-14). The footer chip and the
+     * write gates must never disagree about whether a picker is set: a chip
+     * reading a name while ✓ Pick insists nobody is there is the most confusing
+     * possible failure. This is advisory anyway — the real gate is server-side
+     * in _boardRequirePicker; this exists so the common case never has to make
+     * a round trip to find out, and so the row never flips and snaps back.
+     */
+    function currentPickerName(tick) {
+      var t = tick || lastTick;
+      var picker = ((t && t.picker) || '').trim();
       if (pickerOverride) {
         if (Date.now() > pickerOverride.until) pickerOverride = null;      // backstop
-        else if (picker === pickerOverride.name) pickerOverride = null;    // server agrees
+        // ⚠ COMPARE ON A NORMALIZED KEY, not raw equality. We store what the
+        // DROPDOWN says ("Shipping - Yassin 1"); the tick carries what
+        // _currentPicker returns, which is already cleaned ("Yassin · 1").
+        // Raw === could therefore never match, so the override always rode to
+        // its backstop instead of standing down the moment the server agreed.
+        else if (_pickerKey(picker) === _pickerKey(pickerOverride.name)) pickerOverride = null;
         else picker = pickerOverride.name;
       }
+      return picker;
+    }
+
+    /** "Shipping - Yassin 1" and "Yassin · 1" are the same person. */
+    function _pickerKey(s) {
+      return String(s || '').toLowerCase()
+        .replace(/^\s*shipping\s*[-:·]\s*/, '')
+        .replace(/[^a-z0-9]+/g, '');
+    }
+
+    /**
+     * Ask who is picking, then do the thing they were trying to do.
+     *
+     * The refusal must never be a dead end — see the note on
+     * _boardRequirePicker. `why` is the drawer's subtitle, so the picker is
+     * told what they are being interrupted for.
+     */
+    function requirePicker(why, run) {
+      askForPicker(false, run, why);
+    }
+
+    function paintFooter(tick) {
+      var picker = currentPickerName(tick);
       paintPickerChip(picker);
       // Show just the sync TIME — freshness STATE lives in the live indicator,
       // which is off-hours-aware (no scary STALE when the shop is simply closed).
