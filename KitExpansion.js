@@ -1092,6 +1092,37 @@ function _commitOneKitForModal(queueItem, excludedSkus, multiplier, force, alter
   try { setupDuplicateSalesOrderHighlighting(); }
   catch (dupErr) { try { console.log("modal commit: dup-SO refresh failed: " + dupErr); } catch (_) {} }
 
+  // ⚠ AND TELL THE FLOOR BOARD (2026-08-14). Every refresh above fixes the
+  // SHEET; none of them told the board, which reads a PUBLISHED tick. Reported
+  // from the floor the same day: a kit expanded seconds after the order landed
+  // left the board showing the un-expanded picture for up to EIGHT MINUTES —
+  // the parent still badged "KIT · decide" and, far worse, all five component
+  // rows INVISIBLE. Five parts across five aisles that the picker could not
+  // see. Measured live: rows 10 → 14 the instant the tick was rebuilt.
+  //
+  // ⚠ WHY THE EXISTING HOOKS DO NOT COVER THIS: onChangeInstallable catches a
+  // HUMAN inserting rows, but Apps Script triggers do not fire for changes made
+  // by another Apps Script execution — which is the same reason every refresh
+  // above has to be called by hand here. The board hook was simply never added
+  // alongside them.
+  //
+  // THE GENERAL RULE, now bitten three times: ANY path that mutates All Orders
+  // must call _dashBustTickCache(). It is one property write and it also marks
+  // the published tick dirty, so a floor-visible change lands within ~1 min
+  // instead of waiting on the 8-minute keep-fresh republish.
+  //
+  // ⚠ AND PUBLISH INLINE, not just mark dirty. Expanding a kit rewrites the
+  // pick list under the picker's feet — five new rows across five aisles, and
+  // the parent row they were looking at disappears. Waiting up to a minute for
+  // the trigger is the difference between a tool and a rumour. The debounce
+  // inside publishBoardTickInline is what keeps a 9-kit batch from paying for
+  // nine rebuilds back to back.
+  try {
+    if (typeof _dashBustTickCache === 'function') _dashBustTickCache();
+    if (typeof publishBoardTickInline === 'function') publishBoardTickInline();
+  }
+  catch (bustErr) { try { console.log("modal commit: tick publish failed: " + bustErr); } catch (_) {} }
+
   return {
     ok: true,
     reason: "",

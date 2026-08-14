@@ -907,6 +907,18 @@ function _insertAddedItemsToDirect(sheet, soNumber, lineItems, noteOverride, det
   try { refreshAllOrdersEnrichment(); }
   catch (e) { console.log("_insertAddedItemsToDirect: SKU enrichment error: " + e); }
 
+  // ⚠ AND TELL THE FLOOR BOARD (2026-08-14). Every refresh above fixes the
+  // SHEET — none of them told the board, which serves a PUBLISHED tick and had
+  // no idea these rows existed until the 8-minute keep-fresh republish. This is
+  // the shared insert helper for BOTH the Pull modal and Zoho line-item
+  // propagation, so a pulled order (or a line Zoho added to an in-progress one)
+  // could sit invisible on the floor for minutes.
+  // Same class as the 2026-08-14 human-edit regression and the kit-expansion
+  // miss found the same day: the refresh list here grew for the sheet's needs
+  // and the board was never added to it.
+  try { if (typeof _dashBustTickCache === 'function') _dashBustTickCache(); }
+  catch (e) { console.log("_insertAddedItemsToDirect: tick bust error: " + e); }
+
   return newRows.length;
 }
 

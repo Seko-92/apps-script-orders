@@ -2100,10 +2100,13 @@ body.ch-direct #pickListDirect { display: block; }
         li.appendChild(doBtn);
       }
 
-      // KIT THREAD — spine only when the order holds MORE THAN ONE box;
-      // otherwise the band already says which rows ship together.
+      // KIT THREAD — the 3px left spine that says "this row is part of that
+      // box". Same hue token as the band's chip dot (kit-c0/kit-h0 both read
+      // --kit-a), so the cyan dot on `159012 · 0/5` and the cyan spines on its
+      // five rows are visibly one thing. See _kitThread in withSections for
+      // when it is drawn and why it is not simply "always".
       li.classList.remove('kit-c0', 'kit-c1', 'kit-dash');
-      var kh = r._multiKit ? kitHue[kitKeyOf(r)] : null;
+      var kh = r._kitThread ? kitHue[kitKeyOf(r)] : null;
       li.classList.toggle('kitted', !!kh);
       if (kh) {
         li.classList.add('kit-c' + kh.hue);
@@ -2937,19 +2940,47 @@ body.ch-direct #pickListDirect { display: block; }
       var out = [], prevCh = null, prevOid = null, usedKeys = {};
       byChannel = byChannel || {};
 
-      // Distinct kits per order — the thread is only drawn where it separates
-      // two boxes inside one order (see the .pick-row.kitted note in the CSS).
-      var kitsPerOrder = {};
+      /* ⚠ THE THREAD IS DRAWN WHEREVER IT DISCRIMINATES — fixed 2026-08-14,
+         floor-reported: "the kit items are scattered around and the picker has
+         no idea what belongs to the kit."
+
+         It used to be drawn ONLY when an order held two or more kits, on the
+         reasoning that otherwise "the band already says which rows ship
+         together." THAT PREMISE IS FALSE. The band says `159012 · 0/5` — that a
+         kit exists and how far along it is. It never says WHICH five of the
+         fourteen rows, and the list is sorted by AISLE, so the components are
+         scattered through the order by construction. Live case SO-24853: 5 kit
+         parts among 9 loose lines, every row painted identically.
+
+         The premise only holds when the order is NOTHING BUT that kit's parts —
+         then every row would wear the same colour and the thread is the "GRAB
+         on all eleven rows" redundancy that got GRAB deleted. So the real test
+         is not "more than one kit", it is "does this colour separate anything":
+           · 2+ kits in the order        → yes, they must be told apart
+           · 1 kit + any non-kit line    → yes, kit from not-kit
+           · 1 kit and nothing else      → no, the band already said it
+
+         ⚠ DO NOT "fix" this by grouping components under the parent instead.
+         That was considered and rejected 2026-08-07: the list is sorted by
+         AISLE because that is the WALK, and a kit's parts live in different
+         aisles by definition — grouping would force a zigzag across the
+         warehouse. Colour carries membership; the walk keeps its order. */
+      var kitsPerOrder = {}, hasLooseLine = {};
       for (var q = 0; q < rows.length; q++) {
         var qid = String(rows[q].orderId || '').trim();
-        if (!qid || !rows[q].kit) continue;
-        if (!kitsPerOrder[qid]) kitsPerOrder[qid] = {};
-        kitsPerOrder[qid][rows[q].kit] = 1;
+        if (!qid) continue;
+        if (rows[q].kit) {
+          if (!kitsPerOrder[qid]) kitsPerOrder[qid] = {};
+          kitsPerOrder[qid][rows[q].kit] = 1;
+        } else {
+          hasLooseLine[qid] = 1;          // a line belonging to NO kit
+        }
       }
       for (var q2 = 0; q2 < rows.length; q2++) {
-        var q2id = String(rows[q2].orderId || '').trim();
-        var km = kitsPerOrder[q2id];
-        rows[q2]._multiKit = !!(km && Object.keys(km).length > 1);
+        var q2id  = String(rows[q2].orderId || '').trim();
+        var km    = kitsPerOrder[q2id];
+        var nKits = km ? Object.keys(km).length : 0;
+        rows[q2]._kitThread = !!(nKits > 1 || (nKits === 1 && hasLooseLine[q2id]));
       }
 
       // ⚠ TOTAL LINES PER ORDER, over the WHOLE list — not the contiguous run.

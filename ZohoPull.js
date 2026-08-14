@@ -722,6 +722,28 @@ function applyZohoPullSelection(query, selections, note) {
       pendingSheet.getRange(pendingRow, PENDING_SO.cols.PULLED_AT).setValue(new Date());
     }
 
+    // ⚠ TELL THE FLOOR BOARD (2026-08-14). Busted ONCE here rather than at each
+    // mutation above, because this function changes All Orders four different
+    // ways and only one of them was already covered.
+    //
+    // ⚠ THE CANCEL BRANCHES ARE THE SHARP ONES: they write STATUS = CANCELED
+    // DIRECTLY (see the Mark-CANCELED and kit-component-cascade paths above),
+    // deliberately bypassing updateOrderStatus — which is exactly where the
+    // existing bust lives. So a line removed in Zoho and cancelled here kept
+    // showing on the board as a live pick for up to eight minutes. The flag
+    // branches have the same shape: they rewrite the NOTE, which the board
+    // renders.
+    // _insertAddedItemsToDirect now busts too; doing it twice is free (one
+    // property write) and this line must not depend on that.
+    // Published INLINE for the same reason as the kit modal: a Pull drops a
+    // whole order onto the floor and the picker is standing at the sheet that
+    // made it happen.
+    try {
+      if (typeof _dashBustTickCache === 'function') _dashBustTickCache();
+      if (typeof publishBoardTickInline === 'function') publishBoardTickInline();
+    }
+    catch (e) { try { console.log("applyZohoPullSelection: tick publish error: " + e); } catch (_) {} }
+
     // --- Done ---
     out.ok = true;
     var bits = [];

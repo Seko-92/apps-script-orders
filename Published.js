@@ -56,6 +56,27 @@ var PUBLISHED = {
   // would leave readers on a stale copy with no explanation.
   maxChars: 45000,
 
+  // ⚠ INLINE PUBLISH — the debounce that makes it safe (2026-08-14).
+  //
+  // The dirty flag alone means a floor-visible change waits for the next
+  // trigger run: up to 60s, plus n8n's 15s cache and the board's 20s poll —
+  // ~95s worst case. Fine for an ambient change, far too slow for one a HUMAN
+  // just made and is standing there waiting on. Expanding a kit rewrites the
+  // pick list under the picker's feet: five new rows across five aisles.
+  //
+  // So the human-initiated paths publish INLINE instead of only marking dirty.
+  // They are already multi-second operations (insert + enrichment + dup-repaint
+  // + activity log), they are rare, and the person is watching a modal — the
+  // exact opposite profile from a Telegram PREP tap, which is why the original
+  // design chose a flag and why that choice still stands everywhere else.
+  //
+  // ⚠ THE DEBOUNCE IS WHAT KEEPS A BULK BATCH HONEST. The kit modal commits one
+  // kit at a time through a queue, so a 9-kit session would otherwise pay for
+  // nine full rebuilds back to back. Below this gap we skip and leave the dirty
+  // flag set, so the trigger picks it up — never SLOWER than flag-only, just
+  // not faster for the ones in the middle of a burst.
+  inlineMinGapSec: 15,
+
   dirtyPropKey: "PUBLISHED_TICK_DIRTY",
 
   // Republish once the copy reaches this age even if NOTHING changed.
@@ -185,6 +206,47 @@ function publishBoardTick() {
  * Trigger target. Publishes ONLY when a chokepoint marked the tick dirty, so a
  * quiet night costs a property read rather than a rebuild every two minutes.
  */
+/**
+ * Publish RIGHT NOW for a change a human just made — unless we published a
+ * moment ago, in which case ride the dirty flag instead.
+ *
+ * Call AFTER _dashBustTickCache(): that marks dirty, and this either clears the
+ * flag by publishing or deliberately leaves it set for the next trigger run.
+ * Either way the change is never lost — the only question is whether the floor
+ * sees it in ~20s or ~60s.
+ *
+ * ⚠ BEST-EFFORT, ALWAYS. A publish failure must never fail the operation that
+ * called it: the rows are already on the sheet, and the keep-fresh republish is
+ * the backstop. Callers wrap this in try/catch and ignore the result.
+ *
+ * @param {number} [minGapSec] override the debounce (PUBLISHED.inlineMinGapSec)
+ * @returns {{ok:boolean, skipped:boolean=, ms:number=, message:string=}}
+ */
+function publishBoardTickInline(minGapSec) {
+  minGapSec = (typeof minGapSec === "number") ? minGapSec : PUBLISHED.inlineMinGapSec;
+  try {
+    // One cell read, deliberately NOT getPublishedTick() — that parses the whole
+    // payload back out of JSON to answer a question about its age.
+    var sheet = _pubSheet(true);
+    if (sheet) {
+      var when = sheet.getRange(PUBLISHED.cells.UPDATED).getValue();
+      if (when instanceof Date) {
+        var ageSec = (Date.now() - when.getTime()) / 1000;
+        if (ageSec < minGapSec) {
+          return { ok: true, skipped: true,
+                   message: "published " + Math.round(ageSec) + "s ago — left dirty for the trigger" };
+        }
+      }
+    }
+  } catch (e) {
+    // Could not read the age — publish rather than skip. Publishing spuriously
+    // is the safe direction; serving a stale pick list is not.
+    try { console.log("publishBoardTickInline age check: " + e); } catch (_) {}
+  }
+  return publishBoardTick();
+}
+
+
 function runPublishTick() {
   try {
     var dirty = _pubIsDirty();
