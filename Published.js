@@ -169,7 +169,7 @@ var PUBLISHED = {
  *
  * @returns {{ok:boolean, bytes:number, trimmed:boolean, ms:number, message:string}}
  */
-function publishBoardTick() {
+function publishBoardTick(reason) {
   var t0 = Date.now();
   try {
     var sheet = _pubSheet();
@@ -180,6 +180,14 @@ function publishBoardTick() {
     // compounds invisibly.
     var tick = _buildDashboardTick();
     tick._publishedAt = new Date().toISOString();
+    // ⚠ SAY WHY THIS COPY EXISTS (2026-08-14). runPublishTick has always known
+    // the reason — "changed" / "keep-fresh" / "sheet moved, unannounced" — and
+    // threw it away, so the only way to tell a legitimate rebuild from a
+    // spurious one was to infer it from timing and payload diffs. That cost an
+    // evening. This is the same self-identification the tier flags already
+    // provide on the READ side (_published / _cached / _liveFallback), which is
+    // exactly what made the 2026-08-13 credential fault findable.
+    tick._publishReason = String(reason || "manual");
 
     var json = JSON.stringify(tick);
     var trimmed = false;
@@ -249,7 +257,7 @@ function publishBoardTick() {
  * @param {number} [minGapSec] override the debounce (PUBLISHED.inlineMinGapSec)
  * @returns {{ok:boolean, skipped:boolean=, ms:number=, message:string=}}
  */
-function publishBoardTickInline(minGapSec) {
+function publishBoardTickInline(minGapSec, reason) {
   minGapSec = (typeof minGapSec === "number") ? minGapSec : PUBLISHED.inlineMinGapSec;
   try {
     // One cell read, deliberately NOT getPublishedTick() — that parses the whole
@@ -270,7 +278,7 @@ function publishBoardTickInline(minGapSec) {
     // is the safe direction; serving a stale pick list is not.
     try { console.log("publishBoardTickInline age check: " + e); } catch (_) {}
   }
-  return publishBoardTick();
+  return publishBoardTick(reason || "inline");
 }
 
 
@@ -298,7 +306,7 @@ function runPublishTick() {
       why   = "sheet moved, unannounced";
     }
 
-    var res = publishBoardTick();
+    var res = publishBoardTick(why);
     return res.ok
       ? ("published " + res.bytes + " chars in " + res.ms + "ms  (" + why + ")")
       : ("publish failed: " + res.message);

@@ -820,7 +820,7 @@ function doPost(e) {
       // publish must never fail an insert, and the trigger will catch it anyway
       // because _dashBustTickCache already marked it dirty.
       try {
-        if (typeof publishBoardTick === 'function') publishBoardTick();
+        if (typeof publishBoardTick === 'function') publishBoardTick('arrival');
       } catch (pubErr) {
         console.log("doPost: tick publish failed (trigger will retry): " + pubErr);
       }
