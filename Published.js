@@ -79,6 +79,28 @@ var PUBLISHED = {
 
   dirtyPropKey: "PUBLISHED_TICK_DIRTY",
 
+  // ⚠ THE NET UNDER THE DIRTY FLAG (2026-08-14).
+  //
+  // The flag depends on every write path REMEMBERING to call
+  // _dashBustTickCache(). That is an enumeration a human maintains, and it has
+  // now been missed FIVE TIMES IN TWO DAYS: human sheet edits (08-14), then kit
+  // expansion, the Zoho Pull insert and the Pull cancel (08-14). Apps Script
+  // triggers do not fire for changes made BY a script, so every programmatic
+  // path has to announce itself by hand — and nothing forces anyone to extend a
+  // list. It will be missed again.
+  //
+  // So the publisher no longer trusts the enumeration: on the run where it would
+  // otherwise SKIP, it fingerprints what the board actually renders from and
+  // republishes if that moved without anyone saying so. A forgotten bust then
+  // costs ~1 minute of staleness instead of the full keep-fresh window — the
+  // same as a door that did report in.
+  //
+  // ⚠ THE FLAG IS STILL WORTH KEEPING. It is FASTER (it also clears the 45s
+  // CacheService copy that the in-sheet board and the tier-3 live fallback
+  // read), and the inline publish is faster still. This is a net, not a
+  // replacement.
+  fpPropKey: "PUBLISHED_TICK_FP",
+
   // Republish once the copy reaches this age even if NOTHING changed.
   //
   // ⚠ FOUND 2026-08-07, reading a live payload. Publishing only on "dirty" has
@@ -189,6 +211,11 @@ function publishBoardTick() {
     sheet.getRange(PUBLISHED.cells.SIZE).setValue(json.length);
 
     _pubClearDirty();
+    // ⚠ RECORD THE FINGERPRINT AFTER the write, so the next run compares against
+    // the state this copy represents. Taken fresh rather than reused from the
+    // build: if the sheet moved DURING the build, the two differ and the next
+    // run republishes — which is the safe direction to be wrong in.
+    _pubStoreFingerprint(_pubFingerprint());
     return { ok: true, bytes: json.length, trimmed: trimmed, ms: Date.now() - t0, message: "" };
 
   } catch (err) {
@@ -251,11 +278,29 @@ function runPublishTick() {
   try {
     var dirty = _pubIsDirty();
     var stale = _pubIsStale();
-    if (!dirty && !stale) return "clean and fresh — skipped";
+    var why   = dirty ? "changed" : "keep-fresh";
+
+    if (!dirty && !stale) {
+      // ⚠ THE NET. Nobody said anything changed — check for ourselves rather
+      // than take the enumeration's word for it. See PUBLISHED.fpPropKey.
+      var fp = _pubFingerprint();
+
+      // ⚠ AN UNREADABLE FINGERPRINT MEANS SKIP, NOT PUBLISH — the opposite of
+      // _pubIsDirty's "assume dirty" rule, and deliberately so. That flag is one
+      // property read that essentially cannot fail; this reads the sheet. If it
+      // ever failed persistently, "assume changed" would rebuild every minute:
+      // 1,440 full rebuilds a day, which is the entire runtime quota. Degrading
+      // to today's behaviour (the 8-minute keep-fresh) is the safe direction.
+      if (!fp) return "clean and fresh — skipped (fingerprint unavailable)";
+
+      if (fp === _pubLastFingerprint()) return "clean and fresh — skipped";
+      dirty = true;
+      why   = "sheet moved, unannounced";
+    }
+
     var res = publishBoardTick();
     return res.ok
-      ? ("published " + res.bytes + " chars in " + res.ms + "ms  (" +
-         (dirty ? "changed" : "keep-fresh") + ")")
+      ? ("published " + res.bytes + " chars in " + res.ms + "ms  (" + why + ")")
       : ("publish failed: " + res.message);
   } catch (err) {
     try { console.log("runPublishTick: " + err); } catch (_) {}
@@ -295,6 +340,105 @@ function getPublishedTick() {
 // Set by _dashBustTickCache(), which every write chokepoint already calls —
 // updateOrderStatus, the doPost insert, and boardSetStatus. Hooking there means
 // one edit covers every path, present and future, instead of three.
+
+/**
+ * Fold a 2-D block of cell values into a short change-detection fingerprint.
+ *
+ * ⚠ PURE ON PURPOSE — no Sheets calls — so the part that actually decides
+ * "did anything move?" can be tested in Node against real row shapes rather
+ * than trusted. `_pubFingerprint()` is the thin sheet-reading wrapper.
+ *
+ * ⚠ NOT A CRYPTOGRAPHIC HASH, and deliberately not Utilities.computeDigest:
+ * this needs to run every minute inside a trigger, and a plain-JS fold keeps it
+ * both cheap and testable off-platform. Two independent 32-bit accumulators
+ * (FNV-1a and djb2) plus the cell count give ~2^-64 odds of two different
+ * sheets colliding — for "has this changed since a minute ago", that is far
+ * past sufficient.
+ *
+ * Dates stringify stably, so a DATE cell does not churn the fingerprint.
+ *
+ * @param {Array<Array>} values the data range, row-major
+ * @returns {string} short, stable, safe to keep in a Script Property
+ */
+function _pubFingerprintOf(values, skipIdx) {
+  var rows = values || [];
+  var skip = skipIdx || [];
+  var h = 0x811c9dc5;          // FNV-1a offset basis
+  var g = 5381;                // djb2
+  var cells = 0;
+
+  for (var r = 0; r < rows.length; r++) {
+    var row = rows[r] || [];
+    for (var c = 0; c < row.length; c++) {
+      if (skip.indexOf(c) !== -1) continue;
+      var v = row[c];
+      var s = (v === null || v === undefined) ? "" : String(v);
+      cells++;
+      //  between cells so ["ab",""] and ["a","b"] cannot fold alike.
+      s += "";
+      for (var i = 0; i < s.length; i++) {
+        var ch = s.charCodeAt(i);
+        h = Math.imul(h ^ ch, 16777619);
+        g = ((g << 5) + g + ch) | 0;
+      }
+    }
+    h = Math.imul(h ^ 0x0a, 16777619);   // row terminator
+    g = ((g << 5) + g + 10) | 0;
+  }
+
+  var hex = function (n) { return (n >>> 0).toString(16); };
+  return rows.length + "." + cells + "." + hex(h) + hex(g);
+}
+
+
+/**
+ * Fingerprint the All Orders DATA RANGE — exactly what the pick list is built
+ * from. Banner rows are excluded: the clock in B1 changes every recalc and
+ * would make the sheet look permanently modified.
+ *
+ * @returns {string} "" when it cannot be read — see the caller for why that
+ *                   deliberately means "skip", not "publish".
+ */
+function _pubFingerprint() {
+  try {
+    var sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(MAIN_SHEET_NAME);
+    if (!sheet) return "";
+    var lastRow = sheet.getLastRow();
+    if (lastRow < Schema.dataStartRow) return "empty";
+    var n = lastRow - Schema.dataStartRow + 1;
+    // ⚠ HAND IS DELIBERATELY EXCLUDED — this is the difference between a net and
+    // a quota fire. recomputeHand rewrites column G on EVERY Zoho stock push
+    // (every 2 minutes, 9–5) and does NOT bust the cache today, so folding it in
+    // would make the sheet look permanently modified and turn a heartbeat into a
+    // near-constant rebuilder — 3.5s each, several hundred a day.
+    //
+    // Excluding it changes nothing about HAND's freshness: it already rides the
+    // 8-minute keep-fresh and always has. The net exists to catch a PICK-LIST
+    // change nobody announced — a row appearing, a status flipping, a note being
+    // written — not to shorten the staleness budget of a scheduled numeric sync.
+    // If fresher HAND on the board is ever wanted, that is its own deliberate
+    // decision with its own cost, not a side effect of this.
+    return _pubFingerprintOf(
+      sheet.getRange(Schema.dataStartRow, 1, n, Schema.dataWidth).getValues(),
+      [Schema.idx("HAND")]
+    );
+  } catch (err) {
+    try { console.log("_pubFingerprint: " + err); } catch (_) {}
+    return "";
+  }
+}
+
+function _pubStoreFingerprint(fp) {
+  if (!fp) return;
+  try { PropertiesService.getScriptProperties().setProperty(PUBLISHED.fpPropKey, fp); }
+  catch (e) { /* a lost fingerprint costs one extra publish, not correctness */ }
+}
+
+function _pubLastFingerprint() {
+  try { return PropertiesService.getScriptProperties().getProperty(PUBLISHED.fpPropKey) || ""; }
+  catch (e) { return ""; }
+}
+
 
 function _pubMarkDirty() {
   try { PropertiesService.getScriptProperties().setProperty(PUBLISHED.dirtyPropKey, "1"); }
