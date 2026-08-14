@@ -254,13 +254,10 @@ function _buildDashboardTick() {
  * box that no longer exists back on the pick list.
  */
 function _dashKitTag(note) {
-  var s = String(note || "").trim();
-  if (s.charAt(0) === "⚠") {                 // ⚠ — a flag line, skip it
-    var nl = s.indexOf("\n");
-    s = (nl === -1) ? "" : s.slice(nl + 1).trim();
-  }
-  var m = s.match(/^↳ (?:from|added to) KIT-(\S+)/);
-  return m ? m[1] : "";
+  // ⚠ DELEGATES — the parser itself lives in Helpers.kitComponentTag, because
+  // this tag is read in at least seven places and a second copy is how a fix
+  // starts having to land twice (the KitRegistry parser lesson, 2026-07-14).
+  return kitComponentTag(note);
 }
 
 

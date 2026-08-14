@@ -425,10 +425,17 @@ function _kitParentFollowUp(sheet, orderIds, lastRow) {
       var sku    = String(rr[Schema.idx("SKU")]).trim();
       var note   = String(rr[Schema.idx("NOTE")] || "");
       var status = String(rr[Schema.idx("STATUS")]).trim().toUpperCase();
-      var tag    = /^↳ from KIT-(\S+)/.exec(note);
+      // ⚠ BOTH TAG SHAPES, via the one shared parser (2026-08-14). This was
+      // `/^↳ from KIT-(\S+)/`, which missed CUSTOM ADDS — and the miss did not
+      // merely drop them from the group, it dropped them into the `else`
+      // below, registering a component as a candidate PARENT. Consequence: with
+      // every registered component shipped, the parent flipped to SHIPPED while
+      // a custom-added part was still sitting unpicked on its shelf. That is
+      // precisely the half-packed box this follow-up exists to prevent.
+      var tag    = kitComponentTag(note);
       if (tag) {
-        if (!kitGroups[tag[1]]) kitGroups[tag[1]] = [];
-        kitGroups[tag[1]].push(status);
+        if (!kitGroups[tag]) kitGroups[tag] = [];
+        kitGroups[tag].push(status);
       } else if (sku) {
         parentRows[sku] = {
           row:    rows[ri],

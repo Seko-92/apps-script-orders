@@ -465,6 +465,49 @@ function _parseShelfLocation(v) {
  *
  * @returns {number} negative / 0 / positive, suitable for Array.prototype.sort
  */
+/**
+ * THE ONE PARSER for "is this row a kit component, and whose?"
+ *
+ * Returns the PARENT KIT SKU, or "" if the row is not an expansion component.
+ *
+ * ⚠ THERE ARE TWO TAG SHAPES AND BOTH ARE REAL. KitExpansion writes
+ * `↳ from KIT-<sku>` for registered components and `↳ added to KIT-<sku>` for
+ * CUSTOM ADDS (the modal's "+ add component"). Matching only the first is a
+ * live bug that has now been found twice in two days:
+ *   · _dashOpenOrders — a custom-added part was missing from the board's
+ *     `done/total`, so a kit could read "5 of 5" with a sixth part on its shelf
+ *   · _kitParentFollowUp — worse: the unmatched row fell through to the
+ *     candidate-PARENT branch, so the parent could flip to SHIPPED while a
+ *     custom-added component was still open
+ *
+ * ⚠ SURVIVES A ZOHO FLAG. _flagDirectRow PREPENDS its warning as its own first
+ * LINE and CASCADES onto a removed kit's components, so a flagged component's
+ * note starts with "⚠️" and the tag sits on line 2. Anchoring at ^ without
+ * skipping that line drops the row out of its kit entirely.
+ *
+ * ⚠ RETURNS THE CAPTURE — callers must compare it EXACTLY, never with a prefix
+ * test. `note.indexOf("↳ from KIT-" + sku) === 0` lets kit `1586` match kit
+ * `158652`'s components. (Latent rather than live while every SKU is 6 digits,
+ * since no 6-digit SKU can prefix a different one — but do not rely on that.)
+ *
+ * ⚠ ONE IMPLEMENTATION ON PURPOSE. The KitRegistry parser was once duplicated
+ * across the CSV importer and the webhook handler, and "every past fix had to
+ * land twice". This is the same tag read in at least seven places.
+ *
+ * @param {string} note the row's NOTE cell
+ * @returns {string} parent kit SKU, or ""
+ */
+function kitComponentTag(note) {
+  var s = String(note || "").trim();
+  if (s.charAt(0) === "⚠") {              // ⚠ — a Zoho flag line, skip it
+    var nl = s.indexOf("\n");
+    s = (nl === -1) ? "" : s.slice(nl + 1).trim();
+  }
+  var m = s.match(/^↳ (?:from|added to) KIT-(\S+)/);
+  return m ? m[1] : "";
+}
+
+
 function compareLocations(a, b) {
   var pa = _parseShelfLocation(a);
   var pb = _parseShelfLocation(b);
