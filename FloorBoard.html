@@ -1632,16 +1632,75 @@ body.ch-direct #pickListDirect { display: block; }
        without the floor ever needing to know the convention existed.
        ⚠ Zoho flags (REMOVED IN ZOHO / QTY changed) surface as the row's RED
        warning — before this, the floor could not see a removed line at all. */
+    /* The MACHINE-written segments inside a kit component's NOTE. Composed in
+       KitExpansion.js as, in this order:
+         ↳ from KIT-<sku>  [· deploy N total (a for customer + b for us)]
+                           [· custom add] [· swapped X → Y] [· qty a→b]
+                           [· THE HUMAN NOTE]
+       So machine content is always a PREFIX and human content is always the
+       TAIL. `⚠ FORCED` is legacy — dropped from new rows 2026-07-14 because a
+       picker read it as "something is wrong with this order" — but old rows
+       still carry it. */
+    var KIT_MACHINE_SEG = [
+      /^↳\s*(?:from|added to)\s+KIT-\S+$/i,
+      /^deploy\s+\d+\s+total\b/i,
+      /^custom add$/i,
+      /^swapped\s+\S+\s*→\s*\S+$/i,
+      /^qty\s+\S+\s*→\s*\S+$/i,
+      /^⚠?\s*FORCED$/i
+    ];
+    function _isKitMachineSeg(s) {
+      var t = String(s || '').trim();
+      for (var i = 0; i < KIT_MACHINE_SEG.length; i++) {
+        if (KIT_MACHINE_SEG[i].test(t)) return true;
+      }
+      return false;
+    }
+
     function humanNote(noteText) {
       var raw = String(noteText || '').trim();
       if (!raw) return { text: '', warn: '' };
-      if (raw.indexOf('↳') === 0) return { text: '', warn: '' };   // machine kit tag
-      if (/ZOHO/i.test(raw) && /^⚠/.test(raw)) {
-        return { text: '', warn: raw.replace(/^⚠️?\s*/, '') };
+
+      /* A Zoho flag is PREPENDED as its own first LINE (_flagDirectRow writes
+         `prefix + "\n" + existing`), so whatever a human wrote survives below
+         it. The old code returned the WHOLE string as the warning, which
+         mashed the flag and the human note into one red line. */
+      var warn = '';
+      if (raw.charAt(0) === '⚠' && /ZOHO/i.test(raw.split('\n')[0])) {
+        var lines = raw.split('\n');
+        warn = lines.shift().replace(/^⚠️?\s*/, '').trim();
+        raw = lines.join(' ').trim();
+        if (!raw) return { text: '', warn: warn };
       }
+
+      /* ⚠⚠ STRIP THE MACHINE PREFIX — DO NOT SURRENDER TO IT (2026-08-14).
+         This used to be `if (raw.indexOf('↳') === 0) return ''`, which threw
+         away THE WHOLE NOTE because it assumed a component's note is only the
+         machine tag. It is not: expansion appends the kit row's own note after
+         it, so every human note on every component row was being deleted on the
+         way to the floor — silently, while looking perfectly fine on the sheet.
+         Found because "Miguel" (which encodes a customer's packaging
+         requirement) showed on 9 rows of SO-24853 and vanished on the 5 kit
+         parts: nine items packed right, five packed blind.
+
+         ⚠ STOP AT THE FIRST UNRECOGNISED SEGMENT and keep the rest VERBATIM.
+         Two deliberate consequences: a human note containing its own " · "
+         survives whole ("call customer · urgent"), and anything this list does
+         not know is treated as HUMAN. That asymmetry is the point — a stray
+         machine word on the floor is visible and fixable in a minute; a
+         swallowed human note is the bug we are standing in. NOTE SURFACES MUST
+         FAIL TOWARD SHOWING. */
+      if (raw.indexOf('↳') === 0) {
+        var segs = raw.split(' · ');
+        var s = 0;
+        while (s < segs.length && _isKitMachineSeg(segs[s])) s++;
+        raw = segs.slice(s).join(' · ').trim();
+        if (!raw) return { text: '', warn: warn };
+      }
+
       var t = raw.replace(/\*\*/g, ' ').replace(/\s+/g, ' ').trim();
       t = t.replace(/^Buyer Note:\s*/i, '');
-      return { text: t, warn: '' };
+      return { text: t, warn: warn };
     }
 
     /* Aisle ↔ age.    /* Aisle ↔ age. The server sorts by aisle (natural, not lexical) because
@@ -2024,6 +2083,23 @@ body.ch-direct #pickListDirect { display: block; }
       var sub = document.createElement('span');
       sub.className = 'sub-line';
       var note = humanNote(r.note);
+
+      /* THE COLLAPSED PARENT'S NOTE, folded in. A kit's parent row is hidden
+         once expanded, so a note added to it afterwards — which is exactly when
+         a hold gets written — had nowhere to appear. The server sends it raw as
+         `kitNote`; strip it the same way and lead with it, because an
+         order-level instruction outranks a remark about one part.
+         ⚠ DEDUPED BY SUBSTRING: expansion already copied the parent's note onto
+         every component at write time, so without this check the common case
+         would print it twice on the same line. */
+      if (r.kitNote) {
+        var kn = humanNote(r.kitNote);
+        if (kn.text && note.text.indexOf(kn.text) === -1) {
+          note.text = kn.text + (note.text ? ' · ' + note.text : '');
+        }
+        if (kn.warn && !note.warn) note.warn = kn.warn;
+      }
+
       li.classList.toggle('warned', !!note.warn);
       if (note.warn) {
         var wn = document.createElement('span');

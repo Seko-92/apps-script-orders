@@ -233,6 +233,37 @@ function _buildDashboardTick() {
 }
 
 
+/**
+ * The kit this row is a COMPONENT of, or "" if it is not one.
+ *
+ * ⚠ MATCHES BOTH TAG SHAPES. Expansion writes `↳ from KIT-<sku>` for registered
+ * components and `↳ added to KIT-<sku>` for custom adds. This function used to
+ * be an inline `indexOf("↳ from KIT-")`, which saw only the first — so a custom
+ * -added part was counted as a loose line: no kit thread, and missing from the
+ * `done/total` denominator. That last one is the dangerous half — the counter
+ * exists to stop a half-packed box shipping, and a kit reading "5 of 5" with a
+ * sixth custom part still on its shelf is exactly the failure it was built to
+ * prevent. The rest of the codebase (_findKitComponentRows,
+ * _countExistingKitComponents) already matched both; this was the outlier.
+ *
+ * ⚠ SURVIVES A ZOHO FLAG. _flagDirectRow PREPENDS its warning as its own first
+ * LINE, and it CASCADES onto a removed kit's components — so a flagged
+ * component's note starts with "⚠️" and the kit tag sits on line 2. Matching the
+ * raw string would drop those rows out of their kit entirely, which (because
+ * `expandedOf` would fall to zero) would even un-collapse the parent and put a
+ * box that no longer exists back on the pick list.
+ */
+function _dashKitTag(note) {
+  var s = String(note || "").trim();
+  if (s.charAt(0) === "⚠") {                 // ⚠ — a flag line, skip it
+    var nl = s.indexOf("\n");
+    s = (nl === -1) ? "" : s.slice(nl + 1).trim();
+  }
+  var m = s.match(/^↳ (?:from|added to) KIT-(\S+)/);
+  return m ? m[1] : "";
+}
+
+
 // =======================================================================================
 // THE ATTRIBUTION CHOKEPOINT for board writes
 // =======================================================================================
@@ -533,7 +564,7 @@ function _dashOpenOrders() {
   // deliberately left out — worse than showing no counter at all. What was
   // actually INSERTED is the only honest total, and it is right here in the
   // rows we have already read.
-  var expandedOf = {}, parentsOf = {};
+  var expandedOf = {}, parentsOf = {}, parentNoteOf = {};
   var kitTot = {}, kitDone = {}, kitLeft = {}, kitMeta = {};
   for (var p = 0; p < data.length; p++) {
     var pSku = String(data[p][Schema.idx("SKU")] || "").trim();
@@ -544,9 +575,9 @@ function _dashOpenOrders() {
                    pStatus === Schema.status.PREPARING);
     var pOrder = String(data[p][Schema.idx("SALES_ORDER")] || "").trim();
     var pNote  = String(data[p][Schema.idx("NOTE")] || "").trim();
-    var pm = pNote.match(/^↳ from KIT-(\S+)/);
+    var pm = _dashKitTag(pNote);
     if (pm) {
-      var ek = pOrder + "|" + pm[1];
+      var ek = pOrder + "|" + pm;
 
       // TALLY over EVERY status, not just the open ones. A component already
       // shipped still counts toward the kit's SIZE — otherwise the denominator
@@ -565,7 +596,7 @@ function _dashOpenOrders() {
           // ✓ Pick flips PENDING → PREPARING, so PREPARING means grabbed.
           kitDone[ek] = (kitDone[ek] || 0) + 1;
         }
-        if (!kitMeta[ek]) kitMeta[ek] = { parent: pm[1], order: pOrder };
+        if (!kitMeta[ek]) kitMeta[ek] = { parent: pm, order: pOrder };
       }
 
       // The COLLAPSE decision below keeps its ORIGINAL open-only semantics —
@@ -575,6 +606,17 @@ function _dashOpenOrders() {
     } else if (kitSkus[pSku] === 1 && pOpen) {
       var pk = pOrder + "|" + pSku;
       parentsOf[pk] = (parentsOf[pk] || 0) + 1;
+      // ⚠ KEEP THE PARENT'S NOTE ALIVE (2026-08-14). Once a kit is expanded the
+      // parent row is collapsed off the board — correctly, it is not pickable —
+      // and ANY note written on it after that point had nowhere to go. That is
+      // precisely when a hold gets added ("customer called, don't ship this"),
+      // so the one path most likely to carry a safety-critical instruction was
+      // the one path that went silent. Expansion already copies the parent's
+      // note onto every component at WRITE time; this does the same at READ
+      // time, so the result is identical whether the note was written before or
+      // after. The picker then meets it at EVERY shelf they walk for that box,
+      // which is what a hold needs — not one line at the top of a list.
+      if (pNote) parentNoteOf[pk] = pNote;
     }
   }
 
@@ -614,7 +656,8 @@ function _dashOpenOrders() {
 
     // An expanded kit's parent is not a pickable line — its components are.
     var orderId     = String(data[i][Schema.idx("SALES_ORDER")] || "").trim();
-    var isComponent = note.indexOf("↳ from KIT-") === 0;
+    var compTag     = _dashKitTag(note);
+    var isComponent = !!compTag;
     var isKitParent = !isComponent && kitSkus[sku] === 1;
     var kitKey      = orderId + "|" + sku;
     if (isKitParent && expandedOf[kitKey] > 0 && parentsOf[kitKey] === 1) continue;
@@ -654,8 +697,13 @@ function _dashOpenOrders() {
     // line. Set ONLY on components — an absent field costs nothing in the
     // published payload, which is guarded against the 50K cell limit.
     if (isComponent) {
-      var cm = note.match(/^↳ from KIT-(\S+)/);
-      if (cm) row.kit = cm[1];
+      row.kit = compTag;
+      // The collapsed parent's note, carried down so it cannot be lost. Sent
+      // RAW — the client's humanNote() strips machine prefixes and dedupes it
+      // against whatever this row already carries, so a note written BEFORE
+      // expansion (already copied here by KitExpansion) does not print twice.
+      var pn = parentNoteOf[orderId + "|" + compTag];
+      if (pn) row.kitNote = pn;
     }
     out.push(row);
   }
