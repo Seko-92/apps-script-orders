@@ -264,6 +264,10 @@ body.ch-direct #pickListDirect { display: block; }
 .pick-kit { font-family: var(--disp); font-size: var(--fs-lab); color: var(--g0);
             background: var(--kit-a); padding: 1px 6px; border-radius: 3px;
             letter-spacing: 0.08em; flex: none; }
+/* HOLD on a row that has no band to carry it. Same amber as the band chip
+   (--money, the unset-picker colour) — NOT --alarm, which is red and already
+   means "something disagrees". One mark for the floor to learn, two places. */
+.pick-kit.pick-hold { background: var(--money); }
 .sub-line { display: flex; align-items: center; gap: 10px; min-width: 0;
             font-family: var(--mono); font-size: var(--fs-sub); color: var(--t3);
             white-space: nowrap; overflow: hidden; }
@@ -2116,6 +2120,15 @@ body.ch-direct #pickListDirect { display: block; }
         kb.title = 'Not expanded yet — decide: ship the box, or break it into components';
         skuLine.appendChild(kb);
       }
+      // ⏸ HOLD on a BANDLESS order — see the _heldSolo note in withSections.
+      // Same amber chip as the band's, so the floor learns one mark, not two.
+      if (r._heldSolo) {
+        var hb = document.createElement('span');
+        hb.className = 'pick-kit pick-hold';
+        hb.textContent = 'HOLD';
+        hb.title = 'Held — pick and prepare it, but do NOT buy the shipping label until this is lifted';
+        skuLine.appendChild(hb);
+      }
       main.appendChild(skuLine);
 
       var sub = document.createElement('span');
@@ -3209,6 +3222,22 @@ body.ch-direct #pickListDirect { display: block; }
             // rows enters this branch once but has to leave none of them
             // carrying a stale flag from an earlier paint.
             for (var m2 = i; m2 < i + n; m2++) rows[m2]._grouped = false;
+          }
+          /* ⚠ A HELD ORDER WITH NO BAND STILL HAS TO SAY SO (2026-08-15).
+             Reported from the floor the same day it shipped: HOLD was written
+             on a SINGLE-LINE eBay order and nothing appeared. eBay orders earn
+             a band only at 2+ lines — "a label, not a box" — so the chip had
+             nowhere to live and the feature silently did nothing on what is
+             probably the commonest kind of order on this board.
+             ⚠ MY FIXTURE CAUSED THE MISS: every row in diag-hold.js was
+             channel:'DIRECT', and DIRECT rows ALWAYS get a band. I tested only
+             the case that works.
+             So: mark the order at the HIGHEST LEVEL AVAILABLE — the band when
+             there is one, the row itself when there is not. On a one-line order
+             the row IS the order, so this is not the per-row repetition that
+             was rejected. */
+          if (heldOrder[oid]) {
+            for (var m3 = i; m3 < i + n; m3++) rows[m3]._heldSolo = !rows[m3]._grouped;
           }
           prevOid = oid;
         }
