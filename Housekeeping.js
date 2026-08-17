@@ -136,6 +136,14 @@ function _housekeepingPass() {
   try { parts.push(runStragglerWatchdog()); }
   catch (e) { parts.push("❌ Watchdog: " + e); console.log("Housekeeping Watchdog error: " + e); }
 
+  // PUBLISHED-CELL PULSE (2026-08-18) — is the board's FREE path still free?
+  // One outbound probe of the public board URL, compared against the last known
+  // state; silent unless it CHANGED. Costs one HTTP call an hour and catches
+  // the failure that silently ran for a week in Aug 2026 and makes every screen
+  // start charging Apps Script for itself. See the long note in Watchdog.js.
+  try { parts.push(checkPublishedPulse()); }
+  catch (e) { parts.push("❌ Pulse: " + e); console.log("Housekeeping Pulse error: " + e); }
+
   var summary = parts.join("  |  ");
   console.log("Housekeeping: " + summary);
   return summary;

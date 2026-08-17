@@ -497,3 +497,264 @@ function _wdRecord(newKeys, known) {
     }
   }
 }
+
+
+// =======================================================================================
+// ⭐ THE PUBLISHED-CELL PULSE — is the board's FREE path still free? (2026-08-18)
+// =======================================================================================
+/**
+ * WHY THIS EXISTS, AND WHY IT IS THE ONE ALARM WORTH HAVING.
+ *
+ * A board tick is normally answered by n8n out of the published cell — tier 2 —
+ * and Apps Script is never involved. THAT is why monitors and wall screens cost
+ * nothing and why the tenth viewer costs what the first did.
+ *
+ * When that path fails, every poll falls through to Apps Script rebuilding the
+ * tick (~3.5s). Do the arithmetic on a four-screen floor:
+ *
+ *     4 devices x 3 polls/min x 3.5s = 42 SECONDS of script time per minute
+ *
+ * — about 70% of the script consumed by people merely LOOKING at screens,
+ * permanently, and it gets worse with every screen added. It would starve the
+ * floor's writes exactly the way 2026-08-17 did, but with nothing on the floor
+ * having changed to explain it.
+ *
+ * ⚠⚠ AND IT FAILS SILENTLY. Nothing errors. n8n's tier-2 block is wrapped so a
+ * failed read simply falls through. It ran BROKEN FOR A WEEK in August 2026 and
+ * was found only because pickers said the board "felt slow". That combination —
+ * invisible, cheap to detect, expensive to miss — is what earns an alarm.
+ *
+ * ⚠ TWO DIFFERENT FAULTS, AND THEY NEED DIFFERENT FIXES:
+ *   READER broken — n8n cannot read the cell (the August case was a credential
+ *                   domain allowlist). Tick arrives with _liveFallback set.
+ *   WRITER broken — n8n reads fine but the cell is ancient, i.e. Apps Script
+ *                   stopped publishing (a dead trigger). Tick says _published
+ *                   but _publishedAgeMs is far past keep-fresh.
+ * Reporting them as one "tier 2 is down" would send someone to the wrong system.
+ *
+ * ⚠ IT PROBES THE PUBLIC URL so it exercises Caddy + n8n + the tier logic, the
+ * same path a tablet takes. It never re-enters Apps Script — n8n reads the cell
+ * through the Sheets API — so there is no recursion and no self-measurement.
+ *
+ * ⚠ ALERTS ON THE CROSSING, IN BOTH DIRECTIONS. One message when it breaks, one
+ * when it recovers, and silence in between. A monitor that repeats itself every
+ * hour is one people mute — the same discipline as the straggler watchdog.
+ */
+var PULSE = {
+  propKey:       "PULSE_LAST_STATE",
+  maxTrayAgeMin: 15,      // keep-fresh republishes by 8 min; 15 is unambiguously wrong
+  timeoutMs:     20000
+};
+
+
+/**
+ * Probe the board's public endpoint and classify what answered.
+ * Pure-ish: no sends, no state writes. Safe to call any time.
+ *
+ * @returns {{state: string, detail: string}} state is one of
+ *          ok | reader | writer | unreachable
+ */
+function _pulseProbe() {
+  var res;
+  try {
+    res = UrlFetchApp.fetch(HQ_BOARD_API_URL, {
+      method: "post",
+      contentType: "application/json",
+      payload: JSON.stringify({ action: "boardTick" }),
+      muteHttpExceptions: true,
+      followRedirects: true,
+      validateHttpsCertificates: true
+    });
+  } catch (e) {
+    return { state: "unreachable", detail: "the request failed: " + e };
+  }
+
+  var code = res.getResponseCode();
+  if (code !== 200) return { state: "unreachable", detail: "HTTP " + code };
+
+  var tick;
+  try {
+    tick = JSON.parse(res.getContentText());
+  } catch (e) {
+    return { state: "unreachable", detail: "the answer was not JSON" };
+  }
+
+  // ⚠ A tick with no cockpit is not a tick. The proxy answers HTTP 200 even
+  // when the hop failed, so shape is the only honest test — the same lesson
+  // the board itself learned on 2026-08-05 and again on 2026-08-17.
+  if (!tick || typeof tick !== "object" || !tick.cockpit) {
+    return { state: "unreachable", detail: "a 200 with no tick in it" };
+  }
+
+  if (!tick._published) {
+    return {
+      state: "reader",
+      detail: tick._liveFallback
+        ? "Apps Script rebuilt this tick (tier 3)"
+        : "the published cell did not answer" +
+          (tick._tier2 ? " — n8n says: " + tick._tier2 : "")
+    };
+  }
+
+  var ageMin = Math.round((Number(tick._publishedAgeMs) || 0) / 60000);
+  if (ageMin > PULSE.maxTrayAgeMin) {
+    return {
+      state: "writer",
+      detail: "the cell is being READ fine but was last written " + ageMin +
+              " min ago (keep-fresh should republish within 8)"
+    };
+  }
+
+  return { state: "ok", detail: "served from the published cell, " + ageMin + " min old" };
+}
+
+
+/**
+ * The hourly check. Alerts only when the state CHANGES.
+ * Never throws — it runs inside the housekeeping chain.
+ *
+ * @returns {string} one-line summary for the housekeeping log
+ */
+function checkPublishedPulse() {
+  try {
+    var probe = _pulseProbe();
+    var props = PropertiesService.getScriptProperties();
+    var last  = props.getProperty(PULSE.propKey);   // null on a cold start
+
+    // Nothing changed — say nothing. This is the case almost every hour.
+    if (last === probe.state) return "💓 Pulse: " + probe.state + " (unchanged)";
+
+    var msg = null;
+    if (last === null) {
+      // Cold start: record silently unless we are ALREADY broken, which is
+      // worth hearing about immediately.
+      if (probe.state === "ok") {
+        props.setProperty(PULSE.propKey, probe.state);
+        return "💓 Pulse armed (healthy)";
+      }
+      msg = _pulseText(probe, true);
+    } else {
+      msg = _pulseText(probe, false);
+    }
+
+    var sent = _tgSend(TELEGRAM_ADMIN_CHAT_ID, msg);
+    // Record ONLY on a successful send, so a failed send retries next hour
+    // rather than silently swallowing the transition.
+    if (sent) props.setProperty(PULSE.propKey, probe.state);
+    return "💓 Pulse: " + (last || "cold") + " → " + probe.state +
+           (sent ? " (alerted)" : " (SEND FAILED, will retry)");
+
+  } catch (err) {
+    try { console.log("checkPublishedPulse failed: " + err); } catch (_) {}
+    return "❌ Pulse: " + err;
+  }
+}
+
+
+/**
+ * The message. Written so the reader knows WHAT broke, WHY it matters and WHERE
+ * to look — an alert that only says "something is wrong" costs a person twenty
+ * minutes finding out what.
+ */
+function _pulseText(probe, coldStart) {
+  if (probe.state === "ok") {
+    return "🟢 BOARD BACK ON THE PUBLISHED CELL\n\n" +
+           probe.detail + ".\n\n" +
+           "Screens are free again — Apps Script is no longer rebuilding the " +
+           "tick for every poll.";
+  }
+
+  var head, why, look;
+  if (probe.state === "reader") {
+    head = "🔴 THE BOARD'S FREE PATH IS DOWN";
+    why  = "Every board poll is now making Apps Script rebuild the tick (~3.5s " +
+           "each). With 4 screens that is roughly 70% of the script spent on " +
+           "people just LOOKING — it will starve the pickers' taps.";
+    look = "LOOK AT: the n8n hq-board workflow, node 2 (the Sheets read) and " +
+           "its Google credential. In Aug 2026 this was the credential's " +
+           "Allowed Domains — it wants a BARE hostname (sheets.googleapis.com), " +
+           "not a URL.";
+  } else if (probe.state === "writer") {
+    head = "🟠 THE PUBLISHED CELL HAS GONE STALE";
+    why  = "n8n can still READ it, so the board is fast — but it is serving an " +
+           "old picture, so the floor may be looking at orders that have moved.";
+    look = "LOOK AT: Apps Script → Triggers → runPublishTick. It should run " +
+           "every minute. Also check __Published!A3 for the last publish error.";
+  } else {
+    head = "🔴 THE BOARD ENDPOINT DID NOT ANSWER";
+    why  = "A tablet asking for the pick list right now would get nothing.";
+    look = "LOOK AT: Caddy and the n8n container on the VPS, then the hq-board " +
+           "workflow is Active.";
+  }
+
+  return head + "\n\n" +
+         (coldStart ? "(found already broken when the pulse check first ran)\n\n" : "") +
+         probe.detail + ".\n\n" +
+         why + "\n\n" + look + "\n\n" +
+         "You'll get one message when this clears. Nothing more until then.";
+}
+
+
+/** Eyeball path — probe and show, send nothing, write nothing. */
+function previewPublishedPulse() {
+  var p = _pulseProbe();
+  var out = "state: " + p.state + "\n" + p.detail + "\n\n--- the message it would send ---\n" +
+            (p.state === "ok" ? "(nothing — healthy states are silent unless recovering)"
+                              : _pulseText(p, false));
+  // ⚠ BOTH loggers on purpose. The editor's inline Execution-log panel often
+  // shows only start/complete for a fast run, and the Run button does not
+  // display return values at all (the getPublishedTick lesson). Logger.log is
+  // the one that reliably surfaces there.
+  try { console.log(out); } catch (_) {}
+  try { Logger.log(out); }  catch (_) {}
+  return out;
+}
+
+/** Forget the last state, so the next run re-announces whatever it finds. */
+function resetPublishedPulse() {
+  PropertiesService.getScriptProperties().deleteProperty(PULSE.propKey);
+  return "Pulse state cleared — the next check will re-announce.";
+}
+
+/**
+ * TEST PATH — prove the alert text and the crossing logic WITHOUT breaking
+ * production. Deliberately does not touch tier 2: taking the board's fast path
+ * down to test an alarm would put the floor on the slow path to prove a point.
+ *
+ * @param {string} state - ok | reader | writer | unreachable
+ * @returns {string} the exact message that state would send
+ */
+function simulatePulseAlert(state) {
+  var fake = {
+    ok:          { state: "ok",          detail: "served from the published cell, 1 min old" },
+    reader:      { state: "reader",      detail: "Apps Script rebuilt this tick (tier 3)" },
+    writer:      { state: "writer",      detail: "the cell is being READ fine but was last written 41 min ago (keep-fresh should republish within 8)" },
+    unreachable: { state: "unreachable", detail: "HTTP 502" }
+  }[state || "reader"];
+  var out = _pulseText(fake, false);
+  try { console.log(out); } catch (_) {}
+  return out;
+}
+
+
+/**
+ * Send ONE test alert to the admin chat so the whole chain can be proven —
+ * message composition → _tgSend → Telegram → your phone — without breaking
+ * anything. Marked as a drill in the text so nobody mistakes it for real.
+ *
+ * ⚠ Does NOT touch the stored state, so it cannot suppress or trigger a real
+ * transition afterwards.
+ *
+ * Run from the editor: sendTestPulseAlert('reader' | 'writer' | 'unreachable' | 'ok')
+ */
+function sendTestPulseAlert(state) {
+  var body = simulatePulseAlert(state || "reader");
+  var text = "🧪 DRILL — this is a TEST of the board pulse alarm.\n" +
+             "Nothing is wrong. This is what you would receive:\n\n" +
+             "─────────────\n" + body;
+  var ok = _tgSend(TELEGRAM_ADMIN_CHAT_ID, text);
+  var out = ok ? "Test alert sent to the admin chat."
+               : "SEND FAILED — check TELEGRAM_ADMIN_CHAT_ID and the bot token.";
+  try { console.log(out); } catch (_) {}
+  return out;
+}
