@@ -82,13 +82,50 @@ function onChange(e) {
  * NOTE: Do NOT call setupDuplicateHighlighting here — modifying CF rules
  * triggers another onChange, causing an infinite loop.
  */
+/* How long the badge repaint is suppressed after one runs. Long enough to
+   collapse a sync's row-by-row storm (~5s apart), short enough that a human
+   working in the sheet never waits — their FIRST change always paints. */
+var ONCHANGE_PAINT_KEY     = 'hqOnChangePaint';
+var ONCHANGE_PAINT_GAP_SEC = 60;
+
 function onChangeInstallable(e) {
   // Only run on structural changes (row insert/delete), not on CF rule edits
   var changeType = e && e.changeType ? e.changeType : "";
   if (changeType === "REMOVE_ROW" || changeType === "INSERT_ROW") {
+    /* ⚠⚠ DEBOUNCE THE REPAINT — A ROW STORM WAS EATING THE SCRIPT (2026-08-17).
+       onChange fires for EVERY sheet in the spreadsheet, not just All Orders,
+       and it fires per WRITE — so a sync appending rows to Master Inventory or
+       Zoho Stock lands one event per append. Each one then repainted the whole
+       All Orders badge band, which is expensive and, for a Master Inventory
+       write, achieves precisely nothing.
+
+       Caught in the Executions panel during a soak: onChangeInstallable firing
+       every ~5 SECONDS for five minutes straight at 1.1–3.7s a run — roughly
+       96 seconds of script time burned inside a 5-minute window, doing no work.
+       That was the last remaining failure burst on the floor: reads and writes
+       queued behind it, and the board's taps timed out. Outside that window the
+       same soak was 132/132 clean.
+
+       The first event still paints IMMEDIATELY, so a person inserting a row
+       sees badges update at once — only the storm behind it is collapsed. And
+       the painter is self-healing: it also runs from onOpen, every sort, and
+       every insert path, so a suppressed repaint corrects itself shortly after.
+
+       ⚠ THE FIX IS DELIBERATELY CAUSE-AGNOSTIC. I am inferring which sync
+       produces the storm; debouncing works whatever the source is, which is the
+       property worth having when the cause is a guess. */
+    var _paint = true;
     try {
-      setupDuplicateSalesOrderHighlighting();
-    } catch (err) { /* silent */ }
+      var _c = CacheService.getScriptCache();
+      if (_c.get(ONCHANGE_PAINT_KEY)) _paint = false;
+      else _c.put(ONCHANGE_PAINT_KEY, '1', ONCHANGE_PAINT_GAP_SEC);
+    } catch (err) { /* no cache — fall through and paint, as before */ }
+
+    if (_paint) {
+      try {
+        setupDuplicateSalesOrderHighlighting();
+      } catch (err) { /* silent */ }
+    }
 
     // ⚠ A HUMAN DELETING OR INSERTING ROWS IS A CHANGE THE BOARD MUST SEE.
     // Reported 2026-08-14: rows deleted from the sheet stayed on the Floor

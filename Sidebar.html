@@ -4821,10 +4821,33 @@ function _statusIdleTick() {
    the rest of the tick; missing pieces come back null and the matching
    paint helper either keeps last-known state (its built-in guard) or
    renders the empty state. */
+/* ⚠⚠ NEVER LET TICKS OVERLAP (2026-08-17). This is the SAME mistake the Floor
+   Board made and fixed on 2026-08-05, which the sidebar never got: a FIXED
+   setInterval fires the next call whether or not the last one came back. Apps
+   Script serialises executions of the same script, so overlapping calls queue,
+   each one gets slower, and the extra slowness causes MORE overlap — a feedback
+   loop that winds up on its own.
+
+   Measured in the Executions panel 2026-08-17, mid-shift: getSidebarTick
+   running 12–29s a call, three starting within three seconds of each other,
+   effectively continuously. At ~3 open Control Panels that is 72–174 SECONDS of
+   script work per 60 seconds of wall clock — the script was oversubscribed by
+   the heartbeat alone. Everything else queued behind it: runPublishTick hit
+   48.9s, and doPost (a picker tapping ✓ Pick) hit 16–17s, which blew the
+   board's 25s bound and told the floor "could not reach the sheet — this pick
+   was NOT saved". The picker tapped 3–4 times for one pick.
+
+   One in flight at a time. A skipped beat costs a stale badge for 30s; an
+   overlapping beat costs the warehouse its writes. */
+var _sidebarTickBusy = false;
+
 function refreshSidebarTick() {
   if (typeof google === 'undefined' || !google.script) return;
+  if (_sidebarTickBusy) return;          // last one is still out — skip this beat
+  _sidebarTickBusy = true;
   google.script.run
     .withSuccessHandler(function(tick) {
+      _sidebarTickBusy = false;
       if (!tick) { dismissBootSplash(); return; }
       _paintCockpit(tick.cockpit);
       _paintLastSync(tick.lastSync);
@@ -4833,7 +4856,11 @@ function refreshSidebarTick() {
       _paintPicker(tick.picker);
       dismissBootSplash();   // panel is populated — drop the splash
     })
-    .withFailureHandler(function() { dismissBootSplash(); /* silent — keep last-known state */ })
+    .withFailureHandler(function() {
+      _sidebarTickBusy = false;          // ⚠ MUST clear here too, or one failure
+      dismissBootSplash();               //   silently kills the heartbeat forever
+      /* silent — keep last-known state */
+    })
     .getSidebarTick();
 }
 

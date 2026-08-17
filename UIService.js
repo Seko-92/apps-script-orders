@@ -91,15 +91,197 @@ function updateSheetClock() {
  * (getDashboardSnapshot, getLatestApiMetrics, etc.) stay exported for
  * on-demand callers — manual refresh buttons, post-action re-polls.
  */
-function getSidebarTick() {
+/* ⚠⚠ THE HEARTBEAT WAS STARVING THE WAREHOUSE (2026-08-17).
+   This one function reads the Activity Log tail, All Orders, and — through
+   getActionableAlerts — five more sheets, EVERY 30 SECONDS, PER OPEN SIDEBAR.
+   Measured mid-shift in the Executions panel: 12–29 seconds a call, with three
+   overlapping starts inside three seconds. Apps Script serialises executions of
+   the same script, so at ~3 open Control Panels the heartbeat alone demanded
+   more script time than wall-clock time existed, and every other caller queued
+   behind it — runPublishTick at 48.9s, and doPost (a picker tapping ✓ Pick) at
+   16–17s, which blew the Floor Board's 25s bound and reported "could not reach
+   the sheet" to the floor. The pickers were tapping 3–4 times per item.
+
+   THE COST WAS NEVER THE WORK — IT WAS THE MULTIPLIER. Every sidebar computed
+   the same global answer independently: the cockpit, the alert counts, the API
+   metrics and the sync time are identical for everyone looking at the sheet.
+   So cache the RESULT in the SCRIPT cache (shared across users, deliberately
+   not the user cache) and let the second, third and fourth sidebar read it for
+   free. N open panels now cost ONE execution per window instead of N.
+
+   ⚠⚠ THE TTL MUST BE LONGER THAN THE POLL, NOT SHORTER — I had this backwards
+   on the first cut and it matters. At a 25s TTL against a 30s beat, the entry
+   is ALWAYS expired by the time the next poll arrives, so a single open sidebar
+   hits it exactly never and pays the full 12–29s rebuild every 30 seconds. The
+   cache would then only help when a SECOND panel happened to land inside the
+   window. At 60s a lone panel rebuilds once every two beats instead of every
+   beat, which is where most of the saving actually comes from. (The board's own
+   tick cache has always been 45s against a 20s poll — longer, for this reason.)
+
+   Cost of the choice: badge counts and the cockpit can be up to ~60s behind.
+   That is ambient monitoring on a panel that was already up to 30s stale by
+   construction, and nothing in it gates an action.
+
+   ⚠ This is a READ cache on a heartbeat, and every number in it is ambient. A
+   picker acting on a number sees it through the ACTION's own return value, not
+   through this. Nothing here gates a write. */
+/* ⚠⚠ AND A PLAIN TTL CACHE STAMPEDES — my own first cut did (2026-08-17).
+   Every panel polls on the same 30s beat, so when the entry expires they ALL
+   miss in the same instant and ALL rebuild. Average load drops; the BURST does
+   not, and the burst is what blocks the floor's writes. Measured after shipping
+   the plain cache: clean stretches broken by ~30s stalls on a regular beat —
+   the shape of three 13s rebuilds landing together.
+
+   So: STALE-WHILE-REVALIDATE. Keep the payload for hours and treat FRESH as a
+   separate, shorter window. Past FRESH, exactly one caller rebuilds and
+   everyone else is handed the slightly-old copy IMMEDIATELY rather than queuing
+   behind a rebuild they don't need.
+
+   ⚠ THE MUTEX IS CACHE-BASED, NEVER LockService. getScriptLock() is the SAME
+   lock updateOrderStatus takes, so holding it here for a 13s rebuild would
+   block every ✓ Pick on the floor — that would be worse than the stampede it
+   fixes. A cache flag is not atomic, so two rebuilds can still race through the
+   gap; that is fine. The goal is turning N simultaneous rebuilds into ~1, not
+   proving mutual exclusion. */
+var SIDEBAR_TICK_CACHE_KEY = 'hqSidebarTick_v2';   // v2: shape gained _builtAt
+var SIDEBAR_TICK_BUILD_KEY = 'hqSidebarTick_building';
+var SIDEBAR_TICK_FRESH_SEC = 120;         // how long a copy counts as current
+var SIDEBAR_TICK_KEEP_SEC  = 21600;       // keep as a fallback (6h = cache max)
+var SIDEBAR_TICK_BUILD_SEC = 45;          // rebuild-in-progress flag lifetime
+var SIDEBAR_TICK_MAX_BYTES = 90000;       // CacheService hard-caps a value at 100KB
+
+/* ⭐ THE EXPENSIVE HALF, ON ITS OWN CLOCK (2026-08-18).
+   getActionableAlerts opens FIVE-PLUS SHEETS — Out of Stock, Prep Queue, the
+   Price Audit snapshot, Kit Health, Investigations — to paint badge counts.
+   getLatestApiMetrics reads the API Usage sheet. Together they are the bulk of
+   the 12–29s this heartbeat was costing, and they are answering questions whose
+   answers barely move: an OOS count or a photo backlog changes over hours, not
+   over seconds.
+
+   The cockpit is different — shipped/received today, oldest pending, the queue
+   split — that is the shift's live picture and belongs on the fast beat.
+
+   So: split the cadences. The cheap half refreshes every ~2 min, the expensive
+   half every ~5. Nothing here gates an action; the sidebar's own buttons call
+   their individual refreshers, which never read this cache.
+
+   ⚠ Same stale-while-revalidate shape as the tick above, and for the same
+   reason — a plain TTL would stampede when several panels expire together. */
+var SIDEBAR_SLOW_CACHE_KEY = 'hqSidebarSlow_v1';
+var SIDEBAR_SLOW_FRESH_SEC = 300;        // 5 min
+var SIDEBAR_SLOW_KEEP_SEC  = 21600;
+
+function _sidebarSlowParts() {
+  var cache = null;
+  try { cache = CacheService.getScriptCache(); } catch (e) { cache = null; }
+
+  var stale = null;
+  if (cache) {
+    try {
+      var hit = cache.get(SIDEBAR_SLOW_CACHE_KEY);
+      if (hit) {
+        var c = JSON.parse(hit);
+        if (Date.now() - (c._builtAt || 0) < SIDEBAR_SLOW_FRESH_SEC * 1000) return c;
+        stale = c;                       // past FRESH but still worth serving
+      }
+    } catch (e) { /* unreadable is a miss */ }
+  }
+
+  var out = { api: null, alerts: null, _builtAt: Date.now() };
+  try { out.api    = getLatestApiMetrics(); } catch (e) { console.error('sidebarSlow.api: '    + e); }
+  try { out.alerts = getActionableAlerts(); } catch (e) { console.error('sidebarSlow.alerts: ' + e); }
+
+  // ⚠ If BOTH reads failed, keep serving the last good copy rather than blanking
+  // the badges — a transient sheet error should not empty the Alerts card.
+  if (out.api === null && out.alerts === null && stale) return stale;
+
+  if (cache) {
+    try {
+      var json = JSON.stringify(out);
+      if (json.length <= SIDEBAR_TICK_MAX_BYTES) {
+        cache.put(SIDEBAR_SLOW_CACHE_KEY, json, SIDEBAR_SLOW_KEEP_SEC);
+      }
+    } catch (e) { console.error('sidebarSlow.cache: ' + e); }
+  }
+  return out;
+}
+
+/**
+ * One round-trip for the sidebar heartbeat.
+ * @param {boolean} [force] - skip the cache (used after an action changes state)
+ */
+function getSidebarTick(force) {
+  var cache = null;
+  try { cache = CacheService.getScriptCache(); } catch (e) { cache = null; }
+
+  var stale = null;
+  if (cache && !force) {
+    try {
+      var hit = cache.get(SIDEBAR_TICK_CACHE_KEY);
+      if (hit) {
+        var cached = JSON.parse(hit);
+        var ageMs  = Date.now() - (cached._builtAt || 0);
+        if (ageMs < SIDEBAR_TICK_FRESH_SEC * 1000) {
+          cached._cached = true;          // provenance, same habit as the board tick
+          return cached;
+        }
+        stale = cached;                   // past FRESH, but still perfectly usable
+      }
+    } catch (e) { /* unreadable cache is a miss, never a failure */ }
+  }
+
+  /* Past FRESH with a copy in hand: let ONE caller rebuild and hand everyone
+     else the old copy on the spot. A panel showing numbers a couple of minutes
+     old costs nothing; a panel queueing behind a rebuild costs the floor its
+     writes. */
+  if (cache && stale) {
+    try {
+      if (cache.get(SIDEBAR_TICK_BUILD_KEY)) {
+        stale._cached = true;
+        stale._stale  = true;             // says WHY it is old — someone is rebuilding
+        return stale;
+      }
+      cache.put(SIDEBAR_TICK_BUILD_KEY, '1', SIDEBAR_TICK_BUILD_SEC);
+    } catch (e) { /* no mutex available — rebuild rather than serve nothing */ }
+  }
+
   var result = { cockpit: null, lastSync: '', api: null, alerts: null, picker: '' };
   try { result.cockpit  = getDashboardSnapshot(); } catch (e) { console.error('getSidebarTick.cockpit: '  + e); }
   try { result.lastSync = getLastSyncFromSheet(); } catch (e) { console.error('getSidebarTick.lastSync: ' + e); }
-  try { result.api      = getLatestApiMetrics();  } catch (e) { console.error('getSidebarTick.api: '      + e); }
-  try { result.alerts   = getActionableAlerts();  } catch (e) { console.error('getSidebarTick.alerts: '   + e); }
+  // ⭐ THE SLOW HALF RUNS ON ITS OWN, SLOWER CLOCK (2026-08-18).
+  var slow = _sidebarSlowParts();
+  result.api    = slow.api;
+  result.alerts = slow.alerts;
   try { result.picker   = getCurrentPicker();     } catch (e) { console.error('getSidebarTick.picker: '   + e); }
+
+  if (cache) {
+    try {
+      result._builtAt = Date.now();
+      var json = JSON.stringify(result);
+      // Over the cap, put() throws and would take the whole tick down with it.
+      // Skipping the cache costs speed; throwing costs the panel.
+      if (json.length <= SIDEBAR_TICK_MAX_BYTES) {
+        cache.put(SIDEBAR_TICK_CACHE_KEY, json, SIDEBAR_TICK_KEEP_SEC);
+      } else {
+        console.log('getSidebarTick: payload ' + json.length + 'B — too big to cache');
+      }
+    } catch (e) { console.error('getSidebarTick.cache: ' + e); }
+    // ⚠ Clear the flag LAST and unconditionally. Leaving it set would make every
+    // panel serve stale until it aged out on its own.
+    try { cache.remove(SIDEBAR_TICK_BUILD_KEY); } catch (e) {}
+  }
   return result;
 }
+
+/* ⚠ DELIBERATELY NOT BUSTED ON WRITES. Every other cache here is invalidated at
+   the write chokepoints, and doing that would be wrong for this one: picks
+   happen constantly on a busy shift, so busting on write would invalidate the
+   entry almost every time and hand back the exact N-executions-per-window
+   problem this exists to remove. Nothing in this payload gates an action — it
+   is badge counts and a cockpit behind a 30s heartbeat, already up to 30s stale
+   by construction, so 25s more is inside its existing tolerance. A sidebar
+   button that changes state calls its own individual refresher, which does not
+   read this cache and is therefore always fresh. */
 
 /**
  * Saves sidebar module order (called from sidebar)
