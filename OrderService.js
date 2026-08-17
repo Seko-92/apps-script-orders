@@ -12,12 +12,51 @@ var HIDDEN_SHEET_NAME = "Telegram_Messages"; // Hidden sheet for message IDs
 /**
  * The "Front Door" for n8n - Receives POST requests
  */
+/* ⚠⚠ READ-ONLY ACTIONS MUST NOT TAKE THE WRITE LOCK (2026-08-17).
+   doPost took LockService.getScriptLock() with a 30s wait at the top for EVERY
+   request — including the pure reads the Floor Board fires constantly. So every
+   read serialised against every write and against every other read, through one
+   global lock, and a board tap had to wait behind whatever else was queued.
+
+   THE SIGNATURE IS UNMISTAKABLE ONCE YOU SEE IT: the failures measured on the
+   floor came back at 32.3 / 32.8 / 32.9 / 33.5 SECONDS — that is waitLock(30000)
+   expiring, plus overhead, returning {"status":"error","message":"Server Busy"}.
+   Not CPU, not Google being slow, not the network: lock starvation, self-
+   inflicted. And "Server Busy" carries no `ok` key, so on the old board it also
+   produced a SILENT un-pick.
+
+   Reads touch nothing that needs serialising — a tick is a cached cell, a part
+   dossier is a lookup. Only the mutating actions take the lock now.
+
+   ⚠ THE ALLOWLIST IS THE SAFETY BOUNDARY AND IT IS DELIBERATELY SHORT. Anything
+   not named here keeps the lock, so a new action is locked BY DEFAULT and a
+   mistake fails safe. Never add an action here without checking it writes
+   nothing — including transitively. */
+var DOPOST_LOCK_FREE = {
+  boardTick: 1, boardRadio: 1, boardPickers: 1, boardPrint: 1,
+  boardPart: 1, boardPartLite: 1, boardOrder: 1
+};
+
 function doPost(e) {
-  var lock = LockService.getScriptLock();
+  // Peek at the action before deciding on the lock. Parsing touches no shared
+  // state, so it is safe to do outside. Both doors are checked: the body (n8n)
+  // and the query string (the Zoho proxies), matching the dispatch below.
+  var _peekAction = '';
   try {
-    lock.waitLock(30000);
-  } catch (lockErr) {
-    return ContentService.createTextOutput(JSON.stringify({"status": "error", "message": "Server Busy"})).setMimeType(ContentService.MimeType.JSON);
+    var _peek = JSON.parse((e && e.postData && e.postData.contents) || '{}');
+    _peekAction = _peek.action || (e && e.parameter && e.parameter.action) || '';
+  } catch (_peekErr) {
+    _peekAction = (e && e.parameter && e.parameter.action) || '';
+  }
+
+  var lock = null;
+  if (!DOPOST_LOCK_FREE[_peekAction]) {
+    lock = LockService.getScriptLock();
+    try {
+      lock.waitLock(30000);
+    } catch (lockErr) {
+      return ContentService.createTextOutput(JSON.stringify({"status": "error", "message": "Server Busy"})).setMimeType(ContentService.MimeType.JSON);
+    }
   }
 
   var MAX_RETRIES = 3;
@@ -844,7 +883,7 @@ function doPost(e) {
     return ContentService.createTextOutput(JSON.stringify({"status": "error", "message": lastErr.toString()})).setMimeType(ContentService.MimeType.JSON);
 
   } finally {
-    lock.releaseLock();
+    if (lock) lock.releaseLock();   // null for the lock-free read actions above
   }
 }
 
