@@ -301,6 +301,45 @@ body.ch-direct #pickListDirect { display: block; }
 .pc-zoho.pending { color: var(--money); border-color: rgba(255,184,77,0.45); }
 .pc-zoho.done { color: var(--ok); border-color: rgba(76,175,80,0.45); }
 .pc-zoho:active { background: rgba(255,255,255,0.08); }
+/* The DAY'S RECORD rather than fresh news: same green so it reads as "done",
+   a dashed frame so it does not compete with the live receipt beside it. */
+.pc-zoho.perm { border-style: dashed; opacity: 0.85; }
+
+/* ⭐ A PUSH THAT LANDED SHOULD BE VISIBLE ON THE ROW (2026-08-18, picker's ask).
+   Fixing Zoho from the floor is the highest-stakes thing this board does — it
+   reaches eBay within minutes — and until now the only "it worked" was a toast
+   that slides away and a chime. The picker wanted the ITEM to say so.
+
+   ⚠ AN INSET GLOW, NOT A BACKGROUND. The row already carries meaning in its
+   background (banding, the deviance tint) and in ::before (the kit thread
+   spine, 2026-08-14). Animating `background` would blank those for the duration
+   and flash on the way out; an inset box-shadow composites OVER them and
+   collides with nothing.
+
+   Restraint on purpose — this board has deleted spectacle before (the weather
+   FX, the idle screensaver). One 1.1s green bloom, once, on the row that
+   changed. Green because it means DONE here (SHIPPED, the confirmed receipt),
+   never brand-yellow, which means "do something". */
+@keyframes fixLand {
+  0%   { box-shadow: inset 0 0 0 0 rgba(76,175,80,0); }
+  18%  { box-shadow: inset 0 0 34px 2px rgba(76,175,80,0.50); }
+  100% { box-shadow: inset 0 0 0 0 rgba(76,175,80,0); }
+}
+.pick-row.fix-land { animation: fixLand 1100ms ease-out 1; }
+@keyframes zohoPop {
+  0%   { transform: scale(0.86); }
+  55%  { transform: scale(1.07); }
+  100% { transform: scale(1); }
+}
+/* ⚠ DRIVEN FROM THE ROW, NOT SET ON THE CHIP. The keyed reconcile REUSES the
+   <li> but REBUILDS its contents, so a class put directly on the receipt is
+   discarded by the very next tick — and pollSoon() fires immediately after a
+   push, so that is ~instant. Anchoring the rule to the row means a chip
+   recreated mid-celebration still animates. Cost me one failing assertion. */
+.pick-row.fix-land .pc-zoho { animation: zohoPop 420ms ease-out 1; }
+@media (prefers-reduced-motion: reduce) {
+  .pick-row.fix-land, .pc-zoho.pop { animation: none; }
+}
 .pc-btn { min-height: 40px; padding: 0 12px; border: 1px solid var(--line);
           background: var(--g3); color: var(--t2); border-radius: 6px;
           font-family: var(--disp); font-size: var(--fs-lab); letter-spacing: 0.08em;
@@ -1294,6 +1333,20 @@ body.ch-direct #pickListDirect { display: block; }
     var HQ_RETRYABLE = { boardTick: 1, boardPickers: 1, boardPart: 1,
                          boardPartLite: 1, boardOrder: 1, boardRadio: 1 };
 
+    /* ⚠⚠ THE WRITES, AND WHY THEY GET A STRICTER TEST (2026-08-17).
+       Every one of these four answers with an EXPLICIT `ok` — checked against
+       boardSetStatus, boardSetLeft, boardAdjustStock and setBoardPicker, all
+       four, every return path, not assumed. So a write reply WITHOUT an `ok`
+       key did not come from our code, whatever else it contains, and the only
+       honest reading is that the hop failed.
+
+       ⚠ THIS LIST CANNOT BE WIDENED TO EVERY ACTION. boardTick returns the tick
+       payload itself, which has no `ok` key by design — applying the rule to
+       reads would classify every healthy tick as a transport fault and black
+       out the whole board. The strict test belongs ONLY where the contract
+       actually guarantees `ok`. */
+    var HQ_WRITES = { boardStatus: 1, boardLeft: 1, boardAdjust: 1, boardSetPicker: 1 };
+
     /* ⚠⚠ EVERY REQUEST IS BOUNDED (2026-08-15). fetch has NO timeout of its
        own, and this board is carried around a warehouse on wifi — so a request
        made while the picker walks out of range does not fail, it HANGS, for as
@@ -1344,6 +1397,17 @@ body.ch-direct #pickListDirect { display: block; }
           // the sheet refusing — same distinction hqCall already draws below.
           var t = new Error('timed out after ' + Math.round(limit / 1000) + 's');
           t.transport = true;
+          // ⚠⚠ AND A TIMEOUT IS "I DO NOT KNOW", NOT "IT FAILED" (2026-08-17).
+          // Measured this morning: Apps Script answers in ~2s and was 12/12
+          // healthy, while the SAME call through the proxy took 42–59s. So a
+          // write that outruns our bound has most likely LANDED — we simply
+          // stopped waiting for the receipt. Telling the picker "NOT saved" and
+          // clearing the row is therefore a guess, and it is the guess that
+          // costs a second tap on the floor's busiest action.
+          // Callers must treat this flag as UNKNOWN: hold the optimistic state
+          // and let the next tick settle it, which is exactly the case the
+          // override TTL exists for — retire on evidence, expire on a timer.
+          t.timeout = true;
           throw t;
         }
         if (e && !e.transport) e.transport = true;   // network-level, not a refusal
@@ -1385,8 +1449,23 @@ body.ch-direct #pickListDirect { display: block; }
         // code node returns {error: 'proxy: …'} with NO `ok` property, while
         // every board function returns an explicit ok:false. Checked against
         // both proxy JSONs and every board return shape, not assumed.
+        // ⚠⚠ AND A REPLY CAN BE MALFORMED WITHOUT CARRYING `error` AT ALL
+        // (2026-08-17). Captured twice from production the same morning: the
+        // proxy answered a ✓ Pick with the REQUEST echoed back —
+        //   {"headers":{"host":"hq.yassinqurabi.com","user-agent":…},"body":{…}}
+        // — because n8n's error path passes the incoming item straight through
+        // as though it were a result. No `ok`, and no `error` either, so the
+        // test below waved it past as "the server said no": the row un-picked
+        // itself and the picker was told NOTHING. That is precisely the
+        // original floor report — "the item activates the pick button again for
+        // some reason" — and it survived the TTL fix because it was never the
+        // TTL. The comment above already states the right rule; the code only
+        // applied it when `error` happened to be present. For writes, apply the
+        // rule as written: no `ok` means it did not come from us.
         var serverAnswered = res && Object.prototype.hasOwnProperty.call(res, 'ok');
-        if (res && res.error && !serverAnswered) {
+        var hopFailed = (res && res.error && !serverAnswered) ||
+                        (HQ_WRITES[action] && !serverAnswered);
+        if (hopFailed) {
           // Reads are safe to retry; WRITES ARE NOT. A duplicated boardStatus,
           // boardAdjust, boardLeft or boardSetPicker is worse than a visible
           // failure, so those surface immediately and let the picker decide.
@@ -1394,7 +1473,10 @@ body.ch-direct #pickListDirect { display: block; }
             return new Promise(function (res2) { setTimeout(res2, 700); })
               .then(function () { return hqCall(action, body, 1); });
           }
-          var e = new Error(res.error);
+          // The echoed-request case carries no message at all, so say what
+          // actually happened rather than throwing `Error(undefined)`.
+          var e = new Error(res && res.error ? res.error
+                                             : 'proxy returned no answer');
           e.transport = true;          // "we could not reach it", not "it said no"
           throw e;
         }
@@ -1841,6 +1923,40 @@ body.ch-direct #pickListDirect { display: block; }
     function noteAdjust(sku, target) {
       adjustSeen[String(sku)] = { target: target, confirmed: false,
                                   until: Date.now() + ADJUST_SEEN_MS };
+    }
+
+    /* ⭐ Mark the row(s) that just had their stock corrected (2026-08-18).
+       Runs AFTER the repaint, so the receipt chip it pops already exists.
+
+       ⚠ EVERY ROW CARRYING THAT SKU, not just the one tapped — a stock
+       adjustment is per-SKU, the receipt already renders on all of them
+       (adjustStateFor is keyed by sku), and celebrating one while its twin sat
+       inert would read as a partial success.
+
+       data-key is `channel|orderId|sku`, so the `|` in the suffix match is
+       load-bearing: without it, SKU 165411 would also light up 1165411. */
+    function cheerFixedRow(sku) {
+      var clean = String(sku == null ? '' : sku);
+      if (!/^[A-Za-z0-9._-]+$/.test(clean)) return;   // never build a selector from junk
+      try {
+        var rows = document.querySelectorAll('.pick-row[data-key$="|' + clean + '"]');
+        for (var i = 0; i < rows.length; i++) {
+          (function (el) {
+            el.classList.remove('fix-land');
+            void el.offsetWidth;                      // restart if it is already running
+            el.classList.add('fix-land');
+            // ⚠ Only the ROW's own animation ends the celebration. The receipt
+            // pop is a descendant rule, and its animationend BUBBLES — without
+            // this guard the shorter chip animation would strip the class and
+            // cut the row's glow off less than half way through.
+            el.addEventListener('animationend', function done(ev) {
+              if (ev.target !== el) return;
+              el.classList.remove('fix-land');
+              el.removeEventListener('animationend', done);
+            });
+          })(rows[i]);
+        }
+      } catch (e) { /* a celebration must never break the write it celebrates */ }
     }
 
     /* Resolve against what the tick now reports, and expire the record. */
@@ -2904,6 +3020,9 @@ body.ch-direct #pickListDirect { display: block; }
       // hung off the deviance it would vanish at exactly the moment it became
       // the good news.
       var adj = adjustStateFor(r.sku, handN);
+      // The day's permanent record for this SKU, straight from the Activity Log.
+      var fixedToday = (lastTick && lastTick.cockpit && lastTick.cockpit.zohoFixedToday)
+                       ? lastTick.cockpit.zohoFixedToday[String(r.sku)] : null;
       if (adj) {
         var z = document.createElement('button');
         z.className = 'pc-zoho ' + (adj.confirmed ? 'done' : 'pending');
@@ -2921,6 +3040,39 @@ body.ch-direct #pickListDirect { display: block; }
         z.setAttribute('data-qty', String(qtyN));
         z.setAttribute('data-hand', String(handN));
         wrap.appendChild(z);
+      }
+      /* ⭐ ...AND WHEN THE LIVE RECEIPT HAS GONE, THE SHEET STILL REMEMBERS
+         (2026-08-18, floor report). The receipt above is a CLIENT memory: 10
+         minutes, lost on reload, invisible on the next tablet. Once the mirror
+         catches up the deviance disappears as well, so the row goes back to
+         looking untouched — and the picker is left asking "did I push this one
+         or not?" and re-doing it to be safe.
+
+         This chip is server-backed, from the Activity Log, so it survives a
+         reload, shows on every device, and lasts the whole day. It carries the
+         same data attributes, which means it is still the door back into the
+         numpad — a correction can itself need correcting.
+
+         ⚠ else-if, NOT a second chip. While the live receipt exists it is the
+         better one: it distinguishes "sent, waiting for the mirror" from
+         "confirmed", which this cannot. Two chips saying almost the same thing
+         is how a row stops being readable. */
+      else if (fixedToday) {
+        var pz = document.createElement('button');
+        pz.className = 'pc-zoho done perm';
+        pz.textContent = fixedToday.noop ? '✓ zoho ok' : '✓ zoho ' + fixedToday.to;
+        pz.title = (fixedToday.noop
+          ? 'Checked at ' + fixedToday.at + ' — Zoho already read ' + fixedToday.to +
+            ', so nothing was sent.'
+          : 'Pushed to Zoho at ' + fixedToday.at + ' — set to ' + fixedToday.to + '.')
+          + (fixedToday.by ? '  By ' + fixedToday.by + '.' : '')
+          + '  Tap to correct it again.';
+        pz.setAttribute('data-order', r.orderId || '');
+        pz.setAttribute('data-sku', r.sku || '');
+        pz.setAttribute('data-counted', String(counted === null ? expected : counted));
+        pz.setAttribute('data-qty', String(qtyN));
+        pz.setAttribute('data-hand', String(handN));
+        wrap.appendChild(pz);
       }
 
       var btn = document.createElement('button');
@@ -3533,7 +3685,20 @@ body.ch-direct #pickListDirect { display: block; }
                           function () { markPicked(orderId, sku, btn); });
           }
         })
-        .catch(function () {
+        .catch(function (e) {
+          /* ⚠ A TIMEOUT IS NOT A FAILURE — HOLD THE ROW (2026-08-17).
+             The proxy stalls for 40–60s in bursts while Apps Script itself
+             answers in ~2s, so a tap that outran the bound has very probably
+             landed. Clearing the row here is what produced "it took him 3 or 4
+             clicks": each retry was answering a question we had already got
+             right. Keep the optimistic flip, say plainly that we are still
+             checking, and poll at once — the override retires the moment the
+             server agrees, and expires on its own if it never does. */
+          if (e && e.timeout) {
+            toast('⏳ Slow connection — still checking. Do NOT tap again yet.', 7000);
+            pollSoon();
+            return;
+          }
           /* ⚠⚠ A FAILED PICK MUST SAY SO (2026-08-15). This branch used to
              clear the override and restore the button IN SILENCE — so a wifi
              blip in the aisles produced EXACTLY the symptom the floor reported:
@@ -3684,7 +3849,25 @@ body.ch-direct #pickListDirect { display: block; }
                   : '✓ ' + sku + ' counted ' + val, 4500);
           pollSoon();                                 // the sheet is the truth
         })
-        .catch(function () { btn.disabled = false; btn.textContent = was; });
+        /* ⚠⚠ THE COUNT WAS THE LAST SILENT WRITE (2026-08-17). This branch
+           restored the button and said NOTHING, so a failed save looked
+           identical to a save the picker simply hadn't watched land — which is
+           why the floor reported the count behaving "the same as the pick".
+           The 08-15 rule (a failed write must say so) was applied to markPicked
+           and never carried across to here. Same rule, same words, and the same
+           timeout-is-unknown distinction: a count has no optimistic state to
+           hold, so the button comes back either way, but the MESSAGE must not
+           claim a failure we cannot prove. */
+        .catch(function (e) {
+          btn.disabled = false; btn.textContent = was;
+          if (e && e.timeout) {
+            toast('⏳ Slow connection — that count may still be saving. Checking…', 7000);
+            pollSoon();
+            return;
+          }
+          toast('✕ Could not reach the sheet — that count was NOT saved. Tap it again.', 8000);
+          chime('error');
+        });
     }
 
     /* ⚠ THE BOARD SUGGESTS, THE PICKER CONFIRMS — it does not derive and fire.
@@ -3781,10 +3964,27 @@ body.ch-direct #pickListDirect { display: block; }
             paintPickList(applyPickOverrides((lastTick.openOrders || []).slice()),
                           lastTick.openOrdersTotal, lastTick.openOrdersBy);
           }
+          // ⭐ AFTER the repaint — the row and its receipt have to exist first.
+          // Only on a REAL correction: a no-op ("already at N") is a useful
+          // answer but nothing changed, and celebrating it would teach the
+          // floor that the glow means "I tapped", not "the number moved".
+          if (!res.noop) cheerFixedRow(sku);
           pollSoon();
         })
-        .catch(function () {
+        .catch(function (e) {
           btn.disabled = false; btn.textContent = was;
+          /* ⚠ "NOTHING WAS SENT" IS A CLAIM, AND ON A TIMEOUT WE CANNOT MAKE
+             IT (2026-08-17). This is the write where being wrong costs the
+             most: a picker told nothing was sent will push the same correction
+             again. That happens to be harmless here — the proxy reads Zoho's
+             current stock and computes the delta to reach the TARGET, so a
+             repeat lands on the same number rather than doubling — but the
+             message should still say what we actually know. */
+          if (e && e.timeout) {
+            toast('⏳ Slow connection — this may still be going through. ' +
+                  'Check the row before sending it again.', 9000);
+            return;
+          }
           toast('✕ Could not reach the server — nothing was sent', 8000);
           chime('error');
         });

@@ -588,6 +588,19 @@ function getDashboardSnapshot() {
     directGrab: 0,
     zohoPending: 0,
     prepQueueCount: 0,
+    /* ⭐ SKU → the Zoho stock push made TODAY (2026-08-18, floor report).
+       "They push to Zoho, the row resets, and later they cannot remember
+       whether they pushed it or not." The board's receipt was only ever a
+       CLIENT memory: 10-minute TTL, lost on reload, invisible on a second
+       device — and once the mirror catches up the deviance disappears too, so
+       the row goes back to looking untouched. Nothing on screen could answer
+       the question.
+
+       The answer already existed and was simply unreachable: every push writes
+       a NOTE event with source `board`, the SKU, before → after, the Zoho
+       adjustment id and the picker. Read from the SAME log tail this function
+       already scans, so it costs one regex per row and no extra read. */
+    zohoFixedToday: {},
     timeline: []
   };
 
@@ -651,6 +664,35 @@ function getDashboardSnapshot() {
               else result.receivedEbay++;
             }
             else if (event === "SHIPPED") result.shippedToday++;
+
+            /* ⭐ A ZOHO PUSH IS A PERMANENT FACT — surface it (2026-08-18).
+               StockAdjust writes exactly two shapes, and both answer the
+               picker's question "did I already do this one?":
+                 adjusted → "Zoho stock 5 → 6 (+1) · adj 12345"
+                 no-op    → "Stock confirmed at 6 — no adjustment needed"
+               The no-op counts. "I checked it and it was already right" is
+               precisely the memory they are missing, and leaving it out would
+               send them to re-check the shelf for nothing.
+
+               ⚠ LAST ONE WINS. A SKU pushed twice should report the latest
+               value, and the log is chronological, so a plain overwrite is
+               already correct — no comparison needed. */
+            if (event === "NOTE" && sku) {
+              var src = String(data[i][ACTIVITY_LOG.idx("SOURCE")] || "").toLowerCase();
+              if (src === "board") {
+                var det  = String(data[i][ACTIVITY_LOG.idx("DETAIL")] || "");
+                var moved = det.match(/Zoho stock\s+\S+\s*→\s*(-?\d+(?:\.\d+)?)/);
+                var same  = det.match(/Stock confirmed at\s+(-?\d+(?:\.\d+)?)/);
+                if (moved || same) {
+                  result.zohoFixedToday[sku] = {
+                    to:   Number((moved || same)[1]),
+                    noop: !moved,
+                    at:   Utilities.formatDate(ts, "America/Chicago", "h:mm a"),
+                    by:   picker
+                  };
+                }
+              }
+            }
 
             // Timeline entry — convert to 0..24 hour fraction in Chicago TZ
             if (TIMELINE_EVENTS[event]) {
