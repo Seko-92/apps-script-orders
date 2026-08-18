@@ -214,6 +214,15 @@
       transition: opacity 140ms ease, border-color 140ms ease;
     }
     .comp-card.excluded { opacity: 0.45; }
+    /* Bundled = ships inside another component. Slate, not amber or red: it is a
+       fact to weigh, not a fault. */
+    .comp-card.bundled { border-left: 3px solid #90a4ae; }
+    .bundled-chip {
+      display: inline-block; margin-right: 7px; padding: 1px 7px;
+      border: 1px solid #b0bec5; border-radius: 9px;
+      background: #eceff1; color: #46606e;
+      font-size: 11px; font-weight: 700;
+    }
     .comp-card.swapped  { border-left: 4px solid var(--blue); }
     .comp-card.added    { border-left: 4px solid var(--green); }
 
@@ -605,6 +614,14 @@
     // -----------------------------------------------------------------
     // RENDER ONE KIT
     // -----------------------------------------------------------------
+    /** Sales lines carry qty + MPN; the chip only needs the part name. */
+    function shortParent(txt) {
+      var s = String(txt || '').replace(/^[\s\-\u2013]*\d+\s*/, '').trim();
+      s = s.replace(/\s+[A-Z0-9][A-Z0-9\-\.]{4,}$/i, '').trim();
+      if (!s) s = 'another part';
+      return s.length > 22 ? s.substring(0, 21) + '\u2026' : s;
+    }
+
     function renderKit() {
       if (idx >= queue.length) return renderDone();
 
@@ -614,6 +631,12 @@
       busy = false;
 
       var kit = queue[idx];
+      // Parts that ship INSIDE another component start unchecked — the Sales
+      // Description already said so ("Full Gasket Set … + Head Gasket"), so the
+      // picker no longer carries that in their head. Still re-checkable.
+      (kit.components || []).forEach(function (c) {
+        if (c && c.bundled) excludedSkus[c.sku] = true;
+      });
       var isReady = (kit.kitType === 'READY');
 
       document.getElementById('gate').classList.add('hidden');
@@ -776,6 +799,7 @@
         var cls = 'comp-card'
                 + (excludedSkus[orig] ? ' excluded' : '')
                 + (swap ? ' swapped' : '')
+                + (c.bundled ? ' bundled' : '')
                 + (isMissing ? ' missing' : '');
 
         html += '<div class="' + cls + '" data-sku="' + esc(orig) + '">'
@@ -789,6 +813,7 @@
              +        '<span class="comp-name">' + esc(showName || '') + '</span>'
              +      '</span>'
              +      '<span class="comp-meta">'
+             +        (c.bundled ? '<span class="bundled-chip">&#8627; inside ' + esc(shortParent(c.bundledInto)) + '</span>' : '')
              +        '<span class="loc">' + esc(showLoc || '—') + '</span>'
              +        (showHand != null ? '<span>&#183; HAND ' + esc(showHand) + '</span>' : '')
              +        '<button type="button" class="swap-btn" data-act="openswap" data-sku="' + esc(orig) + '">&#8646; swap</button>'

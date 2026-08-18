@@ -90,12 +90,16 @@ var KIT_HEALTH = {
     LIMITED_BY:   14,  // N — bottleneck component, NAMED ("Piston Kit (167517) · has 12 / needs 6")
     COMPONENTS:   15,  // O — price-completeness ("8 ok" / "⚠ 2 unpriced" / "⚠ 1 PD unreadable")
     STOCK_STATUS: 16,  // P — KIT_QTY × BUILDABLE verdict: STOCK+BUILD / IN STOCK / BUILD-ONLY / OOS / ⚠
-    LAST_CHECKED: 17   // Q
+    AT_RISK:      17,  // Q — units ADVERTISED that we cannot currently assemble
+                       //     (advertised − buildable, MANUAL kits only, blank when covered).
+                       //     "advertised" is the HIGHER of eBay and Zoho: either channel
+                       //     can take the order, so the exposure is the louder of the two.
+    LAST_CHECKED: 18   // R
   },
 
   idx: function (name) { return KIT_HEALTH.cols[name] - 1; },
 
-  dataWidth:    17,
+  dataWidth:    18,
   // Dashboard layout: row 1 = KPI summary band, row 2 = column headers (both
   // frozen), data from row 3. setupKitHealthSheet migrates the pre-band layout
   // (headers at row 1) forward automatically.
@@ -105,7 +109,7 @@ var KIT_HEALTH = {
 
   headers: ["📦 KIT SKU", "KIT NAME", "LOC", "TYPE", "◫ KIT QTY", "PARTS $", "COMPUTED $",
             "LISTED $", "Δ $", "Δ %", "DISC %", "PRICE STATUS",
-            "BUILDABLE", "LIMITED BY", "COMPONENTS", "STOCK STATUS", "⏱ CHECKED"],
+            "BUILDABLE", "LIMITED BY", "COMPONENTS", "STOCK STATUS", "⚠ AT RISK", "⏱ CHECKED"],
 
   // Actionable price-drift tolerance. Δ within max($2, 3% of computed) = IN LINE.
   // The engine rounds to the nearest dollar, so a couple dollars of slack keeps
@@ -127,7 +131,17 @@ var KIT_HEALTH = {
     IN_STOCK:    "IN STOCK",     // have some but can't replenish (the "blocked" watch case)
     BUILD_ONLY:  "BUILD-ONLY",   // none assembled, but N buildable from parts
     OOS:         "OOS",          // none on shelf AND can't build (urgent)
-    UNKNOWN:     "⚠"             // buildability untrustable → can't judge stock
+    UNKNOWN:     "⚠",            // buildability untrustable → can't judge stock
+
+    // ⚠⚠ THE OVERSELL PAIR (2026-08-19). A MANUAL kit has NO assembled box —
+    // its listed quantity is a PROMISE backed by component stock, typed once and
+    // never walked down as parts sold. So "we are advertising more than we can
+    // assemble" is a real oversell exposure, and the old label for exactly that
+    // state was "IN STOCK", which read as reassurance. These two name it instead.
+    // READY kits keep IN STOCK: a box on a K-* shelf is real inventory, and
+    // "can't build more" is a fact about resupply, not a promise we can't keep.
+    CANT_BUILD:  "⚠ CAN'T BUILD",  // advertised, buildable 0 — the NEXT sale fails
+    OVER_LISTED: "⚠ OVER-LISTED"   // advertised more than we can assemble, partly covered
   }
 };
 
@@ -135,14 +149,36 @@ var KIT_HEALTH = {
 /** STOCK STATUS verdict from the kit's own on-hand qty × its buildable count.
  *  This is the KIT_QTY-vs-BUILDABLE contrast turned into one scannable label.
  *  Pure — Node-testable. */
-function _kitStockStatus(kitQty, buildable) {
+function _kitStockStatus(kitQty, buildable, kitType, advertised) {
   if (typeof buildable !== 'number') return KIT_HEALTH.stock.UNKNOWN;   // ⚠ buildable
+
+  var adv = (typeof advertised === 'number') ? advertised
+          : (typeof kitQty === 'number' ? kitQty : 0);
+  var isManual = String(kitType || "MANUAL").toUpperCase() !== "READY";
+
+  // MANUAL kit advertised beyond what its components can assemble → oversell.
+  if (isManual && adv > 0 && adv > buildable) {
+    return (buildable === 0) ? KIT_HEALTH.stock.CANT_BUILD
+                             : KIT_HEALTH.stock.OVER_LISTED;
+  }
+
   var haveStock = (typeof kitQty === 'number' && kitQty > 0);
   var canBuild  = buildable > 0;
   if (haveStock && canBuild)  return KIT_HEALTH.stock.STOCK_BUILD;
   if (haveStock && !canBuild) return KIT_HEALTH.stock.IN_STOCK;
   if (!haveStock && canBuild) return KIT_HEALTH.stock.BUILD_ONLY;
   return KIT_HEALTH.stock.OOS;
+}
+
+/** Units advertised that cannot currently be assembled. MANUAL kits only —
+ *  a READY kit's quantity is a box on a shelf, not a promise. Returns "" when
+ *  covered, so the column stays quiet except where it matters. Pure. */
+function _kitAtRisk(advertised, buildable, kitType) {
+  if (typeof buildable !== 'number') return "";
+  if (String(kitType || "MANUAL").toUpperCase() === "READY") return "";
+  var adv = (typeof advertised === 'number') ? advertised : 0;
+  var gap = adv - buildable;
+  return gap > 0 ? gap : "";
 }
 
 /** Median of a numeric array (0 on empty). Used to calibrate the audit to the
@@ -210,6 +246,7 @@ function setupKitHealthSheet() {
   sheet.setColumnWidth(KIT_HEALTH.cols.LIMITED_BY,    260);
   sheet.setColumnWidth(KIT_HEALTH.cols.COMPONENTS,    150);
   sheet.setColumnWidth(KIT_HEALTH.cols.STOCK_STATUS,  120);
+  sheet.setColumnWidth(KIT_HEALTH.cols.AT_RISK,       88);
   sheet.setColumnWidth(KIT_HEALTH.cols.LAST_CHECKED,  140);
 
   // --- DATA AREA: column-level formats so re-runs inherit ---
@@ -278,7 +315,7 @@ function setupKitHealthSheet() {
       var c = rg.getColumn();
       return c === KIT_HEALTH.cols.PRICE_STATUS || c === KIT_HEALTH.cols.DELTA
           || c === KIT_HEALTH.cols.DISC_PCT     || c === KIT_HEALTH.cols.BUILDABLE
-          || c === KIT_HEALTH.cols.STOCK_STATUS;
+          || c === KIT_HEALTH.cols.STOCK_STATUS || c === KIT_HEALTH.cols.AT_RISK;
     });
   });
 
@@ -340,6 +377,18 @@ function setupKitHealthSheet() {
     .setBackground('#fff3b0').setFontColor('#7a5c00').setBold(true)
     .setRanges([buildRange]).build());
 
+  // AT RISK — units advertised we cannot assemble. Blank on a healthy kit, so any
+  // ink in this column is a finding. Deepens with the size of the exposure.
+  var riskRange = sheet.getRange(dsr, KIT_HEALTH.cols.AT_RISK, dataRows, 1);
+  keep.push(SpreadsheetApp.newConditionalFormatRule()
+    .whenNumberGreaterThanOrEqualTo(3)
+    .setBackground('#ffcdd2').setFontColor('#b71c1c').setBold(true)
+    .setRanges([riskRange]).build());
+  keep.push(SpreadsheetApp.newConditionalFormatRule()
+    .whenNumberGreaterThan(0)
+    .setBackground('#ffe0b2').setFontColor('#7a3d00').setBold(true)
+    .setRanges([riskRange]).build());
+
   // STOCK_STATUS — the KIT_QTY × BUILDABLE verdict. STOCK+BUILD green (healthiest);
   // IN STOCK amber (have some but can't replenish — the watch case); BUILD-ONLY
   // cool slate (info); OOS red (urgent); ⚠ gray (can't judge).
@@ -355,6 +404,17 @@ function setupKitHealthSheet() {
   keep.push(SpreadsheetApp.newConditionalFormatRule()
     .whenTextEqualTo(KIT_HEALTH.stock.BUILD_ONLY)
     .setBackground('#e1f0f5').setFontColor('#2a6478').setBold(true)
+    .setRanges([stockRange]).build());
+  // ⚠ CAN'T BUILD — advertised and the next sale cannot be fulfilled. RED, and
+  // it is the ONE place on this sheet red is spent, because it is the only state
+  // here that reaches a customer. OVER-LISTED is amber: exposed, but partly covered.
+  keep.push(SpreadsheetApp.newConditionalFormatRule()
+    .whenTextEqualTo(KIT_HEALTH.stock.CANT_BUILD)
+    .setBackground('#ffcdd2').setFontColor('#b71c1c').setBold(true)
+    .setRanges([stockRange]).build());
+  keep.push(SpreadsheetApp.newConditionalFormatRule()
+    .whenTextEqualTo(KIT_HEALTH.stock.OVER_LISTED)
+    .setBackground('#ffe0b2').setFontColor('#7a3d00').setBold(true)
     .setRanges([stockRange]).build());
   keep.push(SpreadsheetApp.newConditionalFormatRule()
     .whenTextEqualTo(KIT_HEALTH.stock.OOS)
@@ -437,33 +497,41 @@ function _kitHealthLimitedByText(build) {
   return (build && build.limitedBy) || "";
 }
 
-function _kitHealthClassify(kit, priced, build, listed, kitQty, now, discount, threshold) {
+function _kitHealthClassify(kit, priced, build, listed, kitQty, now, discount, threshold, advertised) {
   var S = KIT_HEALTH.status;
   var hasUnparsed = (kit.unparsedLines || []).length > 0;
   var noComps     = (kit.components   || []).length === 0;
   var hasUnpriced = (priced.unpricedComponents || []).length > 0;
   var complete    = !hasUnparsed && !noComps && !hasUnpriced;
 
-  // COMPONENTS text — price-completeness lens (buildability has its own columns)
+  // COMPONENTS text — price-completeness lens (buildability has its own columns).
+  // "N bundled" names parts that ship INSIDE another component and are therefore
+  // deliberately out of the price and the build math — stated, never silent, so a
+  // reviewer can see WHY the parts value is lower than the line count suggests.
+  var nBundled = (priced.excludedComponents || []).length;
+  var bundledNote = nBundled ? " · " + nBundled + " bundled" : "";
   var compsText;
   if (hasUnparsed)      compsText = "⚠ " + kit.unparsedLines.length + " PD unreadable";
   else if (noComps)     compsText = "⚠ no components";
-  else if (hasUnpriced) compsText = "⚠ " + priced.unpricedComponents.length + " unpriced";
-  else                  compsText = kit.components.length + " ok";
+  else if (hasUnpriced) compsText = "⚠ " + priced.unpricedComponents.length + " unpriced" + bundledNote;
+  else                  compsText = ((kit.components.length - nBundled) + " ok") + bundledNote;
 
   var loc     = kit._loc || kit.location || "NOT FOUND";
   var type    = kit.type || "MANUAL";
   var kitName = kit.name || "";
 
   var limitedBy   = _kitHealthLimitedByText(build);
-  var stockStatus = _kitStockStatus(kitQty, build.buildable);
+  var adv         = (typeof advertised === 'number') ? advertised
+                  : (typeof kitQty === 'number' ? kitQty : 0);
+  var stockStatus = _kitStockStatus(kitQty, build.buildable, type, adv);
+  var atRisk      = _kitAtRisk(adv, build.buildable, type);
 
   // Untrustworthy computed → ⚠ INCOMPLETE, blank the price math, show listed if any.
   if (!complete) {
     return {
       status: S.INCOMPLETE, bucket: "incomplete", stockStatus: stockStatus,
       row: [kit.sku, kitName, loc, type, kitQty, "", "", (listed != null ? listed : ""),
-            "", "", "", S.INCOMPLETE, build.buildable, limitedBy, compsText, stockStatus, now]
+            "", "", "", S.INCOMPLETE, build.buildable, limitedBy, compsText, stockStatus, atRisk, now]
     };
   }
 
@@ -475,7 +543,7 @@ function _kitHealthClassify(kit, priced, build, listed, kitQty, now, discount, t
     return {
       status: S.NO_LISTED, bucket: "noListed", stockStatus: stockStatus,
       row: [kit.sku, kitName, loc, type, kitQty, parts, computed, "",
-            "", "", "", S.NO_LISTED, build.buildable, limitedBy, compsText, stockStatus, now]
+            "", "", "", S.NO_LISTED, build.buildable, limitedBy, compsText, stockStatus, atRisk, now]
     };
   }
 
@@ -492,7 +560,7 @@ function _kitHealthClassify(kit, priced, build, listed, kitQty, now, discount, t
   return {
     status: status, bucket: bucket, stockStatus: stockStatus,
     row: [kit.sku, kitName, loc, type, kitQty, parts, computed, listed,
-          delta, pct, discPct, status, build.buildable, limitedBy, compsText, stockStatus, now]
+          delta, pct, discPct, status, build.buildable, limitedBy, compsText, stockStatus, atRisk, now]
   };
 }
 
@@ -519,7 +587,11 @@ function runKitHealthAudit() {
       // so the audit never writes 17-wide rows into an old-shaped sheet. Cheap
       // one-cell check; setupKitHealthSheet's own guard does the row insert.
       var a2 = String(sheet.getRange(2, 1).getValue() || "").trim();
-      if (a2.indexOf("📦") !== 0) {
+      // Also re-run setup when the sheet is NARROWER than the current schema —
+      // the 2026-08-19 AT RISK column widened it 17 → 18, and writing 18-wide rows
+      // under a 17-wide header would leave the last column unlabelled and unformatted.
+      var lastHdr = String(sheet.getRange(KIT_HEALTH.headerRow, KIT_HEALTH.dataWidth).getValue() || "").trim();
+      if (a2.indexOf("📦") !== 0 || lastHdr !== KIT_HEALTH.headers[KIT_HEALTH.dataWidth - 1]) {
         setupKitHealthSheet();
         sheet = ss.getSheetByName(KIT_HEALTH.sheetName);
       }
@@ -564,13 +636,26 @@ function runKitHealthAudit() {
       var kitQty = resolveAvail(skuLower);
       if (kitQty === null || kitQty === undefined) kitQty = "";
 
+      // ⚠ ADVERTISED = the HIGHER of eBay and Zoho, deliberately.
+      // KIT QTY follows the house rule (Zoho-first → MI). But for an OVERSELL
+      // question the number that matters is what a buyer can still order, and the
+      // two channels can disagree — kit 215756 sat at eBay 0 / Zoho 1 on 08-19.
+      // Either channel can take that order, so the exposure is the louder of the
+      // two. Same fail-toward-showing instinct as the rest of this system.
+      var zoAvail = maps.zoho.get(skuLower);
+      var miRec   = invMaps.inventoryMap.get(skuLower);
+      var advertised = Math.max(
+        (zoAvail && zoAvail.available != null) ? zoAvail.available : 0,
+        (miRec  && miRec.available  != null) ? miRec.available  : 0
+      );
+
       var complete = (kit.unparsedLines || []).length === 0
                   && (kit.components   || []).length > 0
                   && priced0.unpricedComponents.length === 0;
       if (complete && listed != null && priced0.rawSum > 0) {
         impliedDiscs.push(1 - listed / priced0.rawSum);
       }
-      entries.push({ kit: kit, build: build, listed: listed, kitQty: kitQty });
+      entries.push({ kit: kit, build: build, listed: listed, kitQty: kitQty, advertised: advertised });
     });
 
     // Calibrated baseline = catalog median implied discount (fallback to the
@@ -583,14 +668,17 @@ function runKitHealthAudit() {
     // PASS 2 — price + classify every kit at the calibrated discount.
     // ------------------------------------------------------------------------
     var buckets = { under: [], over: [], inline: [], noListed: [], incomplete: [] };
-    var counts  = { totalKits: entries.length, buildableNow: buildableNow, totalUnderBy: 0, inStockBlocked: 0 };
+    var counts  = { totalKits: entries.length, buildableNow: buildableNow, totalUnderBy: 0,
+                    inStockBlocked: 0, cantBuild: 0, overListed: 0, unitsAtRisk: 0 };
 
     entries.forEach(function (e) {
       var priced = computeKitPrice(e.kit.components, { maps: maps, discount: catalogDiscount });
-      var c = _kitHealthClassify(e.kit, priced, e.build, e.listed, e.kitQty, now, catalogDiscount, threshold);
+      var c = _kitHealthClassify(e.kit, priced, e.build, e.listed, e.kitQty, now, catalogDiscount, threshold, e.advertised);
       buckets[c.bucket].push(c.row);
       if (c.bucket === "under") counts.totalUnderBy += c.row[KIT_HEALTH.idx("DELTA")]; // negative
       if (c.stockStatus === KIT_HEALTH.stock.IN_STOCK) counts.inStockBlocked++;         // have some, can't build
+      if (c.stockStatus === KIT_HEALTH.stock.CANT_BUILD)  { counts.cantBuild++;  counts.unitsAtRisk += (c.row[KIT_HEALTH.idx("AT_RISK")] || 0); }
+      if (c.stockStatus === KIT_HEALTH.stock.OVER_LISTED) { counts.overListed++; counts.unitsAtRisk += (c.row[KIT_HEALTH.idx("AT_RISK")] || 0); }
     });
 
     // Sort each bucket, then stack in triage order:
@@ -637,6 +725,7 @@ function runKitHealthAudit() {
             + "   ·   💸 " + underN + " UNDERPRICED (" + underByStr + ")"
             + "   ·   🔧 " + counts.buildableNow + " BUILDABLE NOW"
             + "   ·   ⛔ " + counts.inStockBlocked + " IN-STOCK BLOCKED"
+            + "   ·   🚨 " + counts.cantBuild + " CAN'T BUILD (" + counts.unitsAtRisk + " units at risk)"
             + "   ·   ⚠ " + buckets.incomplete.length + " NEED A FIX"
             + "        ⟳ " + stamp;
     sheet.getRange(KIT_HEALTH.bannerRow, 1).setValue(kpi);
@@ -650,7 +739,8 @@ function runKitHealthAudit() {
     return {
       ok:             true,
       message:        "calibrated " + medPct + "% · " + underN + " underpriced (" + underByStr + ") · "
-                      + overN + " overpriced · " + counts.inStockBlocked + " blocked · " + buckets.incomplete.length + " ⚠",
+                      + overN + " overpriced · " + counts.cantBuild + " can't build · "
+                      + counts.inStockBlocked + " blocked · " + buckets.incomplete.length + " ⚠",
       totalKits:      counts.totalKits,
       medianDiscount: catalogDiscount,          // fraction; sidebar shows as %
       underpriced:    underN,
@@ -660,6 +750,9 @@ function runKitHealthAudit() {
       incomplete:     buckets.incomplete.length,
       buildableNow:   counts.buildableNow,
       inStockBlocked: counts.inStockBlocked,
+      cantBuild:      counts.cantBuild,        // MANUAL, advertised, buildable 0
+      overListed:     counts.overListed,       // MANUAL, advertised beyond buildable
+      unitsAtRisk:    counts.unitsAtRisk,
       totalUnderBy:   parseFloat(counts.totalUnderBy.toFixed(2)),   // negative sum
       durationSec:    durationSec
     };

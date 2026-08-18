@@ -118,22 +118,35 @@ function _kpRound2(x) { return Math.round(x * 100) / 100; }
 // THE ENGINE — computeKitPrice(components, opts)
 // =======================================================================================
 //
-// components : [{sku, qty, name}]  (from buildKitMap or parseBomToComponents)
+// components : [{sku, qty, name, bundled?}]  (from buildKitMap or parseBomToComponents)
 // opts       : {
 //                discount:  fraction (default KIT_PRICING.discount = 0.10),
 //                overrides: { skuLower: unitPrice } — hand-set component prices,
+//                include:   { skuLower: true|false } — hand-set IN/OUT, wins over
+//                           the `bundled` flag in BOTH directions,
 //                maps:      pre-built {ebay, zoho} (built here if omitted)
 //              }
 //
 // Returns:
 //   {
-//     lines: [{ sku, name, qty, unitPrice, source, lineTotal, overridden, unpriced }],
+//     lines: [{ sku, name, qty, unitPrice, source, lineTotal, overridden, unpriced,
+//               excluded, bundledInto }],
 //     rawSum, discount, discountedTotal, roundedTotal,
-//     unpricedComponents: [sku], complete: bool
+//     unpricedComponents: [sku], excludedComponents: [sku], complete: bool
 //   }
 //
-// complete=false when ANY component is unpriced — the caller must treat
+// complete=false when ANY *included* component is unpriced — the caller must treat
 // roundedTotal as untrustworthy and surface the warning, never the number alone.
+//
+// ⚠ EXCLUDED COMPONENTS STILL APPEAR IN `lines`, flagged, never silently removed.
+//   A part that vanished from the breakdown would be indistinguishable from one
+//   the parser never saw, and this engine's whole contract is that an untrustworthy
+//   number is announced rather than quietly produced. The UI dims them instead.
+//
+// ⚠ A BUNDLED COMPONENT CANNOT MAKE A KIT "INCOMPLETE". It isn't being sold as a
+//   separate part, so its missing price says nothing about the kit's price. Before
+//   this, an unpriced head gasket that ships inside the gasket set blanked the whole
+//   kit's price math for no reason.
 // =======================================================================================
 
 function computeKitPrice(components, opts) {
@@ -141,19 +154,28 @@ function computeKitPrice(components, opts) {
   var maps      = opts.maps || _buildKitComponentPriceMaps();
   var discount  = (opts.discount != null && !isNaN(opts.discount)) ? opts.discount : KIT_PRICING.discount;
   var overrides = opts.overrides || {};
+  var include   = opts.include   || {};
 
   var lines = [];
   var rawSum = 0;
   var unpriced = [];
+  var excluded = [];
 
   (components || []).forEach(function (c) {
     var sku = String(c.sku || "").trim();
     var qty = parseInt(c.qty, 10) || 0;
 
-    var ov = overrides[sku.toLowerCase()];
+    // IN or OUT. Bundled parts ship inside another component, so they are not
+    // part of what the kit costs. An explicit include[] entry (the calculator's
+    // per-line control) wins in either direction — the human at the bench knows
+    // the rare exception the data cannot express.
+    var ov  = include[sku.toLowerCase()];
+    var isExcluded = (ov === true) ? false : (ov === false ? true : (c.bundled === true));
+
+    var ovp = overrides[sku.toLowerCase()];
     var unit, source, overridden = false;
-    if (ov != null && !isNaN(parseFloat(ov)) && parseFloat(ov) > 0) {
-      unit = parseFloat(ov); source = "override"; overridden = true;
+    if (ovp != null && !isNaN(parseFloat(ovp)) && parseFloat(ovp) > 0) {
+      unit = parseFloat(ovp); source = "override"; overridden = true;
     } else {
       var res = _resolveComponentPrice(sku, maps);
       unit = res.price; source = res.source;
@@ -161,14 +183,16 @@ function computeKitPrice(components, opts) {
 
     var isUnpriced = (unit == null || isNaN(unit));
     var line = isUnpriced ? null : _kpRound2(unit * qty);
-    if (isUnpriced) unpriced.push(sku);
-    else            rawSum += unit * qty;
+    if (isExcluded)      excluded.push(sku);
+    else if (isUnpriced) unpriced.push(sku);
+    else                 rawSum += unit * qty;
 
     lines.push({
       sku: sku, name: c.name || "", qty: qty,
       unitPrice: isUnpriced ? null : _kpRound2(unit),
       source: source, lineTotal: line,
-      overridden: overridden, unpriced: isUnpriced
+      overridden: overridden, unpriced: isUnpriced,
+      excluded: isExcluded, bundledInto: c.bundledInto || ""
     });
   });
 
@@ -182,6 +206,7 @@ function computeKitPrice(components, opts) {
     discountedTotal: _kpRound2(discounted),
     roundedTotal: rounded,
     unpricedComponents: unpriced,
+    excludedComponents: excluded,
     complete: unpriced.length === 0
   };
 }
@@ -197,7 +222,7 @@ function computeKitPriceBySku(kitSku, opts) {
   if (!kit) return { found: false, kitSku: String(kitSku || "").trim() };
 
   var result = computeKitPrice(kit.components, {
-    maps: maps, discount: opts.discount, overrides: opts.overrides
+    maps: maps, discount: opts.discount, overrides: opts.overrides, include: opts.include
   });
 
   var listed = _resolveComponentPrice(kit.sku, maps);
@@ -262,7 +287,7 @@ function openKitPriceCalculator() {
  *  override/discount edits client-side (pure arithmetic); this call is the
  *  price-fetch + authoritative first compute.
  *
- * payload = { mode:'kit'|'bom', kitSku, bomText, discountPct, overrides }
+ * payload = { mode:'kit'|'bom', kitSku, bomText, discountPct, overrides, include }
  */
 function getKitPriceBreakdown(payload) {
   try {
@@ -271,6 +296,7 @@ function getKitPriceBreakdown(payload) {
       ? parseFloat(payload.discountPct) / 100
       : KIT_PRICING.discount;
     var overrides = payload.overrides || {};
+    var include   = payload.include   || {};
     var maps = _buildKitComponentPriceMaps();
 
     if (payload.mode === 'bom') {
@@ -278,7 +304,7 @@ function getKitPriceBreakdown(payload) {
       if (parsed.components.length === 0) {
         return { ok: false, reason: "No component lines could be read from that BOM. Each line should end with its 6-digit SKU." };
       }
-      var res = computeKitPrice(parsed.components, { maps: maps, discount: discount, overrides: overrides });
+      var res = computeKitPrice(parsed.components, { maps: maps, discount: discount, overrides: overrides, include: include });
       res.ok = true; res.mode = 'bom';
       res.engine = parsed.engineModel;
       res.unparsedLines = parsed.unparsed;
@@ -288,7 +314,7 @@ function getKitPriceBreakdown(payload) {
 
     var kitSku = String(payload.kitSku || "").trim();
     if (!kitSku) return { ok: false, reason: "Enter a kit SKU (or switch to Paste BOM)." };
-    var r = computeKitPriceBySku(kitSku, { maps: maps, discount: discount, overrides: overrides });
+    var r = computeKitPriceBySku(kitSku, { maps: maps, discount: discount, overrides: overrides, include: include });
     if (!r.found) return { ok: false, reason: "Kit " + kitSku + " isn't in the Kit Registry. Paste its BOM instead, or import it first." };
     r.ok = true; r.mode = 'kit';
     return r;

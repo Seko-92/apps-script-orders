@@ -80,17 +80,17 @@ var WATCHDOG = {
  *
  * @returns {string} short summary for the housekeeping log line
  */
-function runStragglerWatchdog() {
+function runStragglerWatchdog(maps) {
   try {
-    var found = _gatherStragglers();
+    var found = _gatherStragglers(maps);
     var store = _wdLoadAlerted();
     var isColdStart = (store === null);
     var known = isColdStart ? {} : store;
 
     // Split findings into already-told vs new.
-    var fresh = { redline: [], partShipped: [], kits: [] };
+    var fresh = { redline: [], partShipped: [], kits: [], overListed: [] };
     var allKeys = [];
-    ["redline", "partShipped", "kits"].forEach(function (bucket) {
+    ["redline", "partShipped", "kits", "overListed"].forEach(function (bucket) {
       found[bucket].forEach(function (item) {
         allKeys.push(item.key);
         if (!known[item.key]) fresh[bucket].push(item);
@@ -98,17 +98,20 @@ function runStragglerWatchdog() {
     });
 
     var totalFound = allKeys.length;
-    var totalFresh = fresh.redline.length + fresh.partShipped.length + fresh.kits.length;
+    var totalFresh = fresh.redline.length + fresh.partShipped.length + fresh.kits.length
+                   + fresh.overListed.length;
 
     // ---- COLD START: seed silently, announce the counts only -------------------
     if (isColdStart) {
       var armed = "🛡 WATCHDOG ARMED\n\n" +
                   "Now watching: orders past the 3h line, SOs part-shipped over " +
-                  WATCHDOG.partShippedHours + "h, and kits sitting unexpanded in DIRECT.\n\n" +
+                  WATCHDOG.partShippedHours + "h, kits sitting unexpanded in DIRECT, and " +
+                  "MANUAL kits listed for more than their parts can build.\n\n" +
                   "Found right now (seeded, not alerting on these):\n" +
                   "  " + found.redline.length + " past the 3h line\n" +
                   "  " + found.partShipped.length + " part-shipped >" + WATCHDOG.partShippedHours + "h\n" +
-                  "  " + found.kits.length + " kit(s) awaiting a decision\n\n" +
+                  "  " + found.kits.length + " kit(s) awaiting a decision\n" +
+                  "  " + found.overListed.length + " kit(s) listed beyond what we can build\n\n" +
                   "From here you'll only hear about NEW ones, once each.";
       var armedSent = _tgSend(TELEGRAM_ADMIN_CHAT_ID, armed);
       if (armedSent) _wdRecord(allKeys, {});
@@ -128,7 +131,7 @@ function runStragglerWatchdog() {
     // Record ONLY on success — a failed send must retry, never vanish.
     if (sent) {
       var newKeys = [];
-      ["redline", "partShipped", "kits"].forEach(function (b) {
+      ["redline", "partShipped", "kits", "overListed"].forEach(function (b) {
         fresh[b].forEach(function (i) { newKeys.push(i.key); });
       });
       _wdRecord(newKeys, known);
@@ -152,8 +155,9 @@ function runStragglerWatchdog() {
  */
 function previewStragglerWatchdog() {
   var found = _gatherStragglers();
-  var total = found.redline.length + found.partShipped.length + found.kits.length;
-  if (total === 0) return "✅ Nothing late — no stragglers, no part-shipped SOs, no kits waiting.";
+  var total = found.redline.length + found.partShipped.length + found.kits.length
+            + found.overListed.length;
+  if (total === 0) return "✅ Nothing late — no stragglers, no part-shipped SOs, no kits waiting, nothing over-listed.";
   return _wdBuildText(found, total) +
          "\n\n(preview — shows everything currently late, not just new)";
 }
@@ -163,9 +167,10 @@ function previewStragglerWatchdog() {
 function getStragglerCounts() {
   try {
     var f = _gatherStragglers();
-    return { redline: f.redline.length, partShipped: f.partShipped.length, kits: f.kits.length };
+    return { redline: f.redline.length, partShipped: f.partShipped.length,
+             kits: f.kits.length, overListed: f.overListed.length };
   } catch (e) {
-    return { redline: 0, partShipped: 0, kits: 0 };
+    return { redline: 0, partShipped: 0, kits: 0, overListed: 0 };
   }
 }
 
@@ -190,8 +195,8 @@ function resetStragglerWatchdog() {
  *
  * @returns {{redline:Array, partShipped:Array, kits:Array}}
  */
-function _gatherStragglers() {
-  var out = { redline: [], partShipped: [], kits: [] };
+function _gatherStragglers(maps) {
+  var out = { redline: [], partShipped: [], kits: [], overListed: [] };
   var now = Date.now();
 
   // ---- Activity Log: earliest RECEIVED and latest SHIPPED, per order id -------
@@ -373,6 +378,62 @@ function _gatherStragglers() {
     console.log("Watchdog: kit detector failed — " + e);
   }
 
+  // ---- 4 · OVER-LISTED KITS — advertising more than the components can build ---
+  //
+  // The picker's own words (2026-08-19): "when every piston is sold or repair kit,
+  // I go and check if I need to adjust the stock for this kit." That check is
+  // manual and easy to forget, and forgetting it means eBay keeps offering a kit
+  // nobody can assemble. This does the check every hour instead.
+  //
+  // ⚠ MANUAL KITS ONLY. A READY kit's quantity is a pre-assembled box on a K-*
+  //   shelf — real inventory. "Can't build more" there is a resupply fact, not a
+  //   promise we can't keep. Alarming on it would bury the real cases.
+  // ⚠ ADVERTISED = max(eBay, Zoho) — either channel can take the order.
+  // ⚠ Bundled components are already excluded by _oosComputeKitBuild, so a head
+  //   gasket that ships inside the gasket set can't raise a false alarm here.
+  // ⚠ Reuses the MI maps the hourly pass already built; falls back to its own read
+  //   when called standalone from the sidebar preview.
+  try {
+    var olMaps = (maps && maps.inventoryMap) ? maps : buildLocationAndInventoryMaps();
+    var olZoho = buildZohoStockMap();
+    var olKits = buildKitMap();
+    var olAvail = _oosResolveAvailFactory(olZoho, olMaps.inventoryMap);
+
+    olKits.forEach(function (kit, skuLower) {
+      if (String(kit.type || "MANUAL").toUpperCase() === "READY") return;
+
+      var build = _oosComputeKitBuild(kit, olAvail);
+      if (typeof build.buildable !== 'number') return;      // ⚠ untrustable — say nothing
+
+      var zo = olZoho.get(skuLower);
+      var mi = olMaps.inventoryMap.get(skuLower);
+      var advertised = Math.max(
+        (zo && zo.available != null) ? zo.available : 0,
+        (mi && mi.available != null) ? mi.available : 0
+      );
+      if (advertised <= 0 || advertised <= build.buildable) return;
+
+      out.overListed.push({
+        key:   "ol:" + kit.sku,
+        sku:   kit.sku,
+        name:  kit.name || "",
+        adv:   advertised,
+        build: build.buildable,
+        gap:   advertised - build.buildable,
+        limitedBy: build.limitedBy || "",
+        limiterName: (build.limiter && build.limiter.name) || ""
+      });
+    });
+
+    // Worst first: nothing buildable at all before partly-covered, then by size.
+    out.overListed.sort(function (a, b) {
+      if ((a.build === 0) !== (b.build === 0)) return a.build === 0 ? -1 : 1;
+      return b.gap - a.gap;
+    });
+  } catch (e) {
+    console.log("Watchdog: over-listed detector failed — " + e);
+  }
+
   return out;
 }
 
@@ -403,6 +464,21 @@ function _wdBuildText(items, total) {
     _wdEach(items.partShipped, L, function (o) {
       return "  " + o.so + " · " + o.shipped + " shipped, " + o.open +
              " still open · last ship " + _wdAge(o.ageMin) + " ago";
+    });
+    L.push("");
+  }
+
+  if (items.overListed.length) {
+    var cant = 0;
+    for (var q = 0; q < items.overListed.length; q++) if (items.overListed[q].build === 0) cant++;
+    L.push("LISTED BUT NOT BUILDABLE (" + items.overListed.length +
+           (cant ? " · " + cant + " can't build at all" : "") + ")");
+    _wdEach(items.overListed, L, function (o) {
+      var head = "  " + o.sku + " · listed " + o.adv + ", can build " + o.build +
+                 (o.build === 0 ? "  ← next sale fails" : "");
+      var why  = o.limiterName ? (_wdClip(o.limiterName, 30) + " · " + o.limitedBy) : o.limitedBy;
+      return head + (o.name ? "\n      " + _wdClip(o.name, 46) : "") +
+             (why ? "\n      short: " + _wdClip(why, 56) : "");
     });
     L.push("");
   }

@@ -133,7 +133,7 @@ function _housekeepingPass() {
   // is silent on most runs. Reads All Orders / Activity Log / Kit Registry
   // itself (none of that is in `maps`). runStragglerWatchdog never throws, but
   // it stays inside the same try/catch discipline as every other job here.
-  try { parts.push(runStragglerWatchdog()); }
+  try { parts.push(runStragglerWatchdog(maps)); }   // reuses the MI read above
   catch (e) { parts.push("❌ Watchdog: " + e); console.log("Housekeeping Watchdog error: " + e); }
 
   // PUBLISHED-CELL PULSE (2026-08-18) — is the board's FREE path still free?

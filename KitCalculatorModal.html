@@ -109,6 +109,31 @@
   .kc-spin { width:16px; height:16px; border:2px solid #e5ddc7; border-top-color:#ffd400; border-radius:50%; animation:kcspin .8s linear infinite; }
   @keyframes kcspin { to { transform: rotate(360deg); } }
   .kc-foot { font-size: 10.5px; color:#8a7f63; padding: 8px 18px; border-top:1px solid #e5ddc7; }
+    /* --- excluded lines (bundled inside another part, or dropped by hand) ---
+       Kept VISIBLE and dimmed rather than removed: a line that disappeared would
+       be indistinguishable from one the parser never read, and this calculator's
+       whole contract is that it never hides what it did to the number. */
+    .kc-out { opacity: 0.45; }
+    .kc-out .c-name, .kc-out .c-sku { text-decoration: line-through; }
+    .kc-inside {
+      display: inline-block; margin-left: 7px; padding: 1px 6px;
+      border: 1px solid #b0bec5; border-radius: 9px;
+      background: #eceff1; color: #46606e;
+      font-size: 10px; font-weight: 700; letter-spacing: 0.02em;
+      text-decoration: none; vertical-align: middle; cursor: help;
+    }
+    .kc-out .kc-inside { text-decoration: none; }
+    td.c-act { width: 30px; text-align: center; }
+    .kc-x {
+      border: 1px solid #ddd7c7; background: #fff; color: #8a8578;
+      border-radius: 5px; width: 24px; height: 24px; line-height: 1;
+      cursor: pointer; font-size: 12px; padding: 0;
+    }
+    .kc-x:hover { border-color: #1d1d1b; color: #1d1d1b; background: #fffdf5; }
+    .kc-outnote {
+      margin-top: 6px; text-align: right;
+      font-size: 11px; color: #8a8578; font-style: italic;
+    }
 </style>
 </head>
 <body>
@@ -164,7 +189,7 @@
         <thead>
           <tr>
             <th>SKU</th><th>Component</th><th class="num">Qty</th>
-            <th class="num">Unit $</th><th>Source</th><th class="num">Line $</th>
+            <th class="num">Unit $</th><th>Source</th><th class="num">Line $</th><th></th>
           </tr>
         </thead>
         <tbody id="tbody"></tbody>
@@ -176,6 +201,7 @@
         <div class="kc-tot final"><div class="lbl">List price (rounded)</div><div class="val" id="totFinal">—</div></div>
       </div>
 
+      <div class="kc-outnote" id="outNote" style="display:none;"></div>
       <div class="kc-compare" id="compare" style="display:none;"></div>
     </div>
   </div>
@@ -275,16 +301,46 @@
     for (var i = 0; i < res.lines.length; i++) {
       var l = res.lines[i];
       var src = l.unpriced ? 'unpriced' : (l.overridden ? 'override' : (l.source === 'eBay' ? 'ebay' : (l.source === 'Zoho' ? 'zoho' : 'override')));
-      rows += '<tr class="' + (l.unpriced ? 'kc-unpriced' : '') + '" data-i="' + i + '">' +
+      var cls = (l.unpriced && !l.excluded ? 'kc-unpriced ' : '') + (l.excluded ? 'kc-out' : '');
+      var why = l.bundledInto
+        ? 'Ships inside ' + esc(_short(l.bundledInto)) + ' — left out of the parts total.'
+        : 'Left out of the parts total.';
+      rows += '<tr class="' + cls + '" data-i="' + i + '" data-out="' + (l.excluded ? '1' : '0') + '">' +
         '<td class="c-sku">' + esc(l.sku) + '</td>' +
-        '<td class="c-name">' + esc(l.name) + '</td>' +
+        '<td class="c-name">' + esc(l.name) +
+          (l.bundledInto ? '<span class="kc-inside" title="The Sales Description says this ships inside ' + esc(l.bundledInto) + '">↳ inside ' + esc(_short(l.bundledInto)) + '</span>' : '') +
+        '</td>' +
         '<td class="num" data-qty="' + l.qty + '">' + l.qty + '</td>' +
         '<td class="num"><input class="kc-unit" type="number" step="0.01" min="0" value="' + (l.unitPrice == null ? '' : l.unitPrice) + '" oninput="recompute()"></td>' +
         '<td><span class="kc-src ' + src + '" data-src>' + (l.unpriced ? 'UNPRICED' : (l.overridden ? 'OVERRIDE' : l.source.toUpperCase())) + '</span></td>' +
         '<td class="num" data-line>—</td>' +
+        '<td class="c-act"><button type="button" class="kc-x" title="' + why + '" onclick="toggleLine(' + i + ')">' +
+          (l.excluded ? '↩' : '✕') + '</button></td>' +
         '</tr>';
     }
     document.getElementById('tbody').innerHTML = rows;
+  }
+
+  /** Trim "-1 Full Gasket Set 19077-03310" down to the part name for a chip. */
+  function _short(txt) {
+    var s = String(txt || '').replace(/^[\s\-\u2013]*\d+\s*/, '').trim();
+    s = s.replace(/\s+[A-Z0-9][A-Z0-9\-\.]{4,}$/i, '').trim();
+    if (!s) s = 'another part';
+    return s.length > 24 ? s.substring(0, 23) + '…' : s;
+  }
+
+  /** Drop a line from the total, or put it back. Pure client-side — the whole
+   *  calculator is decision support and writes nothing, so a wrong click costs
+   *  nothing but a second click. */
+  function toggleLine(i) {
+    var tr = document.querySelector('#tbody tr[data-i="' + i + '"]');
+    if (!tr) return;
+    var out = tr.getAttribute('data-out') === '1';
+    tr.setAttribute('data-out', out ? '0' : '1');
+    tr.classList.toggle('kc-out', !out);
+    var btn = tr.querySelector('.kc-x');
+    if (btn) btn.textContent = out ? '✕' : '↩';
+    recompute();
   }
 
   // Pure client arithmetic — recomputes from the live inputs. No server hop.
@@ -297,6 +353,14 @@
       var v = parseFloat(input.value);
       var lineCell = rows[i].querySelector('[data-line]');
       var srcTag = rows[i].querySelector('[data-src]');
+      // Excluded lines stay VISIBLE but contribute nothing — and an excluded
+      // line that happens to be unpriced must NOT mark the kit incomplete,
+      // because it isn't part of what the kit costs.
+      if (rows[i].getAttribute('data-out') === '1') {
+        rows[i].classList.remove('kc-unpriced');
+        lineCell.textContent = '—';
+        continue;
+      }
       if (isNaN(v) || v <= 0) {
         rows[i].classList.add('kc-unpriced');
         srcTag.className = 'kc-src unpriced'; srcTag.textContent = 'UNPRICED';
@@ -320,6 +384,13 @@
     document.getElementById('discEcho').textContent = (pct % 1 === 0) ? pct.toFixed(0) : pct;
     var finalEl = document.getElementById('totFinal');
     finalEl.textContent = unpriced > 0 ? '⚠ incomplete' : ('$' + rounded.toLocaleString());
+
+    var nOut = document.querySelectorAll('#tbody tr[data-out="1"]').length;
+    var outEl = document.getElementById('outNote');
+    if (outEl) {
+      outEl.textContent = nOut ? (nOut + ' part' + (nOut > 1 ? 's' : '') + ' left out of this total') : '';
+      outEl.style.display = nOut ? 'block' : 'none';
+    }
 
     renderCompare(rounded, unpriced);
   }

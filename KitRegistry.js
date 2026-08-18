@@ -349,6 +349,185 @@ function _parseKitPd(pd) {
 
 
 // =======================================================================================
+// BUNDLED COMPONENTS — "this part ships INSIDE that part, so don't price/pick/count it"
+// Shipped 2026-08-19. Pure + Node-testable (design-lab/test-kit-bundled.js).
+// =======================================================================================
+//
+// THE RULE IS THE USER'S OWN PROCESS, ENCODED — it was never a judgement call.
+//
+//   The SALES description is written for the customer and says which parts travel
+//   INSIDE which. A line like
+//
+//       -1 Full Gasket Set 19077-03310 + Head Gasket
+//
+//   means the head gasket ships inside the gasket set. The PURCHASE description
+//   may STILL carry a separate head-gasket SKU — that is an INTERNAL ASSEMBLY
+//   REFERENCE (the sub-part is bought so the parent can be assembled in-house),
+//   NOT a component of the kit. When a part is genuinely separate it earns its
+//   OWN sales line with its OWN MPN:
+//
+//       -1 Thrust Washer Set 04236912          <- separate: price it, pick it
+//       -1 Main Bearing Set 750-11250 + Thrust Washer   <- bundled: don't
+//
+//   Measured over the whole catalog (2026-08-19, 161 head-gasket/thrust-washer
+//   lines): 102 SEPARATE, 49 BUNDLED (~$1,335 of phantom parts value), 5
+//   already annotated inside their own purchase line, and 5 the rule cannot
+//   settle because the sales description mentions the part NOWHERE. 97% decided
+//   from data the team already writes — no new data entry, works retroactively.
+//
+// ⚠⚠ THE ASYMMETRY DECIDES EVERY TIE — BUNDLED IS THE DANGEROUS VERDICT.
+//   Wrongly EXCLUDING a real part under-prices the kit AND stops the picker
+//   fetching it → the box ships incomplete, discovered by the customer.
+//   Wrongly INCLUDING a bundled part over-prices it and costs one wasted walk,
+//   caught at the bench. So: DEFAULT IS INCLUDE. A component is bundled only on
+//   a clear, unambiguous signal, and any doubt keeps it. Same "fail toward
+//   showing" instinct as the note surfaces.
+//
+// ⚠ MATCHING IS BY SIGNIFICANT WORDS, NOT BY A HARDCODED PART LIST. The catalog
+//   already does this with head gaskets AND thrust washers, and nothing says the
+//   next one won't be valve seals. Tokens drop anything containing a digit (MPNs,
+//   quantities, sizes), parentheticals, and a small noise list, then singularise.
+//   A segment must carry >= 2 significant tokens before it may exclude anything —
+//   a bare "+ Washers" is too weak a signal to drop a real part on.
+// =======================================================================================
+
+var KIT_BUNDLE = {
+  // Words that carry no identity — dropping them lets "Main Bearing Set STD"
+  // and "Main Bearings" resolve to the same thing.
+  noise: ["set", "sets", "std", "sts", "kit", "kits", "for", "the", "and",
+          "with", "w", "assy", "assembly", "pcs", "pc", "new", "oem"],
+  minSegmentTokens: 2
+};
+
+/** Significant lowercase tokens of a free-text part name.
+ *  Drops parentheticals, anything containing a digit (MPNs / sizes / qty),
+ *  punctuation and noise words; singularises a trailing "s". */
+function _kbTokens(text) {
+  var s = String(text == null ? "" : text);
+  s = s.replace(/\([^)]*\)/g, " ");            // (Composite), (Metal), (Deleted)
+  s = s.replace(/[^A-Za-z0-9]+/g, " ");
+  var out = [];
+  var parts = s.split(" ");
+  for (var i = 0; i < parts.length; i++) {
+    var t = parts[i].toLowerCase();
+    if (!t) continue;
+    if (/\d/.test(t)) continue;                                  // MPN / size / qty
+    if (KIT_BUNDLE.noise.indexOf(t) !== -1) continue;
+    if (t.length > 3 && t.charAt(t.length - 1) === "s") t = t.substring(0, t.length - 1);
+    if (!t) continue;
+    if (out.indexOf(t) === -1) out.push(t);
+  }
+  return out;
+}
+
+/** Does `segment` name the same part as `componentName`?
+ *  True when every significant token of the segment appears in the component. */
+function _kbSegNamesComponent(segment, componentName) {
+  var segT = _kbTokens(segment);
+  if (segT.length === 0) return false;
+  var compT = _kbTokens(componentName);
+  if (compT.length === 0) return false;
+  for (var i = 0; i < segT.length; i++) {
+    if (compT.indexOf(segT[i]) === -1) return false;
+  }
+  return true;
+}
+
+/** Split a sales description into { primary:[text], bundled:[{text,parent}] }.
+ *  ⚠ A line ending in "+" CONTINUES onto the next line — real kits wrap, e.g.
+ *      -1 Main Bearings Set STD 15274-23480 +
+ *      Thrust Washers Set STD
+ *  Missing that join would read the continuation as its own primary line and
+ *  silently flip a bundled part into a separate one. */
+function _kbSalesSegments(salesDescription) {
+  var raw = String(salesDescription == null ? "" : salesDescription).split("\n");
+  var joined = [];
+  for (var i = 0; i < raw.length; i++) {
+    var line = raw[i].replace(/\s+$/, "");
+    if (joined.length && /\+\s*$/.test(joined[joined.length - 1])) {
+      joined[joined.length - 1] = joined[joined.length - 1] + " " + line.replace(/^\s+/, "");
+    } else {
+      joined.push(line);
+    }
+  }
+  var primary = [], bundled = [];
+  for (var j = 0; j < joined.length; j++) {
+    var t = joined[j].trim();
+    if (!t) continue;
+    var parts = t.split("+");
+    var head = parts[0].trim();
+    if (head) primary.push(head);
+    for (var k = 1; k < parts.length; k++) {
+      var seg = parts[k].trim();
+      if (seg) bundled.push({ text: seg, parent: head });
+    }
+  }
+  return { primary: primary, bundled: bundled };
+}
+
+/**
+ * Decide which components are bundled inside another component.
+ *
+ * components       : [{sku, qty, name}]  (as built by buildKitMap)
+ * salesDescription : the kit's Sales Description verbatim
+ *
+ * Returns { <componentSku>: { into: "<parent line text>", segment: "<matched text>" } }
+ * containing ONLY the bundled ones. Absent = keep it (the safe default).
+ */
+function kitBundledComponents(components, salesDescription) {
+  var out = {};
+  var comps = components || [];
+  if (!comps.length) return out;
+
+  var seg = _kbSalesSegments(salesDescription);
+  if (!seg.bundled.length) return out;    // nothing is claimed as bundled — done
+
+  for (var i = 0; i < comps.length; i++) {
+    var c = comps[i];
+    var name = String(c.name || "");
+
+    // A component whose OWN name carries a "+" is itself the merged parent
+    // ("Full Gasket Set + Metal Head Gasket") — never treat the parent as
+    // bundled into itself.
+    if (name.indexOf("+") !== -1) continue;
+
+    // Leads a sales line in its own right → a real, separately-supplied part.
+    var isOwnLine = false;
+    for (var p = 0; p < seg.primary.length; p++) {
+      if (_kbSegNamesComponent(seg.primary[p], name)) { isOwnLine = true; break; }
+    }
+    if (isOwnLine) continue;
+
+    // Named only after a "+" → it travels inside that parent.
+    for (var b = 0; b < seg.bundled.length; b++) {
+      var s = seg.bundled[b];
+      if (_kbTokens(s.text).length < KIT_BUNDLE.minSegmentTokens) continue;
+      if (_kbSegNamesComponent(s.text, name)) {
+        out[c.sku] = { into: s.parent, segment: s.text };
+        break;
+      }
+    }
+  }
+  return out;
+}
+
+/** Annotate a kit object's components in place with `bundled` / `bundledInto`.
+ *  Called by buildKitMap so EVERY consumer (pricing, buildability, expansion,
+ *  Kit Health, the ripple) inherits one decision from one place. */
+function _kbAnnotateKit(kit) {
+  if (!kit || !kit.components || !kit.components.length) return kit;
+  var flags = kitBundledComponents(kit.components, kit.salesDescription);
+  for (var i = 0; i < kit.components.length; i++) {
+    var c = kit.components[i];
+    var f = flags[c.sku];
+    if (f) { c.bundled = true; c.bundledInto = f.into; }
+    else   { c.bundled = false; }
+  }
+  return kit;
+}
+
+
+// =======================================================================================
 // READ API — used by the expansion engine + sidebar preview
 // =======================================================================================
 
@@ -428,6 +607,13 @@ function buildKitMap() {
       }
     }
   }
+
+  // Flag components that ship INSIDE another component (see kitBundledComponents).
+  // Done here, once, so pricing / buildability / expansion / Kit Health all read
+  // the SAME decision instead of each re-deriving it — the lesson kitComponentTag()
+  // was extracted for. Runs after the grouping loop because it needs the kit's
+  // full component list, not one row at a time.
+  map.forEach(function (kit) { _kbAnnotateKit(kit); });
 
   return map;
 }

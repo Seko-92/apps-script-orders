@@ -101,7 +101,13 @@ function expandKit(kitSku, deployQty) {
     return {
       sku:  c.sku,
       name: c.name,
-      qty:  (parseInt(c.qty) || 1) * dq
+      qty:  (parseInt(c.qty) || 1) * dq,
+      // Ships INSIDE another component (see kitBundledComponents) — the modal
+      // starts these UNCHECKED with the parent named, so the picker isn't sent
+      // after a part already sitting in the other box. Still shown and still
+      // re-checkable: the rule proposes, the picker decides.
+      bundled:     c.bundled === true,
+      bundledInto: c.bundledInto || ""
     };
   });
 
@@ -325,12 +331,14 @@ function previewSelectedKits(deployQty, rowsOverride) {
       var zoAvail = zo ? zo.available : null;
       var available = (zoAvail != null) ? zoAvail : miAvail;
       return {
-        sku:       c.sku,
-        qty:       c.qty,
-        name:      c.name,
-        location:  loc,
-        available: available,
-        missing:   (loc === "NOT FOUND")
+        sku:         c.sku,
+        qty:         c.qty,
+        name:        c.name,
+        location:    loc,
+        available:   available,
+        missing:     (loc === "NOT FOUND"),
+        bundled:     c.bundled === true,
+        bundledInto: c.bundledInto || ""
       };
     });
 

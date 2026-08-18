@@ -343,6 +343,17 @@
     .comp-card:hover { box-shadow: 0 2px 9px rgba(0,0,0,0.07); border-color: #d8d2c4; }
     .comp-card.excluded { opacity: 0.5; background: #faf9f7; }
     .comp-card.swapped { border-left: 3px solid #7fb6e6; }
+    /* Bundled = ships inside another component. Slate/blue-grey on purpose: it is
+       a FACT to weigh, not a fault (amber) and not an error (red) — the same
+       reasoning that gave the already-expanded banner its own neutral tone. */
+    .comp-card.bundled { border-left: 3px solid #90a4ae; }
+    .comp-bundled {
+      display: inline-block; margin-right: 8px; padding: 1px 7px;
+      border: 1px solid #b0bec5; border-radius: 9px;
+      background: #eceff1; color: #46606e;
+      font-size: 10px; font-weight: 700; letter-spacing: 0.03em;
+      vertical-align: middle; cursor: help;
+    }
     .comp-card.added-card { border-left: 3px solid #66bb6a; background: rgba(129,199,132,0.06); }
 
     .comp {
@@ -868,8 +879,24 @@
     // ----- INITIAL RENDER -----
     renderKit(currentKit, currentIndex);
 
+    /** Parent text for the "↳ inside …" chip. The sales line carries qty + MPN
+     *  ("-1 Full Gasket Set 19077-03310"); the picker only needs the part name. */
+    function _bundleShort(txt) {
+      var s = String(txt || '').replace(/^[\s\-\u2013]*\d+\s*/, '').trim();
+      s = s.replace(/\s+[A-Z0-9][A-Z0-9\-\.]{4,}$/i, '').trim();
+      if (!s) s = 'another part';
+      return s.length > 26 ? s.substring(0, 25) + '…' : s;
+    }
+
     function renderKit(kit, index) {
+      // Start with the parts that ship INSIDE another component already unchecked.
+      // The Sales Description says so ("Full Gasket Set ... + Head Gasket"), so the
+      // picker no longer has to remember it on every expansion — but every box stays
+      // re-checkable, because the rule proposes and the picker decides.
       excludedSkus = {};
+      (kit.components || []).forEach(function (c) {
+        if (c && c.bundled) excludedSkus[c.sku] = true;
+      });
       compQty = {}; compSwap = {}; addedItems = [];   // reset alterations per kit
       currentExtras = 0;   // always reset per kit
       busy = false;
@@ -1040,7 +1067,8 @@
         var skuHtml  = swap
           ? '<s style="color:#9a9a90;">' + esc(origSku) + '</s> → ' + esc(showSku)
           : esc(showSku);
-        var cardCls = 'comp-card' + (excludedSkus[origSku] ? ' excluded' : '') + swappedCls;
+        var cardCls = 'comp-card' + (excludedSkus[origSku] ? ' excluded' : '') + swappedCls
+                    + (c.bundled ? ' bundled' : '');
 
         html += ''
           + '<div class="' + cardCls + '">'
@@ -1053,6 +1081,10 @@
           +     '<span class="comp-name">' + esc(showName) + '</span>'
           +   '</span>'
           +   '<span class="comp-meta">'
+          +     (c.bundled ? '<span class="comp-bundled" title="The Sales Description says this ships inside '
+          +                    + esc(c.bundledInto || 'another component')
+          +                    + '. Unchecked by default — tick it if this kit really needs it separately.">'
+          +                    + '↳ inside ' + esc(_bundleShort(c.bundledInto)) + '</span>' : '')
           +     '<span class="loc">' + esc(showLoc || '—') + '</span>'
           +     (showHand != null ? ' · HAND ' + showHand : '')
           +     '<button type="button" class="comp-swap-btn" title="Swap this part for another SKU" '

@@ -1076,14 +1076,23 @@ function _oosComputeKitBuild(kit, resolveAvail) {
     };
   }
 
-  var comps = kit.components || [];
-  if (comps.length === 0) {
+  var allComps = kit.components || [];
+  if (allComps.length === 0) {
     return {
       buildable: "⚠",
       limitedBy: "⚠ no components registered",
       components: "⚠ none"
     };
   }
+
+  // ⚠ BUNDLED COMPONENTS DO NOT GATE A BUILD (2026-08-19). A head gasket that
+  // ships inside the full gasket set needs no stock of its own — you already have
+  // it the moment you have the set. Counting it made kits read as blocked by a
+  // part that was never separately required. See kitBundledComponents().
+  // Falls back to the full list if a kit were somehow ALL bundled, so this can
+  // never turn a real kit into "no components".
+  var comps = allComps.filter(function (c) { return c && c.bundled !== true; });
+  if (comps.length === 0) comps = allComps;
 
   var missing = [];
   var minBuild = Infinity;
