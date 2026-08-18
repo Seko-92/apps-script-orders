@@ -1004,8 +1004,8 @@ body.ch-direct #pickListDirect { display: block; }
         <button class="ct" data-ch="DIRECT"><span>Direct</span><b id="ctDirect">0</b></button>
       </div>
       <div class="tabs-side">
-        <span class="sortsw" id="sortSw" title="Aisle order is the walk. Age order is the triage.">
-          <b class="sortsw-opt on" data-mode="aisle">Aisle</b><b class="sortsw-opt" data-mode="age">Age</b>
+        <span class="sortsw" id="sortSw" title="Aisle keeps each order together. Age is the triage. A–Z is one straight walk, shelf by shelf, ignoring which order a line belongs to.">
+          <b class="sortsw-opt on" data-mode="aisle">Aisle</b><b class="sortsw-opt" data-mode="age">Age</b><b class="sortsw-opt" data-mode="walk">A&ndash;Z</b>
         </span>
         <span id="pickCount"></span>
         <span id="pickModeWord" class="hidden">by aisle</span>
@@ -2025,10 +2025,10 @@ body.ch-direct #pickListDirect { display: block; }
     }
 
     function setPickMode(mode) {
-      if (mode !== 'aisle' && mode !== 'age') return;
+      if (mode !== 'aisle' && mode !== 'age' && mode !== 'walk') return;
       pickMode = mode;
       document.getElementById('pickModeWord').textContent =
-        mode === 'age' ? 'oldest first' : 'by aisle';
+        mode === 'age' ? 'oldest first' : (mode === 'walk' ? 'straight walk' : 'by aisle');
       var opts = document.querySelectorAll('.sortsw-opt');
       for (var i = 0; i < opts.length; i++) {
         opts[i].classList.toggle('on', opts[i].getAttribute('data-mode') === mode);
@@ -2039,7 +2039,70 @@ body.ch-direct #pickListDirect { display: block; }
       }
     }
 
+    /* ⚠⚠ A FAITHFUL PORT OF compareLocations() / _parseShelfLocation() IN
+       Helpers.js — NOT a second opinion about walk order. The board cannot call
+       server code, so this is the one place the rule exists twice, and the two
+       copies drifting would put the sheet and the board in different aisles.
+       design-lab/test-walk-sort.js runs BOTH implementations over the same
+       fixture and fails if they ever disagree. If you change one, change both.
+
+       The bug this shape exists to prevent: plain string compare puts A-9 AFTER
+       A-50, which is exactly what shipped in three files until 2026-08-05. */
+    function _shelfParts(v) {
+      var t = String(v == null ? '' : v).trim();
+      if (!t) return null;
+      var m = t.match(/^([A-Za-z]+)\s*[-\u2013\u2014]?\s*(\d+)(.*)$/);
+      if (!m) return null;
+      return { prefix: m[1].toUpperCase(), num: parseInt(m[2], 10), rest: m[3].trim().toUpperCase() };
+    }
+    function cmpShelf(a, b) {
+      var pa = _shelfParts(a), pb = _shelfParts(b);
+      if (pa && pb) {
+        if (pa.prefix !== pb.prefix) return pa.prefix < pb.prefix ? -1 : 1;
+        if (pa.num    !== pb.num)    return pa.num - pb.num;
+        if (pa.rest   !== pb.rest)   return pa.rest < pb.rest ? -1 : 1;
+        return 0;
+      }
+      if (pa && !pb) return -1;
+      if (!pa && pb) return 1;
+      var sa = String(a == null ? '' : a).trim().toUpperCase();
+      var sb = String(b == null ? '' : b).trim().toUpperCase();
+      return sa < sb ? -1 : (sa > sb ? 1 : 0);
+    }
+    /* A shelf-less row sinks to the end of its channel — "NOT FOUND" is not a
+       place you can walk to, so it must not sit between two real shelves.
+       Mirrors _dashCompareShelf on the server. */
+    function _shelfMissing(loc) {
+      var t = String(loc == null ? '' : loc).trim();
+      return (!t || t.toUpperCase() === 'NOT FOUND') ? 1 : 0;
+    }
+
     function sortForMode(rows) {
+      /* A–Z / WALK — one straight pass through the warehouse, shelf by shelf,
+         ignoring which order a line belongs to. Asked for from the floor
+         2026-08-19: with several orders open the aisle mode's per-order
+         anchoring still sends you back down the same aisle.
+
+         ⚠ CHANNEL STAYS PRIMARY, exactly as in age mode. The eBay/DIRECT split
+         is STRUCTURAL — which job you are doing — while the sort is only the
+         order within a job. Letting the walk interleave them would undo the
+         split the moment someone tapped the toggle.
+
+         ⚠ ORDER BANDS ARE SUPPRESSED IN THIS MODE, and that is the point, not a
+         gap — see withSections. In shelf order a multi-line order is scattered
+         BY CONSTRUCTION, so a band could only ever cover a fragment. */
+      if (pickMode === 'walk') {
+        return rows.slice().sort(function (a, b) {
+          var ca = (a.channel === 'DIRECT') ? 1 : 0;
+          var cb = (b.channel === 'DIRECT') ? 1 : 0;
+          if (ca !== cb) return ca - cb;
+          var ma = _shelfMissing(a.location), mb = _shelfMissing(b.location);
+          if (ma !== mb) return ma - mb;
+          var byShelf = cmpShelf(a.location, b.location);
+          if (byShelf !== 0) return byShelf;
+          return String(a.sku || '').localeCompare(String(b.sku || ''));
+        });
+      }
       if (pickMode !== 'age') {
         // The server already emits eBay-then-DIRECT, so this is normally a
         // no-op — Array.sort is stable, so within a channel the server's aisle
@@ -2127,7 +2190,7 @@ body.ch-direct #pickListDirect { display: block; }
           : '';
 
       seedOrderAccordion(rows);
-      var items = withSections(rows, byChannel);
+      var items = withSections(rows, byChannel, pickMode === 'walk');
 
       // ONE display list, TWO containers. Splitting here rather than running
       // withSections twice keeps the section/band/row decisions in a single
@@ -3293,9 +3356,10 @@ body.ch-direct #pickListDirect { display: block; }
          eBay order does get one.
 
        Rows under a band are marked so they can drop their own meta. */
-    function withSections(rows, byChannel) {
+    function withSections(rows, byChannel, flat) {
       var out = [], prevCh = null, prevOid = null, usedKeys = {};
       byChannel = byChannel || {};
+      flat = !!flat;             // A–Z / walk mode: sections yes, order bands no
 
       /* ⚠ THE THREAD IS DRAWN WHEREVER IT DISCRIMINATES — fixed 2026-08-14,
          floor-reported: "the kit items are scattered around and the picker has
@@ -3404,7 +3468,32 @@ body.ch-direct #pickListDirect { display: block; }
             n++;
           }
           var shut = (ch === 'DIRECT') && !isOrderOpen(oid);
-          if (oid && (ch === 'DIRECT' || n > 1)) {
+          /* ⚠⚠ NO ORDER BANDS IN A–Z / WALK MODE — deliberate, and the whole
+             reason the mode is safe to offer.
+
+             A band is a claim: "these rows ship together, and here they are."
+             Sorted strictly by shelf, an order's lines are scattered BY
+             CONSTRUCTION, so that claim is false for every multi-line order and
+             the band could only ever cover a fragment. The renderer already
+             refuses to show a fragment as whole — it would paint "3 of 5 lines ·
+             rest below" — but firing that on nearly every order would spend the
+             board's loudest signal on an intentional sort, and red here means
+             "something disagrees, ACT on it". That is how red stops being
+             believed (the same argument that moved red off NOT FOUND).
+
+             So the band is not fragmented, it is not drawn. What survives is
+             what still tells the truth when rows are scattered:
+               · every row keeps its OWN order id (_grouped stays false)
+               · the kit thread spine still marks membership — that is exactly
+                 the job it was built for on 2026-08-14, when kit components
+                 were "scattered around and the picker has no idea what belongs"
+               · a HOLD still shows, on the row itself (_heldSolo below), which
+                 is the 2026-08-15 rule: mark at the highest level AVAILABLE.
+             And the DIRECT accordion goes with the bands, which is correct —
+             in this mode the job is gathering, not assembling one box. */
+          if (flat) {
+            for (var mf = i; mf < i + n; mf++) rows[mf]._grouped = false;
+          } else if (oid && (ch === 'DIRECT' || n > 1)) {
             // ⚠ Keys MUST be unique — the reconcile indexes on data-key, so two
             // bands sharing one key would collapse into a single node in the
             // wrong place. One order cannot appear in two blocks under the
@@ -3454,8 +3543,9 @@ body.ch-direct #pickListDirect { display: block; }
           }
           prevOid = oid;
         }
-        // A shut order contributes its band and nothing else.
-        if (!(ch === 'DIRECT' && oid && !isOrderOpen(oid))) {
+        // A shut order contributes its band and nothing else — but in walk mode
+        // there IS no band, so hiding the rows would simply lose them.
+        if (flat || !(ch === 'DIRECT' && oid && !isOrderOpen(oid))) {
           out.push({ key: pickKey(r), kind: 'row', channel: ch, row: r });
         }
       }
