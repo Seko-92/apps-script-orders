@@ -2176,7 +2176,66 @@ body.ch-direct #pickListDirect { display: block; }
       return false;
     }
 
+    /* ⚠⚠ NEVER REBUILD THE LIST WHILE A FINGER IS ON IT (2026-08-19).
+       Floor report: "maybe one time the button didn't register directly."
+       Reproduced in design-lab/diag-tapsteal.js.
+
+       reconcileInto() calls fillPickRow() for EVERY row on EVERY tick, and
+       fillPickRow opens with `li.innerHTML = ''` — so every 20s each ✓ Pick
+       button is destroyed and rebuilt even when nothing about the row changed.
+       A click only EXISTS if pointer-down and pointer-up resolve to the same
+       element, so a tick landing between the finger going down and coming up
+       erases the button mid-gesture and the browser generates no click at all.
+       The delegated handler is fine; there is simply nothing for it to hear.
+
+           tap window ~100ms / poll 20,000ms ≈ 0.5% per tap
+           × a few hundred picks a day ≈ ONE LOST TAP A DAY
+
+       which is exactly the rate the floor reported. So: while a pointer is down
+       on the list, hold the repaint and run it the moment the finger lifts.
+       Deferring a repaint by the length of a tap costs nothing — the board's own
+       staleness budget is measured in seconds — and a write already calls
+       pollSoon(), so the held paint lands immediately after.
+
+       ⚠ THE CAP IS NOT OPTIONAL. A pointerup can be missed entirely (the finger
+       slides off the screen, the browser eats the event, the tab is backgrounded
+       mid-touch). Without a ceiling the board would freeze on the last painted
+       list and look alive while showing nothing new — far worse than the bug
+       this fixes. So the hold expires on its own. */
+    var _paintHeld = null, _paintHoldTimer = null;
+
+    function flushHeldPaint() {
+      if (_paintHoldTimer) { clearTimeout(_paintHoldTimer); _paintHoldTimer = null; }
+      var a = _paintHeld;
+      _paintHeld = null;
+      if (a) paintPickList(a[0], a[1], a[2]);
+    }
+
+    (function () {
+      var split = document.getElementById('pickSplit');
+      if (!split) return;
+      // pointerdown/up covers mouse AND touch in one pair. pointercancel matters:
+      // a scroll gesture steals the pointer and no pointerup ever arrives.
+      split.addEventListener('pointerdown', function () { _pointerOnList = true; }, true);
+      ['pointerup', 'pointercancel'].forEach(function (ev) {
+        window.addEventListener(ev, function () {
+          if (!_pointerOnList) return;
+          _pointerOnList = false;
+          // let the click dispatch first, THEN repaint
+          setTimeout(flushHeldPaint, 0);
+        }, true);
+      });
+    })();
+    var _pointerOnList = false;
+
     function paintPickList(rows, total, byChannel) {
+      if (_pointerOnList) {
+        _paintHeld = [rows, total, byChannel];          // newest wins
+        if (!_paintHoldTimer) _paintHoldTimer = setTimeout(function () {
+          _paintHoldTimer = null; _pointerOnList = false; flushHeldPaint();
+        }, 1500);
+        return;
+      }
       rows = sortForMode(rows || []);
       // Say so when the walk is truncated. A pick list that looks complete but
       // isn't is worse than one that admits it — the picker would finish the
