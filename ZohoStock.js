@@ -228,8 +228,13 @@ function _writeZohoStockRows(items) {
  */
 function recomputeHandFromZohoStock() {
   var handMsg = "", prepMsg = "";
-  try { handMsg = recomputeHand(); }        catch (e) { handMsg = "HAND recompute error: " + e; }
-  try { prepMsg = refreshPrepQueueHand(); } catch (e) { prepMsg = "Prep refresh error: " + e; }
+  // Same one-read-for-both as the scheduled path — see the note in doPost's
+  // writeZohoStock branch.
+  var shMaps = null, shZoho = null;
+  try { shMaps = buildLocationAndInventoryMaps(); shZoho = buildZohoStockMap(); }
+  catch (e0) { shMaps = null; shZoho = null; }
+  try { handMsg = recomputeHand(shMaps, shZoho); }        catch (e) { handMsg = "HAND recompute error: " + e; }
+  try { prepMsg = refreshPrepQueueHand(shMaps, shZoho); } catch (e) { prepMsg = "Prep refresh error: " + e; }
   return {
     ok:          true,
     message:     "HAND recomputed · " + handMsg + " · " + prepMsg,

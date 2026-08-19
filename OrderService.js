@@ -347,9 +347,17 @@ function doPost(e) {
       try {
         var zsItems = Array.isArray(payload.items) ? payload.items : [];
         var zsWrite = _writeZohoStockRows(zsItems);
-        var zsHand = "", zsPrep = "";
-        try { zsHand = recomputeHand(); }        catch (e1) { zsHand = "HAND error: " + e1; }
-        try { zsPrep = refreshPrepQueueHand(); } catch (e2) { zsPrep = "Prep error: " + e2; }
+        // ⚠ ONE read of Master Inventory + Zoho Stock, handed to BOTH recomputes.
+        // They used to build their own copies, so this path read the same two
+        // sheets twice every 2 minutes: 2,287 ms of a 5,789 ms cycle, ~9 min/day
+        // of the ~90-minute budget spent re-reading what it already had.
+        // Measured 2026-08-19 — see recomputeHand's note, and note that
+        // narrowing the read instead was tested and does NOT help.
+        var zsHand = "", zsPrep = "", zsMaps = null, zsZoho = null;
+        try { zsMaps = buildLocationAndInventoryMaps(); zsZoho = buildZohoStockMap(); }
+        catch (e0) { zsMaps = null; zsZoho = null; }   // fall back: each rebuilds its own
+        try { zsHand = recomputeHand(zsMaps, zsZoho); }        catch (e1) { zsHand = "HAND error: " + e1; }
+        try { zsPrep = refreshPrepQueueHand(zsMaps, zsZoho); } catch (e2) { zsPrep = "Prep error: " + e2; }
         return ContentService.createTextOutput(JSON.stringify({
           status:      "success",
           written:     zsWrite.count,

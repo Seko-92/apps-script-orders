@@ -102,7 +102,30 @@ function getCommittedQuantities() {
  * Idempotent. Run from sidebar, or schedule via setupHandRecomputeTrigger()
  * for automatic refresh after each MI sync.
  */
-function recomputeHand() {
+/**
+ * @param {{inventoryMap:Map}=} sharedMaps  a Master Inventory snapshot already built
+ * @param {Map=} sharedZoho                 a Zoho Stock map already built
+ *
+ * ⚠ BOTH ARE SHAPE-DETECTED, NOT TRUSTED BY POSITION. recomputeHand is a TIME
+ *   TRIGGER target (setupHandRecomputeTrigger), and a trigger hands its function
+ *   an EVENT OBJECT as the first argument — so a positional `maps` would be an
+ *   event on every scheduled run. Same guard refreshOutOfStock uses.
+ *
+ * ⚠ WHY SHARING MATTERS (measured 2026-08-19). buildLocationAndInventoryMaps is
+ *   1,872 ms — getDataRange on 3,635 × 198 — and buildZohoStockMap is 415 ms.
+ *   The every-2-minutes Zoho job calls recomputeHand AND refreshPrepQueueHand
+ *   back to back, and each built its own copy of both: 2,287 ms of the 5,789 ms
+ *   cycle spent reading the same two sheets twice. Over a 9–5 day that is
+ *   ~9 minutes of the ~90-minute budget, thrown away.
+ *
+ * ⚠ AND NARROWING THE READ DOES NOT HELP — TESTED, DO NOT RETRY. Reading only
+ *   the 39-column span the headers occupy instead of all 198 measured 1,905 ms
+ *   against 1,872 ms: no faster, fractionally slower, with identical maps. In
+ *   Apps Script the ROUND TRIP dominates, not the payload — the same finding the
+ *   PartConsole work hit in July when its "lean" four-column read barely helped.
+ *   The only way to make this cheaper is to do it LESS OFTEN, not more narrowly.
+ */
+function recomputeHand(sharedMaps, sharedZoho) {
   var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   var sheet = ss.getSheetByName(MAIN_SHEET_NAME);
   if (!sheet) return "❌ Main sheet not found.";
@@ -110,8 +133,9 @@ function recomputeHand() {
   var lastRow = sheet.getLastRow();
   if (lastRow < Schema.dataStartRow) return "ℹ️ No data to recompute.";
 
-  // Live snapshot of Master Inventory
-  var maps = buildLocationAndInventoryMaps();
+  // Live snapshot of Master Inventory — reused when the caller already has one.
+  var maps = (sharedMaps && sharedMaps.inventoryMap) ? sharedMaps
+                                                     : buildLocationAndInventoryMaps();
   var inventoryMap = maps.inventoryMap;
   if (inventoryMap.size === 0) {
     return "⚠️ Master Inventory empty or headers missing.";
@@ -124,7 +148,8 @@ function recomputeHand() {
   var boundary = getBoundaryRow();
   // Zoho stock mirror (SKU → {available}). Empty map if the sheet doesn't exist
   // yet → every row falls back to MI, i.e. identical to pre-Zoho behavior.
-  var zohoMap = buildZohoStockMap();
+  var zohoMap = (sharedZoho && typeof sharedZoho.get === 'function') ? sharedZoho
+                                                                     : buildZohoStockMap();
   var newHandValues = [];      // 2D array (one cell per row) for batched setValues
   var updatedCount = 0;
   var zohoSourced = 0;         // how many rows took their HAND from Zoho (debug signal)
@@ -525,3 +550,118 @@ function compareLocations(a, b) {
   var sb = String(b == null ? "" : b).trim().toUpperCase();
   return sa < sb ? -1 : (sa > sb ? 1 : 0);
 }
+
+
+// =======================================================================================
+// TIMING — where does the every-2-minutes job actually spend itself?
+// Added 2026-08-19. Editor-run, prints to the EXECUTION LOG.
+// =======================================================================================
+//
+// WHY THIS EXISTS. The Zoho stock sync fires writeZohoStock every 2 minutes, 9–5,
+// and that one call does three things: write ~28,000 cells to the Zoho Stock
+// sheet, then recomputeHand, then refreshPrepQueueHand. BOTH recomputes call
+// buildLocationAndInventoryMaps() independently, and that does getDataRange() on
+// Master Inventory — 3,655 rows × 198 columns ≈ 724,000 cells — to use FIVE of
+// those columns. Twice. Every two minutes.
+//
+// So the plan to move the Zoho WRITE to n8n would move ~2% of the job and leave
+// the rest. That is worth knowing before spending half a day on it.
+//
+// ⚠ BUT CELL COUNTS ARE NOT SECONDS. Apps Script does not scale linearly — the
+//   round trip dominates a small read, the payload dominates a big one. Every
+//   claim above is an inference from SIZE. This function replaces it with a
+//   measurement, because this project has twice been wrong optimising from a
+//   guess (the "lean" four-column read that barely helped, and the two wrong
+//   calls chased while inferring publish causes).
+//
+// SAFE TO RUN ANY TIME: the two candidate reads are READ-ONLY, and they are
+// compared for exact equality so a faster read that is also a WRONG read cannot
+// pass unnoticed. recomputeHand / refreshPrepQueueHand DO write, but they are
+// idempotent and already run every 2 minutes — running one more costs nothing.
+// =======================================================================================
+
+/**
+ * EDITOR-RUN. Pick timeHandPath in the function dropdown, press Run, then read
+ * the EXECUTION LOG — the Run button does not display return values.
+ *
+ * ⚠⚠ IT TAKES SEVERAL SAMPLES ON PURPOSE. Two runs 30 minutes apart on an idle
+ *    script measured the same Master Inventory read at 1,872 ms and 4,943 ms —
+ *    2.2x apart, with nothing on the floor and nothing changed. Apps Script
+ *    timing is that noisy, so ONE sample cannot support a decision. This reports
+ *    min / median / max and projects from the MEDIAN.
+ *
+ * ⚠ IT ALSO ALTERNATES the shared and unshared order between passes. Reading the
+ *   same ranges repeatedly inside one execution warms them, so always measuring
+ *   "shared" last would systematically flatter it — which is exactly what the
+ *   first version of this function did.
+ *
+ * Safe any time: recomputeHand / refreshPrepQueueHand are idempotent and already
+ * run every 2 minutes. Run it during WORK HOURS too — contention is the case
+ * that decides anything.
+ */
+function timeHandPath() {
+  var PASSES = 3;
+  var L = [];
+  function say(x) { L.push(x); console.log(x); }
+  function ms(fn) { var t = Date.now(); fn(); return Date.now() - t; }
+  function stats(a) {
+    var s = a.slice().sort(function (x, y) { return x - y; });
+    return { min: s[0], med: s[(s.length - 1) >> 1], max: s[s.length - 1] };
+  }
+  function line(label, st) {
+    say("  " + label.padEnd(42) + String(st.med).padStart(6) + " ms" +
+        "   (min " + st.min + " / max " + st.max + ")");
+  }
+
+  var sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(DB_SHEET_NAME);
+  var rows = sheet ? sheet.getLastRow() - 1 : 0, cols = sheet ? sheet.getLastColumn() : 0;
+  say("=== HAND PATH TIMING · " + PASSES + " passes · " + new Date().toISOString() + " ===");
+  say("Master Inventory: " + rows + " rows x " + cols + " cols = " + (rows * cols) + " cells");
+  say("");
+
+  var mi = [], zo = [], unshared = [], shared = [];
+  for (var p = 0; p < PASSES; p++) {
+    mi.push(ms(function () { buildLocationAndInventoryMaps(); }));
+    zo.push(ms(function () { buildZohoStockMap(); }));
+
+    // alternate, so neither arrangement always gets the warm cache
+    if (p % 2 === 0) {
+      unshared.push(ms(function () { recomputeHand(); refreshPrepQueueHand(); }));
+      shared.push(ms(function () {
+        var m = buildLocationAndInventoryMaps(), z = buildZohoStockMap();
+        recomputeHand(m, z); refreshPrepQueueHand(m, z);
+      }));
+    } else {
+      shared.push(ms(function () {
+        var m = buildLocationAndInventoryMaps(), z = buildZohoStockMap();
+        recomputeHand(m, z); refreshPrepQueueHand(m, z);
+      }));
+      unshared.push(ms(function () { recomputeHand(); refreshPrepQueueHand(); }));
+    }
+  }
+
+  line("buildLocationAndInventoryMaps (" + cols + " cols)", stats(mi));
+  line("buildZohoStockMap", stats(zo));
+  say("");
+  line("per cycle, UNSHARED (each builds its own)", stats(unshared));
+  line("per cycle, SHARED (one build, handed to both)", stats(shared));
+  var u = stats(unshared).med, sh = stats(shared).med;
+  say("  → saved per cycle (median):              " + (u - sh) + " ms  (" +
+      Math.round(100 * (u - sh) / Math.max(1, u)) + "%)");
+  say("");
+
+  say("  PROJECTION over a 9-5 day, from the MEDIAN:");
+  say("     interval    cycles     today      shared     saved");
+  [2, 3, 4, 5, 6, 8, 10].forEach(function (m) {
+    var c = Math.round(8 * 60 / m);
+    say("      " + (m + " min").padEnd(11) + String(c).padEnd(10) +
+        (u * c / 60000).toFixed(1).padEnd(11) +
+        (sh * c / 60000).toFixed(1).padEnd(11) +
+        ((u - sh) * c / 60000).toFixed(1) + "  min/day");
+  });
+  say("");
+  say("  ⚠ Spread matters more than any single figure — if min and max are far");
+  say("    apart the script is contended and the median is the honest number.");
+  return L.join("\n");
+}
+

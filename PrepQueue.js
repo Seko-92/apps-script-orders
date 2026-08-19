@@ -530,7 +530,16 @@ function lookupSkuForPrepQueue(sku) {
  * committed subtraction. Only HAND is rewritten; LOCATION/QTY/NOTE/DATE are
  * left untouched. Returns a status string.
  */
-function refreshPrepQueueHand() {
+/**
+ * @param {{inventoryMap:Map,locationMap:Map}=} sharedMaps  MI snapshot already built
+ * @param {Map=} sharedZoho                                 Zoho Stock map already built
+ *
+ * ⚠ SHAPE-DETECTED, never trusted by position — the sibling refreshPrepQueueLocations
+ *   takes the same parameter for the same reason, and anything reachable from a
+ *   trigger receives an event object as its first argument.
+ *   See recomputeHand for the measurement that made sharing worth doing.
+ */
+function refreshPrepQueueHand(sharedMaps, sharedZoho) {
   var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   var sheet = ss.getSheetByName(PREP_QUEUE.sheetName);
   if (!sheet) return "ℹ️ Prep Queue sheet not found.";
@@ -544,10 +553,12 @@ function refreshPrepQueueHand() {
   var skuVals  = sheet.getRange(PREP_QUEUE.dataStartRow, PREP_QUEUE.cols.SKU,  nRows, 1).getValues();
   var handVals = sheet.getRange(PREP_QUEUE.dataStartRow, PREP_QUEUE.cols.HAND, nRows, 1).getValues();
 
-  var maps = buildLocationAndInventoryMaps();
+  var maps = (sharedMaps && sharedMaps.inventoryMap) ? sharedMaps
+                                                    : buildLocationAndInventoryMaps();
   var locationMap  = maps.locationMap;
   var inventoryMap = maps.inventoryMap;
-  var zohoMap      = buildZohoStockMap();
+  var zohoMap      = (sharedZoho && typeof sharedZoho.get === 'function') ? sharedZoho
+                                                                          : buildZohoStockMap();
 
   var boundary = _getPrepBoundaryRow(sheet);
 
