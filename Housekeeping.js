@@ -114,9 +114,41 @@ function runHourlyHousekeeping() {
  * Main.js's onEditInstallable handler chain).
  */
 function _housekeepingPass() {
-  var maps = buildLocationAndInventoryMaps();   // ONE MI read shared by both jobs
+  var maps = buildLocationAndInventoryMaps();   // ONE MI read shared by every job below
 
   var parts = [];
+
+  // HAND RECOMPUTE (2026-08-19) — moved here from a standalone every-15-minutes
+  // trigger, and it belongs here for three reasons.
+  //
+  //   1. THE MAPS ARE ALREADY BUILT. That standalone trigger spent 10.7s a run
+  //      almost entirely on re-reading Master Inventory and Zoho Stock; here the
+  //      MI read above is already paid for, so this costs ~3s instead. 96 runs a
+  //      day at 10.7s = 17.1 min of a 90-minute quota, against ~0.6 min here.
+  //
+  //   2. IT RUNS WHEN PEOPLE ARE THERE. The old trigger fired 24/7 — two thirds
+  //      of its runs were overnight, recomputing for nobody, and mostly re-reading
+  //      a Zoho Stock sheet that is not being refreshed then either (same gate).
+  //      This pass is 6am–6pm Houston, which also covers the 6–9am window the
+  //      Zoho push does not reach: that push is gated 9–17, so an early shift
+  //      would otherwise be reading HAND last refreshed at 5pm yesterday.
+  //
+  //   3. HOURLY MATCHES THE SOURCE. MAIN's Smart Sync refreshes Master Inventory
+  //      HOURLY, so recomputing every 15 minutes was 4x oversampling a number
+  //      that only moves once an hour. Nothing is lost by matching its cadence.
+  //
+  // ⚠ THIS IS THE FALLBACK, NOT THE PRIMARY. During work hours the n8n Zoho push
+  //   recomputes both of these every 2 minutes; this pass exists for the 6–9am
+  //   and 5–6pm edges and for any hour the push does not arrive. Removing the
+  //   push would leave HAND hourly, not stale.
+  try {
+    var hkZoho = buildZohoStockMap();
+    parts.push(recomputeHand(maps, hkZoho));
+    parts.push(refreshPrepQueueHand(maps, hkZoho));
+  } catch (e) {
+    parts.push("❌ HAND recompute: " + e);
+    console.log("Housekeeping HAND error: " + e);
+  }
   try { parts.push(refreshOutOfStock(maps)); }
   catch (e) { parts.push("❌ OOS refresh: " + e); console.log("Housekeeping OOS error: " + e); }
 

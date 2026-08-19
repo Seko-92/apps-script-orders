@@ -3611,6 +3611,40 @@ body.dark-theme .footer-version { border-color: #2c2c2c; }
   </div>
 
   <!-- SHEET PROTECTION — accidental-edit guards on banner + table headers. -->
+  <!-- ================= CAN THIS PANEL REACH THE OUTSIDE WORLD? =================
+       The sidebar is the heaviest caller in the system: every open panel polls
+       Apps Script every 30s, each poll costs ~1.5-2s of EXECUTION time (the
+       Executions panel's Duration column, NOT the function body — measured
+       2026-08-19, and 20-50x higher than an in-function timer reports), and the
+       sheet is shared by public link. So the cost scales with how many people
+       have it open, which is not a number anyone controls.
+
+       The fix would be the one the board already uses: Apps Script computes the
+       tick ONCE into a hidden cell and everyone READS that cell through n8n,
+       never waking Apps Script. That is what made the wall screens free.
+
+       It all turns on one unknown: can a sidebar fetch() an external URL at all?
+       HtmlService applies its own CSP, and this project has been bitten once
+       already (the radio's now-playing had to go through a server function).
+  ============================================================================ -->
+  <div class="card collapsed" data-id="reach-probe" draggable="true">
+    <div class="card-header" onclick="toggleCollapse(this)">
+      <div class="drag-handle" title="Drag to reorder">☰</div>
+      <div class="card-title"><div class="card-icon">📡</div><h3>Sidebar Reach Test</h3></div>
+      <div class="card-toggle">▼</div>
+    </div>
+    <div class="card-body">
+      <button class="btn-primary" onclick="probeReach()">Can this panel call n8n?</button>
+      <div id="reachOut" style="margin-top:10px;font-size:11px;line-height:1.5;
+           font-family:ui-monospace,Menlo,Consolas,monospace;white-space:pre-wrap;
+           color:#555;"></div>
+      <p style="font-size:11px;color:#888;margin-top:8px;">
+        Reads only. Decides whether the sidebar can be served from a published cell
+        the way the Floor Board is — which would make it cost nothing per viewer.
+      </p>
+    </div>
+  </div>
+
   <div class="card collapsed" data-id="sheet-protect" draggable="true">
     <div class="card-header" onclick="toggleCollapse(this)">
       <div class="drag-handle" title="Drag to reorder">☰</div>
@@ -5704,6 +5738,63 @@ function _paintLastSync(cellValue) {
 // CARD COLLAPSE & STATE
 // ═══════════════════════════════════════════════════════════════════════════════
 
+/* Does a sidebar iframe get to talk to the outside world?
+   ⚠ TWO failure modes, reported separately — they need different fixes:
+     · the CSP / sandbox refuses outright  → the published-sidebar idea is dead,
+       and we tune the cache instead
+     · the request goes out and CORS rejects the reply → the idea is FINE, and the
+       fix is one Access-Control-Allow-Origin header in Caddy
+   A probe that only said "failed" would have us fixing the wrong one. */
+function probeReach() {
+  var out = document.getElementById('reachOut');
+  var t0 = Date.now();
+  out.style.color = '#555';
+  out.textContent = 'calling https://hq.yassinqurabi.com/api/board ...';
+
+  if (typeof fetch !== 'function') {
+    out.style.color = '#b71c1c';
+    out.textContent = '\u2717 fetch() does not exist in this sandbox.\n' +
+                      '  The published-sidebar approach is not possible.';
+    return;
+  }
+
+  fetch('https://hq.yassinqurabi.com/api/board', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'boardTick' })
+  })
+  .then(function (r) {
+    var ms = Date.now() - t0;
+    return r.text().then(function (body) {
+      var ok = false, why = '';
+      try { var j = JSON.parse(body); ok = !!(j && j.cockpit); why = ok ? '' : 'no cockpit in the payload'; }
+      catch (e) { why = 'reply was not JSON'; }
+      out.style.color = ok ? '#1b5e20' : '#7a5c00';
+      out.textContent =
+        (ok ? '\u2713 REACHED IT \u2014 the sidebar CAN be served this way.'
+            : '~ the call went out and came back, but the payload was not usable') +
+        '\n  HTTP ' + r.status + '  \u00b7  ' + ms + ' ms  \u00b7  ' + body.length + ' bytes' +
+        (why ? '\n  ' + why : '') +
+        '\n\n  Next: publish the sidebar tick to a hidden cell and read it here,' +
+        '\n  exactly as the Floor Board does. Cost stops scaling with viewers.';
+    });
+  })
+  .catch(function (e) {
+    var ms = Date.now() - t0;
+    var msg = String((e && e.message) || e);
+    var cors = /CORS|Cross-Origin|Failed to fetch|NetworkError/i.test(msg);
+    out.style.color = cors ? '#7a5c00' : '#b71c1c';
+    out.textContent = (cors
+      ? '~ BLOCKED, and most likely CORS rather than the sandbox.\n' +
+        '  That is the GOOD failure: the approach still works, it needs\n' +
+        '  Access-Control-Allow-Origin on /api/board in Caddy.\n' +
+        '  \u26a0 Confirm in DevTools \u2014 a CSP refusal and a CORS refusal both\n' +
+        '    surface here as "Failed to fetch".'
+      : '\u2717 BLOCKED by the sandbox \u2014 the approach is not possible.') +
+      '\n  ' + ms + ' ms  \u00b7  ' + msg;
+  });
+}
+
 function toggleCollapse(header) {
   if (event && event.target.closest('.drag-handle')) return;
   var card = header.closest('.card');
@@ -7284,7 +7375,7 @@ function applyZones() {
     ['today',        "TODAY'S WORK", ['alerts', 'order-lookup', 'investigations', 'zoho-pull', 'kit-expand', 'fulfill']],
     ['table-tools',  'TABLE TOOLS',  ['ebay', 'direct', 'live', 'location-update']],
     ['inventory',    'INVENTORY',    ['part-console', 'prep-queue', 'out-of-stock', 'low-stock', 'stock-highlight', 'price-audit', 'kit-pricing', 'kit-health']],
-    ['diagnostics',  'DIAGNOSTICS',  ['floor-board', 'weekly-digest', 'watchdog', 'duplicates', 'sheet-protect', 'api-monitor', 'arcade']]
+    ['diagnostics',  'DIAGNOSTICS',  ['floor-board', 'weekly-digest', 'watchdog', 'duplicates', 'sheet-protect', 'api-monitor', 'reach-probe', 'arcade']]
   ];
 
   // Snapshot all cards by id before we move anything

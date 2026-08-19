@@ -246,7 +246,49 @@ function setupHandRecomputeTrigger() {
   } catch (e) { /* no UI context */ }
 }
 
-/** Removes the auto-recompute trigger. Manual cleanup helper. */
+/**
+ * EDITOR-RUN. Drop the standalone HAND trigger from every-15-minutes to HOURLY.
+ *
+ * ⚠ WHY THIS EXISTS (measured 2026-08-19). The 15-minute trigger was installed
+ *   2026-05-05 to pair with a Master Inventory sync that ran every 15 minutes.
+ *   Three weeks later the Zoho stock sync arrived and calls recomputeHand +
+ *   refreshPrepQueueHand every TWO minutes, 9–5 — and nobody removed the older
+ *   timer. It has been duplicating that work ever since: 96 runs a day at
+ *   10.7 s = 17.1 min of a 90-minute daily quota.
+ *
+ *   During work hours EVERY one of its runs repeats something done at most two
+ *   minutes earlier. Overnight it is the only thing recomputing — but the Zoho
+ *   Stock sheet is not being refreshed then either (same 9–5 gate), so it mostly
+ *   re-reads yesterday's numbers and writes back what is already there.
+ *
+ *   Hourly keeps an overnight safety net at a granularity nobody can notice,
+ *   and still recovers ~12.8 min/day. Use removeHandRecomputeTrigger() instead
+ *   if you would rather have the full 17.1 and let the 9am Zoho push be the
+ *   first recompute of the day.
+ *
+ * ⚠ SAFE BY CONSTRUCTION — it matches on the handler NAME and touches nothing
+ *   else. Deleting a trigger by eye from the Triggers page is how
+ *   onEditInstallable was removed in August, taking nine handlers down with it.
+ */
+function setHandRecomputeHourly() {
+  var triggers = ScriptApp.getProjectTriggers();
+  var removed = 0;
+  for (var i = 0; i < triggers.length; i++) {
+    if (triggers[i].getHandlerFunction() === 'recomputeHand') {
+      ScriptApp.deleteTrigger(triggers[i]);
+      removed++;
+    }
+  }
+  ScriptApp.newTrigger('recomputeHand').timeBased().everyHours(1).create();
+  var msg = "Replaced " + removed + " recomputeHand trigger(s) with ONE hourly trigger. " +
+            "~96 runs/day -> 24. The 2-min Zoho push remains the real refresh during work hours.";
+  Logger.log(msg);
+  return msg;
+}
+
+/** Removes the auto-recompute trigger. Manual cleanup helper.
+ *  ⚠ Matches on the handler NAME, so it can only ever remove recomputeHand
+ *    triggers — see setHandRecomputeHourly for why you might want this. */
 function removeHandRecomputeTrigger() {
   var triggers = ScriptApp.getProjectTriggers();
   var removed = 0;
@@ -665,3 +707,164 @@ function timeHandPath() {
   return L.join("\n");
 }
 
+
+
+// =======================================================================================
+// timeBudget() — WHERE DOES THE DAILY APPS SCRIPT QUOTA ACTUALLY GO?
+// Added 2026-08-19. Editor-run; prints to the EXECUTION LOG.
+// =======================================================================================
+//
+// A consumer Google account gets ~90 MINUTES of script runtime a day. Every
+// scheduled job, every sidebar poll and every write from the floor spends out of
+// that one pot, and Apps Script runs ONE EXECUTION AT A TIME — so a job that is
+// merely long is also a job that everything else queues behind.
+//
+// This measures the scheduled consumers and projects each one over a day at its
+// real cadence, so the budget stops being arithmetic-from-guesses. Today that
+// guessing was wrong twice in one session: narrowing a read was going to save
+// 80% and saved nothing, and the "biggest remaining win" turned out to be ~2% of
+// the job it was in.
+//
+// ⚠ SAFE TO RUN. Every job here is either read-only or already runs on a timer
+//   and is idempotent. The watchdog is measured through previewStragglerWatchdog
+//   (builds the message, SENDS NOTHING, records no state) — never
+//   runStragglerWatchdog, which would alert the group.
+//
+// ⚠ IT COSTS A COUPLE OF MINUTES OF THE VERY BUDGET IT MEASURES. Run it a few
+//   times, not on a schedule.
+//
+// ⚠ APPS SCRIPT'S OWN LIMIT IS 6 MINUTES PER EXECUTION, so heavy jobs are
+//   measured ONCE and the run bails out of anything left if it is close to the
+//   ceiling — a half-finished table is far better than a timeout that prints
+//   nothing at all.
+// =======================================================================================
+
+var BUDGET = {
+  quotaMin: 90,          // consumer account. Workspace would be 360.
+  ceilingMs: 5 * 60000,  // stop starting new work past this (6-min hard limit)
+
+  // How often each job actually fires, per day. Kept here so the projection is
+  // auditable rather than buried in the arithmetic.
+  runsPerDay: {
+    publishTick:   1440,   // every minute, 24/7
+    housekeeping:    12,   // hourly, but work-hours gated (6am–6pm Houston)
+    handTrigger:      0,   // REMOVED 2026-08-19 — folded into the hourly pass
+    zohoPush:       240,   // n8n, every 2 min, 9–5   ← the cadence under review
+    sidebarTick:    960,   // one open panel, every 30s over an 8-hour shift.
+                           // ⚠ MOSTLY CACHE HITS — see the note at the call site.
+    sidebarRebuild:  16     // spare: rebuilds/hour at a 120s freshness window
+  }
+};
+
+function timeBudget() {
+  var t0 = Date.now(), L = [], rows = [];
+  function say(x) { L.push(x); console.log(x); }
+  function left() { return BUDGET.ceilingMs - (Date.now() - t0); }
+
+  function measure(label, runs, fn, passes, note) {
+    if (left() < 20000) { rows.push([label, null, runs, "SKIPPED — near the 6-min limit"]); return; }
+    passes = passes || 1;
+    var best = [];
+    for (var i = 0; i < passes && left() > 20000; i++) {
+      var s = Date.now();
+      try { fn(); } catch (e) { rows.push([label, null, runs, "FAILED: " + e]); return; }
+      best.push(Date.now() - s);
+    }
+    best.sort(function (a, b) { return a - b; });
+    var med = best[(best.length - 1) >> 1];
+    rows.push([label, med, runs, note || (best.length > 1 ? "median of " + best.length : "1 sample")]);
+    say("  measured  " + label.padEnd(34) + String(med).padStart(6) + " ms" +
+        (best.length > 1 ? "   (" + best.join(" / ") + ")" : ""));
+  }
+
+  say("=== DAILY BUDGET · " + new Date().toISOString() + " ===");
+  say("quota: " + BUDGET.quotaMin + " min/day (consumer account)");
+  say("");
+
+  // --- light + read-only first, so a timeout can never cost us these ---
+  // ⚠⚠ MEASURE IT AS IT ACTUALLY RUNS, NOT FORCED. The first version of this
+  //    passed force:true, which BYPASSES the cache — so it measured a full
+  //    rebuild on every one of the 960 daily polls and reported 48.9 min/day,
+  //    three times the truth. The sidebar has been stale-while-revalidate cached
+  //    since 2026-08-18 precisely so N panels cost ONE execution: the tick is
+  //    fresh for SIDEBAR_TICK_FRESH_SEC (120s) against a 30s poll, so three
+  //    polls in four are cache HITS, and the expensive half (alerts + API) rides
+  //    its own 300s clock. Forcing every call is measuring the bug that was fixed.
+  measure("getSidebarTick (cached — the real poll)", BUDGET.runsPerDay.sidebarTick,
+          function () { getSidebarTick(); }, 3);
+  // ⚠ THE CACHE MISSES ARE THE REAL SIDEBAR COST, not the hits. The tick is fresh
+  //   for SIDEBAR_TICK_FRESH_SEC (120s) against a 30s poll, so ~3 polls in 4 are
+  //   nearly free and ONE IN FOUR rebuilds. Counting only the hits would say the
+  //   sidebar is free; counting every poll as a rebuild said 48.9 min/day. Both
+  //   are wrong — this is the honest rate.
+  //   ⚠ AND IT IS ZERO IF NOBODY LEAVES THE PANEL OPEN. This projects one panel
+  //   open for a whole shift, which is the worst case, not the typical one.
+  measure("getSidebarTick REBUILD (1 poll in 4)",
+          Math.round(8 * 3600 / SIDEBAR_TICK_FRESH_SEC),
+          function () { getSidebarTick(true); }, 1,
+          "one open panel, whole shift = worst case");
+
+  measure("runPublishTick (skip or rebuild)", BUDGET.runsPerDay.publishTick,
+          function () { runPublishTick(); }, 3);
+
+  // ⚠ The standalone every-15-min recomputeHand trigger was REMOVED 2026-08-19
+  //   (17.1 min/day of work the 2-min Zoho push was already doing). The recompute
+  //   now rides the hourly housekeeping pass, where the MI map is already built —
+  //   so it is measured below as part of that pass, not as a job of its own.
+
+  // --- the hourly pass, job by job, then as a whole ---
+  var hkMaps = null;
+  measure("  · buildLocationAndInventoryMaps", 0,
+          function () { hkMaps = buildLocationAndInventoryMaps(); }, 2);
+  measure("  · refreshOutOfStock", 0, function () { refreshOutOfStock(hkMaps); }, 1);
+  measure("  · refreshPrepQueueLocations", 0, function () { refreshPrepQueueLocations(hkMaps); }, 1);
+  measure("  · refreshPhotoQueue", 0, function () { refreshPhotoQueue(); }, 1);
+  measure("  · HAND recompute (moved here 08-19)", 0,
+          function () { var z = buildZohoStockMap(); recomputeHand(hkMaps, z); refreshPrepQueueHand(hkMaps, z); }, 1);
+  measure("  · watchdog (preview — sends nothing)", 0,
+          function () { previewStragglerWatchdog(); }, 1);
+  measure("  · published-cell pulse probe", 0, function () { previewPublishedPulse(); }, 1);
+
+  say("");
+  say("=== PROJECTION ===");
+  say("");
+  say("  job                                   per run    runs/day    min/day");
+  var total = 0;
+  rows.forEach(function (r) {
+    if (r[1] === null) { say("  " + r[0].padEnd(38) + "  — " + r[3]); return; }
+    if (!r[2]) { say("  " + r[0].padEnd(38) + String(r[1]).padStart(7) + " ms" +
+                     "        (part of the hourly pass)"); return; }
+    var perDay = r[1] * r[2] / 60000;
+    total += perDay;
+    say("  " + r[0].padEnd(38) + String(r[1]).padStart(7) + " ms" +
+        String(r[2]).padStart(10) + "     " + perDay.toFixed(1));
+  });
+
+  // the hourly pass, summed from its parts
+  var hourly = 0;
+  rows.forEach(function (r) { if (!r[2] && r[1]) hourly += r[1]; });
+  if (hourly) {
+    var hkDay = hourly * BUDGET.runsPerDay.housekeeping / 60000;
+    total += hkDay;
+    say("  " + "runHourlyHousekeeping (sum of above)".padEnd(38) + String(hourly).padStart(7) + " ms" +
+        String(BUDGET.runsPerDay.housekeeping).padStart(10) + "     " + hkDay.toFixed(1));
+  }
+
+  say("");
+  say("  ---- scheduled jobs measured here ----            " + total.toFixed(1) + " min/day");
+  say("");
+  say("  NOT measured here (event-driven, scales with the day):");
+  say("    the Zoho 2-min push        ~24.5 min/day   (measured separately, timeHandPath)");
+  say("    picks + counts             ~14   min/day   at ~400 lines");
+  say("    order inserts / Telegram   ~8    min/day   estimate");
+  var busy = total + 24.5 + 14 + 8;
+  say("");
+  say("  ESTIMATED BUSY DAY:                              " + busy.toFixed(1) + " min of " +
+      BUDGET.quotaMin + "   (" + Math.round(100 * busy / BUDGET.quotaMin) + "% of quota)");
+  if (busy > BUDGET.quotaMin) say("  ⚠ OVER BUDGET — executions start FAILING at the ceiling, they do not slow down.");
+  say("");
+  say("  ⚠ Measured on THIS run's conditions. Apps Script varies ~2x on an idle");
+  say("    script, so re-run during work hours before acting on anything marginal.");
+  say("  ⚠ This run itself cost ~" + ((Date.now() - t0) / 1000).toFixed(0) + "s of the budget.");
+  return L.join("\n");
+}
