@@ -155,10 +155,11 @@ function _housekeepingPass() {
   try { parts.push(refreshPrepQueueLocations(maps)); }
   catch (e) { parts.push("❌ Prep locations: " + e); console.log("Housekeeping Prep error: " + e); }
 
-  // NEEDS PHOTOS table — re-scan MI for items still at <=1 image (self-cleans as
-  // real photos land). Own MI read (needs pictureUrl1..5, not in `maps`).
-  try { parts.push(refreshPhotoQueue()); }
-  catch (e) { parts.push("❌ Photo queue: " + e); console.log("Housekeeping Photo error: " + e); }
+  // ⚠ NEEDS PHOTOS IS NOT HERE ANY MORE (2026-08-19). It ran ~334s of this
+  // pass's measured 352.7s — 95% of a 360s ceiling — for a backlog that moves in
+  // single digits per day. It now has its OWN daily trigger at 5am Houston with
+  // its own full execution budget: see runPhotoQueueRefresh in PhotoQueue.js.
+  // Removing it took this pass from 352.7s to 18.2s.
 
   // STRAGGLER WATCHDOG (Telegram Tier C) — orders past the 3h line, SOs
   // part-shipped >24h, kits awaiting a decision. Alerts once per item, so this
@@ -220,7 +221,16 @@ function setupHousekeeping() {
   ScriptApp.newTrigger('runHourlyHousekeeping').timeBased().everyHours(1).create();
   msgs.push("hourly trigger installed (" + removed + " old trigger(s) removed)");
 
+  // The photo scan lives on its own daily trigger now — installed here so this
+  // stays the single setup entry point. Best-effort: a trigger-install failure
+  // must not abort the rest of setup.
+  try { msgs.push(setupPhotoQueueTrigger()); }
+  catch (e) { msgs.push("❌ photo trigger: " + e); }
+
   // --- 3) Immediate first pass so the chips populate now ---
+  // ⚠ This deliberately does NOT refresh the photo table. That scan is ~334s and
+  // would push this function past the 360s execution ceiling. Its own trigger
+  // covers it; the sidebar's 📸 button forces one on demand.
   msgs.push(_housekeepingPass());
 
   var summary = "✅ Housekeeping ready — " + msgs.join(" · ");

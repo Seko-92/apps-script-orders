@@ -283,3 +283,128 @@ function openPhotoQueue() {
   if (divider > 0) sheet.setActiveRange(sheet.getRange(divider, 1));
   return "✅ Opened Needs-Photos.";
 }
+
+
+// =======================================================================================
+// ITS OWN TRIGGER (2026-08-19)
+// =======================================================================================
+//
+// ⚠⚠ WHY THIS JOB LEFT THE HOUSEKEEPING PASS — MEASURED, not guessed.
+//
+//   _housekeepingPass WITH this job     352.748 s
+//   _housekeepingPass WITHOUT it         18.219 s
+//
+// This one scan was ~334s — about 95% of the whole hourly pass — against Apps
+// Script's hard 360s per-execution ceiling. Six unrelated jobs (HAND, Prep HAND,
+// Out of Stock, Prep locations, the straggler watchdog, the tier-2 pulse) were
+// sharing a budget that this job had already spent, and a timeout would have
+// silently dropped whichever of them ran last. That is not a cost problem, it is
+// a BLAST-RADIUS problem: an expensive job does not belong in a shared execution
+// with cheap ones that have nothing to do with it.
+//
+// It is expensive for a structural reason, not a fixable one. _scanItemsNeedingPhotos
+// reads the WHOLE of Master Inventory (3,635 x 198 = 719,730 cells) because it needs
+// pictureUrl1..5, which the shared `maps` do not carry, and then rewrites ~464 rows
+// with checkboxes, rich-text SKU links and a sort.
+//
+// ⚠ DO NOT "FIX" IT BY NARROWING THE READ. Tested on this exact sheet 2026-08-19:
+//   198 columns vs a 39-column span measured 1,905 ms vs 1,872 ms — no faster.
+//   In Apps Script the ROUND TRIP dominates, not the payload. The cost is the
+//   464-row WRITE pipeline, not the read.
+//
+// ⚠ ONCE A DAY IS ENOUGH, AND PURE ON-DEMAND IS NOT.
+//   Enough, because the backlog moves in single digits per day (460 on 08-18,
+//   464 on 08-19) — it only changes when a photographer uploads to eBay and
+//   MAIN's hourly sync carries the new pictureUrl into MI. Staleness also only
+//   ever runs in the "already shot but still listed" direction, which the
+//   photographer catches the moment they open the listing.
+//
+//   But NOT on-demand only, because getPhotoQueueCount() reads the SHEET rather
+//   than rescanning, and it feeds the Alerts badge AND the weekly digest + PDF
+//   report. With no scheduled run, a month of nobody pressing the button gives
+//   Monday's report a month-old number while looking perfectly healthy. A number
+//   that is quietly stale is worse than one that is openly a day old.
+//
+// ⚠ 5AM HOUSTON, PINNED EXPLICITLY. Before the 6am shift so it is fresh when
+//   anyone reads it, and nothing else is running so its ~334s competes with
+//   nobody. `.inTimezone()` is NOT optional here: atHour() otherwise uses the
+//   SCRIPT's timezone, which is Asia/Amman on this project — 8 hours off Houston.
+
+var PHOTO_QUEUE_TRIGGER = {
+  handler:  "runPhotoQueueRefresh",
+  hour:     5,                       // 5am …
+  timezone: "America/Chicago"        // … Houston, NOT the script's Asia/Amman
+};
+
+
+/**
+ * Trigger target. Deliberately NOT work-hours gated — 5am is the point.
+ *
+ * ⚠ Takes no meaningful arguments. A time trigger hands its target an EVENT
+ * OBJECT as the first argument, so anything it accepted would be an event on
+ * every scheduled run.
+ */
+function runPhotoQueueRefresh() {
+  try {
+    var msg = refreshPhotoQueue();
+    console.log("Photo queue: " + msg);
+    return msg;
+  } catch (err) {
+    // Never rethrow from a trigger target — a throw here only produces a failure
+    // email, and the next daily run self-heals because the region is rebuilt
+    // from scratch every time.
+    console.log("Photo queue error: " + err);
+    return "❌ Photo queue: " + err;
+  }
+}
+
+
+/**
+ * Install the daily trigger. Idempotent — safe to re-run.
+ *
+ * ⚠ MATCHES ON getHandlerFunction(), never on position. Picking trigger rows by
+ * eye is what took nine handlers down in August.
+ *
+ * ⚠ It does NOT refresh the table itself. setupHousekeeping calls this, and a
+ * ~334s scan on top of that function's own work would push it past the 360s
+ * execution ceiling — the exact failure this whole change exists to remove. The
+ * table is already populated; the first scheduled run keeps it that way, and the
+ * sidebar's 📸 button forces one immediately if anyone cannot wait.
+ */
+function setupPhotoQueueTrigger() {
+  var removed = 0;
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    if (t.getHandlerFunction() === PHOTO_QUEUE_TRIGGER.handler) {
+      ScriptApp.deleteTrigger(t);
+      removed++;
+    }
+  });
+
+  ScriptApp.newTrigger(PHOTO_QUEUE_TRIGGER.handler)
+    .timeBased()
+    .atHour(PHOTO_QUEUE_TRIGGER.hour)
+    .inTimezone(PHOTO_QUEUE_TRIGGER.timezone)
+    .everyDays(1)
+    .create();
+
+  var msg = "📸 Photo queue trigger installed — daily ~" + PHOTO_QUEUE_TRIGGER.hour +
+            ":00 " + PHOTO_QUEUE_TRIGGER.timezone +
+            " (" + removed + " old trigger(s) removed)";
+  console.log(msg);
+  return msg;
+}
+
+
+/** Remove it. Matches on handler name, same discipline as the installer. */
+function removePhotoQueueTrigger() {
+  var removed = 0;
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    if (t.getHandlerFunction() === PHOTO_QUEUE_TRIGGER.handler) {
+      ScriptApp.deleteTrigger(t);
+      removed++;
+    }
+  });
+  var msg = "📸 Photo queue trigger removed (" + removed + ").";
+  console.log(msg);
+  return msg;
+}
