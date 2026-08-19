@@ -4706,6 +4706,29 @@ updateMuteBtn();
 // available for on-demand callers (manual buttons, post-action re-polls).
 if (typeof google !== 'undefined') {
   refreshSidebarTick();
+  /* ⚠ 30s, AND THE REASONING CHANGED TWICE IN ONE DAY (2026-08-19) — both steps
+     recorded, because the SECOND one only became correct after the first shipped.
+
+     It was 30s. Mid-afternoon I raised it to 60s: the server cache was 300s, so a
+     30-second poll meant 10 requests per cache generation with 9 returning
+     byte-identical data, and every one of those still billed ~1.5-2s of container
+     start and QUEUED IN FRONT OF THE FLOOR'S WRITES (doPost measured at 22.3s the
+     same afternoon, against the board's 25s bound). Halving the poll removed
+     ~2,375 executions a day and cost nothing, because freshness was bounded by the
+     CACHE, not by this number.
+
+     Then the published path shipped and that whole argument evaporated: a poll now
+     reads __Published!A1 through n8n and NEVER WAKES THIS SCRIPT. The cost that
+     justified 60s no longer exists, so the number goes back to what actually serves
+     the operator.
+
+     ⚠ NOT FASTER THAN ~20s. n8n keeps its own 15-second cache in front of the
+     cell, so anything below that asks more often than the answer can change.
+
+     ⚠ THE DEGRADED CASE IS WHY THIS IS NOT 10s. If the published path fails, every
+     poll falls back to google.script.run and the old per-call cost returns — at
+     which point this number is charging the script again. 30s keeps that worst
+     case no worse than what ran all day on 2026-08-18. */
   setInterval(refreshSidebarTick, 30000);
 }
 
@@ -4875,20 +4898,110 @@ function _statusIdleTick() {
    overlapping beat costs the warehouse its writes. */
 var _sidebarTickBusy = false;
 
+/* ⭐⭐ THE PUBLISHED PATH (2026-08-19) — READ THE CELL, DO NOT WAKE THE SCRIPT.
+
+   The Floor Board has been served this way since 2026-08-07: Apps Script writes a
+   finished tick to __Published!A1, n8n reads THAT CELL over the Sheets API, and a
+   viewer never causes a rebuild. The Control Panel never got it, so every open
+   panel was making YOUR script do the work — and because the sheet is shared by
+   public link and this panel auto-opens, the bill was driven by how many people
+   had the link open, an input nobody controls or can count.
+
+   ⚠ THE SAVING IS NOT THE POINT — CONTENTION IS. Apps Script largely serialises
+   this script's executions, so every sidebar poll sits in the same queue as the
+   picker's ✓ Pick. Measured 2026-08-19 mid-shift: doPost at 22.3s against the
+   board's 25s write bound, runPublishTick at 85.4s. That is the 08-17 starvation
+   signature, and it is what the floor actually feels.
+
+   ⚠ AND IT MAKES THE PANEL FRESHER, NOT STALER. Reading the cell costs Apps Script
+   nothing, so freshness stops being bounded by this poll or by the 300s server
+   cache and becomes bounded by the PUBLISH rate — and runPublishTick publishes
+   every minute, plus inline on every pick and arrival. ~6 min old becomes ~1 min.
+
+   ⚠ THE FALLBACK IS NOT OPTIONAL, AND IT IS AUTOMATIC. Any failure — no URL, the
+   fetch refused, a reply that is not JSON, no cockpit in it, no sidebar key, or a
+   copy too old to trust — drops straight back to google.script.run.getSidebarTick(),
+   which is exactly the pre-2026-08-19 behaviour. The panel cannot go dark from this.
+
+   ⚠ THE STALENESS GATE MATTERS. If the publisher dies, the cell keeps answering
+   with a perfectly well-formed but ancient payload — the failure that ran silently
+   for a WEEK in August on the board's own tier 2. Past PUBLISHED_MAX_AGE we stop
+   believing it and pay for the live call instead. Degrading to the expensive path
+   is the safe direction; showing yesterday's numbers as though they were live is not. */
+var HQ_TICK_URL = '<?!= boardApiUrl ?>';
+var SIDEBAR_VIA_PUBLISHED    = true;             // kill switch: false = old behaviour
+var SIDEBAR_PUBLISHED_MAX_MS = 15 * 60 * 1000;   // older than this: do not trust it
+var _sidebarTickSource = '';
+
+/* Say which tier answered, but only when it CHANGES — the same "silent unless the
+   state moves" rule the tier-2 pulse alarm uses. A line every minute is noise; a
+   line the moment the panel silently falls back to the expensive path is a finding. */
+function _sidebarNoteSource(src) {
+  if (src === _sidebarTickSource) return;
+  _sidebarTickSource = src;
+  try { console.log('[sidebar] tick served by: ' + src); } catch (e) {}
+}
+
+/* ONE painter for both tiers, so the two paths can never drift into painting
+   different things — the format-drift class this codebase keeps getting bitten by. */
+function _sidebarPaint(cockpit, lastSync, api, alerts, picker) {
+  _paintCockpit(cockpit);
+  _paintLastSync(lastSync);
+  _paintApiMetrics(api);
+  _paintAlerts(alerts);
+  _paintPicker(picker);
+  dismissBootSplash();     // panel is populated — drop the splash
+}
+
 function refreshSidebarTick() {
-  if (typeof google === 'undefined' || !google.script) return;
   if (_sidebarTickBusy) return;          // last one is still out — skip this beat
+  _sidebarTickBusy = true;
+
+  if (SIDEBAR_VIA_PUBLISHED && HQ_TICK_URL && typeof fetch === 'function') {
+    fetch(HQ_TICK_URL, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ action: 'boardTick' })
+    })
+    .then(function (r) { return r.json(); })
+    .then(function (t) {
+      if (!t || !t.cockpit || !t.sidebar) throw new Error('payload not usable');
+
+      // ⚠ Trust the copy only while it is young enough to mean anything.
+      var age = t._publishedAt ? (Date.now() - new Date(t._publishedAt).getTime()) : Infinity;
+      if (!(age >= 0 && age < SIDEBAR_PUBLISHED_MAX_MS)) throw new Error('published copy is stale');
+
+      _sidebarNoteSource('published cell (' + Math.round(age / 1000) + 's old)');
+      _sidebarPaint(t.cockpit, t.lastSync, t.sidebar.api, t.sidebar.alerts, t.picker);
+      _sidebarTickBusy = false;
+    })
+    .catch(function (e) {
+      // ⚠ ONE note per cycle, not two. Noting the fallback here AND again inside
+      // _sidebarTickLive made the two strings alternate, and since the notifier
+      // fires on CHANGE, alternating strings log on EVERY poll — which is exactly
+      // the noise the "silent unless it changes" rule exists to prevent. Carry the
+      // reason down instead, so the single line stays stable and stays quiet.
+      _sidebarTickBusy = false;          // released BEFORE the retry, or the guard
+      _sidebarTickLive((e && e.message) || String(e));   // blocks its own fallback
+    });
+    return;
+  }
+
+  _sidebarTickLive();
+}
+
+/* The original path, unchanged in behaviour — now also the fallback.
+   @param {string} [why] set when we got here by falling back, so the one log line
+   names the cause instead of just saying "live". */
+function _sidebarTickLive(why) {
+  if (typeof google === 'undefined' || !google.script) { _sidebarTickBusy = false; return; }
   _sidebarTickBusy = true;
   google.script.run
     .withSuccessHandler(function(tick) {
       _sidebarTickBusy = false;
       if (!tick) { dismissBootSplash(); return; }
-      _paintCockpit(tick.cockpit);
-      _paintLastSync(tick.lastSync);
-      _paintApiMetrics(tick.api);
-      _paintAlerts(tick.alerts);
-      _paintPicker(tick.picker);
-      dismissBootSplash();   // panel is populated — drop the splash
+      _sidebarNoteSource('apps script (live)' + (why ? ' — ' + why : ''));
+      _sidebarPaint(tick.cockpit, tick.lastSync, tick.api, tick.alerts, tick.picker);
     })
     .withFailureHandler(function() {
       _sidebarTickBusy = false;          // ⚠ MUST clear here too, or one failure

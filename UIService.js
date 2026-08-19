@@ -6,8 +6,15 @@
  * Shows the control panel sidebar
  */
 function showSidebar() {
-  var html = HtmlService.createTemplateFromFile('Sidebar').evaluate().setTitle('⚙️ Control Panel');
-  SpreadsheetApp.getUi().showSidebar(html);
+  var t = HtmlService.createTemplateFromFile('Sidebar');
+
+  // ⭐ THE PUBLISHED-TICK ENDPOINT (2026-08-19). Injected rather than hardcoded in
+  // the HTML because it lives in Secrets.js, which is gitignored — the panel must
+  // still render for a fresh clone that has no Secrets, so an empty string here
+  // simply means "use the live google.script.run path", which is the old behaviour.
+  t.boardApiUrl = (typeof HQ_BOARD_API_URL === 'string') ? HQ_BOARD_API_URL : '';
+
+  SpreadsheetApp.getUi().showSidebar(t.evaluate().setTitle('⚙️ Control Panel'));
 }
 
 /**
@@ -195,7 +202,16 @@ var SIDEBAR_TICK_MAX_BYTES = 90000;       // CacheService hard-caps a value at 1
    ⚠ Same stale-while-revalidate shape as the tick above, and for the same
    reason — a plain TTL would stampede when several panels expire together. */
 var SIDEBAR_SLOW_CACHE_KEY = 'hqSidebarSlow_v1';
-var SIDEBAR_SLOW_FRESH_SEC = 300;        // 5 min
+/* ⚠ 900s, NOT 300s (2026-08-19). MEASURED: with the fast half also at 300s the
+   split stopped buying anything — two probe windows both showed tick rebuilds and
+   slow rebuilds at IDENTICAL counts (3 and 3, then 3 and 3), i.e. the eight-sheet
+   read was riding along with every single cockpit rebuild. The whole point of the
+   08-18 split was that these two halves answer questions on different clocks.
+   ⚠ ACCEPTED TRADE: paidShipping and newFromZoho can now lag up to 15 minutes.
+   That is defensible because the Alerts card is a BACKLOG view, not an arrival
+   notifier — arrivals are announced by the Floor Board beacon and by Telegram,
+   both of which are unaffected. An OOS count or a photo backlog moves over hours. */
+var SIDEBAR_SLOW_FRESH_SEC = 900;        // 15 min
 var SIDEBAR_SLOW_KEEP_SEC  = 21600;
 
 function _sidebarSlowParts() {

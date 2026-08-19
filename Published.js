@@ -101,6 +101,32 @@ var PUBLISHED = {
   // replacement.
   fpPropKey: "PUBLISHED_TICK_FP",
 
+  /* ⭐ HOW OFTEN THE NET ACTUALLY CHECKS (2026-08-19).
+
+     The net below reads the All Orders range on every run that would otherwise
+     SKIP. Measured across 21 minutes of real picking: **~76% of runs are skips**,
+     so that was ~1,100 sheet reads a day, almost all finding nothing — and each
+     one occupies an execution slot the floor's writes are queueing for.
+
+     ⚠ WHAT THIS DOES NOT SLOW DOWN: anything ANNOUNCED. A pick, an edit, a row
+     insert, an arrival, a kit commit — every one raises the dirty flag and still
+     publishes within a minute, exactly as before. This gate is only reached when
+     nothing changed AND nobody said anything.
+
+     So the only thing that slows is detection of an UNANNOUNCED change: ~1 min
+     becomes ~4 min, still far better than the 8-minute keep-fresh window the net
+     was built to shorten.
+
+     ⚠ THE EVIDENCE THAT MAKES THIS SAFE: across that same 21-minute window,
+     `sheet moved, unannounced` fired ZERO times. Every change was properly
+     announced by a chokepoint, i.e. the enumeration is currently honest. That is
+     an argument for checking LESS OFTEN — it is NOT an argument for deleting the
+     net, which exists for a mistake already made five times in two days and
+     certain to be made again.
+
+     Set to 0 or 1 to check on every run, as before. */
+  fpEveryMinutes: 4,
+
   // Republish once the copy reaches this age even if NOTHING changed.
   //
   // ⚠ FOUND 2026-08-07, reading a live payload. Publishing only on "dirty" has
@@ -189,11 +215,34 @@ function publishBoardTick(reason) {
     // exactly what made the 2026-08-13 credential fault findable.
     tick._publishReason = String(reason || "manual");
 
+    // ⭐⭐ THE SIDEBAR RIDES ALONG (2026-08-19). The board tick ALREADY carries
+    // three of the five fields the Control Panel paints — cockpit, lastSync and
+    // picker are the same functions in both — so serving the sidebar from this
+    // cell only needs the two the board deliberately skips. See _pubSidebarExtras.
+    //
+    // ⚠⚠ THE FLAG IS LOAD-BEARING — READ THE NOTE ON _pubSidebarExtras. This same
+    // function runs INLINE inside boardSetStatus, i.e. inside a picker's ✓ Pick.
+    // Only the scheduled reasons are allowed to rebuild the 8-sheet alerts cache;
+    // a pick may publish whatever is already cached and nothing more.
+    var _pubFromTrigger = (reason === "changed" || reason === "keep-fresh" ||
+                           reason === "sheet moved, unannounced" || reason === "manual");
+    tick.sidebar = _pubSidebarExtras(_pubFromTrigger);
+
     var json = JSON.stringify(tick);
     var trimmed = false;
 
     // Shed the least valuable payload first: the timeline is a nice-to-have,
     // the pick list is the reason the board exists.
+    //
+    // ⚠ THE SIDEBAR GOES FIRST OF ALL. This cell exists to serve the BOARD; the
+    // sidebar is a guest on it. Dropping the guest degrades the Control Panel to
+    // its own live call, which still works — dropping the pick list would leave a
+    // picker holding a screen that does not say what to fetch.
+    if (json.length > PUBLISHED.maxChars && tick.sidebar) {
+      delete tick.sidebar;
+      tick._trimmed = trimmed = true;
+      json = JSON.stringify(tick);
+    }
     if (json.length > PUBLISHED.maxChars && tick.cockpit && tick.cockpit.timeline) {
       tick.cockpit.timeline = [];
       tick._trimmed = trimmed = true;
@@ -291,6 +340,14 @@ function runPublishTick() {
     if (!dirty && !stale) {
       // ⚠ THE NET. Nobody said anything changed — check for ourselves rather
       // than take the enumeration's word for it. See PUBLISHED.fpPropKey.
+      //
+      // ...but not on EVERY run. See PUBLISHED.fpEveryMinutes: the check reads
+      // the sheet, ~76% of runs land here, and nothing announced is affected.
+      if (!_pubShouldFingerprint(new Date().getMinutes())) {
+        return "clean and fresh — skipped (net checks every " +
+               PUBLISHED.fpEveryMinutes + " min)";
+      }
+
       var fp = _pubFingerprint();
 
       // ⚠ AN UNREADABLE FINGERPRINT MEANS SKIP, NOT PUBLISH — the opposite of
@@ -314,6 +371,75 @@ function runPublishTick() {
     try { console.log("runPublishTick: " + err); } catch (_) {}
     return "error: " + String(err.message || err);
   }
+}
+
+
+/**
+ * The two fields the Control Panel needs that the board tick does not carry.
+ *
+ * ⚠ NEARLY FREE, BY CONSTRUCTION. _sidebarSlowParts() keeps its OWN 900s cache,
+ * so on almost every publish this is a cache read. The one rebuild per 15 minutes
+ * is a rebuild that a polling panel would have paid for anyway — it has simply
+ * moved off the viewer's poll and onto a schedule we choose. That IS the whole
+ * point: the cost stops scaling with how many people have the sheet open.
+ *
+ * ⚠ THE `rows` ARRAYS ARE STRIPPED. getActionableAlerts returns {count, rows} per
+ * key so the sidebar can jump to matching rows — but the client only ever reads
+ * .count (jumpToAlertRows re-scans server-side on click). Publishing the arrays
+ * would put hundreds of row numbers into a cell with a 45,000-char ceiling to
+ * satisfy nobody.
+ *
+ * ⚠ NEVER THROWS. A failure here must not take down the board's publish; the
+ * sidebar simply falls back to its own live call, which is the pre-2026-08-19
+ * behaviour and still correct.
+ *
+ * @param {boolean} mayRebuild TRUE only from a SCHEDULED publish. Compared with
+ *   === true, never merely truthy — anything else must not be able to trigger an
+ *   eight-sheet read on the pick path.
+ * @returns {{api:Object|null, alerts:Object|null, _builtAt:number}}
+ */
+function _pubSidebarExtras(mayRebuild) {
+  var out = { api: null, alerts: null, _builtAt: 0 };
+  try {
+    var slow = null;
+
+    if (mayRebuild === true) {
+      // Scheduled publish — safe to let the 900s cache miss and rebuild here.
+      slow = _sidebarSlowParts();
+    } else {
+      // ⚠⚠ INLINE PUBLISH (a pick, an arrival, a kit commit). CACHE-ONLY, NEVER
+      // A REBUILD. _sidebarSlowParts opens EIGHT SHEETS on a miss, and this code
+      // path runs inside boardSetStatus — the floor's most frequent write, already
+      // measured at 22.3s against the board's 25s bound. Adding an eight-sheet read
+      // to a ✓ Pick, even once every 15 minutes, is exactly the starvation this
+      // whole change exists to remove. Read the cache directly and take nothing.
+      try {
+        var hit = CacheService.getScriptCache().get(SIDEBAR_SLOW_CACHE_KEY);
+        if (hit) slow = JSON.parse(hit);
+      } catch (e) { slow = null; }        // unreadable cache is a miss, never a failure
+    }
+
+    // Cold cache on an inline publish just means no sidebar key on THIS copy, and
+    // the panel falls back to its live call — which is what warms the cache again.
+    // The next scheduled publish (at most 8 minutes away via keep-fresh) carries it.
+    if (!slow) return out;
+
+    out._builtAt = slow._builtAt || 0;
+    out.api      = slow.api || null;
+
+    if (slow.alerts) {
+      var lean = {};
+      for (var k in slow.alerts) {
+        if (!slow.alerts.hasOwnProperty(k)) continue;
+        var v = slow.alerts[k];
+        lean[k] = (v && typeof v === "object") ? { count: v.count || 0 } : v;
+      }
+      out.alerts = lean;
+    }
+  } catch (err) {
+    try { console.log("_pubSidebarExtras: " + err); } catch (_) {}
+  }
+  return out;
 }
 
 
@@ -348,6 +474,31 @@ function getPublishedTick() {
 // Set by _dashBustTickCache(), which every write chokepoint already calls —
 // updateOrderStatus, the doPost insert, and boardSetStatus. Hooking there means
 // one edit covers every path, present and future, instead of three.
+
+/**
+ * Should THIS run pay for the net's sheet read?
+ *
+ * ⚠ PURE ON PURPOSE — takes the minute rather than reading the clock — so the
+ * part that decides whether to spend a sheet read is testable in Node.
+ *
+ * ⚠ STATELESS BY DESIGN. A counter in Script Properties would be exact, but it
+ * costs a property read+write on every run to save a fraction of the reads it is
+ * trying to avoid. The clock is already free. Trigger drift can occasionally make
+ * a minute fire twice (harmless — the check is idempotent) or skip one entirely
+ * (the next check is 4 minutes later, still inside the 8-minute keep-fresh
+ * backstop). Both directions degrade into behaviour we already accept.
+ *
+ * @param {number} minute 0-59
+ * @returns {boolean}
+ */
+function _pubShouldFingerprint(minute) {
+  var every = PUBLISHED.fpEveryMinutes;
+  if (!(every > 1)) return true;                 // 0, 1, missing → every run
+  var m = parseInt(minute, 10);
+  if (!(m >= 0)) return true;                    // unreadable clock → check, do not skip
+  return (m % every) === 0;
+}
+
 
 /**
  * Fold a 2-D block of cell values into a short change-detection fingerprint.
