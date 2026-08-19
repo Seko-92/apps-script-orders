@@ -3239,6 +3239,193 @@ body.dark-theme .footer-version { border-color: #2c2c2c; }
 /* ⚠ blank when healthy: a zero row is not a finding, so it recedes to a hairline */
 .alert-row.empty{opacity:.34}
 .alert-row.empty .alert-count{color:#9a948a}
+
+/* ── 4 · button marks (2026-08-20) ──────────────────────────────────────
+   v3.6 replaced the 26 CARD-HEAD emoji and stopped there; the buttons INSIDE
+   the cards still carried 39 of them. Same argument applies with more force —
+   a button is the thing you aim at, and its icon was the least predictable
+   pixel on the panel. `currentColor` is the whole trick: the mark inherits
+   each button's own ink, so primary (black on yellow), danger (red) and info
+   (link-style) all stay coherent without a rule each.
+   ⚠ TRAILING "→" IS NOT AN ICON AND IS LEFT ALONE. It is an affordance suffix
+   meaning "this opens a window", it is typographic rather than pictographic,
+   and it survives any font. Same for the arrows inside labels (A→Z).
+   ⚠ THE ARCADE KEEPS ITS EMOJI, DELIBERATELY (the 2026-08-19 ruling): it is
+   MEANT to read as not-a-tool, and its pink accent is a decision. */
+#modules button svg{width:13px;height:13px;flex:none;display:block;
+  stroke:currentColor;fill:none;stroke-width:1.75;
+  stroke-linecap:round;stroke-linejoin:round;opacity:.82}
+#modules button:hover svg{opacity:1}
+#modules .quick-add-title,#modules .qa-preview-label{display:flex;align-items:center;gap:5px}
+#modules .quick-add-title svg,#modules .qa-preview-label svg{width:12px;height:12px;flex:none;
+  stroke:currentColor;fill:none;stroke-width:1.75;stroke-linecap:round;stroke-linejoin:round;opacity:.75}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   THE RESTING PANEL (2026-08-19, re-cut 2026-08-20 to the approved mockup)
+   ⚠ SELF-CONTAINED AND REVERSIBLE. Every class is `rp-`-prefixed, nothing
+   existing is edited, and the panel is an OVERLAY: it reads the tick the
+   cockpit already paints and writes to no surface. Delete this block, the
+   `.rp` markup after the footer, and the REST PANEL script block, and the
+   Control Panel is exactly as it was.
+
+   ⚠⚠ THE SOURCE OF TRUTH IS THE MOCKUP, NOT ITS PROSE.
+   Artifact e0f0ba20 "Control Panel at Rest". Values below are lifted from its
+   `.rest.day` / `.rest.night` blocks. ⚠ THAT ARTIFACT IS LAYERED — it still
+   carries copy and code from iterations that were REJECTED:
+     · the annotation column (ONE/FUTURE/TRACE/REACH/STEPS) describes the
+       stepped cumulative trace, which is rejected attempt #2
+     · `data-count` is referenced 3x in its JS/CSS and 0x in its markup
+     · `.track` / `.xrow` in its reduced-motion block match nothing
+     · the comment header "THE TACHOMETER … with a needle" (rejected #4) sits
+       directly above the live `pips()` function
+     · `@keyframes breathe` is referenced and never defined — so its hint never
+       actually breathed. Defined here.
+   READ ITS MARKUP. Its prose will rebuild something already thrown away.
+
+   ⚠ THE THREE RULES, from CLAUDE.md (2026-08-19, cont. 7):
+     · NO WIDGETS. One object and typography. No cards, boxes, bars, lamps.
+     · HEALTHY ROWS VANISH, they do not dim. A row reading "none" is a zero
+       occupying space. Blank when healthy, so any ink is a finding.
+     · IDLE REVEALS MORE, IT NEVER HIDES. Inverse of the Floor Board
+       screensaver built and deleted in June. Do not rebuild that.
+
+   ⚠ SIZE KNOB: `.rp-dial { font-size }` — 12.4px is the mockup's tuned value
+   and everything inside is `em` off it, so ring, ticks, jewel, pips and face
+   all follow together. The clamp only protects a short panel.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.rp{
+  position:fixed; inset:0; z-index:900; display:none; flex-direction:column;
+  padding:13px 12px 10px; overflow:hidden; opacity:0; transition:opacity .6s ease;
+  color:#e8dfcd;
+  --rp-brand:#ffd966; --rp-ember:#e08b3c;
+}
+.rp.rp-show{ display:flex; opacity:1; }
+/* ── TWO LIGHTS, ONE GEOMETRY. Only the ground and the words change. ─────── */
+.rp.rp-day  { background:radial-gradient(125% 90% at 50% 4%,#31261a 0%,#1d1811 52%,#120f0b 100%); color:#efe9d8; }
+.rp.rp-night{ background:radial-gradient(120% 85% at 50% 18%,#241d16 0%,#15110d 55%,#0c0a08 100%); }
+
+/* daylight from above — day only */
+.rp-haze{ position:absolute; left:-20%; right:-20%; top:-24%; height:62%; pointer-events:none;
+  background:radial-gradient(ellipse at 50% 0%,rgba(255,217,102,.13),transparent 68%);
+  opacity:0; transition:opacity .9s ease; }
+.rp.rp-day .rp-haze{ opacity:1; }
+
+/* ember and drift — night only */
+.rp-embers{ position:absolute; inset:0; pointer-events:none; overflow:hidden;
+  opacity:0; transition:opacity .9s ease; }
+.rp.rp-night .rp-embers{ opacity:1; }
+.rp-ember{ position:absolute; bottom:-6px; width:2px; height:2px; border-radius:50%;
+  background:var(--rp-ember); opacity:0; animation:rpRise linear infinite; }
+@keyframes rpRise{ 0%{opacity:0;transform:translateY(0)} 12%{opacity:.5}
+  70%{opacity:.28} 100%{opacity:0;transform:translateY(-190px)} }
+
+/* ── SLOT 0 · where and when ─────────────────────────────────────────────── */
+.rp-top{ display:flex; justify-content:space-between; align-items:baseline;
+  margin-bottom:12px; flex:none; position:relative; z-index:2; }
+.rp-rlab{ font-family:'Oswald',sans-serif; font-size:9.5px; letter-spacing:.2em;
+  text-transform:uppercase; color:#7d7666; font-weight:600; }
+.rp-date{ font-family:'Oswald',sans-serif; font-size:19px; font-weight:300; color:#cfc7b2;
+  font-variant-numeric:tabular-nums; }
+
+/* ── SLOT 1 · the face ───────────────────────────────────────────────────── */
+.rp-dialwrap{ flex:none; display:grid; place-items:center; padding:6px 0 2px;
+  position:relative; z-index:2; }
+.rp-dial{ position:relative; width:15em; height:15em; display:grid; place-items:center;
+  font-size:clamp(9px, min(4vw, 1.9vh), 12.4px); }
+.rp-disc{ position:absolute; inset:0; border-radius:50%;
+  background:radial-gradient(circle at 50% 42%,#211a14,#14100c 70%,#0f0c09);
+  box-shadow:inset 0 0 2.2em rgba(0,0,0,.85), 0 0 2.6em rgba(224,139,60,.09); }
+.rp.rp-day .rp-disc{ background:radial-gradient(circle at 50% 34%,#2a2118,#191410 68%,#141009); }
+.rp-bezel{ position:absolute; inset:-.28em; border-radius:50%;
+  border:1px solid rgba(255,217,102,.10);
+  background:conic-gradient(from 0deg,transparent 0 84deg,rgba(255,217,102,.16) 90deg,transparent 96deg 360deg);
+  -webkit-mask:radial-gradient(circle,transparent 0 7.1em,#000 7.1em);
+          mask:radial-gradient(circle,transparent 0 7.1em,#000 7.1em);
+  animation:rpBez 168s linear infinite; }
+.rp.rp-day .rp-bezel{ border-color:rgba(255,217,102,.16); }
+@keyframes rpBez{ to{ transform:rotate(360deg); } }
+.rp-ticks,.rp-hours{ position:absolute; inset:0; border-radius:50%; }
+/* 60 faint minute hairlines */
+.rp-ticks{ background:repeating-conic-gradient(from 0deg,rgba(232,223,205,.34) 0 .32deg,transparent .32deg 6deg);
+  -webkit-mask:radial-gradient(circle,transparent 0 6.25em,#000 6.3em 6.75em,transparent 6.8em);
+          mask:radial-gradient(circle,transparent 0 6.25em,#000 6.3em 6.75em,transparent 6.8em); }
+/* 12 longer hour marks — GOLD, not grey */
+.rp-hours{ background:repeating-conic-gradient(from 0deg,rgba(255,217,102,.62) 0 .75deg,transparent .75deg 30deg);
+  -webkit-mask:radial-gradient(circle,transparent 0 5.75em,#000 5.8em 6.75em,transparent 6.8em);
+          mask:radial-gradient(circle,transparent 0 5.75em,#000 5.8em 6.75em,transparent 6.8em); }
+/* the seconds — one gold jewel, phase-aligned to the wall clock in JS */
+.rp-jewel{ position:absolute; left:50%; top:50%; width:0; height:0;
+  animation:rpSpin 60s linear infinite; }
+.rp-jewel::after{ content:""; position:absolute; left:-.19em; top:-6.52em;
+  width:.38em; height:.38em; border-radius:50%; background:var(--rp-brand);
+  box-shadow:0 0 .55em .06em rgba(255,217,102,.95); }
+@keyframes rpSpin{ to{ transform:rotate(360deg); } }
+
+/* ⭐ THE PIPS — one mark per shipment, at the clock position it happened.
+   At 7am the face is nearly bare; by close the working hours are lit and the
+   night hours dark. The clock ends the day WEARING the day it just did, and
+   keeps wearing it all evening — a RECORD, not a readout.
+   ⚠ The mockup renders these in its DAY block only, but its own annotation
+   says the face keeps them all evening, and that file demonstrably carries
+   leftovers elsewhere. Both states, per the design's stated intent. */
+.rp-pips{ position:absolute; inset:0; width:100%; height:100%; z-index:2; pointer-events:none; }
+.rp-pip{ opacity:0; animation:rpPipIn .5s ease forwards; }
+@keyframes rpPipIn{ to{ opacity:1; } }
+
+.rp-core{ position:relative; text-align:center; z-index:2; }
+.rp-tm{ font-family:'Oswald',sans-serif; font-weight:200; font-size:3.05em; line-height:1;
+  color:#e8dfcd; letter-spacing:.01em; font-variant-numeric:tabular-nums; }
+.rp.rp-day .rp-tm{ color:#f2ead8; }
+.rp-mer{ font-family:'Oswald',sans-serif; font-size:.82em; letter-spacing:.3em; color:#8a8271;
+  text-transform:uppercase; margin-top:.3em; }
+/* the third line changes JOB, not just value: by day a finding, by night an identity */
+.rp-dy{ font-family:'Roboto Mono',ui-monospace,monospace; font-size:.63em; letter-spacing:.16em;
+  color:#635c4e; text-transform:uppercase; margin-top:.55em; }
+.rp.rp-day .rp-dy{ color:var(--rp-brand); letter-spacing:.1em; }
+
+/* ── SLOT 2 · the flank — two ruled boxes, identical in both states ──────── */
+.rp-flank{ display:flex; gap:9px; margin-top:14px; flex:none; position:relative; z-index:2; }
+.rp-box{ flex:1; border-top:1px solid rgba(255,217,102,.15); padding-top:8px; }
+.rp-box .rp-k{ font-family:'Oswald',sans-serif; font-size:8.5px; letter-spacing:.17em;
+  text-transform:uppercase; color:#6f695c; font-weight:600; }
+.rp-box .rp-v{ font-family:'Oswald',sans-serif; font-size:27px; font-weight:600;
+  color:var(--rp-brand); line-height:1.05; font-variant-numeric:tabular-nums; }
+/* the sub-caption is a RELATIONSHIP, not a restatement */
+.rp-box .rp-s{ font-family:'Roboto Mono',ui-monospace,monospace; font-size:9px; color:#7d7666; }
+.rp-box.rp-r{ text-align:right; }
+.rp-box.rp-r .rp-v{ color:#cfc7b2; }
+
+/* ── SLOT 3 · the quiet rows ─────────────────────────────────────────────
+   ⚠ A row is APPENDED ONLY WHEN IT HAS SOMETHING TO SAY. No empty state and no
+   dimmed state — a calm day makes the panel calmer, and a row appearing is
+   itself the alarm. */
+.rp-rows{ margin-top:15px; flex:1; min-height:0; display:flex; flex-direction:column;
+  justify-content:center; position:relative; z-index:2; }
+.rp-row{ display:flex; justify-content:space-between; align-items:baseline; padding:6px 0;
+  border-bottom:1px solid rgba(255,255,255,.05);
+  font-family:'Roboto Mono',ui-monospace,monospace; font-size:10.5px; color:#a49d8b; }
+.rp-row b{ color:#e2dccb; font-weight:400; }
+/* the one loud state. Amber, never red — red means "something disagrees, ACT". */
+.rp-row b.rp-warn{ color:#d99a86; }
+
+/* ── SLOT 4 · the countdown ──────────────────────────────────────────────── */
+.rp-count{ margin-top:14px; text-align:center; flex:none; position:relative; z-index:2; }
+.rp-clabel{ font-family:'Oswald',sans-serif; font-size:9px; letter-spacing:.22em;
+  text-transform:uppercase; color:#635c4e; }
+.rp-cval{ font-family:'Oswald',sans-serif; font-size:21px; font-weight:300; color:var(--rp-ember);
+  letter-spacing:.04em; font-variant-numeric:tabular-nums; margin-top:2px; }
+
+.rp-hint{ margin-top:10px; text-align:center; font-family:'Oswald',sans-serif; font-size:9px;
+  letter-spacing:.22em; text-transform:uppercase; color:#5c574c; flex:none;
+  position:relative; z-index:2; animation:rpBreathe 4.5s ease-in-out infinite; }
+@keyframes rpBreathe{ 0%,100%{opacity:.55} 50%{opacity:1} }
+
+@media (prefers-reduced-motion:reduce){
+  .rp-bezel,.rp-jewel,.rp-ember,.rp-hint{ animation:none !important; }
+  .rp-pip{ animation:none !important; opacity:1 !important; }
+  .rp{ transition:none; }
+}
 </style>
 </head>
 
@@ -3271,6 +3458,17 @@ body.dark-theme .footer-version { border-color: #2c2c2c; }
 <symbol id="m-wave" viewBox="0 0 24 24"><path d="M3 12h2.6l2-5 3 10 2.4-7 1.7 4H21"/></symbol>
 <symbol id="m-cmd" viewBox="0 0 24 24"><path d="M9 9h6v6H9z"/><path d="M9 9V6.6a2.6 2.6 0 1 0-2.6 2.6H9zm6 0V6.6a2.6 2.6 0 1 1 2.6 2.6H15zM9 15v2.4a2.6 2.6 0 1 1-2.6-2.6H9zm6 0v2.4a2.6 2.6 0 1 0 2.6-2.6H15z"/></symbol>
 <symbol id="m-type" viewBox="0 0 24 24"><path d="M4 19 9.5 5l5.5 14M6 14.6h7"/><path d="M16.6 19 19.4 11l2.8 8M17.6 16.4h3.6"/></symbol>
+<symbol id="m-eye" viewBox="0 0 24 24"><path d="M2.6 12s3.6-6 9.4-6 9.4 6 9.4 6-3.6 6-9.4 6-9.4-6-9.4-6z"/><circle cx="12" cy="12" r="2.6"/></symbol>
+<symbol id="m-marker" viewBox="0 0 24 24"><path d="M4.2 4.2h15.6v15.6H4.2z"/><path d="M8.6 8.6h6.8v6.8H8.6z"/></symbol>
+<symbol id="m-calc" viewBox="0 0 24 24"><path d="M5.6 3.4h12.8v17.2H5.6z"/><path d="M8.4 7.4h7.2"/><path d="M8.4 11.6h1.6M11.2 11.6h1.6M14 11.6h1.6M8.4 15.4h1.6M11.2 15.4h1.6M14 15.4h1.6"/></symbol>
+<symbol id="m-link" viewBox="0 0 24 24"><path d="M10.2 13.8a4.2 4.2 0 0 0 6.1.3l2.3-2.3a4.2 4.2 0 0 0-5.9-5.9l-1.3 1.3"/><path d="M13.8 10.2a4.2 4.2 0 0 0-6.1-.3l-2.3 2.3a4.2 4.2 0 0 0 5.9 5.9l1.3-1.3"/></symbol>
+<symbol id="m-sort" viewBox="0 0 24 24"><path d="M7.6 4.8v14.4"/><path d="M4.4 8 7.6 4.8 10.8 8"/><path d="M16.4 19.2V4.8"/><path d="M13.2 16l3.2 3.2 3.2-3.2"/></symbol>
+<symbol id="m-check" viewBox="0 0 24 24"><path d="M4.6 12.4 9.6 17.4 19.4 6.6"/></symbol>
+<symbol id="m-camera" viewBox="0 0 24 24"><path d="M3.4 7.8h4.2l1.5-2.4h5.8l1.5 2.4h4.2v10.8H3.4z"/><circle cx="12" cy="13.1" r="3.3"/></symbol>
+<symbol id="m-doc" viewBox="0 0 24 24"><path d="M6.2 3.6h7.4L18 8v12.4H6.2z"/><path d="M13.6 3.6V8H18"/><path d="M9 12.6h6M9 16h4.2"/></symbol>
+<symbol id="m-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.4"/><path d="M12 7.1V12l3.3 2.1"/></symbol>
+<symbol id="m-bolt" viewBox="0 0 24 24"><path d="M13.4 2.6 5.2 13.6h5.6l-.9 7.8 8.2-11h-5.6z"/></symbol>
+<symbol id="m-undo" viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 0 2.6-5.9"/><path d="M4 4.5V9h4.5"/></symbol>
 </defs></svg>
 
 <!-- Boot splash: visible the instant the panel renders, fades out when the
@@ -3514,7 +3712,7 @@ body.dark-theme .footer-version { border-color: #2c2c2c; }
     <div class="card-body">
       <button class="btn-secondary" onclick="run('openInvestigations')">Open Sheet</button>
       <div class="empty-hint">
-        The permanent record of order investigations — Category · Findings · Resolution · Status · Investigator. Written from an order's <strong>📂 Case</strong>; never purged. Open cases surface in the Alerts card.
+        The permanent record of order investigations — Category · Findings · Resolution · Status · Investigator. Written from an order's <strong>Case</strong>; never purged. Open cases surface in the Alerts card.
       </div>
       <details class="card-more">
         <summary>More tools</summary>
@@ -3833,7 +4031,7 @@ body.dark-theme .footer-version { border-color: #2c2c2c; }
       <button class="btn-secondary" onclick="run('refreshPrepQueueLocations')">📍 Refresh Locations</button>
       <button class="btn-secondary" onclick="run('refreshPhotoQueue')" title="Re-scan Master Inventory for ACTIVE listings that still have only the logo (0–1 images) — items AND kits">📸 Refresh Photo Needs</button>
       <button class="btn-danger" onclick="confirmClearPrepQueue()">Clear Queue</button>
-      <div class="empty-hint">Three tables: <strong>CURRENT</strong> on top, <strong>INCOMING</strong> (future prep) below the yellow divider, then <strong>NEEDS PHOTOS</strong> at the bottom (auto — every ACTIVE listing still at 0–1 images, i.e. only the logo). The current table grows on its own — type in the blank rows and the divider slides down. <strong>⇅ Sort</strong> re-orders each table by location and closes gaps (checkmarks survive). Tick a row's ✔ box to strike it through; <strong>Clear Done</strong> sweeps ticked rows from CURRENT + INCOMING only. The <strong>NEEDS PHOTOS</strong> table is machine-owned — it self-cleans hourly as real photos land in MI; tick ✔ to mark "shot it, pending upload" (that survives). Locations + photo needs re-mirror hourly — the ⟳ chip shows the last refresh.</div>
+      <div class="empty-hint">Three tables: <strong>CURRENT</strong> on top, <strong>INCOMING</strong> (future prep) below the yellow divider, then <strong>NEEDS PHOTOS</strong> at the bottom (auto — every ACTIVE listing still at 0–1 images, i.e. only the logo). The current table grows on its own — type in the blank rows and the divider slides down. <strong>Sort</strong> re-orders each table by location and closes gaps (checkmarks survive). Tick a row's ✔ box to strike it through; <strong>Clear Done</strong> sweeps ticked rows from CURRENT + INCOMING only. The <strong>NEEDS PHOTOS</strong> table is machine-owned — it self-cleans hourly as real photos land in MI; tick ✔ to mark "shot it, pending upload" (that survives). Locations + photo needs re-mirror hourly — the ⟳ chip shows the last refresh.</div>
       <details class="card-more">
         <summary>More tools</summary>
         <div class="card-more-content">
@@ -3858,7 +4056,7 @@ body.dark-theme .footer-version { border-color: #2c2c2c; }
         <button class="btn-secondary" onclick="run('sortOutOfStockMain')" title="Re-sort the top restock list by location (aisle walk order)">⇅ Sort Restock</button>
         <button class="btn-secondary" onclick="run('sortOutOfStockKits')" title="Re-sort the OOS kits table by buildable count (most-openable first)">⇅ Sort Kits</button>
       </div>
-      <div class="empty-hint">Two tables: <strong>restock list</strong> on top (Active listings at zero or below), <strong>OOS KITS</strong> below the yellow divider with a live BUILDABLE count from components. <strong>⇅ Sort</strong> re-orders each table on demand (restock by location, kits by buildable). Auto-refreshes hourly during work hours (6am–6pm Houston) — the ⟳ chip on the sheet shows the last refresh. A row shown struck-through gray with "⟳ Zoho: N" means Zoho already sees stock — Master Inventory just hasn't caught up yet (drops within the hour).</div>
+      <div class="empty-hint">Two tables: <strong>restock list</strong> on top (Active listings at zero or below), <strong>OOS KITS</strong> below the yellow divider with a live BUILDABLE count from components. <strong>Sort</strong> re-orders each table on demand (restock by location, kits by buildable). Auto-refreshes hourly during work hours (6am–6pm Houston) — the ⟳ chip on the sheet shows the last refresh. A row shown struck-through gray with "⟳ Zoho: N" means Zoho already sees stock — Master Inventory just hasn't caught up yet (drops within the hour).</div>
       <details class="card-more">
         <summary>More tools</summary>
         <div class="card-more-content">
@@ -4077,7 +4275,7 @@ body.dark-theme .footer-version { border-color: #2c2c2c; }
       <div class="card-toggle">▼</div>
     </div>
     <div class="card-body">
-      <button class="btn-primary" id="luFetchBtn" onclick="fetchEbayLocationsNow()"><span id="luFetchText">⇊ Fetch eBay Locations</span></button>
+      <button class="btn-primary" id="luFetchBtn" onclick="fetchEbayLocationsNow()"><span class="btn-mk">⇊</span><span id="luFetchText">Fetch eBay Locations</span></button>
       <button class="btn-secondary" onclick="run('openLocationUpdate')">Open Sheet</button>
       <button class="btn-secondary" onclick="run('sortLocationUpdateByLocation')">Sort by Location A→Z</button>
       <div class="empty-hint"><strong>Fetch</strong> asks eBay LIVE for every row's location and paints the verdict in <strong>◉ EBAY LOC</strong>: green = matches the typed LOCATION · red = disagrees (or blank on eBay) · gray = SKU not on eBay / check failed. Type SKU → <strong>timestamp</strong> auto-stamps + SKU links to its listing. <strong>LOCATION</strong> stays manually edited.</div>
@@ -4206,6 +4404,67 @@ body.dark-theme .footer-version { border-color: #2c2c2c; }
   </div>
 </div>
 
+
+<!-- ═══ THE RESTING PANEL — one face, two lights ═══════════════════════════
+     Structure is the approved mockup (artifact e0f0ba20, its `.rest` blocks):
+       where/when · the face · the flank · the quiet rows · the countdown
+     Day and night share every slot; only the light and the words change.
+     An OVERLAY — it reads the tick the cockpit already paints and edits
+     nothing. See the CSS block for the three design rules and for why that
+     artifact's PROSE must not be followed.
+     ═══════════════════════════════════════════════════════════════════════ -->
+<div class="rp" id="restPanel" aria-hidden="true">
+  <div class="rp-haze"></div>
+  <div class="rp-embers" id="rpEmbers"></div>
+
+  <!-- where and when -->
+  <div class="rp-top">
+    <span class="rp-rlab" id="rpWhere">Houston · closed</span>
+    <span class="rp-date" id="rpDate">—</span>
+  </div>
+
+  <!-- the face — the same object at every hour -->
+  <div class="rp-dialwrap">
+    <div class="rp-dial">
+      <div class="rp-disc"></div>
+      <div class="rp-bezel"></div>
+      <div class="rp-ticks"></div>
+      <div class="rp-hours"></div>
+      <svg class="rp-pips" id="rpPips" viewBox="0 0 200 200" aria-hidden="true"></svg>
+      <div class="rp-jewel" id="rpJewel"></div>
+      <div class="rp-core">
+        <div class="rp-tm" id="rpTime">—:—</div>
+        <div class="rp-mer" id="rpMer">PM</div>
+        <div class="rp-dy" id="rpDy"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- the flank — identical in both states -->
+  <div class="rp-flank">
+    <div class="rp-box">
+      <div class="rp-k">Shipped</div>
+      <div class="rp-v" id="rpShipped">—</div>
+      <div class="rp-s" id="rpShippedSub"></div>
+    </div>
+    <div class="rp-box rp-r">
+      <div class="rp-k">Received</div>
+      <div class="rp-v" id="rpReceived">—</div>
+      <div class="rp-s" id="rpReceivedSub"></div>
+    </div>
+  </div>
+
+  <!-- the quiet rows — appended only when they have something to say -->
+  <div class="rp-rows" id="rpRows"></div>
+
+  <!-- the countdown -->
+  <div class="rp-count">
+    <div class="rp-clabel" id="rpCountLabel">Opens in</div>
+    <div class="rp-cval" id="rpCountValue">—</div>
+  </div>
+
+  <div class="rp-hint">Move to resume</div>
+</div>
 <script>
 // ═══════════════════════════════════════════════════════════════════════════════
 // HQ COMMAND CENTER v2.4.4 - JavaScript
@@ -5025,12 +5284,14 @@ function _sidebarNoteSource(src) {
 
 /* ONE painter for both tiers, so the two paths can never drift into painting
    different things — the format-drift class this codebase keeps getting bitten by. */
-function _sidebarPaint(cockpit, lastSync, api, alerts, picker) {
+function _sidebarPaint(cockpit, lastSync, api, alerts, picker, full) {
   _paintCockpit(cockpit);
   _paintLastSync(lastSync);
   _paintApiMetrics(api);
   _paintAlerts(alerts);
   _paintPicker(picker);
+  // The resting panel reads the same tick — it never calls the server itself.
+  try { _rpNoteTick(cockpit, alerts, full); } catch (e) {}
   dismissBootSplash();     // panel is populated — drop the splash
 }
 
@@ -5053,7 +5314,7 @@ function refreshSidebarTick() {
       if (!(age >= 0 && age < SIDEBAR_PUBLISHED_MAX_MS)) throw new Error('published copy is stale');
 
       _sidebarNoteSource('published cell (' + Math.round(age / 1000) + 's old)');
-      _sidebarPaint(t.cockpit, t.lastSync, t.sidebar.api, t.sidebar.alerts, t.picker);
+      _sidebarPaint(t.cockpit, t.lastSync, t.sidebar.api, t.sidebar.alerts, t.picker, t);
       _sidebarTickBusy = false;
     })
     .catch(function (e) {
@@ -5082,7 +5343,7 @@ function _sidebarTickLive(why) {
       _sidebarTickBusy = false;
       if (!tick) { dismissBootSplash(); return; }
       _sidebarNoteSource('apps script (live)' + (why ? ' — ' + why : ''));
-      _sidebarPaint(tick.cockpit, tick.lastSync, tick.api, tick.alerts, tick.picker);
+      _sidebarPaint(tick.cockpit, tick.lastSync, tick.api, tick.alerts, tick.picker, tick);
     })
     .withFailureHandler(function() {
       _sidebarTickBusy = false;          // ⚠ MUST clear here too, or one failure
@@ -5637,7 +5898,7 @@ function fetchEbayLocationsNow() {
     .withSuccessHandler(function(result) {
       var clearBtn = function() {
         if (btn) { btn.classList.remove('spinning'); btn.disabled = false; }
-        if (txt) txt.textContent = '⇊ Fetch eBay Locations';
+        if (txt) txt.textContent = 'Fetch eBay Locations';   // the mark lives beside it, untouched
         isFetchingEbayLoc = false;
       };
 
@@ -5665,7 +5926,7 @@ function fetchEbayLocationsNow() {
     })
     .withFailureHandler(function(err) {
       if (btn) { btn.classList.remove('spinning'); btn.disabled = false; }
-      if (txt) txt.textContent = '⇊ Fetch eBay Locations';
+      if (txt) txt.textContent = 'Fetch eBay Locations';   // the mark lives beside it, untouched
       isFetchingEbayLoc = false;
       status.className = 'error';
       status.textContent = 'Location check error: ' + (err && err.message ? err.message : err);
@@ -6549,7 +6810,7 @@ function renderLookupResult(result) {
   // Open-case flag — don't let someone re-investigate what's already in flight.
   if (s.openCases > 0) {
     html += '<div style="background:#fff4b0;color:#7d5d00;font-weight:700;padding:2px 6px;border-radius:4px;margin-bottom:3px;">'
-          + '⚠ open case — open 📂 Case to see the findings</div>';
+          + '⚠ open case — open the Case to see the findings</div>';
   }
 
   if (s.statuses && s.statuses.length) {
@@ -7653,7 +7914,398 @@ window.addEventListener('load',function(){
     b.innerHTML='<svg><use href="#'+(HDR[i]||'m-cmd')+'"/></svg>';
     if(badge) b.appendChild(badge);
   });
+
+  /* ── button marks (2026-08-20). Keyed on the LEADING glyph rather than a data
+       attribute: one map covers every button, survives re-ordering, and a button
+       whose glyph is not mapped simply keeps what it has.
+
+       ⚠ THREE MARKUP SHAPES, and the first cut only handled one:
+         1. a leading text node          — "🔍 Look Up →"
+         2. the icon in its OWN span     — <span class="sync-icon">📥</span><span>Sync…</span>
+            (those spans are load-bearing: the sync/status/verify buttons hide the
+            icon while their spinner runs, so the span is KEPT and only its
+            CONTENTS swap)
+         3. the glyph inside the LABEL span — <span id="luFetchText">⇊ Fetch…</span>
+       ⚠ THE /u FLAG IS LOAD-BEARING. Without it \S matches ONE CODE UNIT, so an
+       astral emoji yields a lone high surrogate and the lookup misses. First run:
+       9 of 39 converted — every failure a surrogate pair, every success BMP.
+       ⚠ THE ARCADE KEEPS ITS EMOJI (the 2026-08-19 ruling) — 🕹 is not in the map. */
+  var BTN={'🔍':'m-look','👁':'m-eye','⬇':'m-pull','⇊':'m-pull','📦':'m-kit',
+    '▣':'m-marker','🧮':'m-calc','📥':'m-sync','🔄':'m-sync','🛡':'m-shield',
+    '🔗':'m-link','⇅':'m-sort','✔':'m-check','📍':'m-loc','📸':'m-camera',
+    '💲':'m-push','📤':'m-push','🩺':'m-health','🧩':'m-part','📄':'m-doc',
+    '⏰':'m-clock','📈':'m-digest','↺':'m-undo','🖨':'m-print','📂':'m-case','⚡':'m-bolt'};
+  var RE=/^(\s*)(\S)(\uFE0F?)\s*/u;
+  function mkSvg(id){ var w=document.createElement('span');
+    w.innerHTML='<svg><use href="#'+id+'"/></svg>'; return w.firstChild; }
+  function leadMark(node){
+    var m=node.nodeValue.match(RE); if(!m) return null;
+    var id=BTN[m[2]]; if(!id) return null;
+    node.nodeValue=node.nodeValue.slice(m[0].length); return id;
+  }
+  function firstText(el){
+    for(var i=0;i<el.childNodes.length;i++){
+      var n=el.childNodes[i];
+      if(n.nodeType===3 && n.nodeValue.trim()) return n;
+    }
+    return null;
+  }
+  /* ⚠ .qa-preview-label carries BOTH '📍 Loc' and '◫ Hand'. Only 📍 is in the
+     map: ◫ is the sheet's HAND column glyph, written through a NUMBER FORMAT
+     into cells machines read, and those never become marks. */
+  document.querySelectorAll('#modules button, #modules .quick-add-title, #modules .qa-preview-label').forEach(function(btn){
+    if(btn.querySelector('svg')) return;         // already marked — idempotent
+    var t=firstText(btn), id;
+    if(t && (id=leadMark(t))){ btn.insertBefore(mkSvg(id),btn.firstChild); return; }
+    var el=btn.firstElementChild; if(!el) return;
+    var solo=BTN[(el.textContent||'').trim().replace(/\uFE0F$/,'')];
+    if(solo){ el.innerHTML=''; el.appendChild(mkSvg(solo)); return; }   // shape 2
+    var inner=firstText(el);                                            // shape 3
+    if(inner && (id=leadMark(inner))) btn.insertBefore(mkSvg(id),btn.firstChild);
+  });
 });
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   THE RESTING PANEL — driver (re-cut 2026-08-20 to the approved mockup)
+
+   ⚠ ZERO SERVER WORK. Every figure here already arrives on the tick the cockpit
+   paints; this block adds no call of its own. The panel is an overlay that
+   reads and edits nothing, so the worst a bug in here can do is look wrong.
+
+   ⚠ CADENCE: ITS OWN CONSTANT, AND NOT COCKPIT_IDLE_RESET_MS. That 4-minute
+   timer is the cockpit BLOOM and is invisible unless you scrolled first — it
+   only un-condenses a cockpit that scrolling condensed. Waiting three minutes
+   for "the idle state" and seeing nothing is exactly what that feels like.
+
+   ⚠ 90s, NOT THE MOCKUP'S "3-4 MINUTES". The asymmetry decides it: waking is
+   INSTANT AND FREE — any pointer move, no round trip — so appearing early costs
+   a twitch while appearing late means never seeing it at all. ⚠ Do not go below
+   ~60s: the panel is also open while someone works the sheet beside it, and a
+   full-panel takeover flickering in during a pause is genuinely annoying.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+var REST_IDLE_MS       = 90 * 1000;   // ⚠ see the asymmetry note above; floor ~60s
+var REST_WAKE_THROTTLE = 1500;        // don't re-arm the timer on every mousemove
+var REST_TZ            = 'America/Chicago';
+var REST_OPEN_MIN      = 9 * 60;      // 09:00 Houston
+var REST_CLOSE_MIN     = 17 * 60;     // 17:00 Houston
+
+var _rpTimer = null, _rpLastPoke = 0, _rpEmbersBuilt = false, _rpAligned = false;
+var _rpData  = { cockpit: null, alerts: null, full: null };
+var _rpPipKey = '';                   // last pip set rendered — skip identical repaints
+
+/* ── Houston, because the floor is ──────────────────────────────────────── */
+function _rpNow() {
+  try {
+    var d = new Date();
+    var p = d.toLocaleTimeString('en-US',
+      { timeZone: REST_TZ, hour12: false, hour: '2-digit', minute: '2-digit' }).split(':');
+    var parts = new Intl.DateTimeFormat('en-US', { timeZone: REST_TZ, weekday: 'short',
+      day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true })
+      .formatToParts(d).reduce(function (o, x) { o[x.type] = x.value; return o; }, {});
+    var order = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+    return {
+      min: parseInt(p[0], 10) * 60 + parseInt(p[1], 10),
+      hour: parseInt(p[0], 10),
+      dow: order.indexOf(parts.weekday),
+      clock: parts.hour + ':' + parts.minute,
+      mer: parts.dayPeriod || '',
+      weekday: parts.weekday,
+      date: parts.weekday + ' ' + parts.day + ' ' + parts.month,
+      sec: d.getSeconds() + d.getMilliseconds() / 1000
+    };
+  } catch (e) {
+    var n = new Date();
+    return { min: n.getHours() * 60 + n.getMinutes(), hour: n.getHours(), dow: n.getDay(),
+             clock: '—:—', mer: '', weekday: '', date: '', sec: n.getSeconds() };
+  }
+}
+function _rpIsWeekday(d) { return d >= 1 && d <= 5; }
+
+function _rpFmtDur(m) {
+  m = Math.max(0, parseInt(m, 10) || 0);
+  if (m < 60)   return m + 'm';
+  if (m < 1440) return Math.floor(m / 60) + 'h ' + (m % 60) + 'm';
+  var dys = Math.floor(m / 1440), hrs = Math.round((m % 1440) / 60);
+  if (hrs === 24) { dys += 1; hrs = 0; }
+  return dys + 'd ' + hrs + 'h';
+}
+
+/* Minutes until the next weekday 09:00 Houston.
+   ⚠ Weekends are SKIPPED, so a Friday evening reads "2d 17h", not "17h". */
+function _rpMinsToOpen() {
+  var t = _rpNow(), total;
+  if (_rpIsWeekday(t.dow) && t.min < REST_OPEN_MIN) {
+    total = REST_OPEN_MIN - t.min;
+  } else {
+    total = 1440 - t.min;
+    var d = (t.dow + 1) % 7;
+    while (!_rpIsWeekday(d)) { total += 1440; d = (d + 1) % 7; }
+    total += REST_OPEN_MIN;
+  }
+  return total;
+}
+
+/* Open = a weekday inside 09:00–17:00 Houston — the SAME window
+   _isOffHoursHouston uses, so the panel, the board and the System Pulse can
+   never disagree about when the day ended. No new rule. */
+function _rpIsOpen() {
+  var t = _rpNow();
+  return _rpIsWeekday(t.dow) && t.min >= REST_OPEN_MIN && t.min < REST_CLOSE_MIN;
+}
+
+/* ── the motes, built once ──────────────────────────────────────────────── */
+function _rpBuildEmbers() {
+  if (_rpEmbersBuilt) return;
+  var box = document.getElementById('rpEmbers');
+  if (!box) return;
+  var h = '';
+  for (var i = 0; i < 9; i++) {
+    h += '<i class="rp-ember" style="left:' + (8 + Math.random() * 84).toFixed(1)
+      +  '%;animation-duration:' + (9 + Math.random() * 11).toFixed(1)
+      +  's;animation-delay:' + (-Math.random() * 20).toFixed(1) + 's"></i>';
+  }
+  box.innerHTML = h;
+  _rpEmbersBuilt = true;
+}
+
+/* ⭐ THE PIPS — one radial mark per shipment, at the clock angle of the hour it
+   happened. Not a chart on a clock: the clock's own ring, marked.
+   ⚠ Bucketed to 6-minute slots so a burst studs the ring instead of smearing it
+   into a solid arc. The mockup drew a hand-written list and never had to dedupe;
+   real data does.
+   ⚠ Repaints only when the SET changes — rewriting innerHTML every tick would
+   restart every pip's fade-in once a minute, a flicker nobody asked for. */
+function _rpRenderPips(timeline) {
+  var svg = document.getElementById('rpPips');
+  if (!svg) return;
+  var seen = {}, slots = [];
+  (timeline || []).forEach(function (e) {
+    if (!e || e.event !== 'SHIPPED') return;
+    var hf = parseFloat(e.hourFraction);
+    if (!isFinite(hf)) return;
+    var slot = Math.round((hf % 12) * 10);          // 6-minute buckets on a 12h face
+    if (seen[slot]) return;
+    seen[slot] = 1; slots.push(slot);
+  });
+  slots.sort(function (a, b) { return a - b; });
+  var key = slots.join(',');
+  if (key === _rpPipKey) return;                    // nothing moved — leave the DOM alone
+  _rpPipKey = key;
+
+  var g = '', R0 = 76, R1 = 69;
+  for (var i = 0; i < slots.length; i++) {
+    var a = ((slots[i] / 120) * 360 - 90) * Math.PI / 180;   // 12 o'clock = -90°
+    g += '<line class="rp-pip" style="animation-delay:' + (500 + i * 44) + 'ms"'
+      +  ' x1="' + (100 + R0 * Math.cos(a)).toFixed(1) + '" y1="' + (100 + R0 * Math.sin(a)).toFixed(1) + '"'
+      +  ' x2="' + (100 + R1 * Math.cos(a)).toFixed(1) + '" y2="' + (100 + R1 * Math.sin(a)).toFixed(1) + '"'
+      +  ' stroke="#ffd966" stroke-width="2.4" stroke-linecap="round"/>';
+  }
+  svg.innerHTML = g;
+}
+
+/* ── the quiet rows ─────────────────────────────────────────────────────
+   ⚠ APPENDED ONLY WHEN THEY HAVE SOMETHING TO SAY. No empty state, no dimmed
+   state — blank when healthy, so any ink is a finding. */
+function _rpRow(rows, label, value, warn) {
+  if (value === null || value === undefined || value === '') return;
+  rows.push('<div class="rp-row"><span>' + label + '</span><b'
+          + (warn ? ' class="rp-warn"' : '') + '>' + value + '</b></div>');
+}
+
+/* "7 lines · 2 orders" — both units, because they answer different questions.
+   `lines` only rides the PUBLISHED tick; on the live fallback we say orders. */
+function _rpWorkText(c, full) {
+  var orders = (parseInt(c && c.ebayGrab, 10) || 0) + (parseInt(c && c.directGrab, 10) || 0);
+  if (!orders) return '';
+  var lines = full && parseInt(full.openOrdersTotal, 10);
+  var o = orders + (orders === 1 ? ' order' : ' orders');
+  return (lines > 0) ? (lines + (lines === 1 ? ' line · ' : ' lines · ') + o) : o;
+}
+
+function _rpPaintRows(open, c, full) {
+  var host = document.getElementById('rpRows');
+  if (!host) return;
+  var rows = [], n;
+  var oldest = (c && c.oldestPendingMinutes != null) ? parseInt(c.oldestPendingMinutes, 10) : null;
+  var work = _rpWorkText(c, full);
+
+  if (open) {
+    _rpRow(rows, 'On the floor', work);
+    if (oldest != null && oldest > 0) _rpRow(rows, 'Oldest waiting', _rpFmtDur(oldest), oldest >= 180);
+
+    /* ⏭ THE TWO ROWS THAT NEED THE SERVER. They render ONLY when the tick
+       carries them, so the "blank when healthy" rule doubles as the graceful
+       degradation — a tick built before those keys existed shows fewer rows
+       rather than anything broken. Wire by adding a `rest` key to the published
+       payload: { cantBuild:{kits,units}, ripple:[{sku,sole}] }.
+       ⚠ getRippleTop() is NOT free — analyzeRestockRipple builds the kit map and
+       the MI/Zoho availability maps (~6s measured 2026-08-19). Cache it in the
+       HOURLY housekeeping pass, NEVER inside runPublishTick, which fires every
+       minute — that is ~2.4 hours of runtime a day for a row nobody reads at 3am. */
+    var rest = (full && full.rest) || null;
+    if (rest && rest.cantBuild && parseInt(rest.cantBuild.units, 10) > 0) {
+      _rpRow(rows, "Advertised, can't build", parseInt(rest.cantBuild.units, 10) + ' units', true);
+    }
+    if (rest && rest.ripple && rest.ripple.length) {
+      var parts = rest.ripple.filter(function (p) { return parseInt(p.sole, 10) > 0; });
+      var frees = parts.reduce(function (a, p) { return a + (parseInt(p.sole, 10) || 0); }, 0);
+      if (parts.length && frees > 0) {
+        _rpRow(rows, 'Restocking ' + parts.length + (parts.length === 1 ? ' part frees' : ' parts frees'),
+               frees + (frees === 1 ? ' kit' : ' kits'));
+      }
+    }
+  } else {
+    _rpRow(rows, 'Waiting for tomorrow', work);
+    if (oldest != null && oldest > 0) _rpRow(rows, 'Oldest of those', _rpFmtDur(oldest), oldest >= 180);
+    n = parseInt(c && c.prepQueueCount, 10) || 0;
+    if (n > 0) _rpRow(rows, 'Prep queue', String(n));
+  }
+
+  host.innerHTML = rows.join('');
+}
+
+/* ── per-TICK paint: the numbers ────────────────────────────────────────── */
+function _rpPaint() {
+  var panel = document.getElementById('restPanel');
+  if (!panel) return;
+  var c = _rpData.cockpit || {}, full = _rpData.full;
+  var open = _rpIsOpen(), t = _rpNow();
+
+  panel.classList.toggle('rp-day',   open);
+  panel.classList.toggle('rp-night', !open);
+
+  var set = function (id, v) { var e = document.getElementById(id); if (e) e.textContent = v; };
+  set('rpWhere', open ? 'Houston · working' : 'Houston · closed');
+  set('rpDate',  t.date);
+
+  var shipped  = parseInt(c.shippedToday, 10)  || 0;
+  var received = parseInt(c.receivedToday, 10) || 0;
+  set('rpShipped',  c.shippedToday  == null ? '—' : shipped);
+  set('rpReceived', c.receivedToday == null ? '—' : received);
+
+  /* The sub-caption is a RELATIONSHIP, not a restatement of the number above it. */
+  if (open) {
+    var hrs = Math.max(1, (t.min - REST_OPEN_MIN) / 60);
+    set('rpShippedSub', shipped ? (shipped / hrs).toFixed(1) + ' an hour' : '');
+  } else {
+    set('rpShippedSub', received ? 'of ' + received + ' received' : '');
+  }
+  var eb = parseInt(c.receivedEbay, 10), dr = parseInt(c.receivedDirect, 10);
+  set('rpReceivedSub', (isFinite(eb) && isFinite(dr) && (eb || dr)) ? (eb + ' eBay · ' + dr + ' direct') : '');
+
+  /* ⚠ The third line changes JOB between the states, not just its value:
+     by day a FINDING (are we falling behind?), by night an IDENTITY. */
+  if (open) {
+    var d = received - shipped;
+    set('rpDy', d > 0 ? d + ' more in than out' : (d < 0 ? (-d) + ' more out than in' : 'even today'));
+  } else {
+    set('rpDy', t.weekday + ' · Houston');
+  }
+
+  _rpRenderPips(c.timeline);
+  _rpPaintRows(open, c, full);
+  _rpBuildEmbers();
+}
+
+/* ── per-SECOND ambient: clock and countdown ────────────────────────────
+   Returns immediately unless the panel is showing, so it costs nothing for the
+   23-and-a-half hours a day it is not. */
+function _rpAmbient() {
+  var panel = document.getElementById('restPanel');
+  if (!panel || !panel.classList.contains('rp-show')) return;
+  var t = _rpNow(), open = _rpIsOpen();
+
+  /* Phase-align the seconds jewel to real time, ONCE. A CSS animation starts
+     whenever its element does; the negative delay is what makes it agree with
+     the wall clock rather than merely sweeping at the right speed. */
+  if (!_rpAligned) {
+    var j = document.getElementById('rpJewel');
+    if (j) { j.style.animationDelay = '-' + t.sec.toFixed(2) + 's'; _rpAligned = true; }
+  }
+
+  var set = function (id, v) { var e = document.getElementById(id); if (e) e.textContent = v; };
+  set('rpTime', t.clock);
+  set('rpMer',  t.mer);
+  set('rpCountLabel', open ? 'Closes in' : 'Opens in');
+  set('rpCountValue', open ? _rpFmtDur(REST_CLOSE_MIN - t.min) : _rpFmtDur(_rpMinsToOpen()));
+
+  /* ⚠ The day/night flip is owned by _rpPaint, and a tick only lands about once
+     a minute — so without this the panel would sit on the wrong light for up to
+     a minute after 5pm. Cheap to check, and it costs nothing when unchanged. */
+  if (panel.classList.contains('rp-day') !== open) _rpPaint();
+}
+
+/* ── show / hide ────────────────────────────────────────────────────────── */
+function _rpShow() {
+  var panel = document.getElementById('restPanel');
+  if (!panel) return;
+  if (!_rpMayShow()) { _rpArm(); return; }
+  _rpAligned = false;                 // re-align the jewel to the moment it opens
+  _rpPaint();                         // ⚠ BEFORE the class, so it never paints stale
+  panel.classList.add('rp-show');
+  panel.setAttribute('aria-hidden', 'false');
+  _rpAmbient();
+}
+
+function _rpHide() {
+  var panel = document.getElementById('restPanel');
+  if (!panel || !panel.classList.contains('rp-show')) return;
+  panel.classList.remove('rp-show');
+  panel.setAttribute('aria-hidden', 'true');
+}
+
+/* ⚠ NEVER OVER WORK IN PROGRESS. A full-panel takeover landing on an open
+   dialog, a half-typed field, or a panel still booting is the one way this can
+   actually cost someone something. */
+function _rpMayShow() {
+  try {
+    if (document.hidden) return false;
+    var splash = document.getElementById('bootSplash');
+    if (splash && getComputedStyle(splash).display !== 'none'
+               && parseFloat(getComputedStyle(splash).opacity) > 0.02) return false;
+    var ae = document.activeElement;
+    if (ae && /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName)) return false;
+    if (document.querySelector('.panel-loading, .modal.show, .drawer.open')) return false;
+  } catch (e) { /* if we cannot tell, err toward showing — it is only an overlay */ }
+  return true;
+}
+
+function _rpArm() {
+  if (_rpTimer) clearTimeout(_rpTimer);
+  _rpTimer = setTimeout(_rpShow, REST_IDLE_MS);
+}
+
+/* ⚠ WAKING IS INSTANT AND COSTS NOTHING — no round trip, no repaint of the
+   panel underneath. That asymmetry is the entire reason 90s is safe. */
+function _rpPoke() {
+  var now = Date.now();
+  _rpHide();
+  if (now - _rpLastPoke < REST_WAKE_THROTTLE) return;   // pointermove fires constantly
+  _rpLastPoke = now;
+  _rpArm();
+}
+
+/* ── the feed: every tick that lands, from either tier ─────────────────── */
+function _rpNoteTick(cockpit, alerts, full) {
+  _rpData.cockpit = cockpit || _rpData.cockpit;
+  _rpData.alerts  = alerts  || _rpData.alerts;
+  _rpData.full    = full    || _rpData.full;
+  var panel = document.getElementById('restPanel');
+  if (panel && panel.classList.contains('rp-show')) _rpPaint();   // repaint in place
+}
+
+(function initRestPanel() {
+  ['pointerdown','pointermove','wheel','keydown','touchstart','focusin']
+    .forEach(function (ev) { document.addEventListener(ev, _rpPoke, { passive: true }); });
+  var mods = document.getElementById('modules');
+  if (mods) mods.addEventListener('scroll', _rpPoke, { passive: true });
+  document.addEventListener('visibilitychange', function () {
+    if (document.hidden) _rpHide(); else _rpPoke();
+  });
+  setInterval(_rpAmbient, 1000);
+  _rpArm();
+})();
 </script>
 
 </body>
