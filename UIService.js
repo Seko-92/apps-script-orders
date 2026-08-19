@@ -27,6 +27,41 @@ function getFloorBoardUrl() {
   return (typeof WEB_APP_URL !== 'undefined') ? WEB_APP_URL : '';
 }
 
+
+/**
+ * Where the read-only SCREENS live — the Floor Board and the wall monitor.
+ *
+ * ⚠ NOT WEB_APP_URL. Both moved onto the VPS on 2026-08-05 and are served by
+ * Caddy from /opt/hq-app; the sidebar's link had been pointing at /exec ever
+ * since, which still WORKS (doGet serves the board) but is the expensive path —
+ * every open costs an Apps Script rebuild instead of reading the published cell.
+ * Nobody noticed because a slow board looks exactly like a working one.
+ *
+ * ⚠ DERIVED FROM ONE CONSTANT, never written twice. HQ_BOARD_API_URL already
+ * names the host; the two display URLs are that host plus a path. A second
+ * hardcoded copy of the domain is how the 2026-05-18 URL-drift incident began.
+ *
+ * Falls back to WEB_APP_URL when Secrets.js has no host — a fresh clone must
+ * still produce a working link rather than an empty one.
+ *
+ * @returns {{board:string, wall:string, hosted:boolean}}
+ */
+function getDisplayUrls() {
+  var base = "";
+  try {
+    if (typeof HQ_BOARD_API_URL === "string" && HQ_BOARD_API_URL) {
+      base = HQ_BOARD_API_URL.replace(/\/api\/board\/?$/, "");
+    }
+  } catch (e) { base = ""; }
+
+  var legacy = (typeof WEB_APP_URL !== "undefined") ? WEB_APP_URL : "";
+  return {
+    board:  base ? base + "/"     : legacy,
+    wall:   base ? base + "/wall" : "",
+    hosted: !!base
+  };
+}
+
 /**
  * Web app GET handler — serves the warehouse dashboard at the deployed URL.
  *

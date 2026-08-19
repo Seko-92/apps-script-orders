@@ -45,13 +45,10 @@ function onOpen() {
 /**
  * Launches the Snake Game Sidebar
  */
-function showSnakeSidebar() {
-  // Ensure the file name in quotes matches your HTML file name exactly (Snake)
-  const html = HtmlService.createHtmlOutputFromFile('Snake')
-    .setTitle('HQ COMMAND CENTER: SNAKE')
-    .setWidth(300);
-  SpreadsheetApp.getUi().showSidebar(html);
-}
+/* showSnakeSidebar() REMOVED 2026-08-19 along with Snake.html. Snake was
+   absorbed into HQArcadeModal on 2026-07-29 and the cabinet has been the only
+   door since; this served a file nothing else referenced. Git has both. */
+
 
 /**
  * Opens the HQ Arcade cabinet — a break-room pop-up with Tetris / Flappy /
