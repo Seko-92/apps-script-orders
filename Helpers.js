@@ -730,6 +730,18 @@ function timeHandPath() {
 //   (builds the message, SENDS NOTHING, records no state) — never
 //   runStragglerWatchdog, which would alert the group.
 //
+// ⚠⚠ THESE NUMBERS ARE A FLOOR, NOT A FIGURE — READ THIS BEFORE TRUSTING THEM.
+//    This times FUNCTION BODIES. Google bills EXECUTION time, which includes
+//    container start, invocation and serialisation, and the Executions panel's
+//    Duration column is the only honest source for it. Measured 2026-08-19:
+//    getSidebarTick timed 40 ms here and 1.1–2.2 SECONDS in the Executions panel.
+//    A 20–50x gap.
+//
+//    So use this for A/B COMPARISONS INSIDE ONE RUN — is shared cheaper than
+//    unshared, is a narrow read faster than a wide one — where both sides carry
+//    the same overhead and it cancels. NEVER quote its absolute min/day as the
+//    real budget; go to the Executions panel for that.
+//
 // ⚠ IT COSTS A COUPLE OF MINUTES OF THE VERY BUDGET IT MEASURES. Run it a few
 //   times, not on a schedule.
 //
