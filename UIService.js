@@ -145,7 +145,34 @@ function updateSheetClock() {
    proving mutual exclusion. */
 var SIDEBAR_TICK_CACHE_KEY = 'hqSidebarTick_v2';   // v2: shape gained _builtAt
 var SIDEBAR_TICK_BUILD_KEY = 'hqSidebarTick_building';
-var SIDEBAR_TICK_FRESH_SEC = 120;         // how long a copy counts as current
+/* ⚠ THIS ONE NUMBER IS THE SIDEBAR'S WHOLE COST. Raised 120 -> 300 on
+   2026-08-19 after measuring where the daily quota actually goes.
+
+   The panel asks the server for numbers every 30 SECONDS. The server keeps a
+   copy of the answer for FRESH_SEC and hands it back for free until it expires;
+   the first ask AFTER it expires pays for a full rebuild — about 1.5-2 SECONDS
+   of billed execution time (the Executions panel's Duration column, which is
+   what Google charges, NOT the ~40ms the function body measures).
+
+       at 120s:  1 ask in 4  rebuilds   ~720 rebuilds/day   ~21   min/day
+       at 300s:  1 ask in 10 rebuilds   ~288 rebuilds/day   ~8.6  min/day
+
+   ⚠ IT MUST EXCEED THE 30s POLL, AND COMFORTABLY. Set equal to the poll and
+     every single ask arrives just as the copy dies, so nothing is ever reused —
+     the same trap the board's own tick cache was built to avoid (45s TTL against
+     a 20s poll, for exactly this reason).
+
+   ⚠ AND THE COST IS NOT BOUNDED BY THE TEAM. The sheet is shared by public link
+     and the panel auto-opens, so this is paid on behalf of everyone who has it
+     open. Proven per-script: with ONE tab open, the Executions panel showed
+     getSidebarTick arriving every ~15s against a 30s poll.
+
+   WHAT IT COSTS: the cockpit figures (shipped today, oldest pending, queue
+   counts) can be up to 5 minutes old instead of 2. They are ambient awareness,
+   not action triggers, and the alerts half already rides its own 300s clock.
+   The real fix is to publish this tick to a cell and let n8n serve it, the way
+   the Floor Board is served — then viewers cost nothing at all. */
+var SIDEBAR_TICK_FRESH_SEC = 300;         // how long a copy counts as current
 var SIDEBAR_TICK_KEEP_SEC  = 21600;       // keep as a fallback (6h = cache max)
 var SIDEBAR_TICK_BUILD_SEC = 45;          // rebuild-in-progress flag lifetime
 var SIDEBAR_TICK_MAX_BYTES = 90000;       // CacheService hard-caps a value at 100KB
