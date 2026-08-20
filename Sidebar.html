@@ -3372,7 +3372,7 @@ body.dark-theme .footer-version { border-color: #2c2c2c; }
 /* ── the entrance, staged. Each slot rises a few px in sequence rather than the
    whole panel arriving at once, so it reads as SETTLING rather than switching.
    ⚠ The delays live ONLY on .rp-show, so leaving stays immediate. */
-.rp-top,.rp-dialwrap,.rp-flank,.rp-rows,.rp-count,.rp-hint{
+.rp-top,.rp-dialwrap,.rp-flank,.rp-rows,.rp-ledger,.rp-count,.rp-hint{
   opacity:0; transform:translateY(10px);
   transition:opacity 300ms cubic-bezier(.37,0,.63,1), transform 300ms ease;
 }
@@ -3381,7 +3381,7 @@ body.dark-theme .footer-version { border-color: #2c2c2c; }
    would look like the whole panel was zooming, which is a slideshow move. */
 .rp-dialwrap{ transform:translateY(10px) scale(.965); }
 .rp.rp-show .rp-top,.rp.rp-show .rp-dialwrap,.rp.rp-show .rp-flank,
-.rp.rp-show .rp-rows,.rp.rp-show .rp-count,.rp.rp-show .rp-hint{
+.rp.rp-show .rp-rows,.rp.rp-show .rp-ledger,.rp.rp-show .rp-count,.rp.rp-show .rp-hint{
   opacity:1; transform:none;
   /* same split: an even ramp for brightness, a decelerating one for movement */
   transition:opacity 640ms cubic-bezier(.37,0,.63,1),
@@ -3395,8 +3395,9 @@ body.dark-theme .footer-version { border-color: #2c2c2c; }
 .rp.rp-show .rp-dialwrap{ transition-delay:500ms }
 .rp.rp-show .rp-flank   { transition-delay:590ms }
 .rp.rp-show .rp-rows    { transition-delay:660ms }
-.rp.rp-show .rp-count   { transition-delay:730ms }
-.rp.rp-show .rp-hint    { transition-delay:780ms }
+.rp.rp-show .rp-ledger  { transition-delay:700ms }
+.rp.rp-show .rp-count   { transition-delay:760ms }
+.rp.rp-show .rp-hint    { transition-delay:820ms }
 /* ── TWO LIGHTS, ONE GEOMETRY. Only the ground and the words change. ─────── */
 .rp.rp-day  { background:radial-gradient(125% 90% at 50% 4%,#31261a 0%,#1d1811 52%,#120f0b 100%); color:#efe9d8; }
 .rp.rp-night{ background:radial-gradient(120% 85% at 50% 18%,#241d16 0%,#15110d 55%,#0c0a08 100%); }
@@ -3425,8 +3426,10 @@ body.dark-theme .footer-version { border-color: #2c2c2c; }
   font-variant-numeric:tabular-nums; }
 
 /* ── SLOT 1 · the face ───────────────────────────────────────────────────── */
+/* ⚠ NO auto margin. The face sits directly under the header — pushing it to the
+   middle left a dead band at the top, which is what read as empty. */
 .rp-dialwrap{ flex:none; display:grid; place-items:center; padding:6px 0 2px;
-  position:relative; z-index:2; margin-top:auto; }
+  position:relative; z-index:2; }
 .rp-dial{ position:relative; width:15em; height:15em; display:grid; place-items:center;
   font-size:clamp(9px, min(5vw, 2.1vh), 15.5px); }
 .rp-disc{ position:absolute; inset:0; border-radius:50%;
@@ -3510,14 +3513,23 @@ body.dark-theme .footer-version { border-color: #2c2c2c; }
 /* the one loud state. Amber, never red — red means "something disagrees, ACT". */
 .rp-row b.rp-warn{ color:#d99a86; }
 
-/* ── SLOT 4 · the countdown ──────────────────────────────────────────────── */
+/* ── SLOT 4 · the closing group ──────────────────────────────────────────
+   ⚠ `margin-top:auto` lives HERE, on the wrapper, not on any single line. That
+   is what lets the face sit high under the header while the countdown stays
+   anchored to the base — and it keeps working when the ledger is empty, which
+   an auto margin on the ledger itself would not. */
+.rp-close{ margin-top:auto; flex:none; position:relative; z-index:2; }
+/* the day's bookends — the ring says WHEN, this says from when to when */
+.rp-ledger{ text-align:center; font-family:'Roboto Mono',ui-monospace,monospace;
+  font-size:9.5px; letter-spacing:.1em; color:#6f695c; }
+.rp-ledger:empty{ display:none; }
 .rp-count{ margin-top:14px; text-align:center; flex:none; position:relative; z-index:2; }
 .rp-clabel{ font-family:'Oswald',sans-serif; font-size:9px; letter-spacing:.22em;
   text-transform:uppercase; color:#635c4e; }
 .rp-cval{ font-family:'Oswald',sans-serif; font-size:21px; font-weight:300; color:var(--rp-ember);
   letter-spacing:.04em; font-variant-numeric:tabular-nums; margin-top:2px; }
 
-.rp-hint{ margin-top:10px; margin-bottom:auto; text-align:center;
+.rp-hint{ margin-top:10px; text-align:center;
   font-family:'Oswald',sans-serif; font-size:9px;
   letter-spacing:.22em; text-transform:uppercase; color:#5c574c; flex:none;
   position:relative; z-index:2;
@@ -3538,10 +3550,10 @@ body.dark-theme .footer-version { border-color: #2c2c2c; }
 @media (prefers-reduced-motion:reduce){
   .rp-bezel,.rp-jewel,.rp-ember,.rp-hint{ animation:none !important; }
   .rp-pip{ animation:none !important; opacity:1 !important; }
-  .rp,.rp-top,.rp-dialwrap,.rp-flank,.rp-rows,.rp-count,.rp-hint{
+  .rp,.rp-top,.rp-dialwrap,.rp-flank,.rp-rows,.rp-ledger,.rp-count,.rp-hint{
     transition:none !important; transform:none !important;
     -webkit-backdrop-filter:none !important; backdrop-filter:none !important; }
-  .rp-top,.rp-dialwrap,.rp-flank,.rp-rows,.rp-count,.rp-hint{ opacity:1 !important; }
+  .rp-top,.rp-dialwrap,.rp-flank,.rp-rows,.rp-ledger,.rp-count,.rp-hint{ opacity:1 !important; }
 }
 </style>
 </head>
@@ -4574,13 +4586,17 @@ body.dark-theme .footer-version { border-color: #2c2c2c; }
   <!-- the quiet rows — appended only when they have something to say -->
   <div class="rp-rows" id="rpRows"></div>
 
-  <!-- the countdown -->
-  <div class="rp-count">
-    <div class="rp-clabel" id="rpCountLabel">Opens in</div>
-    <div class="rp-cval" id="rpCountValue">—</div>
+  <!-- the closing group, held at the base so the face can sit under the header.
+       The ledger is the day's bookends: the ring says WHEN each shipment went,
+       this says from when to when. Empty before the first one. -->
+  <div class="rp-close">
+    <div class="rp-ledger" id="rpLedger"></div>
+    <div class="rp-count">
+      <div class="rp-clabel" id="rpCountLabel">Opens in</div>
+      <div class="rp-cval" id="rpCountValue">—</div>
+    </div>
+    <div class="rp-hint">Move to resume</div>
   </div>
-
-  <div class="rp-hint">Move to resume</div>
 </div>
 <script>
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -8233,6 +8249,33 @@ function _rpRenderPips(timeline) {
   svg.innerHTML = g;
 }
 
+/* h:mm from an hourFraction. No meridiem: every shipment falls inside the
+   09:00–17:00 shift, so there is nothing to disambiguate and the marker would
+   only add noise to a line that is already two timestamps. */
+function _rpHM(hf) {
+  var h = Math.floor(hf), m = Math.round((hf - h) * 60);
+  if (m === 60) { m = 0; h += 1; }
+  var h12 = h % 12; if (h12 === 0) h12 = 12;
+  return h12 + ':' + (m < 10 ? '0' + m : m);
+}
+
+/* ⭐ THE DAY'S BOOKENDS. The ring says WHEN each shipment went; this says from
+   when to when. Reads the SAME timeline the pips already use, so it costs
+   nothing, and it vanishes before the first shipment of the day — at 7am there
+   is no day to report yet. */
+function _rpPaintLedger(timeline) {
+  var el = document.getElementById('rpLedger');
+  if (!el) return;
+  var hrs = (timeline || [])
+    .filter(function (e) { return e && e.event === 'SHIPPED' && isFinite(parseFloat(e.hourFraction)); })
+    .map(function (e) { return parseFloat(e.hourFraction); });
+  if (!hrs.length) { el.textContent = ''; return; }
+  var lo = Math.min.apply(null, hrs), hi = Math.max.apply(null, hrs);
+  el.textContent = (hrs.length === 1)
+    ? 'one out at ' + _rpHM(lo)
+    : 'first out ' + _rpHM(lo) + '  ·  last ' + _rpHM(hi);
+}
+
 /* ── the quiet rows ─────────────────────────────────────────────────────
    ⚠ APPENDED ONLY WHEN THEY HAVE SOMETHING TO SAY. No empty state, no dimmed
    state — blank when healthy, so any ink is a finding. */
@@ -8259,9 +8302,22 @@ function _rpPaintRows(open, c, full) {
   var oldest = (c && c.oldestPendingMinutes != null) ? parseInt(c.oldestPendingMinutes, 10) : null;
   var work = _rpWorkText(c, full);
 
+  /* ⚠ EVERY ONE OF THESE IS SILENT WHEN HEALTHY. They are the signals the tick
+     already carries and the panel was throwing away — and the mockup's own note
+     says the 3h row was cut only because it read "none", to be "restored the
+     moment it is >0". This is that. */
+  var late = parseInt(c && c.pastRedlineCount, 10) || 0;
+  var zoho = parseInt(c && c.zohoPending, 10) || 0;
+  var sync = (c && c.lastSyncMinutes != null) ? parseInt(c.lastSyncMinutes, 10) : null;
+
   if (open) {
     _rpRow(rows, 'On the floor', work);
     if (oldest != null && oldest > 0) _rpRow(rows, 'Oldest waiting', _rpFmtDur(oldest), oldest >= 180);
+    if (late > 0) _rpRow(rows, 'Past the 3h line', late + (late === 1 ? ' order' : ' orders'), true);
+    /* ⚠ A DEAD PIPELINE IS THE WORST THING THIS SYSTEM CAN HIDE, and off-hours a
+       quiet sync is EXPECTED — so this is a working-hours row only. Same window
+       _isOffHoursHouston uses, so the panel and the System Pulse cannot disagree. */
+    if (sync != null && sync > 45) _rpRow(rows, 'Last sync', _rpFmtDur(sync) + ' ago', true);
 
     /* ⏭ THE TWO ROWS THAT NEED THE SERVER. They render ONLY when the tick
        carries them, so the "blank when healthy" rule doubles as the graceful
@@ -8289,6 +8345,8 @@ function _rpPaintRows(open, c, full) {
     if (oldest != null && oldest > 0) _rpRow(rows, 'Oldest of those', _rpFmtDur(oldest), oldest >= 180);
     n = parseInt(c && c.prepQueueCount, 10) || 0;
     if (n > 0) _rpRow(rows, 'Prep queue', String(n));
+    if (zoho > 0) _rpRow(rows, 'Waiting to pull', zoho + ' from Zoho');
+    if (late > 0) _rpRow(rows, 'Past the 3h line', late + (late === 1 ? ' order' : ' orders'), true);
   }
 
   host.innerHTML = rows.join('');
@@ -8333,6 +8391,7 @@ function _rpPaint() {
   }
 
   _rpRenderPips(c.timeline);
+  _rpPaintLedger(c.timeline);
   _rpPaintRows(open, c, full);
   _rpBuildEmbers();
 }
