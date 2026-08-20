@@ -1120,6 +1120,14 @@ body.ch-direct #pickListDirect { display: block; }
     </div>
 
     <audio id="radioAudio" preload="none"></audio>
+    <!-- ⚠ HOST FOR THE YOUTUBE-BACKED STATION. Parked OFF-SCREEN rather than
+         display:none — the IFrame API refuses to start in an unrenderable box.
+         The iframe is only ever CREATED if someone picks that station (see
+         _ytEnsure), because an iframe on a page that polls every 20s and runs
+         rAF costs tablet smoothness, and nobody should pay that for a station
+         they never choose. -->
+    <div id="ytHost" style="position:absolute;left:-9999px;top:0;width:1px;height:1px;
+         opacity:0;pointer-events:none;overflow:hidden;"></div>
     <div class="connlost" id="connLost">lost the line · retrying</div>
     <div class="egg" id="egg"></div>
     <div class="ctoast" id="ctoast">
@@ -4566,10 +4574,87 @@ body.ch-direct #pickListDirect { display: block; }
          from Makkah, an openly published stream, verified serving audio/mp3 before
          it went in. Named "Makkah" rather than "Sunna" on purpose so nobody on the
          floor thinks it is the Madinah TV channel they asked for. */
-      { group: 'Arabic', name: 'Quran · Makkah',            id: '', url: 'https://edge.mixlr.com/channel/rwumx' }
+      { group: 'Arabic', name: 'Quran · Makkah',            id: '', url: 'https://edge.mixlr.com/channel/rwumx' },
+      /* ⭐ THE ONE THE FLOOR ASKED FOR — قناة السنة النبوية, live from the Prophet's
+         Mosque in Madinah. It has NO audio stream anywhere: SBA's own API reports it
+         type:"video", has_live_audio:false, audiostream_available:false, and publishes
+         no stream URL for ANY of its channels. Its official YouTube live stream is the
+         only way to reach it, so this station plays through YouTube's IFrame Player
+         API rather than the <audio> element — `yt` instead of `url`.
+         ⚠ VERIFIED, NOT ASSUMED: design-lab/probe-yt-embed.js renders the real player
+         and asks it — "api ready true · state PLAYING · error none". Errors 101/150
+         would mean the OWNER disabled embedding, and that is a stop, not an obstacle.
+         ⚠ A LIVE-STREAM VIDEO ID CAN CHANGE if the broadcaster restarts the stream.
+         If this station goes silent, re-run the probe with the new id from their
+         channel — nothing else here needs touching. */
+      { group: 'Arabic', name: 'Sunna · Madinah',           id: '', yt: 'Rs7St51oDDc' }
     ];
     var radioIdx = 0, radioPlaying = false, radioAudio = null;
     var currentTrack = '', npTimer = null;
+
+    /* ── THE YOUTUBE-BACKED STATION ──────────────────────────────────────────
+       One station (Sunna · Madinah) has no audio stream in existence, so it
+       plays through YouTube's official IFrame Player API instead of <audio>.
+
+       ⚠ LAZY. The API script and the iframe are only fetched the first time
+       someone actually picks that station. This board polls every 20s and runs
+       rAF; making every viewer carry an iframe for a station they may never
+       choose is exactly the cost the 2026-08-07 ruling refused. Pick it once
+       and you pay once; never pick it and you pay nothing. */
+    var ytPlayer = null, ytLoading = false, ytQueue = null;
+
+    function _ytEnsure(cb) {
+      if (ytPlayer) { cb(); return; }
+      ytQueue = cb;
+      if (ytLoading) return;                 // a second tap while it loads just re-queues
+      ytLoading = true;
+      window.onYouTubeIframeAPIReady = function () {
+        ytPlayer = new YT.Player('ytHost', {
+          height: '1', width: '1',
+          playerVars: { autoplay: 0, controls: 0, playsinline: 1, disablekb: 1 },
+          events: {
+            onReady: function () { if (ytQueue) { var f = ytQueue; ytQueue = null; f(); } },
+            /* ⚠ IF THE OWNER EVER DISABLES EMBEDDING (101/150) THE STATION DIES
+               HONESTLY — it stops and says so, rather than sitting on a silent
+               ▮▮ that looks like the radio is broken. Same for a retired live id. */
+            onError: function () { _radioStop(); paintRadio(); }
+          }
+        });
+      };
+      var t = document.createElement('script');
+      t.src = 'https://www.youtube.com/iframe_api';
+      t.onerror = function () { ytLoading = false; ytQueue = null; };
+      document.head.appendChild(t);
+    }
+
+    /* ONE start and ONE stop for BOTH kinds of station, so the two call sites
+       (the ▶ button and the picker list) cannot drift apart. */
+    function _radioStart(idx) {
+      var st = radioStations[idx];
+      if (st.yt) {
+        radioAudio.pause();                  // never leave the other source running
+        _ytEnsure(function () {
+          ytPlayer.loadVideoById(st.yt);
+          /* Muted-then-unmute is the reliable order: muted playback is always
+             allowed, and the unmute rides the tap that got us here. */
+          ytPlayer.unMute();
+          ytPlayer.setVolume(50);
+          ytPlayer.playVideo();
+        });
+      } else {
+        if (ytPlayer) { try { ytPlayer.stopVideo(); } catch (e) {} }
+        radioAudio.src = st.url;
+        var p = radioAudio.play();
+        if (p && p.catch) p.catch(function () { radioPlaying = false; paintRadio(); });
+      }
+    }
+
+    function _radioStop() {
+      radioAudio.pause();
+      if (ytPlayer) { try { ytPlayer.pauseVideo(); } catch (e) {} }
+      radioPlaying = false;
+      stopNowPlaying();
+    }
     function radioInit() {
       radioAudio = document.getElementById('radioAudio');
       radioAudio.volume = 0.5;
@@ -4589,13 +4674,9 @@ body.ch-direct #pickListDirect { display: block; }
     function radioToggle() {
       if (!radioAudio) return;
       if (radioPlaying) {
-        radioAudio.pause();
-        radioPlaying = false;
-        stopNowPlaying();
+        _radioStop();
       } else {
-        radioAudio.src = radioStations[radioIdx].url;
-        var p = radioAudio.play();
-        if (p && p.catch) p.catch(function () { radioPlaying = false; paintRadio(); });
+        _radioStart(radioIdx);
         radioPlaying = true;
         startNowPlaying();
       }
@@ -4624,9 +4705,7 @@ body.ch-direct #pickListDirect { display: block; }
       if (idx < 0 || idx >= radioStations.length) return;
       radioIdx = idx;
       currentTrack = '';
-      radioAudio.src = radioStations[idx].url;
-      var p = radioAudio.play();
-      if (p && p.catch) p.catch(function () {});
+      _radioStart(idx);
       radioPlaying = true;
       startNowPlaying();
       document.getElementById('radioPop').classList.remove('show');
