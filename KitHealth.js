@@ -803,6 +803,60 @@ function getKitPriceDriftCount() {
 }
 
 
+/**
+ * THE OVERSELL EXPOSURE, read from the Kit Health SHEET SNAPSHOT — never a
+ * re-audit. Sibling of getKitPriceDriftCount above and it earns its keep the
+ * same way: runKitHealthAudit REWRITES and re-sorts the whole sheet and pays for
+ * a full kit-map + MI + Zoho pass, so anything sitting on a poll has to read
+ * what the last audit already wrote rather than recompute it.
+ *
+ * ⚠⚠ COUNTS "⚠ CAN'T BUILD" ONLY, NOT "⚠ OVER-LISTED". They are different
+ * claims and the resting panel says one of them out loud. OVER-LISTED is
+ * advertised-more-than-we-can-assemble but PARTLY covered — the next sale
+ * probably still ships. CAN'T BUILD is buildable 0: the next sale FAILS. The
+ * panel's row reads "Advertised, can't build", so it gets the number that
+ * sentence is actually true of. Widening this to both would inflate the row
+ * with kits that are, today, still shippable.
+ *
+ * ⚠ STOCK_STATUS (P) and AT_RISK (Q) are ADJACENT, so this is ONE 2-wide read.
+ * If either column ever moves, this becomes two reads or a wrong one — the
+ * range width is derived from nothing, so check it after any schema change.
+ *
+ * @returns {{kits:number, units:number}} zeros when the sheet is absent, empty,
+ *          or unreadable — a count of zero and "I could not look" are
+ *          deliberately NOT distinguished here, because the only consumer draws
+ *          nothing at zero either way. Do not reuse this for an alarm.
+ */
+function getKitOversellSnapshot() {
+  var out = { kits: 0, units: 0 };
+  try {
+    var ss = SpreadsheetApp.getActive() || SpreadsheetApp.openById(SPREADSHEET_ID);
+    var sheet = ss.getSheetByName(KIT_HEALTH.sheetName);
+    if (!sheet) return out;
+    var lastRow = sheet.getLastRow();
+    if (lastRow < KIT_HEALTH.dataStartRow) return out;
+
+    var want = String(KIT_HEALTH.stock.CANT_BUILD).trim().toUpperCase();
+    var vals = sheet.getRange(
+      KIT_HEALTH.dataStartRow, KIT_HEALTH.cols.STOCK_STATUS,
+      lastRow - KIT_HEALTH.dataStartRow + 1, 2      // P..Q, one read
+    ).getValues();
+
+    for (var i = 0; i < vals.length; i++) {
+      if (String(vals[i][0]).trim().toUpperCase() !== want) continue;
+      out.kits++;
+      var n = parseFloat(vals[i][1]);
+      if (!isNaN(n) && n > 0) out.units += n;
+    }
+    out.units = Math.round(out.units);
+    return out;
+  } catch (e) {
+    console.log("getKitOversellSnapshot error: " + e);
+    return { kits: 0, units: 0 };
+  }
+}
+
+
 // =======================================================================================
 // WEEKLY AUTO-AUDIT — Monday ~4am, off-hours by design
 // =======================================================================================

@@ -73,10 +73,23 @@ var RIPPLE = {
  *   planFrees: number          // kits made buildable if ALL planParts are restocked
  * }}
  */
-function analyzeRestockRipple() {
+function analyzeRestockRipple(sharedMaps, sharedZoho) {
+  /* ⚠⚠ SHAPE-DETECTED, NEVER TRUSTED BY POSITION — the same guard recomputeHand
+     and refreshOutOfStock use, and for the same reason: a TIME TRIGGER hands its
+     target an EVENT OBJECT as the first argument, so a positional `maps` becomes
+     that event the day anyone schedules this. Nothing schedules it today. The
+     guard costs two comparisons and removes the whole class.
+
+     ⚠ WHY SHARING MATTERS HERE AND NOT ELSEWHERE: this function costs ~6s and
+     ~4.2s of that is map-building (measured 2026-08-19) — buildLocationAndInventoryMaps
+     alone is the ~600,000-cell Master Inventory read. A caller that already holds
+     them (the hourly housekeeping pass) hands them over and pays for the kit map
+     only. Callers with nothing in hand pass nothing and behave exactly as before. */
+  var maps = (sharedMaps && sharedMaps.inventoryMap && sharedMaps.locationMap)
+               ? sharedMaps : buildLocationAndInventoryMaps();
+  var zohoMap = (sharedZoho && typeof sharedZoho.get === 'function')
+               ? sharedZoho : buildZohoStockMap();
   var kitMap = buildKitMap();
-  var zohoMap = buildZohoStockMap();
-  var maps = buildLocationAndInventoryMaps();
   var resolveAvail = _oosResolveAvailFactory(zohoMap, maps.inventoryMap);
   var locationMap = maps.locationMap;
 
@@ -208,9 +221,10 @@ function analyzeRestockRipple() {
 
 
 /** Top-n parts only — for the weekly report / digest to reuse without re-formatting. */
-function getRippleTop(n) {
+function getRippleTop(n, sharedMaps, sharedZoho) {
   try {
-    var d = analyzeRestockRipple();
+    // Shared maps are passed straight through; see the note on analyzeRestockRipple.
+    var d = analyzeRestockRipple(sharedMaps, sharedZoho);
     return d.parts.slice(0, n || RIPPLE.topParts);
   } catch (e) {
     console.log("getRippleTop failed: " + e);

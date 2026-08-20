@@ -249,6 +249,100 @@ var SIDEBAR_SLOW_CACHE_KEY = 'hqSidebarSlow_v1';
 var SIDEBAR_SLOW_FRESH_SEC = 900;        // 15 min
 var SIDEBAR_SLOW_KEEP_SEC  = 21600;
 
+/* ============================================================================
+   THE RESTING PANEL'S TWO DARK ROWS — "Advertised, can't build" and
+   "Restocking N parts frees N kits".
+
+   ⚠⚠ THE COST IS THE WHOLE DESIGN HERE. analyzeRestockRipple builds the kit map
+   and the MI + Zoho availability maps and costs ~6s (measured 2026-08-19). The
+   sidebar heartbeat cannot pay that, and neither can runPublishTick, which fires
+   EVERY MINUTE — 1,440 × 6s is ~2.4 HOURS of runtime a day, against a ~90-minute
+   trigger budget, to redraw a row nobody is looking at at 3am. So the figure is
+   computed ONCE AN HOUR by the housekeeping pass (which already holds the maps
+   and hands them over, cutting it to roughly the kit-map read) and everything
+   downstream reads the finished blob.
+
+   ⚠ SCRIPT PROPERTIES, NOT CacheService, and that is deliberate. A cache entry
+   expires — and on a panel whose entire grammar is "a row is blank when things
+   are FINE", a row vanishing because the store aged out would read as good news.
+   Properties keeps the last real answer until a real one replaces it, so the
+   failure mode is a slightly old number instead of a false all-clear.
+
+   ⚠ IT STILL AGES OUT, at REST_SNAPSHOT_MAX_AGE_H. Past a full day the pass has
+   plainly not run, and asserting a day-old oversell figure as current is worse
+   than saying nothing. Note the two rows only render in the panel's DAY state
+   and the pass runs 6am–6pm Houston, so in practice they are reading a figure
+   at most about an hour old.
+   ============================================================================ */
+var REST_SNAPSHOT_PROP      = 'HQ_REST_SNAPSHOT';
+var REST_SNAPSHOT_MAX_AGE_H = 24;
+var REST_SNAPSHOT_PARTS     = 8;    // matches RIPPLE.topParts; the panel filters again
+
+/**
+ * Recompute the resting panel's expensive figures and park them. Called ONCE AN
+ * HOUR from _housekeepingPass — never from a poll, never from runPublishTick.
+ *
+ * Best-effort by contract: this is the last job in the pass and the panel simply
+ * draws fewer rows if it fails, so a failure here must never surface as anything
+ * but a line in the housekeeping summary.
+ *
+ * @param {Object} [sharedMaps] - the pass's already-built MI maps
+ * @param {Map}    [sharedZoho] - the pass's already-built Zoho stock map
+ * @returns {string} one-line status for the housekeeping summary
+ */
+function refreshRestSnapshot(sharedMaps, sharedZoho) {
+  var snap = { cantBuild: { kits: 0, units: 0 }, ripple: [], _builtAt: Date.now() };
+
+  // Each half is isolated: a Kit Health sheet that has never been audited must
+  // not cost us the ripple, and vice versa.
+  try {
+    snap.cantBuild = getKitOversellSnapshot();
+  } catch (e) { console.log('refreshRestSnapshot.cantBuild: ' + e); }
+
+  try {
+    var top = getRippleTop(REST_SNAPSHOT_PARTS, sharedMaps, sharedZoho) || [];
+    // ⚠ Store ONLY what the panel reads. The full part records carry names,
+    // locations and shortIn counts; a Properties VALUE is capped at 9KB and
+    // there is no reason to spend it on fields nothing renders.
+    for (var i = 0; i < top.length; i++) {
+      snap.ripple.push({ sku: String(top[i].sku), sole: parseInt(top[i].sole, 10) || 0 });
+    }
+  } catch (e) { console.log('refreshRestSnapshot.ripple: ' + e); }
+
+  try {
+    PropertiesService.getScriptProperties()
+      .setProperty(REST_SNAPSHOT_PROP, JSON.stringify(snap));
+  } catch (e) {
+    console.log('refreshRestSnapshot.write: ' + e);
+    return '❌ Rest snapshot: ' + e;
+  }
+
+  var freed = 0;
+  for (var j = 0; j < snap.ripple.length; j++) freed += snap.ripple[j].sole;
+  return '🛌 Rest snapshot: ' + snap.cantBuild.kits + " can't build (" +
+         snap.cantBuild.units + ' units) · ' + snap.ripple.length +
+         ' parts free ' + freed;
+}
+
+/**
+ * Read the parked blob. Returns null rather than a zeroed object when there is
+ * nothing trustworthy to say — the panel draws a row only on a positive number,
+ * so null and stale-beyond-a-day both correctly render as nothing.
+ */
+function _restSnapshot() {
+  try {
+    var raw = PropertiesService.getScriptProperties().getProperty(REST_SNAPSHOT_PROP);
+    if (!raw) return null;
+    var snap = JSON.parse(raw);
+    var ageH = (Date.now() - (snap._builtAt || 0)) / 3600000;
+    if (!(ageH < REST_SNAPSHOT_MAX_AGE_H)) return null;   // also catches NaN
+    return snap;
+  } catch (e) {
+    console.log('_restSnapshot: ' + e);
+    return null;
+  }
+}
+
 function _sidebarSlowParts() {
   var cache = null;
   try { cache = CacheService.getScriptCache(); } catch (e) { cache = null; }
@@ -265,9 +359,14 @@ function _sidebarSlowParts() {
     } catch (e) { /* unreadable is a miss */ }
   }
 
-  var out = { api: null, alerts: null, _builtAt: Date.now() };
+  var out = { api: null, alerts: null, rest: null, _builtAt: Date.now() };
   try { out.api    = getLatestApiMetrics(); } catch (e) { console.error('sidebarSlow.api: '    + e); }
   try { out.alerts = getActionableAlerts(); } catch (e) { console.error('sidebarSlow.alerts: ' + e); }
+  /* ⚠ RIDES THE SLOW HALF ON PURPOSE. It is one Properties read, but it
+     answers an HOURLY question, so putting it on the fast beat would spend a
+     round trip every couple of minutes to re-read a number that cannot have
+     moved. The 15-minute clock here is already finer than the source. */
+  try { out.rest   = _restSnapshot();       } catch (e) { console.error('sidebarSlow.rest: '   + e); }
 
   // ⚠ If BOTH reads failed, keep serving the last good copy rather than blanking
   // the badges — a transient sheet error should not empty the Alerts card.
@@ -323,13 +422,16 @@ function getSidebarTick(force) {
     } catch (e) { /* no mutex available — rebuild rather than serve nothing */ }
   }
 
-  var result = { cockpit: null, lastSync: '', api: null, alerts: null, picker: '' };
+  var result = { cockpit: null, lastSync: '', api: null, alerts: null, picker: '', rest: null };
   try { result.cockpit  = getDashboardSnapshot(); } catch (e) { console.error('getSidebarTick.cockpit: '  + e); }
   try { result.lastSync = getLastSyncFromSheet(); } catch (e) { console.error('getSidebarTick.lastSync: ' + e); }
   // ⭐ THE SLOW HALF RUNS ON ITS OWN, SLOWER CLOCK (2026-08-18).
   var slow = _sidebarSlowParts();
   result.api    = slow.api;
   result.alerts = slow.alerts;
+  // The resting panel's two dark rows. Absent on an older cached copy, which is
+  // exactly the graceful path — the panel draws fewer rows, never a broken one.
+  result.rest   = slow.rest || null;
   try { result.picker   = getCurrentPicker();     } catch (e) { console.error('getSidebarTick.picker: '   + e); }
 
   if (cache) {

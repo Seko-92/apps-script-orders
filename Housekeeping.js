@@ -169,6 +169,26 @@ function _housekeepingPass() {
   try { parts.push(runStragglerWatchdog(maps)); }   // reuses the MI read above
   catch (e) { parts.push("❌ Watchdog: " + e); console.log("Housekeeping Watchdog error: " + e); }
 
+  // RESTING-PANEL SNAPSHOT (2026-08-20) — the sidebar's two dark rows,
+  // "Advertised, can't build" and "Restocking N parts frees N kits".
+  //
+  // ⚠⚠ THIS IS THE REASON IT LIVES HERE AND NOWHERE ELSE. The ripple half costs
+  // ~6s because it builds the kit map plus the MI and Zoho availability maps.
+  // The obvious homes are both wrong: the sidebar heartbeat would pay it per
+  // poll, and runPublishTick fires EVERY MINUTE — 1,440 × 6s is ~2.4 hours of
+  // runtime a day against a ~90-minute trigger budget, for a row nobody reads at
+  // 3am. Once an hour is finer than the underlying numbers move.
+  //
+  // ⚠ AND IT RIDES THE MAPS THIS PASS ALREADY BUILT — `maps` from the top of the
+  // function and the Zoho map built for the HAND recompute — so most of that ~6s
+  // is already paid for. Same sharing rule as recomputeHand and the watchdog.
+  // ⚠ hkZoho is `var`, so it is function-scoped and readable here even though it
+  // is assigned inside the HAND try block above — and it is `undefined` if that
+  // block threw before the assignment. Passing that through is safe: the shape
+  // check inside analyzeRestockRipple falls back to building the map itself.
+  try { parts.push(refreshRestSnapshot(maps, hkZoho || null)); }
+  catch (e) { parts.push("❌ Rest snapshot: " + e); console.log("Housekeeping rest error: " + e); }
+
   // PUBLISHED-CELL PULSE (2026-08-18) — is the board's FREE path still free?
   // One outbound probe of the public board URL, compared against the last known
   // state; silent unless it CHANGED. Costs one HTTP call an hour and catches
