@@ -4554,7 +4554,19 @@ body.ch-direct #pickListDirect { display: block; }
       { group: 'Arabic', name: 'Aswat FM',                id: '', url: 'https://broadcast.ice.infomaniak.ch/aswat-high.mp3' },
       { group: 'Arabic', name: 'Hits Cairo',              id: '', url: 'https://radiohits882.radioca.st/;' },
       { group: 'Arabic', name: 'Quran · Kuwait',          id: '', url: 'https://radio.mp3islam.com/listen/quran_radio/radio.mp3' },
-      { group: 'Arabic', name: 'Quran · Yasser AlDosari', id: '', url: 'https://radio.mp3islam.com/listen/yaser/radio.mp3' }
+      { group: 'Arabic', name: 'Quran · Yasser AlDosari', id: '', url: 'https://radio.mp3islam.com/listen/yaser/radio.mp3' },
+      /* Floor request (2026-08-21). A picker asked for the SBA "قناة السنة النبوية"
+         live channel (aloula.sba.sa/ar/live/sunna). That one cannot be added:
+         SBA's own API reports it type:"video" with has_live_audio:false,
+         audiostream_available:false and audio_streams all false — there IS no audio
+         feed — and no stream URL is published for any of their channels, video or
+         audio; the player is issued one per session. A session URL would break
+         within hours even if we prised it out.
+         This is the nearest thing that legitimately exists: Saudi state Quran radio
+         from Makkah, an openly published stream, verified serving audio/mp3 before
+         it went in. Named "Makkah" rather than "Sunna" on purpose so nobody on the
+         floor thinks it is the Madinah TV channel they asked for. */
+      { group: 'Arabic', name: 'Quran · Makkah',            id: '', url: 'https://edge.mixlr.com/channel/rwumx' }
     ];
     var radioIdx = 0, radioPlaying = false, radioAudio = null;
     var currentTrack = '', npTimer = null;
