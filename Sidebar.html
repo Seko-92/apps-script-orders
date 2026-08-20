@@ -3308,33 +3308,69 @@ body.dark-theme .footer-version { border-color: #2c2c2c; }
   padding:13px 12px 10px; overflow:hidden;
   opacity:0; visibility:hidden; pointer-events:none;
   justify-content:center;
-  transition:opacity 240ms ease, visibility 0s linear 240ms;
+  /* ⭐ THE BACKDROP IS WHAT MAKES IT READ AS DEPTH RATHER THAN A CURTAIN.
+     Without it the arrival is two flat images cross-fading; with it the console
+     goes soft-focus as the face comes forward, which is the same frosted-veil
+     device the commit modals already use (2026-07-31) and it is proven in this
+     webview. It only costs anything during the ~1.4s it runs. */
+  -webkit-backdrop-filter:blur(0px); backdrop-filter:blur(0px);
+  transition:opacity 260ms ease, visibility 0s linear 260ms,
+             -webkit-backdrop-filter 260ms ease, backdrop-filter 260ms ease;
   color:#e8dfcd;
   --rp-brand:#ffd966; --rp-ember:#e08b3c;
 }
 .rp.rp-show{
   opacity:1; visibility:visible; pointer-events:auto;
-  transition:opacity 1100ms cubic-bezier(.22,.61,.36,1), visibility 0s;
+  -webkit-backdrop-filter:blur(7px); backdrop-filter:blur(7px);
+  /* ⚠⚠ OPACITY AND MOTION WANT DIFFERENT CURVES, and using one for both is what
+     made the first attempt still feel abrupt. easeOutExpo (.16,1,.3,1) dumps
+     ~97% of its change in the first 30% — measured here, a 1400ms fade reached
+     full opacity at 420ms, so it read as a snap followed by a long nothing.
+     It is the right curve for something DECELERATING INTO PLACE and the wrong
+     one for brightness. Opacity and the blur now ride easeInOutSine, which
+     ramps evenly and is perceptible the whole way; only transforms keep expo. */
+  /* ⚠⚠ THE GROUND ARRIVES FIRST, AND FAST — 650ms, not the full 1.4s. That is
+     the difference between a cross-fade and a hand-off. Fading ground and
+     content together superimposes two complete UIs for most of a second, which
+     is exactly the flat, busy look this was meant to remove; blur was supposed
+     to soften it and does NOT, because Chromium drops backdrop-filter while an
+     opacity animation is running on the same element (measured — the console
+     stayed sharp at 46%). So instead: the console dims AWAY in the first half
+     second, and the face then assembles on a clean surface. The blur stays
+     because it costs nothing and helps wherever it is honoured. */
+  transition:opacity 650ms cubic-bezier(.37,0,.63,1), visibility 0s,
+             -webkit-backdrop-filter 650ms cubic-bezier(.37,0,.63,1),
+             backdrop-filter 650ms cubic-bezier(.37,0,.63,1);
 }
 
 /* ── the entrance, staged. Each slot rises a few px in sequence rather than the
    whole panel arriving at once, so it reads as SETTLING rather than switching.
    ⚠ The delays live ONLY on .rp-show, so leaving stays immediate. */
 .rp-top,.rp-dialwrap,.rp-flank,.rp-rows,.rp-count,.rp-hint{
-  opacity:0; transform:translateY(8px);
-  transition:opacity 240ms ease, transform 240ms ease;
+  opacity:0; transform:translateY(10px);
+  transition:opacity 260ms ease, transform 260ms ease;
 }
+/* ⚠ THE FACE ALSO SCALES, the rest only rise. A clock arriving at 96.5% and
+   settling to full reads as coming into focus; doing that to the text as well
+   would look like the whole panel was zooming, which is a slideshow move. */
+.rp-dialwrap{ transform:translateY(10px) scale(.965); }
 .rp.rp-show .rp-top,.rp.rp-show .rp-dialwrap,.rp.rp-show .rp-flank,
 .rp.rp-show .rp-rows,.rp.rp-show .rp-count,.rp.rp-show .rp-hint{
   opacity:1; transform:none;
-  transition:opacity 760ms ease, transform 760ms cubic-bezier(.22,.61,.36,1);
+  /* same split: an even ramp for brightness, a decelerating one for movement */
+  transition:opacity 640ms cubic-bezier(.37,0,.63,1),
+             transform 640ms cubic-bezier(.16,1,.3,1);
 }
-.rp.rp-show .rp-top     { transition-delay:60ms }
-.rp.rp-show .rp-dialwrap{ transition-delay:150ms }
-.rp.rp-show .rp-flank   { transition-delay:320ms }
-.rp.rp-show .rp-rows    { transition-delay:430ms }
-.rp.rp-show .rp-count   { transition-delay:540ms }
-.rp.rp-show .rp-hint    { transition-delay:640ms }
+/* ⚠ NOTHING STARTS BEFORE THE GROUND IS MOSTLY THERE. The first slot waits
+   420ms — by then the ground is ~75% and the console has effectively gone, so
+   no slot is ever drawn on top of live UI. Last one lands at 780+640 = 1420ms,
+   which is the whole arrival: a fast hand-off, then an unhurried assembly. */
+.rp.rp-show .rp-top     { transition-delay:420ms }
+.rp.rp-show .rp-dialwrap{ transition-delay:500ms }
+.rp.rp-show .rp-flank   { transition-delay:590ms }
+.rp.rp-show .rp-rows    { transition-delay:660ms }
+.rp.rp-show .rp-count   { transition-delay:730ms }
+.rp.rp-show .rp-hint    { transition-delay:780ms }
 /* ── TWO LIGHTS, ONE GEOMETRY. Only the ground and the words change. ─────── */
 .rp.rp-day  { background:radial-gradient(125% 90% at 50% 4%,#31261a 0%,#1d1811 52%,#120f0b 100%); color:#efe9d8; }
 .rp.rp-night{ background:radial-gradient(120% 85% at 50% 18%,#241d16 0%,#15110d 55%,#0c0a08 100%); }
@@ -3457,14 +3493,27 @@ body.dark-theme .footer-version { border-color: #2c2c2c; }
 
 .rp-hint{ margin-top:10px; text-align:center; font-family:'Oswald',sans-serif; font-size:9px;
   letter-spacing:.22em; text-transform:uppercase; color:#5c574c; flex:none;
-  position:relative; z-index:2; animation:rpBreathe 4.5s ease-in-out infinite; }
-@keyframes rpBreathe{ 0%,100%{opacity:.55} 50%{opacity:1} }
+  position:relative; z-index:2;
+  }
+/* ⚠⚠ THE BREATHE LIVES ON .rp-show, NOT ON .rp — AND THAT IS THE WHOLE FIX.
+   A CSS animation BEATS a transition on the same property, so while it sat on
+   .rp-hint it owned opacity outright and the staged entrance never reached the
+   hint. Adding a 1500ms delay did NOT help either, because the animation starts
+   when the PAGE loads, not when the panel appears: measured at t=0 of the
+   arrival the hint was already at 0.95 and falling, its delay long since spent.
+   Scoped to .rp-show it starts with each showing, so the transition owns opacity
+   for the first 1.5s and then hands over.
+   ⚠ And it breathes DOWN from 1 rather than up from .55, so the hand-over does
+   not begin with a visible drop. */
+.rp.rp-show .rp-hint{ animation:rpBreathe 4.5s ease-in-out 1500ms infinite; }
+@keyframes rpBreathe{ 0%,100%{opacity:1} 50%{opacity:.55} }
 
 @media (prefers-reduced-motion:reduce){
   .rp-bezel,.rp-jewel,.rp-ember,.rp-hint{ animation:none !important; }
   .rp-pip{ animation:none !important; opacity:1 !important; }
   .rp,.rp-top,.rp-dialwrap,.rp-flank,.rp-rows,.rp-count,.rp-hint{
-    transition:none !important; transform:none !important; }
+    transition:none !important; transform:none !important;
+    -webkit-backdrop-filter:none !important; backdrop-filter:none !important; }
   .rp-top,.rp-dialwrap,.rp-flank,.rp-rows,.rp-count,.rp-hint{ opacity:1 !important; }
 }
 </style>
