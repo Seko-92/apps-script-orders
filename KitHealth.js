@@ -286,6 +286,20 @@ function setupKitHealthSheet() {
     .setFontFamily('Roboto Mono').setFontSize(9).setHorizontalAlignment('center');
   sheet.getRange(dsr, KIT_HEALTH.cols.STOCK_STATUS, dataRows, 1)
     .setFontFamily('Oswald').setFontWeight('bold').setFontSize(9).setHorizontalAlignment('center');
+  /* ⚠⚠ THE '0' IS LOAD-BEARING, AND ITS ABSENCE COST A MORNING (2026-08-21).
+     AT_RISK was added at column 17 on 2026-08-19 — exactly where the old 17-wide
+     schema had LAST_CHECKED, a DATE column — and it was the ONLY data column in
+     this block with no setNumberFormat. Sheets keeps a cell's number format
+     through clearContent, so every gap this audit wrote rendered as a 1900 date
+     and came BACK from getValues() as a Date object. getKitOversellSnapshot then
+     parseFloat'd a Date, got NaN, skipped it, and reported "30 kits · 0 UNITS" —
+     a customer-facing exposure silently understated to zero.
+     THIRD instance of this class here: OOS DAYS OUT (2026-07-18) and the Zoho
+     Stock SELLING PRICE column (2026-05-28) were the first two.
+     RULE: a column that holds code-written NUMBERS must SET its number format.
+     Inheriting one is not neutral — it is a silent type change on read. */
+  sheet.getRange(dsr, KIT_HEALTH.cols.AT_RISK, dataRows, 1)
+    .setNumberFormat('0').setFontFamily('Roboto Mono').setFontWeight('bold').setFontSize(10).setHorizontalAlignment('center');
   sheet.getRange(dsr, KIT_HEALTH.cols.LAST_CHECKED, dataRows, 1)
     .setNumberFormat('M/d/yy h:mm am/pm')
     .setFontFamily('Roboto Mono').setFontSize(9).setFontColor('#5f5f5f').setHorizontalAlignment('center');
@@ -827,8 +841,123 @@ function getKitPriceDriftCount() {
  *          deliberately NOT distinguished here, because the only consumer draws
  *          nothing at zero either way. Do not reuse this for an alarm.
  */
+/**
+ * ⚠ DIAGNOSTIC (2026-08-21) — why does the oversell snapshot report 0 units?
+ *
+ * getKitOversellSnapshot() reads 30 rows whose STOCK STATUS is "⚠ CAN'T BUILD"
+ * and sums AT RISK to ZERO. Reading the code says that cannot happen: a CAN'T
+ * BUILD verdict REQUIRES advertised > 0 and buildable === 0, which forces
+ * _kitAtRisk to return advertised. Three separate static readings of the write
+ * path all said "impossible", and a fresh audit reproduced it anyway.
+ *
+ * So stop reading and MEASURE — the standing rule of this project. This dumps
+ * what the sheet actually holds, with types, so the next step is decided by data
+ * instead of by another guess. Editor-run; output goes to the EXECUTION LOG,
+ * because the Run button does not display return values.
+ *
+ * Delete this once the cause is found.
+ */
+function diagnoseKitOversellNow() {
+  var L = [];
+  try {
+    var ss = SpreadsheetApp.getActive() || SpreadsheetApp.openById(SPREADSHEET_ID);
+    var sheet = ss.getSheetByName(KIT_HEALTH.sheetName);
+    if (!sheet) { console.log("no Kit Health sheet"); return; }
+
+    var lastRow = sheet.getLastRow(), lastCol = sheet.getLastColumn();
+    L.push("── KIT HEALTH · OVERSELL DIAGNOSTIC ────────────────────────");
+    L.push("geometry   lastRow " + lastRow + "  ·  lastCol " + lastCol
+           + "   (schema expects dataWidth " + KIT_HEALTH.dataWidth
+           + ", data from row " + KIT_HEALTH.dataStartRow + ")");
+
+    // Headers 14..18 — proves whether P/Q/R are where the schema thinks.
+    var hdr = sheet.getRange(KIT_HEALTH.headerRow, 14, 1, 5).getValues()[0];
+    L.push("headers    N=" + JSON.stringify(hdr[0]) + "  O=" + JSON.stringify(hdr[1])
+           + "  P=" + JSON.stringify(hdr[2]) + "  Q=" + JSON.stringify(hdr[3])
+           + "  R=" + JSON.stringify(hdr[4]));
+    L.push("expected   P=" + JSON.stringify(KIT_HEALTH.headers[15])
+           + "  Q=" + JSON.stringify(KIT_HEALTH.headers[16])
+           + "  R=" + JSON.stringify(KIT_HEALTH.headers[17]));
+
+    var n = lastRow - KIT_HEALTH.dataStartRow + 1;
+    if (n < 1) { console.log(L.join("\n")); return; }
+
+    // Read the WHOLE row so nothing depends on my column arithmetic being right.
+    var all = sheet.getRange(KIT_HEALTH.dataStartRow, 1, n, KIT_HEALTH.dataWidth).getValues();
+
+    var iType = KIT_HEALTH.idx("TYPE"), iQty = KIT_HEALTH.idx("KIT_QTY");
+    var iBuild = KIT_HEALTH.idx("BUILDABLE"), iStock = KIT_HEALTH.idx("STOCK_STATUS");
+    var iRisk = KIT_HEALTH.idx("AT_RISK");
+
+    var cantBuild = 0, overListed = 0, riskNumeric = 0, riskSum = 0, shown = 0;
+    for (var i = 0; i < all.length; i++) {
+      var st = String(all[i][iStock]).trim().toUpperCase();
+      var isCB = st === String(KIT_HEALTH.stock.CANT_BUILD).trim().toUpperCase();
+      var isOL = st === String(KIT_HEALTH.stock.OVER_LISTED).trim().toUpperCase();
+      if (isCB) cantBuild++;
+      if (isOL) overListed++;
+
+      var rv = all[i][iRisk], rn = parseFloat(rv);
+      if (!isNaN(rn) && rn > 0) { riskNumeric++; riskSum += rn; }
+
+      // Show the first few of EACH kind, with types — that is the discriminator.
+      if ((isCB || isOL) && shown < 8) {
+        shown++;
+        L.push("row " + (KIT_HEALTH.dataStartRow + i)
+             + "  sku " + all[i][0]
+             + "  type " + JSON.stringify(all[i][iType])
+             + "  kitQty " + JSON.stringify(all[i][iQty])
+             + "  buildable " + JSON.stringify(all[i][iBuild]) + " (" + (typeof all[i][iBuild]) + ")"
+             + "\n        STOCK " + JSON.stringify(all[i][iStock])
+             + "   AT_RISK " + JSON.stringify(rv) + " (" + (typeof rv) + ")");
+      }
+    }
+
+    L.push("counts     CAN'T BUILD " + cantBuild + "  ·  OVER-LISTED " + overListed
+           + "  ·  rows with a numeric AT_RISK > 0: " + riskNumeric
+           + "  (sum " + riskSum + ")");
+    L.push("verdict    " + (riskNumeric === 0
+           ? "column Q is EMPTY across the WHOLE sheet — the writer never populated it"
+           : "column Q HAS values — so this is specific to the CAN'T BUILD rows"));
+    L.push("────────────────────────────────────────────────────────────");
+  } catch (e) {
+    L.push("diagnostic failed: " + e);
+  }
+  try { console.log(L.join("\n")); } catch (_) {}
+}
+
+
+/**
+ * AT RISK cell → a number, surviving the stale-DATE-format trap.
+ *
+ * ⚠ WHY THIS EXISTS RATHER THAN A BARE parseFloat (2026-08-21). If the column
+ * carries a date number format — which it did for two days, see the note in
+ * setupKitHealthSheet — Sheets hands getValues() a Date OBJECT instead of the
+ * number underneath. parseFloat(Date) is NaN, so the row scored ZERO and the
+ * oversell total silently read "0 units" against 30 unbuildable kits.
+ *
+ * The underlying value is still a serial day count, so it is recoverable:
+ * Sheets' epoch is 1899-12-30, and building the epoch with the SAME local-time
+ * constructor cancels the timezone offset on both sides (Math.round absorbs any
+ * historical LMT/DST remainder — these are small integers, not timestamps).
+ *
+ * Belt-and-braces on top of the format fix: the format is the real repair, this
+ * makes a REGRESSION of it visible-but-correct instead of silently zero. Blank
+ * stays blank — a healthy kit legitimately has nothing at risk.
+ */
+function _kitRiskToNumber(v) {
+  if (v === "" || v === null || v === undefined) return NaN;
+  if (typeof v === "number") return v;
+  if (v instanceof Date) {
+    var epoch = new Date(1899, 11, 30).getTime();
+    return Math.round((v.getTime() - epoch) / 86400000);
+  }
+  return parseFloat(v);
+}
+
+
 function getKitOversellSnapshot() {
-  var out = { kits: 0, units: 0 };
+  var out = { kits: 0, units: 0, unreadable: 0 };
   try {
     var ss = SpreadsheetApp.getActive() || SpreadsheetApp.openById(SPREADSHEET_ID);
     var sheet = ss.getSheetByName(KIT_HEALTH.sheetName);
@@ -845,14 +974,15 @@ function getKitOversellSnapshot() {
     for (var i = 0; i < vals.length; i++) {
       if (String(vals[i][0]).trim().toUpperCase() !== want) continue;
       out.kits++;
-      var n = parseFloat(vals[i][1]);
+      var n = _kitRiskToNumber(vals[i][1]);
       if (!isNaN(n) && n > 0) out.units += n;
+      else out.unreadable++;
     }
     out.units = Math.round(out.units);
     return out;
   } catch (e) {
     console.log("getKitOversellSnapshot error: " + e);
-    return { kits: 0, units: 0 };
+    return { kits: 0, units: 0, unreadable: 0 };
   }
 }
 
