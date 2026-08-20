@@ -226,7 +226,20 @@ function publishBoardTick(reason) {
     // a pick may publish whatever is already cached and nothing more.
     var _pubFromTrigger = (reason === "changed" || reason === "keep-fresh" ||
                            reason === "sheet moved, unannounced" || reason === "manual");
-    tick.sidebar = _pubSidebarExtras(_pubFromTrigger);
+    var _sx = _pubSidebarExtras(_pubFromTrigger);
+    /* ⚠ ONE SHAPE FOR BOTH TIERS. getSidebarTick returns `rest` top-level, and the
+       client deliberately paints both tiers through ONE painter so they cannot drift
+       — the format-drift class this codebase keeps getting bitten by. So the published
+       copy has to agree on where `rest` lives.
+
+       Lifted OUT of the nested object rather than copied into both: this cell has a
+       45,000-char budget the board pays for too, and there is no reader for a second
+       copy. Note it therefore survives the `delete tick.sidebar` trim below, which is
+       the right way round — it is a few hundred bytes and the panel degrades better
+       with it than without. */
+    tick.rest    = _sx.rest || null;
+    delete _sx.rest;
+    tick.sidebar = _sx;
 
     var json = JSON.stringify(tick);
     var trimmed = false;
@@ -399,7 +412,7 @@ function runPublishTick() {
  * @returns {{api:Object|null, alerts:Object|null, _builtAt:number}}
  */
 function _pubSidebarExtras(mayRebuild) {
-  var out = { api: null, alerts: null, _builtAt: 0 };
+  var out = { api: null, alerts: null, rest: null, _builtAt: 0 };
   try {
     var slow = null;
 
@@ -426,6 +439,18 @@ function _pubSidebarExtras(mayRebuild) {
 
     out._builtAt = slow._builtAt || 0;
     out.api      = slow.api || null;
+
+    /* ⚠ THE RESTING PANEL'S TWO DARK ROWS (2026-08-20). _restSnapshot already
+       rides this same 900s slow half, so it arrives here for free — one Properties
+       read that was going to happen anyway, never an extra sheet open, so this is
+       safe on the cache-only inline path too.
+
+       ⚠⚠ BUT THE PANEL READS IT AS `full.rest` — TOP-LEVEL ON THE TICK, NOT under
+       `sidebar`. The caller lifts it. Without that lift the rows appear on the live
+       fallback and silently NEVER on the published path, which is the tier that
+       normally answers — so the feature would look broken exactly when everything
+       else is working. */
+    out.rest     = slow.rest || null;
 
     if (slow.alerts) {
       var lean = {};
@@ -464,6 +489,80 @@ function getPublishedTick() {
   } catch (err) {
     return { ok: false, ageSec: -1, bytes: 0, tick: null, message: String(err.message || err) };
   }
+}
+
+
+/**
+ * Editor-run health check for the published cell — WHAT IS ACTUALLY IN THERE.
+ *
+ * ⚠⚠ THIS EXISTS BECAUSE THE RUN BUTTON DOES NOT DISPLAY RETURN VALUES. Running
+ * getPublishedTick() from the editor prints "Execution started / completed" and
+ * nothing else, which reads exactly like a broken function. That misreading has
+ * now cost this project twice — it is written into CLAUDE.md as having "cost an
+ * evening on getPublishedTick", and it cost a second morning on 2026-08-20. So
+ * the answer is a wrapper that console.logs, not a note telling the next person
+ * to remember. Same ruling as auditBoardStockAdjustments.
+ *
+ * Answers, in one Run:
+ *   · is the cell being written, and how old is the copy
+ *   · is the SIDEBAR riding on it (if absent, the Control Panel is silently
+ *     paying for the expensive live call on every single poll)
+ *   · is REST on it (if absent, the resting panel's two dark rows can never
+ *     render on the tier that normally answers)
+ */
+function checkPublishedTickNow() {
+  var res = getPublishedTick();
+  var L = [];
+  L.push("── PUBLISHED CELL ──────────────────────────────────────────");
+
+  if (!res.ok) {
+    L.push("✗ NOT READABLE: " + res.message);
+    try { console.log(L.join("\n")); } catch (_) {}
+    return res;
+  }
+
+  var t = res.tick || {};
+  L.push("age        " + res.ageSec + "s   ·   " + res.bytes + " / " + PUBLISHED.maxChars + " chars"
+         + (t._trimmed ? "   ⚠ TRIMMED" : ""));
+  L.push("written    " + (t._publishedAt || "?") + "   reason: " + (t._publishReason || "?"));
+
+  // ── the board's own half ──
+  var oo = (t.openOrders || []).length;
+  L.push("board      cockpit " + (t.cockpit ? "yes" : "✗ MISSING")
+         + "   ·   pick list " + oo + " of " + (t.openOrdersTotal || 0));
+
+  // ── the sidebar guest ──
+  if (!t.sidebar) {
+    L.push("sidebar    ✗ ABSENT — the Control Panel is falling back to the LIVE call");
+    L.push("           on every poll. Cheap to miss, because it still works.");
+  } else {
+    var al = t.sidebar.alerts, keys = 0;
+    if (al) { for (var k in al) { if (al.hasOwnProperty(k)) keys++; } }
+    L.push("sidebar    api " + (t.sidebar.api ? "yes" : "null")
+           + "   ·   alerts " + (al ? keys + " counters" : "null")
+           + "   ·   built " + (t.sidebar._builtAt
+               ? Math.round((Date.now() - t.sidebar._builtAt) / 1000) + "s ago" : "?"));
+  }
+
+  // ── the resting panel's two dark rows ──
+  if (!t.rest) {
+    L.push("rest       ✗ ABSENT — the two dark rows CANNOT render on this tier.");
+    L.push("           Either the housekeeping pass has not run yet (the panel");
+    L.push("           correctly draws fewer rows), or this copy came from an");
+    L.push("           INLINE publish on a pinned /exec that predates the fix.");
+  } else {
+    var cb = t.rest.cantBuild || {}, rp = t.rest.ripple || [];
+    L.push("rest       can't build " + (cb.kits || 0) + " kits / " + (cb.units || 0) + " units"
+           + "   ·   ripple " + rp.length + " parts");
+    if (!cb.kits) {
+      L.push("           ⚠ ZERO means Kit Health has not been re-audited — that is");
+      L.push("             a stale source, NOT a broken row. Run the Kit Health audit.");
+    }
+  }
+
+  L.push("────────────────────────────────────────────────────────────");
+  try { console.log(L.join("\n")); } catch (_) {}
+  return res;
 }
 
 
