@@ -509,8 +509,14 @@ body.ch-direct #pickListDirect { display: block; }
 .connlost.show { display: block; }
 
 /* A deviance row's chips already say everything — the prose yields the
-   lane to them so the row never crushes its own SKU. */
-.pick-row.deviance .pc-sys, .pick-row.deviance .pc-other { display: none; }
+   lane to them so the row never crushes its own SKU.
+   ⚠ `.pc-sys` WAS IN THIS RULE AND IS NOT ANY MORE (2026-08-20). buildCountLine
+   now renders that line only while the shelf is UNCOUNTED, and `.deviance`
+   requires a count — so the two can never coexist and the selector was dead.
+   It also hid the wrong problem: a row whose disagreement had been pushed to
+   Zoho loses `.deviance`, so this rule stopped applying and the stale
+   "should be N" reappeared next to its own correction. One owner now, in JS. */
+.pick-row.deviance .pc-other { display: none; }
 .pc-sys { max-width: 150px; overflow: hidden; text-overflow: ellipsis; }
 .ftr-picker { max-width: 190px; overflow: hidden; text-overflow: ellipsis; }
 
@@ -3103,14 +3109,42 @@ body.ch-direct #pickListDirect { display: block; }
       var holders  = otherHolders(r);
       var other    = holders.total;
 
-      var sys = document.createElement('span');
-      sys.className = 'pc-sys';
-      sys.textContent = 'should be ' + expected;
-      // One sentence, one number, and it does not change when you pick — the
-      // board reports on-hand, it does not predict it.
-      sys.title = 'On hand is ' + expected + '. Count the shelf — if it agrees, '
-                + 'leave the count blank.';
-      wrap.appendChild(sys);
+      /* ⚠⚠ ONLY WHILE THE SHELF IS UNCOUNTED (2026-08-20, floor report).
+         "should be N" is an INSTRUCTION — go and match this number — and the
+         moment the shelf has been counted the instruction is SPENT. Leaving it
+         up put it beside its own answer:
+
+           should be 8   ·  COUNTED 8     ← says the same number twice
+           should be 11  ·  COUNTED 10  ·  ✓ zoho 10
+
+         The picker asked for the first case as visual noise, and they are
+         right. ⚠ BUT THE SECOND CASE IS WORSE THAN NOISE and is the reason this
+         is a correctness fix rather than a tidy-up: once a disagreement has been
+         PUSHED TO ZOHO the row is no longer `.deviance` (that class carries
+         `&& !adj`), so the CSS rule that had been hiding this line stopped
+         applying and "should be 11" came BACK — re-asserting the stale figure
+         next to the correction that supersedes it. The row read as though it
+         still disagreed.
+
+         So the rule collapses to one condition instead of three. The three
+         states where this used to render after a count are: agrees (says
+         nothing), disagrees-unfixed (the deviance chip says it better), and
+         disagrees-fixed (the receipt says it better). In every one of them the
+         chips are the better sentence.
+
+         ⚠ NOTHING IS LOST. `counted N` IS the count button — tapping it reopens
+         the numpad, which leads with "On hand is N". The reference is one tap
+         away in exactly the place you would go to change your answer. */
+      if (counted === null) {
+        var sys = document.createElement('span');
+        sys.className = 'pc-sys';
+        sys.textContent = 'should be ' + expected;
+        // One sentence, one number, and it does not change when you pick — the
+        // board reports on-hand, it does not predict it.
+        sys.title = 'On hand is ' + expected + '. Count the shelf — if it agrees, '
+                  + 'leave the count blank.';
+        wrap.appendChild(sys);
+      }
 
       // The system says the shelf cannot cover this line. That is worth saying
       // plainly BEFORE the picker walks, not implying with a negative number.
