@@ -4264,6 +4264,7 @@ body.dark-theme .footer-version { border-color: #2c2c2c; }
       <div class="btn-group">
         <button class="btn-secondary" onclick="run('openKitHealth')">Open Sheet</button>
         <button class="btn-secondary" id="rpBtn" onclick="showRippleNow()">🔗 Restock Ripple</button>
+        <button class="btn-secondary" id="kcBtn" onclick="showCriticalNow()">🏗 Kit Criticality</button>
       </div>
       <div id="khResult" class="empty-hint">
         One row per kit: <strong>computed</strong> price (Σ parts × 0.9) vs its <strong>listed</strong> price,
@@ -7630,21 +7631,28 @@ function resetWatchdogNow() {
           function (r) { r.resetStragglerWatchdog(); });
 }
 
-// ---- Restock Ripple ---------------------------------------------------------
-// Which parts to restock first to unblock the most kits. Read-only; paints into
-// the Kit Health card's result panel (same surface its own run uses).
-var isRippleBusy = false;
-function showRippleNow() {
-  if (isRippleBusy || typeof google === 'undefined' || !google.script) return;
-  var btn = document.getElementById('rpBtn');
-  isRippleBusy = true;
+// ---- Kit Health text reports · ripple + criticality --------------------------
+// Two lenses on the same engine, both read-only, both painting into the Kit
+// Health card's result panel.
+//
+// ⚠ ONE RUNNER FOR BOTH, so the buttons cannot drift into painting differently —
+// the same reasoning as the sidebar tick's single painter. Adding a third report
+// is now a two-line function, not a copied block.
+var _khTextBusy = false;
+function _khRunTextReport(btnId, label, working, done, invoke) {
+  if (_khTextBusy || typeof google === 'undefined' || !google.script) return;
+  var btn = document.getElementById(btnId);
+  _khTextBusy = true;
   if (btn) { btn.disabled = true; btn.textContent = '⏳ Working…'; }
-  status.className = 'syncing'; status.textContent = 'Working out the restock ripple…';
-  google.script.run
+  status.className = 'syncing'; status.textContent = working;
+  var restore = function () {
+    _khTextBusy = false;
+    if (btn) { btn.disabled = false; btn.textContent = label; }
+  };
+  invoke(google.script.run
     .withSuccessHandler(function (text) {
-      isRippleBusy = false;
-      if (btn) { btn.disabled = false; btn.textContent = '🔗 Restock Ripple'; }
-      status.className = 'success'; status.textContent = '✓ Ripple ready';
+      restore();
+      status.className = 'success'; status.textContent = done;
       var el = document.getElementById('khResult');
       if (el) {
         el.className = '';
@@ -7656,12 +7664,24 @@ function showRippleNow() {
       playSound('syncDone');
     })
     .withFailureHandler(function (err) {
-      isRippleBusy = false;
-      if (btn) { btn.disabled = false; btn.textContent = '🔗 Restock Ripple'; }
-      status.className = 'error'; status.textContent = 'Ripple failed: ' + err;
+      restore();
+      status.className = 'error'; status.textContent = label + ' failed: ' + err;
       playSound('error');
-    })
-    .previewRestockRipple();
+    }));
+}
+
+/** REACTIVE — what is blocked now, and what restocking frees. */
+function showRippleNow() {
+  _khRunTextReport('rpBtn', '🔗 Restock Ripple',
+                   'Working out the restock ripple…', '✓ Ripple ready',
+                   function (r) { r.previewRestockRipple(); });
+}
+
+/** STRUCTURAL — what the catalogue leans on, blocked or not. */
+function showCriticalNow() {
+  _khRunTextReport('kcBtn', '🏗 Kit Criticality',
+                   'Working out what the catalogue leans on…', '✓ Criticality ready',
+                   function (r) { r.previewKitCriticality(); });
 }
 function _wdPaintText(text) {
   var el = document.getElementById('wdResult');

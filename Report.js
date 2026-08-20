@@ -82,6 +82,15 @@ function _gatherReportData() {
   try { ripple = analyzeRestockRipple(); }
   catch (e) { try { console.log("report.ripple: " + e); } catch (_) {} }
 
+  /* Kit criticality — the STRUCTURAL twin of the ripple. The ripple answers
+     "what is blocked and what frees it"; this answers "what would break". A part
+     twelve HEALTHY kits depend on never appears in the ripple, because it returns
+     early on any kit that is not already blocked. Best-effort, like everything
+     else gathered here: a failure degrades the report, never blocks it. */
+  var critical = null;
+  try { critical = (typeof getKitCriticalTop === 'function') ? getKitCriticalTop(10) : null; }
+  catch (e) { try { console.log("report.critical: " + e); } catch (_) {} }
+
   // Week-over-week movement. null until KPI History has a row from a prior day.
   var trend = null;
   try { trend = getKpiTrend(kpis); }
@@ -89,7 +98,7 @@ function _gatherReportData() {
 
   return {
     kpis: kpis, topUnderpriced: topUnderpriced, blocked: blocked,
-    ripple: ripple, trend: trend
+    ripple: ripple, critical: critical, trend: trend
   };
 }
 
@@ -334,6 +343,48 @@ function _buildReportHtml(data, dateStr, genTs) {
       html += '<div style="font-size:11px;color:#6b6b6b;margin-top:5px;">' +
               rip.multiBlocked + ' of ' + rip.blockedCount +
               ' blocked kits need more than one part restocked — no single order frees them.</div>';
+    }
+  }
+
+  // ---- Section: kit criticality ----
+  //
+  // ⚠ DELIBERATELY AFTER THE RIPPLE. The ripple is THIS WEEK'S ORDER — act on it
+  // now. This is the standing structural risk sitting behind it: read it to decide
+  // what to hold buffer stock of, not what to buy today. Two different decisions,
+  // so two sections rather than one merged table.
+  var crt = data.critical;
+  if (crt && crt.parts && crt.parts.length) {
+    html += '<div style="font-size:13px;font-weight:bold;letter-spacing:1px;margin:20px 0 6px;border-bottom:2px solid #ffd400;padding-bottom:3px;">🏗 WHAT THE CATALOGUE LEANS ON</div>';
+    html += '<div style="font-size:11px;color:#6b6b6b;margin-bottom:6px;">' +
+            'Ranked by how many kits DEPEND on each part, whether or not anything is short today — ' +
+            'the risk the ripple cannot see. <strong>Kits down</strong> = what stops if this shelf hits zero. ' +
+            '<strong>Covers</strong> = complete kits it can still supply, measured against its hungriest recipe.</div>';
+    html += '<table width="100%" cellpadding="5" cellspacing="0" style="border-collapse:collapse;font-size:11px;">' +
+              '<tr style="background:#1a1a1a;color:#ffffff;text-align:left;">' +
+                '<th>PART</th><th>SHELF</th><th align="right">ON HAND</th>' +
+                '<th align="right">KITS DOWN</th><th align="right">COVERS</th><th>NAME</th>' +
+              '</tr>';
+    var cn = Math.min(crt.parts.length, 10);
+    for (var ci = 0; ci < cn; ci++) {
+      var cp = crt.parts[ci];
+      // Red only when it is BOTH load-bearing and thin — the same pair the alert
+      // uses. Colouring on fan-out alone would paint the healthy majority red.
+      var thin = (cp.coverKits < 2);
+      html += '<tr style="background:' + (ci % 2 ? '#fffdf5' : '#ffffff') + ';border-bottom:1px solid #ece7d5;">' +
+                '<td><strong>' + _rEsc(cp.sku) + '</strong></td>' +
+                '<td>' + _rEsc(cp.location || "—") + '</td>' +
+                '<td align="right">' + _rEsc(String(cp.avail)) + '</td>' +
+                '<td align="right" style="font-weight:bold;">' + cp.kits + '</td>' +
+                '<td align="right" style="font-weight:bold;color:' + (thin ? '#b71c1c' : '#1b5e20') + ';">' +
+                  cp.coverKits + '</td>' +
+                '<td>' + _rEsc(String(cp.name).substring(0, 34)) + '</td>' +
+              '</tr>';
+    }
+    html += '</table>';
+    if (crt.atRisk && crt.atRisk.length) {
+      html += '<div style="font-size:11px;color:#b71c1c;margin-top:5px;font-weight:bold;">' +
+              crt.atRisk.length + ' part(s) are both load-bearing and running thin — ' +
+              'these are what the watchdog alerts on.</div>';
     }
   }
 

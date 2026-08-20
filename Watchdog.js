@@ -88,9 +88,9 @@ function runStragglerWatchdog(maps) {
     var known = isColdStart ? {} : store;
 
     // Split findings into already-told vs new.
-    var fresh = { redline: [], partShipped: [], kits: [], overListed: [] };
+    var fresh = { redline: [], partShipped: [], kits: [], overListed: [], critical: [] };
     var allKeys = [];
-    ["redline", "partShipped", "kits", "overListed"].forEach(function (bucket) {
+    ["redline", "partShipped", "kits", "overListed", "critical"].forEach(function (bucket) {
       found[bucket].forEach(function (item) {
         allKeys.push(item.key);
         if (!known[item.key]) fresh[bucket].push(item);
@@ -99,19 +99,20 @@ function runStragglerWatchdog(maps) {
 
     var totalFound = allKeys.length;
     var totalFresh = fresh.redline.length + fresh.partShipped.length + fresh.kits.length
-                   + fresh.overListed.length;
+                   + fresh.overListed.length + fresh.critical.length;
 
     // ---- COLD START: seed silently, announce the counts only -------------------
     if (isColdStart) {
       var armed = "🛡 WATCHDOG ARMED\n\n" +
                   "Now watching: orders past the 3h line, SOs part-shipped over " +
                   WATCHDOG.partShippedHours + "h, kits sitting unexpanded in DIRECT, and " +
-                  "MANUAL kits listed for more than their parts can build.\n\n" +
+                  "MANUAL kits listed for more than their parts can build, and parts that too many kits depend on running thin.\n\n" +
                   "Found right now (seeded, not alerting on these):\n" +
                   "  " + found.redline.length + " past the 3h line\n" +
                   "  " + found.partShipped.length + " part-shipped >" + WATCHDOG.partShippedHours + "h\n" +
                   "  " + found.kits.length + " kit(s) awaiting a decision\n" +
-                  "  " + found.overListed.length + " kit(s) listed beyond what we can build\n\n" +
+                  "  " + found.overListed.length + " kit(s) listed beyond what we can build\n" +
+                  "  " + found.critical.length + " load-bearing part(s) running thin\n\n" +
                   "From here you'll only hear about NEW ones, once each.";
       var armedSent = _tgSend(TELEGRAM_ADMIN_CHAT_ID, armed);
       if (armedSent) _wdRecord(allKeys, {});
@@ -131,7 +132,7 @@ function runStragglerWatchdog(maps) {
     // Record ONLY on success — a failed send must retry, never vanish.
     if (sent) {
       var newKeys = [];
-      ["redline", "partShipped", "kits", "overListed"].forEach(function (b) {
+      ["redline", "partShipped", "kits", "overListed", "critical"].forEach(function (b) {
         fresh[b].forEach(function (i) { newKeys.push(i.key); });
       });
       _wdRecord(newKeys, known);
@@ -167,10 +168,10 @@ function previewStragglerWatchdog() {
 function getStragglerCounts() {
   try {
     var f = _gatherStragglers();
-    return { redline: f.redline.length, partShipped: f.partShipped.length,
+    return { critical: f.critical.length, redline: f.redline.length, partShipped: f.partShipped.length,
              kits: f.kits.length, overListed: f.overListed.length };
   } catch (e) {
-    return { redline: 0, partShipped: 0, kits: 0, overListed: 0 };
+    return { redline: 0, partShipped: 0, kits: 0, overListed: 0, critical: 0 };
   }
 }
 
@@ -196,7 +197,7 @@ function resetStragglerWatchdog() {
  * @returns {{redline:Array, partShipped:Array, kits:Array}}
  */
 function _gatherStragglers(maps) {
-  var out = { redline: [], partShipped: [], kits: [], overListed: [] };
+  var out = { redline: [], partShipped: [], kits: [], overListed: [], critical: [] };
   var now = Date.now();
 
   // ---- Activity Log: earliest RECEIVED and latest SHIPPED, per order id -------
@@ -434,6 +435,44 @@ function _gatherStragglers(maps) {
     console.log("Watchdog: over-listed detector failed — " + e);
   }
 
+  /* ---- LOAD-BEARING PARTS RUNNING THIN --------------------------------------
+     ⚠⚠ THE ONLY PREVENTIVE ITEM THE WATCHDOG CARRIES. Every other bucket here
+     reports something that has ALREADY gone wrong — an order past the line, an SO
+     part-shipped, a kit sitting unexpanded. This one fires BEFORE the damage: a
+     component that N kits depend on is down to its last couple of builds.
+
+     The ripple cannot raise it, by construction — it returns early on any kit that
+     is not already blocked, so a part holding up twelve HEALTHY kits is invisible
+     to it right until the morning all twelve stop at once.
+
+     ⚠ RIDES THE MAPS THE PASS ALREADY HOLDS. analyzeKitCriticality costs a kit-map
+     walk; handing it the caller's maps keeps this to little more than that. Best
+     effort — a failure here must never cost the four buckets above it. */
+  try {
+    if (typeof analyzeKitCriticality === 'function') {
+      var crit = analyzeKitCriticality(maps);
+      (crit.atRisk || []).forEach(function (p) {
+        out.critical.push({
+          /* ⚠ KEYED ON THE SKU ALONE, deliberately. Stock oscillates, so keying on
+             the level would re-alert on every wobble across the threshold. One
+             alert per part, then silence until the 14-day prune — the same
+             once-per-crossing contract every other bucket uses. The trade-off is
+             stated rather than hidden: a part that dips, is restocked, and dips
+             again inside a fortnight will not alert twice. Flapping is worse. */
+          key:   "kc:" + String(p.sku).toLowerCase(),
+          sku:   String(p.sku),
+          name:  String(p.name || ""),
+          loc:   String(p.location || ""),
+          avail: p.avail,
+          kits:  p.kits,
+          cover: p.coverKits
+        });
+      });
+    }
+  } catch (e) {
+    try { console.log("watchdog.critical: " + e); } catch (_) {}
+  }
+
   return out;
 }
 
@@ -449,6 +488,18 @@ function _gatherStragglers(maps) {
  */
 function _wdBuildText(items, total) {
   var L = ["⏳ WATCHDOG · " + total + " new", ""];
+
+  /* ⚠ THIS BUCKET LEADS. Everything below it reports damage already done;
+     this is the only one you can still act on before it costs anything. */
+  if (items.critical.length) {
+    L.push("🏗 LOAD-BEARING AND RUNNING THIN (" + items.critical.length + ")");
+    _wdEach(items.critical, L, function (o) {
+      return "  " + o.sku + (o.loc ? "  " + o.loc : "") + " · have " + o.avail +
+             "\n      " + o.kits + " kits depend on it · covers " + o.cover + " more" +
+             (o.name ? "\n      " + _wdClip(o.name, 44) : "");
+    });
+    L.push("");
+  }
 
   if (items.redline.length) {
     L.push("PAST THE 3H LINE (" + items.redline.length + ")");

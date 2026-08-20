@@ -473,6 +473,17 @@ var TG_ROUTES = {
     run: function () { return previewRestockRipple(); }
   },
 
+  // ⚠ THE SIBLING OF /ripple, AND THE DIFFERENCE MATTERS. /ripple is REACTIVE —
+  // what is blocked now and what frees it. /critical is STRUCTURAL — what the kit
+  // catalogue leans on, blocked or not. A part twelve healthy kits depend on never
+  // appears in /ripple (it returns early on any kit that is not already blocked)
+  // right up until the morning all twelve stop at once. Both help texts say which
+  // is which, because asking the wrong one gives a confidently wrong answer.
+  "/critical": {
+    help: "which parts the most kits depend on, blocked or not",
+    run: function () { return previewKitCriticality(); }
+  },
+
   // Reorder report, scoped to what actually MOVED in the window — not a
   // catalogue sweep. `/lowstock` uses the defaults; `/lowstock 14 10` widens
   // the window to 14 days and the threshold to 10.

@@ -73,7 +73,7 @@ var RIPPLE = {
  *   planFrees: number          // kits made buildable if ALL planParts are restocked
  * }}
  */
-function analyzeRestockRipple(sharedMaps, sharedZoho) {
+function analyzeRestockRipple(sharedMaps, sharedZoho, sharedKitMap) {
   /* ⚠⚠ SHAPE-DETECTED, NEVER TRUSTED BY POSITION — the same guard recomputeHand
      and refreshOutOfStock use, and for the same reason: a TIME TRIGGER hands its
      target an EVENT OBJECT as the first argument, so a positional `maps` becomes
@@ -89,7 +89,12 @@ function analyzeRestockRipple(sharedMaps, sharedZoho) {
                ? sharedMaps : buildLocationAndInventoryMaps();
   var zohoMap = (sharedZoho && typeof sharedZoho.get === 'function')
                ? sharedZoho : buildZohoStockMap();
-  var kitMap = buildKitMap();
+  /* ⚠ THIRD SHARED MAP (2026-08-21). analyzeKitCriticality walks the same kit map,
+     and the hourly pass now runs BOTH — so without this the pass builds it twice.
+     Shape-detected like the other two, and a caller passing nothing is unchanged. */
+  var kitMap = (sharedKitMap && typeof sharedKitMap.forEach === 'function'
+                             && typeof sharedKitMap.get === 'function')
+               ? sharedKitMap : buildKitMap();
   var resolveAvail = _oosResolveAvailFactory(zohoMap, maps.inventoryMap);
   var locationMap = maps.locationMap;
 
@@ -221,10 +226,10 @@ function analyzeRestockRipple(sharedMaps, sharedZoho) {
 
 
 /** Top-n parts only — for the weekly report / digest to reuse without re-formatting. */
-function getRippleTop(n, sharedMaps, sharedZoho) {
+function getRippleTop(n, sharedMaps, sharedZoho, sharedKitMap) {
   try {
     // Shared maps are passed straight through; see the note on analyzeRestockRipple.
-    var d = analyzeRestockRipple(sharedMaps, sharedZoho);
+    var d = analyzeRestockRipple(sharedMaps, sharedZoho, sharedKitMap);
     return d.parts.slice(0, n || RIPPLE.topParts);
   } catch (e) {
     console.log("getRippleTop failed: " + e);
@@ -343,4 +348,217 @@ function _rpUnreadableBlock(d) {
 function _rpClip(s, n) {
   s = String(s || "").trim();
   return s.length <= n ? s : s.slice(0, n - 1) + "…";
+}
+
+
+// =======================================================================================
+// KIT CRITICALITY — which components the kit catalogue LEANS ON, blocked or not
+// =======================================================================================
+//
+// ⚠⚠ WHY THIS IS NOT THE RIPPLE. analyzeRestockRipple deliberately returns early on
+// any kit that is not ALREADY blocked:
+//
+//     if (build.buildable > 0) return;      // not blocked — nothing to free
+//
+// which is exactly right for its question ("what do I restock to unblock the most").
+// But it means a component that TWELVE kits depend on, and that happens to be in
+// stock today, is invisible — right up until the morning it hits zero and twelve
+// kits go down at once. That is a single point of failure with no surface.
+//
+// This is the other lens: rank every component by HOW MANY KITS DEPEND ON IT,
+// regardless of whether anything is short right now. The ripple is reactive
+// (what is broken); this is structural (what would break).
+//
+// ⚠ ONLY THIS SYSTEM CAN ANSWER IT. eBay and Zoho both report sales volume well —
+// that is the channel/financial view. Neither holds the kit composition map, so
+// neither can say "if this part dies, N kits die with it". That is why the raw
+// top-sellers-by-volume report was NOT built alongside this one: it would have
+// duplicated two systems that already do it, and /lowstock already carries soldQty.
+//
+// ⚠ UNTRUSTWORTHY KITS ARE EXCLUDED AND COUNTED, never silently folded in — the
+// same honesty rule the OOS sheet, Kit Health and the ripple all follow. A kit whose
+// PD will not parse cannot tell us what it depends on, so counting it would understate
+// every part it contains.
+
+var KIT_CRITICAL = {
+  topN:          12,   // how many parts the text surface lists
+  maxKitsListed:  6,   // sample kit SKUs shown per part before "+N"
+  // Fan-out at which a part stops being "a part" and becomes infrastructure.
+  // Below this, losing it is a normal restock; at or above it, one empty shelf
+  // takes a whole shelf of products off the market at once.
+  minKits:        5,
+  // Alert when it can no longer cover this many complete kits of its hungriest
+  // recipe. 2 rather than 1 on purpose: firing at 1 fires when it is ALREADY the
+  // last one, which is a report, not a warning.
+  warnCoverKits:  2
+};
+
+/**
+ * Rank components by how much of the kit catalogue rests on them.
+ *
+ * @returns {{
+ *   parts: Array<{sku,name,location,avail,kits,maxQtyPer,cannotCover,coverKits,kitSkus}>,
+ *   atRisk: Array<Object>,   // fan-out >= minKits AND running thin — the alert set
+ *   totalKits: number,
+ *   totalParts: number,
+ *   skipped: number          // kits excluded as untrustworthy
+ * }}
+ */
+function analyzeKitCriticality(sharedMaps, sharedZoho, sharedKitMap) {
+  var maps = (sharedMaps && sharedMaps.inventoryMap && sharedMaps.locationMap)
+               ? sharedMaps : buildLocationAndInventoryMaps();
+  var zohoMap = (sharedZoho && typeof sharedZoho.get === 'function')
+               ? sharedZoho : buildZohoStockMap();
+  var kitMap = (sharedKitMap && typeof sharedKitMap.forEach === 'function'
+                             && typeof sharedKitMap.get === 'function')
+               ? sharedKitMap : buildKitMap();
+  var resolveAvail = _oosResolveAvailFactory(zohoMap, maps.inventoryMap);
+  var locationMap = maps.locationMap;
+
+  var tally = {};
+  var totalKits = 0, skipped = 0;
+
+  kitMap.forEach(function (kit) {
+    totalKits++;
+
+    // Same authoritative verdict the OOS sheet and Kit Health make, so the
+    // surfaces can never disagree about which kits are assessable at all.
+    var build = _oosComputeKitBuild(kit, resolveAvail);
+    if (build.buildable === "⚠") { skipped++; return; }
+
+    var comps = kit.components || [];
+    for (var i = 0; i < comps.length; i++) {
+      var qtyPer = (comps[i].qty > 0) ? comps[i].qty : 1;
+      var key = String(comps[i].sku).trim().toLowerCase();
+      var avail = resolveAvail(key);
+      if (avail === null) continue;              // unknown to both sources
+
+      if (!tally[key]) {
+        tally[key] = {
+          key: key, sku: String(comps[i].sku).trim(),
+          name: String(comps[i].name || ""),
+          location: locationMap.get(key) || "",
+          avail: Math.round(avail * 100) / 100,
+          kits: 0, maxQtyPer: 0, cannotCover: 0, kitSkus: []
+        };
+      }
+      var t = tally[key];
+      t.kits++;
+      t.kitSkus.push(String(kit.sku));
+      if (qtyPer > t.maxQtyPer) t.maxQtyPer = qtyPer;
+      // Already short for THIS recipe — it is not a future risk, it is current.
+      if (Math.floor(avail / qtyPer) < 1) t.cannotCover++;
+    }
+  });
+
+  var parts = Object.keys(tally).map(function (k) {
+    var t = tally[k];
+    /* ⚠ DEPTH IS MEASURED AGAINST THE HUNGRIEST RECIPE, not an average. A part
+       used 1-per-kit in ten kits and 6-per-kit in one is limited by the 6 — and
+       the conservative number is the one worth alarming on. */
+    t.coverKits = (t.maxQtyPer > 0) ? Math.floor(t.avail / t.maxQtyPer) : 0;
+    return t;
+  });
+
+  /* ⚠ RANKED BY FAN-OUT, because that is the question being asked — "what does the
+     catalogue lean on most". Deliberately NOT a blended risk score: this project
+     already learned (Kit Health's calibrated discount) that a composite number
+     hides the signal that produced it. Fan-out ranks, cover is shown beside it,
+     and the human weighs them. Ties break toward the one already hurting, then
+     toward the emptier shelf. */
+  parts.sort(function (a, b) {
+    if (b.kits !== a.kits)               return b.kits - a.kits;
+    if (b.cannotCover !== a.cannotCover) return b.cannotCover - a.cannotCover;
+    return a.avail - b.avail;
+  });
+
+  var atRisk = parts.filter(function (p) {
+    return p.kits >= KIT_CRITICAL.minKits && p.coverKits < KIT_CRITICAL.warnCoverKits;
+  });
+
+  return {
+    parts: parts, atRisk: atRisk,
+    totalKits: totalKits, totalParts: parts.length, skipped: skipped
+  };
+}
+
+
+/** Top N critical parts — for the weekly report, without re-formatting text. */
+function getKitCriticalTop(n, sharedMaps, sharedZoho, sharedKitMap) {
+  var d = analyzeKitCriticality(sharedMaps, sharedZoho, sharedKitMap);
+  return {
+    parts:     d.parts.slice(0, n || KIT_CRITICAL.topN),
+    atRisk:    d.atRisk,
+    totalKits: d.totalKits,
+    skipped:   d.skipped
+  };
+}
+
+
+/**
+ * The plain-text criticality report. PLAIN TEXT, no parse_mode — same robustness
+ * choice as the ripple and the digest: part names carry punctuation that would
+ * break a Markdown parse and silently drop the whole message.
+ */
+function previewKitCriticality() {
+  var d;
+  try { d = analyzeKitCriticality(); }
+  catch (e) { return "⚠ Criticality failed: " + (e.message || e); }
+
+  if (!d.parts.length) {
+    return "No component data — the Kit Registry may be empty or unreadable.";
+  }
+
+  var L = [];
+  L.push("🏗 WHAT THE CATALOGUE LEANS ON");
+  L.push(d.totalParts + " parts across " + d.totalKits + " kits"
+         + (d.skipped ? "  ·  " + d.skipped + " kits unreadable, excluded" : ""));
+
+  /* ⚠ THE ALERT SET LEADS. A ranked list is a reference; the parts that are BOTH
+     load-bearing and running thin are the reason to read it today. Silent when
+     empty — a heading over nothing trains people to skip the section. */
+  if (d.atRisk.length) {
+    L.push("");
+    L.push("🚨 LOAD-BEARING AND RUNNING THIN");
+    for (var a = 0; a < d.atRisk.length; a++) {
+      var r = d.atRisk[a];
+      L.push("  " + r.sku + (r.location ? "  " + r.location : "") + "   have " + r.avail);
+      if (r.name) L.push("      " + _rpClip(r.name, 46));
+      L.push("      " + r.kits + " kits depend on it · covers " + r.coverKits + " more");
+    }
+  }
+
+  L.push("");
+  L.push("MOST DEPENDED ON");
+
+  var shown = Math.min(d.parts.length, KIT_CRITICAL.topN);
+  for (var i = 0; i < shown; i++) {
+    var p = d.parts[i];
+    L.push("  " + p.sku + (p.location ? "  " + p.location : "") + "   have " + p.avail);
+    if (p.name) L.push("      " + _rpClip(p.name, 46));
+
+    // The headline sentence: what happens when this shelf is empty.
+    var line = "      " + p.kits + " kit" + (p.kits === 1 ? "" : "s") + " go down if it hits 0";
+    if (p.maxQtyPer > 1) line += " · needs up to " + p.maxQtyPer + " each";
+    L.push(line);
+
+    if (p.cannotCover > 0) {
+      // Already true, not a forecast — say so in the present tense.
+      L.push("      ⚠ already short for " + p.cannotCover + " of them");
+    } else {
+      L.push("      covers " + p.coverKits + " more");
+    }
+
+    var ex = p.kitSkus.slice(0, KIT_CRITICAL.maxKitsListed).join(", ");
+    if (p.kitSkus.length > KIT_CRITICAL.maxKitsListed) {
+      ex += ", +" + (p.kitSkus.length - KIT_CRITICAL.maxKitsListed);
+    }
+    L.push("      → " + ex);
+  }
+  if (d.parts.length > shown) L.push("  … +" + (d.parts.length - shown) + " more parts");
+
+  L.push("");
+  L.push("Ranked by how many kits depend on each part — not by what is");
+  L.push("short today. /ripple answers that one.");
+  return L.join("\n");
 }
