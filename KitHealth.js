@@ -683,7 +683,12 @@ function runKitHealthAudit() {
     // ------------------------------------------------------------------------
     var buckets = { under: [], over: [], inline: [], noListed: [], incomplete: [] };
     var counts  = { totalKits: entries.length, buildableNow: buildableNow, totalUnderBy: 0,
-                    inStockBlocked: 0, cantBuild: 0, overListed: 0, unitsAtRisk: 0 };
+                    inStockBlocked: 0, cantBuild: 0, overListed: 0, unitsAtRisk: 0,
+                    /* ⚠ SPLIT 2026-08-21. unitsAtRisk pools BOTH oversell states, which
+                       is right for a single headline but WRONG under a label naming only
+                       one of them — see the band below. Kept as the total; each state now
+                       also carries its own, so no surface has to guess which it is holding. */
+                    unitsCantBuild: 0, unitsOverListed: 0 };
 
     entries.forEach(function (e) {
       var priced = computeKitPrice(e.kit.components, { maps: maps, discount: catalogDiscount });
@@ -691,8 +696,10 @@ function runKitHealthAudit() {
       buckets[c.bucket].push(c.row);
       if (c.bucket === "under") counts.totalUnderBy += c.row[KIT_HEALTH.idx("DELTA")]; // negative
       if (c.stockStatus === KIT_HEALTH.stock.IN_STOCK) counts.inStockBlocked++;         // have some, can't build
-      if (c.stockStatus === KIT_HEALTH.stock.CANT_BUILD)  { counts.cantBuild++;  counts.unitsAtRisk += (c.row[KIT_HEALTH.idx("AT_RISK")] || 0); }
-      if (c.stockStatus === KIT_HEALTH.stock.OVER_LISTED) { counts.overListed++; counts.unitsAtRisk += (c.row[KIT_HEALTH.idx("AT_RISK")] || 0); }
+      var _risk = _kitRiskToNumber(c.row[KIT_HEALTH.idx("AT_RISK")]);
+      if (isNaN(_risk) || _risk < 0) _risk = 0;
+      if (c.stockStatus === KIT_HEALTH.stock.CANT_BUILD)  { counts.cantBuild++;  counts.unitsCantBuild  += _risk; counts.unitsAtRisk += _risk; }
+      if (c.stockStatus === KIT_HEALTH.stock.OVER_LISTED) { counts.overListed++; counts.unitsOverListed += _risk; counts.unitsAtRisk += _risk; }
     });
 
     // Sort each bucket, then stack in triage order:
@@ -739,7 +746,15 @@ function runKitHealthAudit() {
             + "   ·   💸 " + underN + " UNDERPRICED (" + underByStr + ")"
             + "   ·   🔧 " + counts.buildableNow + " BUILDABLE NOW"
             + "   ·   ⛔ " + counts.inStockBlocked + " IN-STOCK BLOCKED"
-            + "   ·   🚨 " + counts.cantBuild + " CAN'T BUILD (" + counts.unitsAtRisk + " units at risk)"
+            /* ⚠⚠ EACH COUNT CARRIES ITS OWN UNITS (2026-08-21). This line used to read
+               "30 CAN'T BUILD (134 units at risk)" — but the 30 was CAN'T BUILD only
+               while the 134 pooled CAN'T BUILD *and* OVER-LISTED, so it silently
+               attributed another population's exposure to this one. It also disagreed
+               with the resting panel, which reports CAN'T BUILD alone (70) — two
+               surfaces stating different numbers for the same named fact.
+               OVER-LISTED was not on the band at all, so half the oversell was invisible. */
+            + "   ·   🚨 " + counts.cantBuild + " CAN'T BUILD (" + counts.unitsCantBuild + " units)"
+            + "   ·   📢 " + counts.overListed + " OVER-LISTED (" + counts.unitsOverListed + ")"
             + "   ·   ⚠ " + buckets.incomplete.length + " NEED A FIX"
             + "        ⟳ " + stamp;
     sheet.getRange(KIT_HEALTH.bannerRow, 1).setValue(kpi);
@@ -766,7 +781,10 @@ function runKitHealthAudit() {
       inStockBlocked: counts.inStockBlocked,
       cantBuild:      counts.cantBuild,        // MANUAL, advertised, buildable 0
       overListed:     counts.overListed,       // MANUAL, advertised beyond buildable
-      unitsAtRisk:    counts.unitsAtRisk,
+      unitsAtRisk:    counts.unitsAtRisk,        // both oversell states pooled
+      unitsCantBuild: counts.unitsCantBuild,     // the resting panel's figure
+      unitsOverListed: counts.unitsOverListed,
+      overListed:     counts.overListed,
       totalUnderBy:   parseFloat(counts.totalUnderBy.toFixed(2)),   // negative sum
       durationSec:    durationSec
     };
@@ -841,92 +859,6 @@ function getKitPriceDriftCount() {
  *          deliberately NOT distinguished here, because the only consumer draws
  *          nothing at zero either way. Do not reuse this for an alarm.
  */
-/**
- * ⚠ DIAGNOSTIC (2026-08-21) — why does the oversell snapshot report 0 units?
- *
- * getKitOversellSnapshot() reads 30 rows whose STOCK STATUS is "⚠ CAN'T BUILD"
- * and sums AT RISK to ZERO. Reading the code says that cannot happen: a CAN'T
- * BUILD verdict REQUIRES advertised > 0 and buildable === 0, which forces
- * _kitAtRisk to return advertised. Three separate static readings of the write
- * path all said "impossible", and a fresh audit reproduced it anyway.
- *
- * So stop reading and MEASURE — the standing rule of this project. This dumps
- * what the sheet actually holds, with types, so the next step is decided by data
- * instead of by another guess. Editor-run; output goes to the EXECUTION LOG,
- * because the Run button does not display return values.
- *
- * Delete this once the cause is found.
- */
-function diagnoseKitOversellNow() {
-  var L = [];
-  try {
-    var ss = SpreadsheetApp.getActive() || SpreadsheetApp.openById(SPREADSHEET_ID);
-    var sheet = ss.getSheetByName(KIT_HEALTH.sheetName);
-    if (!sheet) { console.log("no Kit Health sheet"); return; }
-
-    var lastRow = sheet.getLastRow(), lastCol = sheet.getLastColumn();
-    L.push("── KIT HEALTH · OVERSELL DIAGNOSTIC ────────────────────────");
-    L.push("geometry   lastRow " + lastRow + "  ·  lastCol " + lastCol
-           + "   (schema expects dataWidth " + KIT_HEALTH.dataWidth
-           + ", data from row " + KIT_HEALTH.dataStartRow + ")");
-
-    // Headers 14..18 — proves whether P/Q/R are where the schema thinks.
-    var hdr = sheet.getRange(KIT_HEALTH.headerRow, 14, 1, 5).getValues()[0];
-    L.push("headers    N=" + JSON.stringify(hdr[0]) + "  O=" + JSON.stringify(hdr[1])
-           + "  P=" + JSON.stringify(hdr[2]) + "  Q=" + JSON.stringify(hdr[3])
-           + "  R=" + JSON.stringify(hdr[4]));
-    L.push("expected   P=" + JSON.stringify(KIT_HEALTH.headers[15])
-           + "  Q=" + JSON.stringify(KIT_HEALTH.headers[16])
-           + "  R=" + JSON.stringify(KIT_HEALTH.headers[17]));
-
-    var n = lastRow - KIT_HEALTH.dataStartRow + 1;
-    if (n < 1) { console.log(L.join("\n")); return; }
-
-    // Read the WHOLE row so nothing depends on my column arithmetic being right.
-    var all = sheet.getRange(KIT_HEALTH.dataStartRow, 1, n, KIT_HEALTH.dataWidth).getValues();
-
-    var iType = KIT_HEALTH.idx("TYPE"), iQty = KIT_HEALTH.idx("KIT_QTY");
-    var iBuild = KIT_HEALTH.idx("BUILDABLE"), iStock = KIT_HEALTH.idx("STOCK_STATUS");
-    var iRisk = KIT_HEALTH.idx("AT_RISK");
-
-    var cantBuild = 0, overListed = 0, riskNumeric = 0, riskSum = 0, shown = 0;
-    for (var i = 0; i < all.length; i++) {
-      var st = String(all[i][iStock]).trim().toUpperCase();
-      var isCB = st === String(KIT_HEALTH.stock.CANT_BUILD).trim().toUpperCase();
-      var isOL = st === String(KIT_HEALTH.stock.OVER_LISTED).trim().toUpperCase();
-      if (isCB) cantBuild++;
-      if (isOL) overListed++;
-
-      var rv = all[i][iRisk], rn = parseFloat(rv);
-      if (!isNaN(rn) && rn > 0) { riskNumeric++; riskSum += rn; }
-
-      // Show the first few of EACH kind, with types — that is the discriminator.
-      if ((isCB || isOL) && shown < 8) {
-        shown++;
-        L.push("row " + (KIT_HEALTH.dataStartRow + i)
-             + "  sku " + all[i][0]
-             + "  type " + JSON.stringify(all[i][iType])
-             + "  kitQty " + JSON.stringify(all[i][iQty])
-             + "  buildable " + JSON.stringify(all[i][iBuild]) + " (" + (typeof all[i][iBuild]) + ")"
-             + "\n        STOCK " + JSON.stringify(all[i][iStock])
-             + "   AT_RISK " + JSON.stringify(rv) + " (" + (typeof rv) + ")");
-      }
-    }
-
-    L.push("counts     CAN'T BUILD " + cantBuild + "  ·  OVER-LISTED " + overListed
-           + "  ·  rows with a numeric AT_RISK > 0: " + riskNumeric
-           + "  (sum " + riskSum + ")");
-    L.push("verdict    " + (riskNumeric === 0
-           ? "column Q is EMPTY across the WHOLE sheet — the writer never populated it"
-           : "column Q HAS values — so this is specific to the CAN'T BUILD rows"));
-    L.push("────────────────────────────────────────────────────────────");
-  } catch (e) {
-    L.push("diagnostic failed: " + e);
-  }
-  try { console.log(L.join("\n")); } catch (_) {}
-}
-
-
 /**
  * AT RISK cell → a number, surviving the stale-DATE-format trap.
  *
