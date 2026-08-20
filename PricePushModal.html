@@ -418,14 +418,14 @@
         if (r.ok) {
           return '<div class="report-row">'
                + '<span class="report-sku">' + esc(r.sku) + '</span>'
-               + '<span>✅ ' + fmt(r.before) + ' → ' + fmt(r.after) + '</span></div>';
+               + '<span>✓ ' + fmt(r.before) + ' → ' + fmt(r.after) + '</span></div>';
         }
         return '<div class="report-row fail">'
              + '<span class="report-sku">' + esc(r.sku) + '</span>'
-             + '<span class="report-detail err">❌ ' + esc(r.error || 'failed') + '</span></div>';
+             + '<span class="report-detail err">✗ ' + esc(r.error || 'failed') + '</span></div>';
       }).join('');
 
-      var icon = (res.failed > 0) ? '⚠️' : '✅';
+      var icon = (res.failed > 0) ? '⚠' : '✓';
       document.getElementById('bodyEl').innerHTML =
           '<div class="done">'
         +   '<div class="done-head">'

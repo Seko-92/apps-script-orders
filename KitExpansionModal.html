@@ -1334,7 +1334,7 @@
       hideOverlay();
 
       if (!res.ok && res.reason) {
-        showStatus('⚠️ ' + res.reason, true);
+        showStatus('⚠ ' + res.reason, true);
         updateSummary();
         return;
       }
@@ -1372,7 +1372,7 @@
       busy = false;
       hideOverlay();
       updateSummary();
-      showStatus('❌ Server error: ' + (err && err.message ? err.message : err), true);
+      showStatus('✗ Server error: ' + (err && err.message ? err.message : err), true);
     }
 
     // ----- DONE SCREEN (after queue exhausted) -----

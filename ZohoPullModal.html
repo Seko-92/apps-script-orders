@@ -471,7 +471,7 @@
          travels with the order to the picker (only lands on inserted rows). -->
     <div style="padding:8px 14px 0; background:#fff8e7;">
       <input type="text" id="zpNote" maxlength="200" autocomplete="off"
-        placeholder="📝 Optional note for this order — rides to the picker (e.g. hold for payment · needs it Friday · call before shipping)"
+        placeholder="Optional note for this order — rides to the picker (e.g. hold for payment · needs it Friday · call before shipping)"
         style="width:100%; padding:7px 10px; border:1px solid #cdba7f; border-radius:6px; font-family:'Roboto',sans-serif; font-size:13px; background:#fffdf6; color:#1d1d1b;" />
     </div>
 
@@ -868,7 +868,7 @@
       // they're worth naming: the picker selected ONE kit line and more rows than
       // that changed. Saying so is what makes the cascade legible instead of
       // surprising.
-      if (a.kitComponents > 0)   bits.push('<div class="done-result-row">📦 including <strong>' + a.kitComponents + '</strong> expanded kit component(s)</div>');
+      if (a.kitComponents > 0)   bits.push('<div class="done-result-row">including <strong>' + a.kitComponents + '</strong> expanded kit component(s)</div>');
       if (bits.length === 0)     bits.push('<div class="done-result-row">No changes applied</div>');
 
       document.getElementById('bodyEl').innerHTML =
