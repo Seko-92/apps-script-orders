@@ -1131,6 +1131,23 @@ body.cockpit-condensed .picker-banner {
 }
 body.cockpit-condensed .cockpit-queue { margin-top: 4px; padding-top: 5px; }
 
+/* ⚠ AN IDLE BLOOM IS NOT A SCROLL RESPONSE. The 240ms above is correct when the
+   cockpit is following your finger — it has to keep up. But stage 1 of the rest
+   sequence blooms it when NOBODY ASKED, and at that speed an unprompted change
+   reads as a snap. Same duration, different intent, so the idle path gets its
+   own slower timing. The class is added only for that bloom and removed once it
+   has landed, so scrolling stays as responsive as it was. */
+body.cockpit-idle-bloom .ops-cockpit,
+body.cockpit-idle-bloom .cockpit-readouts,
+body.cockpit-idle-bloom .cockpit-stat-value,
+body.cockpit-idle-bloom .cockpit-stat-label-primary,
+body.cockpit-idle-bloom .cockpit-tape-row,
+body.cockpit-idle-bloom .picker-banner,
+body.cockpit-idle-bloom .cockpit-queue {
+  transition-duration: 1000ms !important;
+  transition-timing-function: cubic-bezier(.37,0,.63,1) !important;
+}
+
 #status {
   font-family: 'Roboto Mono', 'Courier New', monospace;
   font-size: var(--fs-base);
@@ -3307,15 +3324,24 @@ body.dark-theme .footer-version { border-color: #2c2c2c; }
   position:fixed; inset:0; z-index:900; display:flex; flex-direction:column;
   padding:13px 12px 10px; overflow:hidden;
   opacity:0; visibility:hidden; pointer-events:none;
-  justify-content:center;
+  /* ⚠ THE TOP BAR IS A HEADER AND BELONGS AT THE TOP. Centring the whole column
+     pushed it down and left a dead band above it — which is exactly what read as
+     "empty". Now the bar sits at the top and only the OBJECT and its readouts
+     centre in the space beneath, via the auto margins below. */
+  justify-content:flex-start;
   /* ⭐ THE BACKDROP IS WHAT MAKES IT READ AS DEPTH RATHER THAN A CURTAIN.
      Without it the arrival is two flat images cross-fading; with it the console
      goes soft-focus as the face comes forward, which is the same frosted-veil
      device the commit modals already use (2026-07-31) and it is proven in this
      webview. It only costs anything during the ~1.4s it runs. */
   -webkit-backdrop-filter:blur(0px); backdrop-filter:blur(0px);
-  transition:opacity 260ms ease, visibility 0s linear 260ms,
-             -webkit-backdrop-filter 260ms ease, backdrop-filter 260ms ease;
+  /* ⚠ LEAVING IS SLOWER THAN IT LOOKS, AND IT COSTS NOTHING. pointer-events goes
+     to `none` the instant .rp-show is removed, so the panel is click-dead
+     immediately — the fade is purely visual and can afford to be gentle. 260ms
+     was fast enough to read as a cut. The CONTENT goes first (300ms) and the
+     ground lifts after (480ms), which is the arrival run backwards. */
+  transition:opacity 480ms cubic-bezier(.37,0,.63,1), visibility 0s linear 480ms,
+             -webkit-backdrop-filter 480ms ease, backdrop-filter 480ms ease;
   color:#e8dfcd;
   --rp-brand:#ffd966; --rp-ember:#e08b3c;
 }
@@ -3348,7 +3374,7 @@ body.dark-theme .footer-version { border-color: #2c2c2c; }
    ⚠ The delays live ONLY on .rp-show, so leaving stays immediate. */
 .rp-top,.rp-dialwrap,.rp-flank,.rp-rows,.rp-count,.rp-hint{
   opacity:0; transform:translateY(10px);
-  transition:opacity 260ms ease, transform 260ms ease;
+  transition:opacity 300ms cubic-bezier(.37,0,.63,1), transform 300ms ease;
 }
 /* ⚠ THE FACE ALSO SCALES, the rest only rise. A clock arriving at 96.5% and
    settling to full reads as coming into focus; doing that to the text as well
@@ -3400,7 +3426,7 @@ body.dark-theme .footer-version { border-color: #2c2c2c; }
 
 /* ── SLOT 1 · the face ───────────────────────────────────────────────────── */
 .rp-dialwrap{ flex:none; display:grid; place-items:center; padding:6px 0 2px;
-  position:relative; z-index:2; }
+  position:relative; z-index:2; margin-top:auto; }
 .rp-dial{ position:relative; width:15em; height:15em; display:grid; place-items:center;
   font-size:clamp(9px, min(5vw, 2.1vh), 15.5px); }
 .rp-disc{ position:absolute; inset:0; border-radius:50%;
@@ -3491,7 +3517,8 @@ body.dark-theme .footer-version { border-color: #2c2c2c; }
 .rp-cval{ font-family:'Oswald',sans-serif; font-size:21px; font-weight:300; color:var(--rp-ember);
   letter-spacing:.04em; font-variant-numeric:tabular-nums; margin-top:2px; }
 
-.rp-hint{ margin-top:10px; text-align:center; font-family:'Oswald',sans-serif; font-size:9px;
+.rp-hint{ margin-top:10px; margin-bottom:auto; text-align:center;
+  font-family:'Oswald',sans-serif; font-size:9px;
   letter-spacing:.22em; text-transform:uppercase; color:#5c574c; flex:none;
   position:relative; z-index:2;
   }
@@ -8378,8 +8405,17 @@ function _rpArm() {
   if (_rpStage1) clearTimeout(_rpStage1);
   // stage 1 — bloom the cockpit while it is still visible, so the tidy-up reads
   _rpStage1 = setTimeout(function () {
-    try { if (typeof _setCockpitCondensed === 'function') _setCockpitCondensed(false); }
-    catch (e) { /* cosmetic — never let it block the rest state */ }
+    try {
+      if (typeof _setCockpitCondensed !== 'function') return;
+      /* ⚠ Slow the fold FIRST, then trigger it. Nobody asked for this bloom, so
+         it must not move at the 240ms scroll speed — that reads as a snap. The
+         class is dropped once it has landed so scrolling stays responsive. */
+      document.body.classList.add('cockpit-idle-bloom');
+      _setCockpitCondensed(false);
+      setTimeout(function () {
+        document.body.classList.remove('cockpit-idle-bloom');
+      }, 1200);
+    } catch (e) { /* cosmetic — never let it block the rest state */ }
   }, REST_STAGE1_MS);
   // stage 2 — rest
   _rpTimer = setTimeout(_rpShow, REST_IDLE_MS);
@@ -8390,6 +8426,10 @@ function _rpArm() {
 function _rpPoke() {
   var now = Date.now();
   _rpHide();
+  // back to scroll speed the moment a human is driving again
+  if (document.body.classList.contains('cockpit-idle-bloom')) {
+    document.body.classList.remove('cockpit-idle-bloom');
+  }
   /* ⚠ DO NOT CLEAR THE STAGE TIMERS HERE. _rpArm owns clearing, and it clears
      BOTH. Clearing stage 1 above this throttle check killed it permanently: a
      second poke inside the throttle window nulled the timer and then returned
