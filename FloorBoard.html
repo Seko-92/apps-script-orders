@@ -817,6 +817,34 @@ body.ch-direct #pickListDirect { display: block; }
     }
 .radio-pop-item:hover { background: rgba(255,255,255,0.06); color: var(--paper); }
 .radio-pop-item.active { color: var(--brand-rim); }
+.radio-pop-item.custom { display: flex; align-items: center; gap: 8px; }
+.radio-pop-item.custom .nm { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; }
+/* Remove is deliberately quiet until you are on the row — a delete affordance
+   sitting bright next to a play affordance is how the wrong one gets tapped. */
+.radio-pop-x {
+      flex: 0 0 auto; width: 20px; height: 20px; line-height: 18px; text-align: center;
+      border-radius: 6px; opacity: 0; color: var(--mute-soft);
+      transition: opacity 0.15s, background 0.15s, color 0.15s;
+    }
+.radio-pop-item.custom:hover .radio-pop-x { opacity: 1; }
+.radio-pop-x:hover { background: rgba(255,107,107,0.18); color: #ff6b6b; }
+.radio-add { padding: 8px 10px 10px; display: flex; gap: 6px; }
+.radio-add input {
+      flex: 1 1 auto; min-width: 0; background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.12); border-radius: 8px;
+      padding: 7px 9px; color: var(--paper); font-family: 'Roboto Mono', monospace;
+      font-size: 11px; outline: none;
+    }
+.radio-add input:focus { border-color: var(--brand-rim); }
+.radio-add button {
+      flex: 0 0 auto; background: var(--brand-rim); color: #1a1a1a; border: 0;
+      border-radius: 8px; padding: 0 12px; font-family: 'Oswald', sans-serif;
+      font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; cursor: pointer;
+    }
+/* The board is HTTPS and a shared tablet — most paste mistakes are silent
+   failures, so say what went wrong instead of doing nothing. */
+.radio-note { padding: 0 12px 8px; font-size: 10.5px; line-height: 1.45; color: var(--mute-soft); }
+.radio-note.err { color: #ff9a9a; }
 /* synthetic equalizer — dances while the radio plays (audio stays untouched) */
     .eq { display: inline-flex; align-items: flex-end; gap: 2px; height: 14px; }
 .eq i {
@@ -4603,6 +4631,105 @@ body.ch-direct #pickListDirect { display: block; }
        and you pay once; never pick it and you pay nothing. */
     var ytPlayer = null, ytLoading = false, ytQueue = null;
 
+    /* ── PASTE-YOUR-OWN ──────────────────────────────────────────────────────
+       The picker's real request was never one channel, it was "let me pick".
+       Two playback paths already exist and are proven — the YouTube IFrame API
+       and the <audio> element — so this is almost entirely SNIFFING which one a
+       pasted link needs, not new machinery.
+
+       ⚠ PER-DEVICE, not per-account. Saved in localStorage beside the theme and
+       sound prefs, so one picker's list does not follow the tablet to the next
+       shift's board. Capped, because an uncapped list on a shared kiosk becomes
+       nobody's list. */
+    var RADIO_CUSTOM_KEY = 'hqRadioCustom', RADIO_CUSTOM_MAX = 8, RADIO_MINE = 'Yours';
+
+    function _radioEsc(t) {
+      return String(t == null ? '' : t)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
+    function _radioLoadCustom() {
+      try {
+        var raw = localStorage.getItem(RADIO_CUSTOM_KEY);
+        if (!raw) return [];
+        var list = JSON.parse(raw);
+        if (!list || !list.length) return [];
+        return list.slice(0, RADIO_CUSTOM_MAX).map(function (c) {
+          return { group: RADIO_MINE, name: String(c.name || 'saved'), id: '',
+                   yt: c.yt || undefined, url: c.url || undefined, mine: true };
+        }).filter(function (c) { return c.yt || c.url; });
+      } catch (e) { return []; }        // unreadable store is an empty one, never a crash
+    }
+
+    function _radioSaveCustom() {
+      try {
+        var keep = radioStations.filter(function (s) { return s.mine; })
+          .map(function (s) { return { name: s.name, yt: s.yt, url: s.url }; });
+        localStorage.setItem(RADIO_CUSTOM_KEY, JSON.stringify(keep));
+      } catch (e) {}
+    }
+
+    /* Decide which of the two paths a pasted string needs — or explain why
+       neither will work. Returning a REASON matters: on a kiosk the default
+       failure is silence, and silence reads as "the board is broken". */
+    function _radioParse(raw) {
+      var t = String(raw || '').trim();
+      if (!t) return { err: 'Paste a YouTube link or an https stream URL.' };
+
+      // watch?v= · youtu.be/ · /live/ · /shorts/ · /embed/ — all carry the 11-char id
+      var m = t.match(/(?:youtube\.com\/(?:watch\?(?:[^#]*&)?v=|live\/|shorts\/|embed\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/);
+      if (m) return { yt: m[1], name: 'YouTube · ' + m[1] };
+      if (/youtube\.com|youtu\.be/i.test(t))
+        return { err: 'YouTube link, but no video id in it. Use a watch or live link.' };
+
+      if (/^http:\/\//i.test(t))
+        return { err: 'That stream is http. This board is https, so the browser blocks it. Look for an https one.' };
+      if (!/^https:\/\//i.test(t))
+        return { err: 'Not a link. Paste a YouTube link or an https stream URL.' };
+
+      var host = t.replace(/^https:\/\//i, '').split('/')[0].replace(/^www\./, '');
+      // ⚠ HLS plays on the Android tablet and NOT in desktop Chrome. Allowed, but
+      //   warned about, because "works on the floor, silent on your desk" is the
+      //   worst kind of half-working.
+      if (/\.m3u8(\?|$)/i.test(t))
+        return { url: t, name: host, warn: 'HLS — plays on the tablet, may be silent on a desktop.' };
+      return { url: t, name: host };
+    }
+
+    function radioAddCustom(raw) {
+      var r = _radioParse(raw);
+      if (r.err) return r;
+
+      // Already saved? Just play it rather than making a duplicate.
+      for (var i = 0; i < radioStations.length; i++) {
+        var s = radioStations[i];
+        if ((r.yt && s.yt === r.yt) || (r.url && s.url === r.url)) { playStation(i); return r; }
+      }
+      var st = { group: RADIO_MINE, name: r.name, id: '', yt: r.yt, url: r.url, mine: true };
+      radioStations.push(st);
+      // Trim the OLDEST of mine, never a built-in.
+      var mine = radioStations.filter(function (x) { return x.mine; });
+      if (mine.length > RADIO_CUSTOM_MAX) {
+        var drop = radioStations.indexOf(mine[0]);
+        if (drop >= 0 && drop !== radioStations.length - 1) radioStations.splice(drop, 1);
+      }
+      _radioSaveCustom();
+      playStation(radioStations.indexOf(st));
+      return r;
+    }
+
+    function radioRemoveCustom(idx) {
+      var st = radioStations[idx];
+      if (!st || !st.mine) return;
+      if (idx === radioIdx && radioPlaying) _radioStop();
+      radioStations.splice(idx, 1);
+      if (radioIdx >= radioStations.length) radioIdx = 0;
+      _radioSaveCustom();
+      buildRadioPop();
+      paintRadio();
+    }
+
     function _ytEnsure(cb) {
       if (ytPlayer) { cb(); return; }
       ytQueue = cb;
@@ -4617,6 +4744,23 @@ body.ch-direct #pickListDirect { display: block; }
             /* ⚠ IF THE OWNER EVER DISABLES EMBEDDING (101/150) THE STATION DIES
                HONESTLY — it stops and says so, rather than sitting on a silent
                ▮▮ that looks like the radio is broken. Same for a retired live id. */
+            /* ⭐ NAME IT FROM THE PLAYER, not a second network call. A pasted link
+               starts life called "YouTube · <id>", which tells nobody anything;
+               the player already knows the real title once it is playing, so the
+               station renames itself and the saved list keeps the good name. */
+            onStateChange: function (e) {
+              if (e.data !== 1) return;                    // 1 = playing
+              var st = radioStations[radioIdx];
+              if (!st || !st.mine || !st.yt) return;
+              try {
+                var d = ytPlayer.getVideoData ? ytPlayer.getVideoData() : null;
+                if (d && d.title && /^YouTube · /.test(st.name)) {
+                  st.name = d.title;
+                  _radioSaveCustom();
+                  paintRadio();
+                }
+              } catch (err) {}
+            },
             onError: function () { _radioStop(); paintRadio(); }
           }
         });
@@ -4661,9 +4805,29 @@ body.ch-direct #pickListDirect { display: block; }
       document.getElementById('radioBtn').addEventListener('click', radioToggle);
       document.getElementById('radioPick').addEventListener('click', toggleRadioPop);
       document.getElementById('radioMeta').addEventListener('click', toggleRadioPop);
+      // Saved stations join the same array as the built-ins, so indices, painting
+      // and the picker list all keep working with no parallel code path.
+      var mine = _radioLoadCustom();
+      for (var mi = 0; mi < mine.length; mi++) radioStations.push(mine[mi]);
+
       document.getElementById('radioPop').addEventListener('click', function (e) {
-        var item = e.target.closest ? e.target.closest('.radio-pop-item') : null;
+        var t = e.target;
+        // ⚠ REMOVE IS TESTED FIRST. The ✕ sits inside the row, so an item-first
+        //   check would play the station you were trying to delete.
+        var x = t.closest ? t.closest('.radio-pop-x') : null;
+        if (x) {
+          e.stopPropagation();
+          radioRemoveCustom(parseInt(x.getAttribute('data-idx'), 10));
+          return;
+        }
+        if (t.id === 'radioAddBtn') { e.stopPropagation(); _radioAddFromBox(); return; }
+        if (t.id === 'radioAddBox') { e.stopPropagation(); return; }   // typing must not close the pop
+        var item = t.closest ? t.closest('.radio-pop-item') : null;
         if (item) playStation(parseInt(item.getAttribute('data-idx'), 10));
+      });
+      // Enter is how anyone actually submits a pasted link.
+      document.getElementById('radioPop').addEventListener('keydown', function (e) {
+        if (e.target.id === 'radioAddBox' && e.key === 'Enter') { e.preventDefault(); _radioAddFromBox(); }
       });
       document.addEventListener('click', function (e) {
         var r = document.getElementById('radio');
@@ -4696,11 +4860,39 @@ body.ch-direct #pickListDirect { display: block; }
         var s = radioStations[i];
         if (s.group !== lastGroup) { html += '<div class="radio-pop-head">' + s.group + '</div>'; lastGroup = s.group; }
         var live = (i === radioIdx && radioPlaying);
-        html += '<div class="radio-pop-item' + (live ? ' active' : '') + '" data-idx="' + i + '">' +
-                (live ? '▸ ' : '') + s.name + '</div>';
+        html += '<div class="radio-pop-item' + (live ? ' active' : '') + (s.mine ? ' custom' : '') +
+                '" data-idx="' + i + '">' +
+                '<span class="nm">' + (live ? '▸ ' : '') + _radioEsc(s.name) + '</span>' +
+                (s.mine ? '<span class="radio-pop-x" data-idx="' + i + '" title="remove">✕</span>' : '') +
+                '</div>';
       }
+      html += '<div class="radio-add">' +
+                '<input id="radioAddBox" type="text" placeholder="paste a YouTube or stream link" ' +
+                'autocomplete="off" spellcheck="false">' +
+                '<button id="radioAddBtn" type="button">Add</button>' +
+              '</div>' +
+              '<div class="radio-note" id="radioAddNote"></div>';
       pop.innerHTML = html;
     }
+    /* Read the box, act, and SAY what happened. A kiosk's default failure mode is
+       silence, and silence is indistinguishable from a broken board. */
+    function _radioAddFromBox() {
+      var box  = document.getElementById('radioAddBox');
+      var note = document.getElementById('radioAddNote');
+      if (!box) return;
+      var r = radioAddCustom(box.value);
+      if (r && r.err) {
+        if (note) { note.className = 'radio-note err'; note.textContent = r.err; }
+        return;
+      }
+      box.value = '';
+      if (note) {
+        note.className = 'radio-note';
+        note.textContent = (r && r.warn) ? r.warn : '';
+      }
+      buildRadioPop();
+    }
+
     function playStation(idx) {
       if (idx < 0 || idx >= radioStations.length) return;
       radioIdx = idx;
