@@ -1055,7 +1055,13 @@ body {
   transition: background 180ms ease, color 180ms ease, border-color 180ms ease,
               max-height 240ms ease, opacity 200ms ease, padding 240ms ease;
 }
-.picker-banner .picker-icon { font-size: 16px; line-height: 1; }
+/* ⚠ currentColor again: this banner flips ink between its set and unset states
+   (.picker-unset is amber-on-dark), and the mark has to follow it without a
+   rule per state. */
+.picker-banner .picker-icon { display: inline-flex; align-items: center; line-height: 1; }
+.picker-banner .picker-icon svg { width: 13px; height: 13px; display: block;
+  stroke: currentColor; fill: none; stroke-width: 1.75;
+  stroke-linecap: round; stroke-linejoin: round; opacity: .9; }
 .picker-banner .picker-label {
   text-transform: uppercase;
   letter-spacing: 0.10em;
@@ -2910,6 +2916,16 @@ input[type="range"]::-moz-range-thumb:active { cursor: grabbing; transform: scal
 
 .cmd:hover .cmd-icon, .cmd.active .cmd-icon { background: var(--hq-yellow); }
 
+/* ⚠ currentColor IS THE WHOLE TRICK, same as the button marks. The chip has FOUR
+   states — light/dark theme × rest/hover — and the ink is already correct in all
+   four: it inherits dark text on the pale rest chip, light text on the dark one,
+   and the dark-theme hover rule sets `color:#000` for the gold chip. One
+   declaration instead of four overrides that would drift apart. */
+.cmd-icon svg { width: 13px; height: 13px; display: block; flex: none;
+  stroke: currentColor; fill: none; stroke-width: 1.75;
+  stroke-linecap: round; stroke-linejoin: round; opacity: .85; }
+.cmd:hover .cmd-icon svg, .cmd.active .cmd-icon svg { opacity: 1; }
+
 .cmd-text { font-size: var(--fs-base); font-weight: 500; color: var(--text-primary); }
 
 /* ═══════════════════════════════════════════════════════════════════════════════
@@ -3592,6 +3608,9 @@ body.dark-theme .footer-version { border-color: #2c2c2c; }
 <symbol id="m-calc" viewBox="0 0 24 24"><path d="M5.6 3.4h12.8v17.2H5.6z"/><path d="M8.4 7.4h7.2"/><path d="M8.4 11.6h1.6M11.2 11.6h1.6M14 11.6h1.6M8.4 15.4h1.6M11.2 15.4h1.6M14 15.4h1.6"/></symbol>
 <symbol id="m-link" viewBox="0 0 24 24"><path d="M10.2 13.8a4.2 4.2 0 0 0 6.1.3l2.3-2.3a4.2 4.2 0 0 0-5.9-5.9l-1.3 1.3"/><path d="M13.8 10.2a4.2 4.2 0 0 0-6.1-.3l-2.3 2.3a4.2 4.2 0 0 0 5.9 5.9l1.3-1.3"/></symbol>
 <symbol id="m-sort" viewBox="0 0 24 24"><path d="M7.6 4.8v14.4"/><path d="M4.4 8 7.6 4.8 10.8 8"/><path d="M16.4 19.2V4.8"/><path d="M13.2 16l3.2 3.2 3.2-3.2"/></symbol>
+<symbol id="m-trash" viewBox="0 0 24 24"><path d="M4.6 6.8h14.8"/><path d="M9.4 6.8V4.4h5.2v2.4"/><path d="M6.8 6.8l1 12.8h8.4l1-12.8"/><path d="M10.4 10.4v5.6M13.6 10.4v5.6"/></symbol>
+<symbol id="m-clear" viewBox="0 0 24 24"><path d="M4.4 4.4h15.2v15.2H4.4z"/><path d="M7.8 16.2 16.2 7.8"/></symbol>
+<symbol id="m-user" viewBox="0 0 24 24"><circle cx="12" cy="8.2" r="3.6"/><path d="M5 20.2a7 7 0 0 1 14 0"/></symbol>
 <symbol id="m-check" viewBox="0 0 24 24"><path d="M4.6 12.4 9.6 17.4 19.4 6.6"/></symbol>
 <symbol id="m-camera" viewBox="0 0 24 24"><path d="M3.4 7.8h4.2l1.5-2.4h5.8l1.5 2.4h4.2v10.8H3.4z"/><circle cx="12" cy="13.1" r="3.3"/></symbol>
 <symbol id="m-doc" viewBox="0 0 24 24"><path d="M6.2 3.6h7.4L18 8v12.4H6.2z"/><path d="M13.6 3.6V8H18"/><path d="M9 12.6h6M9 16h4.2"/></symbol>
@@ -3718,7 +3737,15 @@ body.dark-theme .footer-version { border-color: #2c2c2c; }
 
 <!-- PICKER BANNER — refreshed on load + every 30s tick (refreshPicker()) -->
 <div class="picker-banner picker-unset" id="pickerBanner">
-  <span class="picker-icon">👤</span>
+  <!-- ⚠ A DRAWN MARK, replacing the bust-in-silhouette emoji that used to sit
+       here. The glyph is deliberately NOT written in this comment: the deploy
+       ritual greps the SERVED file for it, and a mention in a comment is a
+       false positive in exactly that check.
+       This banner sits OUTSIDE #modules, so the _hqMarks
+       pass never walked it and this one colour emoji outlived the v3.6 sweep and
+       the button sweep both. It is written inline rather than post-processed
+       because there is exactly one of it. -->
+  <span class="picker-icon"><svg><use href="#m-user"/></svg></span>
   <span class="picker-label">Picker</span>
   <span class="picker-value" id="pickerValue">No picker set — required before printing</span>
 </div>
@@ -6456,24 +6483,37 @@ var palette = document.getElementById('palette');
 var cmdInput = document.getElementById('cmdInput');
 var cmdList = document.getElementById('cmdList');
 
+/* ⚠ THE LAST EMOJI SURFACE INSIDE THE SIDEBAR (converted 2026-08-20). Every
+   other glyph became a drawn mark in v3.6, but the palette was missed twice over:
+   its icons live in a JS ARRAY rather than in markup, and it renders into #cmdList
+   — which the _hqMarks pass never walks, because that pass runs once at load over
+   `#modules` and the palette has no items until you open it. So the column here is
+   a SPRITE ID, not a glyph, and renderCommands emits the <use> itself. Nothing to
+   post-process, and it survives every re-render on every keystroke.
+   ⚠ The mark inherits the row's ink via currentColor, exactly like the buttons. */
 var commands = [
-  ['📥', 'Sync eBay Orders', 'triggerN8NWebhook'],
-  ['📍', 'Update Locations (eBay)', 'runUpdateLocationsTableOne'],
-  ['📍', 'Update Locations (Direct)', 'runUpdateLocationsTableTwo'],
-  ['🔤', 'Sort eBay Table', 'sortEbayTable'],
-  ['🔤', 'Sort Direct Table', 'sortDirectTable'],
-  ['🔍', 'Find Duplicates', 'highlightAllDuplicates'],
-  ['✨', 'Clear Highlights', 'clearAllDuplicateHighlights'],
-  ['🗑', 'Cleanup eBay Table', 'runDeleteEmptyRowsTableOne'],
-  ['🗑', 'Cleanup Direct Table', 'runDeleteEmptyRowsTableTwo'],
-  ['🖨', 'Print Pick List', 'preparePrintSheet'],
-  ['📦', 'Mark as Preparing', 'markSelectedPreparing'],
-  ['📂', 'Open Prep Queue', 'openPrepQueue'],
-  ['📍', 'Open Location Update', 'openLocationUpdate'],
-  ['🔤', 'Sort Location Update', 'sortLocationUpdateByLocation'],
-  ['🔄', 'Refresh Location Update', 'refreshLocationUpdateSheet'],
-  ['⚠️', 'Refresh Alerts', 'getActionableAlerts'],
-  ['🔄', 'Refresh Dashboard', 'refreshProDashboard'],
+  ['m-sync',   'Sync eBay Orders', 'triggerN8NWebhook'],
+  ['m-loc',    'Update Locations (eBay)', 'runUpdateLocationsTableOne'],
+  ['m-loc',    'Update Locations (Direct)', 'runUpdateLocationsTableTwo'],
+  ['m-sort',   'Sort eBay Table', 'sortEbayTable'],
+  ['m-sort',   'Sort Direct Table', 'sortDirectTable'],
+  ['m-look',   'Find Duplicates', 'highlightAllDuplicates'],
+  /* ⚠ m-clear is a square with a slash and it PAIRS with m-marker (a square
+     inside a square = marked). Find and Clear are one workflow; the two marks
+     read as each other's opposite instead of as unrelated icons. */
+  ['m-clear',  'Clear Highlights', 'clearAllDuplicateHighlights'],
+  ['m-trash',  'Cleanup eBay Table', 'runDeleteEmptyRowsTableOne'],
+  ['m-trash',  'Cleanup Direct Table', 'runDeleteEmptyRowsTableTwo'],
+  ['m-print',  'Print Pick List', 'preparePrintSheet'],
+  ['m-kit',    'Mark as Preparing', 'markSelectedPreparing'],
+  /* ⚠ m-prep, not m-case. The old 📂 was a generic folder; there is a mark for
+     the Prep Queue specifically, and the palette should name the thing it opens. */
+  ['m-prep',   'Open Prep Queue', 'openPrepQueue'],
+  ['m-loc',    'Open Location Update', 'openLocationUpdate'],
+  ['m-sort',   'Sort Location Update', 'sortLocationUpdateByLocation'],
+  ['m-sync',   'Refresh Location Update', 'refreshLocationUpdateSheet'],
+  ['m-alert',  'Refresh Alerts', 'getActionableAlerts'],
+  ['m-sync',   'Refresh Dashboard', 'refreshProDashboard'],
 ];
 
 var cmdIndex = 0;
@@ -6543,7 +6583,9 @@ function renderCommands(query) {
   filtered.forEach(function(cmd, i) {
     var div = document.createElement('div');
     div.className = 'cmd' + (i === 0 ? ' active' : '');
-    div.innerHTML = '<div class="cmd-icon">' + cmd[0] + '</div><span class="cmd-text">' + cmd[1] + '</span>';
+    // cmd[0] is a sprite id, never a glyph — see the note on `commands`.
+    div.innerHTML = '<div class="cmd-icon"><svg><use href="#' + cmd[0] + '"/></svg></div>'
+                  + '<span class="cmd-text">' + cmd[1] + '</span>';
     div.onclick = function() {
       closePalette();
       run(cmd[2]);
