@@ -74,15 +74,28 @@ var HOLDS = {
   // a re-ship and a customer. The real deadline is not a clock at all — it is
   // carrier pickup, which we cannot see — so this is a floor, not an estimate.
   //
-  // ⚠ RAISED 5 → 15 ON 2026-08-21, and the reason matters more than the number.
+  // ⚠ RAISED 5 → 15 → 30, and the reason matters more than the number.
   // Five minutes fires while a picker is still WALKING. They may be six aisles
   // away with the siren going, on their way back to the board — and escalating
   // on someone who is actively responding is how an alert becomes noise, which
-  // is the precise failure that made the WhatsApp group stop working. Fifteen
-  // means "nobody is coming", not "nobody has arrived yet".
+  // is the precise failure that made the WhatsApp group stop working.
+  //
+  // ⚠ 15 → 30 ON 2026-08-21 (the floor's call, after living with it). Fifteen
+  // was still sized against a small order. A picker working a twelve-line box
+  // across six aisles is not ignoring the board — they are doing the job, and
+  // they cannot answer until they are back at it. On THIS state nothing
+  // irreversible has happened yet: the label is not bought, so being late here
+  // costs approximately nothing, while a message that fires on someone who was
+  // always going to answer costs the credibility of the one channel that has to
+  // stay believed. Thirty means "nobody is coming", not "nobody has arrived
+  // yet".
+  //
+  // ⚠ The SHIPPED window below is deliberately NOT moved with it — see there.
+  // The gap between the two is now 30 vs 8, which is the point: this state can
+  // afford to wait and that one cannot.
   //
   // This one is for a PREPARING hold: pulled from the shelf, label NOT bought.
-  escalateAfterMin: 15,
+  escalateAfterMin: 30,
 
   // ⭐⭐ SHIPPED GETS ITS OWN, SHORTER WINDOW — the user's call, and the cost of
   // being late is genuinely different, not just felt differently:
@@ -581,8 +594,8 @@ function checkHoldEscalation() {
 
          ⭐ AND THE CLOCK NOW STARTS AT THE RIGHT MOMENT. Because no state is
          recorded while it is calm, `first` is stamped the moment the order
-         becomes PREPARING — so the fifteen minutes are counted from when the
-         hold acquired a deadline, not from when it was written. */
+         becomes PREPARING — so the window is counted from when the hold
+         acquired a deadline, not from when it was written. */
       if (!h.u) continue;
 
       present[oid] = true;
