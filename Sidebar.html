@@ -5474,7 +5474,7 @@ function _sidebarPaint(cockpit, lastSync, api, alerts, picker, full) {
   _paintCockpit(cockpit);
   _paintLastSync(lastSync);
   _paintApiMetrics(api);
-  _paintAlerts(alerts);
+  _paintAlerts(alerts, full);
   _paintPicker(picker);
   // The resting panel reads the same tick — it never calls the server itself.
   try { _rpNoteTick(cockpit, alerts, full); } catch (e) {}
@@ -5746,8 +5746,33 @@ function refreshAlerts() {
 
 /* Paint helper extracted from refreshAlerts so the consolidated tick can
    route pre-fetched data here. */
-function _paintAlerts(alerts) {
+function _paintAlerts(alerts, full) {
   if (!alerts) return;
+
+  /* ⚠⚠ THE HELD COUNT MUST NOT RIDE THE SLOW CACHE (2026-08-21).
+     Reported from real use: a HOLD was red on the sheet and the board was
+     showing it, while this card read 0. Nothing was broken — getActionableAlerts
+     opens EIGHT sheets, so it lives in _sidebarSlowParts' 900-SECOND half. The
+     count was simply up to fifteen minutes behind.
+
+     ⭐ THAT IS FINE FOR EVERY OTHER ROW IN THIS CARD AND WRONG FOR THIS ONE.
+     Out of stock, needs photos, prep queue — all backlogs, where a quarter of an
+     hour means nothing. A hold is the only entry here with a DEADLINE, and a
+     panel confidently reading "0 held" while a held box sits on the floor is
+     exactly the class of failure this whole feature was built to remove.
+
+     ⭐ AND THE FRESH ANSWER IS ALREADY IN HAND, FOR FREE. The published tick
+     carries `held`, rebuilt on every publish (~1 min) rather than every 15, and
+     this panel reads that same cell. So prefer it and fall back to the cached
+     count only on the live-fallback tier, which does not carry it. No extra
+     read, no server change.
+     ⚠ The rows for jumpToAlert still come from a fresh server scan on click, so
+     the jump can never target a stale row set. */
+  if (full && Object.prototype.toString.call(full.held) === '[object Array]') {
+    var unacked = full.held.filter(function (h) { return h && !h.acked; }).length;
+    alerts = Object.assign({}, alerts, { heldOrders: { count: unacked, rows: [] } });
+  }
+
   var anyChanged = false;
   ALERT_KEYS.forEach(function(suffix) {
     var data = alerts[ALERT_KEY_MAP[suffix]];
