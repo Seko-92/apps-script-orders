@@ -150,7 +150,7 @@ function doPost(e) {
     // dropdown, and boardAckHold records "the floor" rather than refusing.
     if (payload.action === 'boardAckHold') {
       return ContentService.createTextOutput(JSON.stringify(
-        boardAckHold(payload.orderId)
+        boardAckHold(payload.orderId, 'board')
       )).setMimeType(ContentService.MimeType.JSON);
     }
     // --- HOSTED KIT EXPANSION (web-app slice 2) --------------------------------

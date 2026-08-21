@@ -1417,10 +1417,24 @@ body.dark-theme .zone-header::after {
   gap: 4px;
 }
 
+/* ⏸ ALWAYS PRESENT, and only its VOLUME changes (2026-08-21).
+   It used to render only while something was held — the panel's own grammar,
+   where a healthy state shows nothing. The user pushed back and was right:
+   EVERY other control in this sidebar is permanent, and a button that comes and
+   goes cannot be LEARNED. You can never build the muscle memory of "it is the
+   first thing in Fulfillment" if it is usually not there — which is exactly why
+   it could not be found the first time it was looked for.
+   So the grammar is honoured on VOLUME instead of EXISTENCE: quiet and ordinary
+   when there is nothing to answer for, loud the moment there is. */
 .alert-hold-act { padding: 8px 10px 10px; display: flex; flex-direction: column; gap: 6px;
-                  border-left: 3px solid #b71c1c; background: rgba(183,26,26,0.07);
-                  border-radius: 6px; margin: 4px 0 8px; }
-.alert-hold-act.hidden { display: none; }
+                  border-left: 3px solid transparent; border-radius: 6px;
+                  margin: 4px 0 8px; transition: background 200ms ease,
+                  border-color 200ms ease; }
+.alert-hold-act.live { border-left-color: #b71c1c; background: rgba(183,26,26,0.07); }
+.alert-hold-act .hold-warn { display: none; }
+.alert-hold-act.live .hold-warn { display: block; }
+.alert-hold-act:not(.live) #ackHoldBtn { background: transparent; color: var(--text-dim, #8a8a8a);
+                  border: 1px solid rgba(255,255,255,0.12); box-shadow: none; font-weight: 500; }
 .alert-row {
   display: flex;
   align-items: center;
@@ -4472,12 +4486,12 @@ body.dark-theme .footer-version { border-color: #2c2c2c; }
            rendered only while something is held, and the card opens itself when
            one lands (see refreshAlerts), because a gate inside a collapsed card
            is not a gate. -->
-      <div class="alert-hold-act hidden" id="alertHoldAct">
+      <div class="alert-hold-act" id="alertHoldAct">
         <button class="btn-primary" onclick="ackHoldsNow()" id="ackHoldBtn">✔ Acknowledge hold</button>
-        <span class="empty-hint">⚠ <strong>Held — do not buy a label yet.</strong>
-          Select any row of that order on the sheet, then tap. Stamps the time and
-          the Pick ID into the note. This records that you have SEEN it — it does
-          not lift the hold.</span>
+        <span class="empty-hint hold-warn">⚠ <strong>Held — do not buy a label yet.</strong>
+          With one hold outstanding just tap; with several, select a row of the one
+          you mean first. Stamps the time and the Pick ID into the note. This
+          records that you have SEEN it — it does not lift the hold.</span>
       </div>
       <button class="btn-dark" onclick="run('markSelectedPreparing')">Mark Selection Preparing</button>
       <button class="btn-primary" onclick="run('preparePrintSheet')"><span>🖨</span> Print Pick List</button>
@@ -5792,7 +5806,7 @@ function _paintAlerts(alerts, full) {
   var holdAct = document.getElementById('alertHoldAct');
   if (holdAct) {
     var heldN = (alerts.heldOrders && parseInt(alerts.heldOrders.count, 10)) || 0;
-    holdAct.classList.toggle('hidden', heldN <= 0);
+    holdAct.classList.toggle('live', heldN > 0);
     var ackBtn = document.getElementById('ackHoldBtn');
     if (ackBtn) ackBtn.textContent = heldN > 1 ? ('✔ Acknowledge hold (' + heldN + ')')
                                                : '✔ Acknowledge hold';

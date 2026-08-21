@@ -185,13 +185,27 @@ function holdNoteEscalatedText(note) {
  * someone through a dropdown, and a hold seen by "somebody" beats a hold nobody
  * could acknowledge. Safety beats bookkeeping in that thirty seconds.
  *
+ * ⚠⚠ BUT IT MUST NOT INVENT ONE EITHER (2026-08-21). The first version wrote
+ * "by the floor" whenever the Pick ID was unset — and the user acknowledged from
+ * the SIDEBAR, at a computer, and was told the floor had seen it. That is a
+ * small lie in the one field whose entire job is to say who has this box.
+ *
+ * ⭐ SO IT RECORDS WHAT IT ACTUALLY KNOWS. A name when there is one; otherwise
+ * the DOOR the acknowledgement came through, which is true by construction and
+ * still useful — "in the sheet" tells you to ask whoever is at a desk, "at the
+ * board" tells you to ask whoever is on the floor. Telegram is the good case:
+ * that door knows exactly who tapped, so it passes a real name.
+ *
  * @param {string} picker  cleaned Pick ID, or "" when unset
+ * @param {string=} source 'board' | 'sheet' | 'telegram' — where the tap came from
  * @returns {string}
  */
-function holdBuildAckTag(picker) {
+function holdBuildAckTag(picker, source) {
   var t = Utilities.formatDate(new Date(), "America/Chicago", "h:mm a");
   var who = String(picker || "").trim();
-  return HOLDS.ackMark + " " + t + " by " + (who || "the floor");
+  if (who) return HOLDS.ackMark + " " + t + " by " + who;
+  var where = { board: "at the board", sheet: "in the sheet", telegram: "via Telegram" };
+  return HOLDS.ackMark + " " + t + " " + (where[String(source || "")] || "(no picker set)");
 }
 
 /**
@@ -361,9 +375,11 @@ function holdScanRows(data) {
  * voided.
  *
  * @param {string} orderId
+ * @param {string=} source  'board' | 'sheet' | 'telegram' — see holdBuildAckTag
+ * @param {string=} nameOverride  a real name the door already knows (Telegram)
  * @returns {{ok:boolean, rows:number, tag:string, error:string=}}
  */
-function boardAckHold(orderId) {
+function boardAckHold(orderId, source, nameOverride) {
   orderId = String(orderId || "").trim();
   if (!orderId) return { ok: false, error: "Need an order id" };
 
@@ -380,9 +396,9 @@ function boardAckHold(orderId) {
     if (!rows.length) return { ok: false, error: "Order not found — it may have been cleaned up" };
 
     // Deliberately NOT gated on the Pick ID — see holdBuildAckTag.
-    var picker = "";
-    try { picker = getCurrentPicker() || ""; } catch (e) {}
-    var tag = holdBuildAckTag(picker);
+    var picker = String(nameOverride || "").trim();
+    if (!picker) { try { picker = getCurrentPicker() || ""; } catch (e) {} }
+    var tag = holdBuildAckTag(picker, source);
 
     var touched = 0;
     for (var i = 0; i < rows.length; i++) {
@@ -759,6 +775,13 @@ function acknowledgeSelectedHold() {
     if (!order.length) {
       var n = 0;
       try { n = getHeldOrderCount().unacked; } catch (e) {}
+      /* ⚠ THE BUTTON IS ALWAYS THERE NOW, so this branch is reached simply by
+         tapping it on a quiet day. That is not a failure and must not read like
+         one — say plainly that there is nothing to answer for. */
+      if (!n) {
+        return { ok: true, orders: 0, rows: 0, quiet: true,
+                 message: "Nothing to acknowledge — no unanswered holds." };
+      }
       return { ok: false, orders: 0, rows: 0,
                message: n > 1
                  ? ("There are " + n + " unanswered holds — select a row of the one you mean, then tap.")
@@ -767,7 +790,7 @@ function acknowledgeSelectedHold() {
 
     var rows = 0;
     for (var k = 0; k < order.length; k++) {
-      var res = boardAckHold(order[k]);
+      var res = boardAckHold(order[k], "sheet");
       if (res && res.ok) rows += (res.rows || 0);
     }
     return { ok: true, orders: order.length, rows: rows,

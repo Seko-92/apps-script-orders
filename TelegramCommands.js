@@ -597,9 +597,15 @@ var TG_ROUTES = {
   "/ack": {
     help:  "acknowledge a hold — records who saw it, and when",
     usage: "<order>",
-    run: function (argStr) {
+    // ⭐ Routes are invoked as run(argStr, args, msg) — and `msg.from` means this
+    // door knows exactly who tapped, so the note can carry a real name instead
+    // of a place. The other two doors have to fall back to where the tap
+    // happened; this one never does.
+    run: function (argStr, args, msg) {
       if (!argStr) return "Usage: /ack <order>\nExample: /ack 24-14979-87359";
-      return _tgAckHold(argStr.trim().split(/\s+/)[0]);
+      var u = msg && msg.from;
+      var who = u ? [u.first_name, u.last_name].filter(Boolean).join(" ").trim() : "";
+      return _tgAckHold(argStr.trim().split(/\s+/)[0], who);
     }
   },
 
@@ -1365,11 +1371,11 @@ function _tgHold(argStr) {
  * the record says the floor answered when it did not — and the escalation that
  * would have told them nobody was listening is exactly what gets silenced.
  */
-function _tgAckHold(query) {
+function _tgAckHold(query, who) {
   query = String(query || "").trim();
   if (!query) return "Usage: /ack <order>";
   var res;
-  try { res = boardAckHold(query); }
+  try { res = boardAckHold(query, "telegram", who); }
   catch (e) { return "⚠ Failed: " + (e.message || e); }
 
   if (!res || !res.ok) return "⚠ " + ((res && res.error) || "Could not acknowledge that.");
