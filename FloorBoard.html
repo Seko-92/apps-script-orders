@@ -1172,7 +1172,7 @@ body.ch-direct #pickListDirect { display: block; }
     <div class="lift-strip" id="liftStrip" title="Tap to dismiss">
       <span class="lift-mark">✓ HOLD LIFTED</span>
       <span class="lift-body" id="liftBody"></span>
-      <span class="lift-hint">OK TO SHIP</span>
+      <span class="lift-hint">OK TO SHIP · TAP WHEN DONE</span>
     </div>
 
     <!-- THE LIST — two ULs, one per channel; the tabs choose which shows. -->
@@ -2040,7 +2040,24 @@ body.ch-direct #pickListDirect { display: block; }
     var LIFT_SWEEP_MAX = 2;      // 3+ vanishing at once is a sweep, not a lift
     var holdKnown  = {};     // orderId -> true, for holds this session rendered
     var liftTimer  = null;
-    var LIFT_LIFE_MS = 120000;   // an event, not a state — it retires itself
+    var liftIds    = [];     // orders cleared and not yet acknowledged by a tap
+
+    /* ⚠ IT STAYS UNTIL SOMEBODY TAPS IT — corrected 2026-08-21 after the user
+       watched it disappear and said it should not.
+       My first version cleared after two minutes, on the reasoning that a lift
+       is an EVENT and the hold itself is the STATE. That reasoning is tidy and
+       it misses the entire point of this feature: THE PICKER MIGHT NOT BE
+       LOOKING. A two-minute window has exactly the weakness of the WhatsApp
+       message we started from — it reaches whoever happens to be facing the
+       board in that minute, and silently fails everyone else.
+       And it is not really an event. A cleared box is still sitting in the
+       outbound area waiting for somebody to go and ship it, so there IS
+       something to act on until they do.
+       So: RETIRE ON EVIDENCE, EXPIRE ON A TIMER — this project's own rule, and
+       the same shape as every override on this board. The evidence is a tap.
+       The hour is only a backstop so an untended board does not carry yesterday
+       into tomorrow. */
+    var LIFT_LIFE_MS = 3600000;  // 1 h backstop; a tap is the real retirement
 
     /* ⚠ THE SOUND DECAYS BUT NEVER EXPIRES, which is the exact OPPOSITE of the
        arrival beacon three functions up — and the difference is the whole point.
@@ -2197,9 +2214,16 @@ body.ch-direct #pickListDirect { display: block; }
     }
 
     function holdFireLift(ids) {
+      /* ⚠ ACCUMULATE, do not replace. Now that the strip persists until it is
+         tapped, a second lift landing while the first is still up would
+         otherwise erase an order nobody had acknowledged yet — losing exactly
+         the message this exists to deliver. */
+      for (var a = 0; a < ids.length; a++) {
+        if (liftIds.indexOf(ids[a]) === -1) liftIds.push(ids[a]);
+      }
       document.getElementById('liftBody').textContent =
-        ids.slice(0, 3).join(' · ') +
-        (ids.length > 3 ? ('  +' + (ids.length - 3) + ' more') : '');
+        liftIds.slice(0, 3).join(' · ') +
+        (liftIds.length > 3 ? ('  +' + (liftIds.length - 3) + ' more') : '');
       document.getElementById('liftStrip').classList.add('show');
       // The board's own "resolved" motif — the same gentle descending phrase it
       // plays when the pick queue empties. One call: this is news, not an alarm.
@@ -2210,6 +2234,7 @@ body.ch-direct #pickListDirect { display: block; }
 
     function holdClearLift() {
       if (liftTimer) { clearTimeout(liftTimer); liftTimer = null; }
+      liftIds = [];
       var el = document.getElementById('liftStrip');
       if (el) el.classList.remove('show');
     }
@@ -5474,9 +5499,13 @@ body.ch-direct #pickListDirect { display: block; }
     // short bell phrase with a gentle attack + long lowpass-filtered decay.
     function chime(kind) {
       if (!soundOn) return;
+      // Same async-resume trap as siren() — see the note there. This one has been
+      // silently losing the FIRST chime after every page load for as long as the
+      // board has existed; the second and later ones worked, so nobody noticed.
+      audioReady(function () { _chimeNow(kind); });
+    }
+    function _chimeNow(kind) {
       try {
-        if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        if (audioCtx.state === 'suspended') audioCtx.resume();
         switch (kind) {
           case 'newDirect':                         // warm, lower two-note rise
             bell(440.00, 0,    0.75); bell(659.25, 0.15, 0.95); break;
@@ -5507,15 +5536,44 @@ body.ch-direct #pickListDirect { display: block; }
        stop a wrong shipment — and nobody would ever discover it, because the
        failure looks exactly like a quiet day. The mute is for ambience; this is
        not ambience. */
-    function siren() {
+    /* ⚠⚠ resume() IS ASYNCHRONOUS, AND THAT WAS THE WHOLE BUG (2026-08-21).
+       Every sound on this board did:
+
+           if (audioCtx.state === 'suspended') audioCtx.resume();
+           osc.start(audioCtx.currentTime + delay);
+
+       resume() returns a PROMISE. While the context is still suspended its
+       currentTime is FROZEN — so the notes get scheduled against a clock that is
+       not running, and by the moment it does resume those times are already in
+       the PAST. The oscillators start and stop instantly. Silence, no error,
+       nothing in the console.
+
+       ⚠ IT HID FOR MONTHS BEHIND ITS OWN WORKAROUND. chime() carries the same
+       shape and mostly works, because by the time an order lands someone has
+       usually touched the page and the context is already running. An ALARM is
+       exactly the case where nobody has — the board has been sitting untouched
+       and something urgent needs to shout. The one sound that most needed this
+       to work was the one guaranteed to hit the broken path.
+
+       So: wait for the context to be RUNNING, then schedule. */
+    function audioReady(fn) {
       try {
         if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        if (audioCtx.state === 'suspended') audioCtx.resume();
+        if (audioCtx.state !== 'suspended') { fn(); return; }
+        var r = audioCtx.resume();
+        // Older implementations return undefined rather than a promise.
+        if (r && typeof r.then === 'function') r.then(fn).catch(function () {});
+        else fn();
+      } catch (e) { /* no audio on this device — the visuals carry it */ }
+    }
+
+    function siren() {
+      audioReady(function () {
         for (var i = 0; i < 3; i++) {
           buzz(880, i * 0.44,        0.19);
           buzz(660, i * 0.44 + 0.21, 0.19);
         }
-      } catch (e) { /* audio not available — the visual is the real signal */ }
+      });
     }
     function buzz(freq, delay, dur) {
       var t0   = audioCtx.currentTime + delay;
