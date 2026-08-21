@@ -125,6 +125,25 @@ function holdNoteAckText(note) {
 }
 
 /**
+ * Has this hold already been escalated to the person who wrote it?
+ * @param {string} note
+ * @returns {boolean}
+ */
+function holdNoteHasEscalated(note) {
+  return /⚠\s*ESCALATED\b/i.test(String(note == null ? "" : note));
+}
+
+/**
+ * When it was escalated — "2:37 PM". Empty string when it has not been.
+ * @param {string} note
+ * @returns {string}
+ */
+function holdNoteEscalatedText(note) {
+  var m = String(note == null ? "" : note).match(/⚠\s*ESCALATED\s+([0-9]{1,2}:[0-9]{2}\s*[AP]M)/i);
+  return m ? String(m[1]).trim() : "";
+}
+
+/**
  * The tag appended to the note when someone acknowledges.
  *
  * ⚠ THE CLOCK IS PINNED TO HOUSTON. The script timezone is Asia/Amman (see the
@@ -231,6 +250,14 @@ function holdScanRows(data) {
         // every shelf, and a board that screams at the calm case is a board
         // that gets muted before it ever sees the dangerous one.
         urgent:  false,
+        // ⚠ THE ESCALATION HAS TO LEAVE A MARK ON THE SHEET, not only in a chat.
+        // Escalating means the system gave up on the floor and went to find the
+        // person who wrote the hold — and if the only trace of that is a Telegram
+        // message, it scrolls away, which is EXACTLY the failure this whole
+        // feature exists to fix. A cell that has been red for 40 minutes and one
+        // that has been red for 30 seconds otherwise look identical.
+        escalated: false,
+        escText:   "",
         lines:   0
       };
       order.push(oid);
@@ -248,6 +275,10 @@ function holdScanRows(data) {
     if (holdNoteHasAck(note)) {
       h.acked = true;
       if (!h.ackText) h.ackText = holdNoteAckText(note);
+    }
+    if (holdNoteHasEscalated(note)) {
+      h.escalated = true;
+      if (!h.escText) h.escText = holdNoteEscalatedText(note);
     }
     if (note.length > String(h.note).length) h.note = note;
   }
@@ -331,6 +362,56 @@ function boardAckHold(orderId) {
   } catch (e) {
     console.error("boardAckHold: " + e);
     return { ok: false, error: String(e) };
+  } finally {
+    try { lock.releaseLock(); } catch (e) {}
+  }
+}
+
+
+/**
+ * Stamp "⚠ ESCALATED h:mm AM" onto every held row of an order.
+ *
+ * ⚠ BEST-EFFORT, AND CALLED ONLY AFTER THE MESSAGE HAS ACTUALLY GONE OUT. The
+ * Telegram send is the thing that must not be lost; this is the record of it. If
+ * the lock is busy or a write fails, the escalation still happened and still
+ * alerted — the sheet just does not say so, which is a smaller loss than a
+ * duplicate alarm or a blocked trigger.
+ *
+ * ⚠ IT TAKES THE LOCK BRIEFLY AND GIVES UP FAST. This runs inside
+ * runPublishTick, a per-minute trigger; waiting on a picker's ✓ Pick to finish
+ * would be the wrong trade for a decoration.
+ *
+ * @param {string} orderId
+ * @returns {number} rows stamped
+ */
+function holdStampEscalated(orderId) {
+  var lock = LockService.getScriptLock();
+  try {
+    if (!lock.tryLock(5000)) return 0;
+    var sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(MAIN_SHEET_NAME);
+    if (!sheet) return 0;
+    var lastRow = sheet.getLastRow();
+    if (lastRow < Schema.dataStartRow) return 0;
+
+    var rows = _resolveStatusTargetRows(sheet, String(orderId || "").trim(), lastRow);
+    var tag = "⚠ ESCALATED " + Utilities.formatDate(new Date(), "America/Chicago", "h:mm a");
+    var n = 0;
+    for (var i = 0; i < rows.length; i++) {
+      var cell = sheet.getRange(rows[i], Schema.cols.NOTE);
+      var note = String(cell.getValue() || "").trim();
+      // Only a live, unanswered hold gets stamped — and never twice.
+      if (!holdNoteHasHold(note) || holdNoteHasAck(note) || holdNoteHasEscalated(note)) continue;
+      cell.setValue(note + " · " + tag);
+      n++;
+    }
+    if (n) {
+      SpreadsheetApp.flush();
+      try { _dashBustTickCache(); } catch (e) {}
+    }
+    return n;
+  } catch (e) {
+    console.log("holdStampEscalated: " + e);
+    return 0;
   } finally {
     try { lock.releaseLock(); } catch (e) {}
   }
@@ -433,7 +514,13 @@ function checkHoldEscalation() {
       try { sent = _tgSend(TELEGRAM_ADMIN_CHAT_ID, text); }
       catch (e) { console.log("checkHoldEscalation send: " + e); }
 
-      if (sent) { state[oid].alerted = now; changed = true; fired++; }
+      if (sent) {
+        state[oid].alerted = now; changed = true; fired++;
+        // The sheet says it too — see holdStampEscalated. Best-effort by
+        // contract: the message is already out and the key is already set, so a
+        // failure here can never produce a second alarm.
+        try { holdStampEscalated(oid); } catch (e) { console.log("stamp: " + e); }
+      }
     }
 
     // A hold that has been acknowledged or lifted drops out immediately, so the

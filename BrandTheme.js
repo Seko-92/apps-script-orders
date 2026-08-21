@@ -1398,6 +1398,17 @@ function _buildHoldRules(sheet) {
   // Whole word, anywhere, any case — the SAME rule the board and Holds.js use.
   var hasHold = 'REGEXMATCH(TO_TEXT(' + a + '), "(?i)\\bhold\\b")';
   var hasAck  = 'REGEXMATCH(TO_TEXT(' + a + '), "✓\\s*SEEN")';
+  var hasEsc  = 'REGEXMATCH(TO_TEXT(' + a + '), "ESCALATED")';
+
+  /* ⚠ ESCALATED AND STILL UNANSWERED — the loudest state on the sheet, and it
+     must come FIRST because Sheets applies the first matching rule per cell.
+     Without it, a hold red for forty minutes looks exactly like one red for
+     thirty seconds, and "the shipping desk has already been pulled in" is
+     precisely the thing the next person needs to know. */
+  var escalated = SpreadsheetApp.newConditionalFormatRule()
+    .whenFormulaSatisfied('=AND(' + a + '<>"", ' + hasHold + ', ' + hasEsc + ', NOT(' + hasAck + '))')
+    .setBackground('#b71c1c').setFontColor('#ffffff').setBold(true)
+    .setRanges([noteRange]).build();
 
   // UNSEEN — red, and loud. This is the state that cost a label.
   var unseen = SpreadsheetApp.newConditionalFormatRule()
@@ -1413,7 +1424,7 @@ function _buildHoldRules(sheet) {
     .setBackground('#fff3c4').setFontColor('#7a5c00')
     .setRanges([noteRange]).build();
 
-  return [unseen, seen];
+  return [escalated, unseen, seen];
 }
 
 
@@ -1444,6 +1455,9 @@ function _stripHoldRules(rules) {
     var onNote = ranges.some(function (r) {
       return r.getNumColumns() === 1 && r.getColumn() === Schema.cols.NOTE;
     });
+    // All three hold rules carry the same \bhold\b token in their formula, so
+    // this catches the escalated one too — and the buyer-note rule, which does
+    // not, survives untouched. There is a test for exactly that.
     return !(onNote && /\\bhold\\b/i.test(String(formula)));
   });
 }

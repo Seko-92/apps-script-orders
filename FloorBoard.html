@@ -1918,6 +1918,30 @@ body.ch-direct #pickListDirect { display: block; }
     var holdTakeOid = '';
     var holdSirenT  = null, holdSirenStep = 0, holdSirenN = 0;
 
+    /* ⚠ THE ACK NEEDS AN OPTIMISTIC OVERRIDE, exactly as ✓ Pick does — reported
+       from the floor 2026-08-21: the sheet updated instantly but the strip kept
+       saying TAP TO ACKNOWLEDGE for about two minutes. Nothing was broken; the
+       board simply had no way to know. The write lands, then the answer has to
+       come all the way back:
+
+         tap → note written → cache bust → 1-min publish trigger
+             → 15s n8n cache → 20s poll     ≈ 45s typical, ~95s worst
+
+       So the picker taps and watches the button they just pressed sit there
+       looking unpressed — which is precisely the "did that go through?" doubt
+       that makes people tap twice.
+
+       ⚠ THE TTL IS DERIVED, NEVER A CONSTANT. pickOverrideUntil() is sized off
+       the poll cadence ACTUALLY IN USE, so on a degraded pipe the override
+       stretches with it — the 2026-08-15 lesson, where a flat 45s expired
+       exactly where the answer usually arrives. Reused rather than re-derived so
+       the two can never drift apart.
+
+       ⚠ RETIRES ON EVIDENCE, expires on the timer. The moment a tick reports the
+       order acknowledged, the override is dropped and the server's view takes
+       over — the TTL only exists for a response that never came back at all. */
+    var holdAcked = {};      // orderId -> { tag, until }
+
     /* ⚠ THE SOUND DECAYS BUT NEVER EXPIRES, which is the exact OPPOSITE of the
        arrival beacon three functions up — and the difference is the whole point.
        That one gives up after 3 minutes because "a beacon that pulses at an empty
@@ -1955,15 +1979,33 @@ body.ch-direct #pickListDirect { display: block; }
       var h = '';
       try { h = (humanNote(note) || {}).text || ''; } catch (e) {}
       var raw = String(h || note || '').trim();
-      return raw.replace(/\s*·?\s*✓\s*SEEN\s.+$/i, '').trim() || '(no text)';
+      return raw.replace(/\s*·?\s*✓\s*SEEN\s.+$/i, '')
+                .replace(/\s*·?\s*⚠\s*ESCALATED\s+[0-9]{1,2}:[0-9]{2}\s*[AP]M/i, '')
+                .trim() || '(no text)';
     }
     function holdAckText(note) {
       var m = String(note || '').match(/✓\s*SEEN\s+(.+)$/i);
       return m ? String(m[1]).trim() : '';
     }
 
+    function applyHoldAcks(held) {
+      var now = Date.now();
+      return (held || []).map(function (h) {
+        var ov = holdAcked[h.orderId];
+        if (!ov) return h;
+        // The server agrees — drop the override rather than keep masking a view
+        // that is now correct on its own.
+        if (h.acked || now > ov.until) { delete holdAcked[h.orderId]; return h; }
+        var copy = {};
+        for (var k in h) if (Object.prototype.hasOwnProperty.call(h, k)) copy[k] = h[k];
+        copy.acked   = true;
+        copy.ackText = String(ov.tag || '').replace(/^✓\s*SEEN\s*/i, '') || 'just now';
+        return copy;
+      });
+    }
+
     function paintHolds(held) {
-      held = held || [];
+      held = applyHoldAcks(held || []);
       var strip = document.getElementById('holdStrip');
       if (!strip) return;
 
@@ -1974,7 +2016,7 @@ body.ch-direct #pickListDirect { display: block; }
         // ⚠ RE-ARM. A future hold on the same order must be able to take over
         // again — otherwise one lifted hold would permanently deafen the board
         // to the next one on that box.
-        holdSeen = {}; holdTakeOid = '';
+        holdSeen = {}; holdTakeOid = ''; holdAcked = {};
         return;
       }
 
@@ -1985,14 +2027,26 @@ body.ch-direct #pickListDirect { display: block; }
       var html = '';
       for (var i = 0; i < held.length; i++) {
         var h = held[i];
-        var seen = h.acked ? holdAckText(h.note) : '';
+        // ⚠ PREFER ackText. The server already parsed it, and the optimistic
+        // override sets it on a row whose NOTE is still the pre-ack text — so
+        // re-parsing the note here would render an empty "seen" for exactly the
+        // window the override exists to cover.
+        var seen = h.acked ? (h.ackText || holdAckText(h.note)) : '';
         html += '<div class="hold-row">' +
                   '<span class="hold-mark">⏸ HOLD</span>' +
                   '<span class="hold-oid">' + esc(String(h.orderId || '')) + '</span>' +
                   '<span class="hold-txt">' + esc(holdBody(h.note)) + '</span>' +
                   (h.acked
                     ? '<span class="hold-seen">✓ ' + esc(seen || 'seen') + '</span>'
-                    : '<span class="hold-cta">TAP TO ACKNOWLEDGE</span>') +
+                    /* ⚠ ONCE ESCALATED, SAY SO. A cell red for 40 minutes and one
+                       red for 30 seconds look identical otherwise, and "the
+                       shipping desk has already been pulled in" changes how
+                       urgently the next person treats it. */
+                    : '<span class="hold-cta">' +
+                        (h.escalated
+                          ? '⚠ ESCALATED ' + esc(h.escText || '') + ' · TAP TO ACKNOWLEDGE'
+                          : 'TAP TO ACKNOWLEDGE') +
+                      '</span>') +
                 '</div>';
       }
       strip.innerHTML = html;
@@ -2025,9 +2079,14 @@ body.ch-direct #pickListDirect { display: block; }
         ? 'LABEL ALREADY BOUGHT · the box may still be in the building'
         : 'ALREADY PULLED · the label is not bought yet';
       document.getElementById('htTxt').textContent = holdBody(h.note);
-      document.getElementById('htMore').textContent = fresh.length > 1
+      var more = fresh.length > 1
         ? ('+' + (fresh.length - 1) + ' more order' + (fresh.length > 2 ? 's' : '') + ' held')
         : '';
+      if (h.escalated) {
+        more = '⚠ escalated to the shipping desk at ' + (h.escText || '—') +
+               (more ? ('  ·  ' + more) : '');
+      }
+      document.getElementById('htMore').textContent = more;
       document.getElementById('holdTake').classList.remove('hidden');
       holdSirenStart();
     }
@@ -2051,6 +2110,9 @@ body.ch-direct #pickListDirect { display: block; }
       hqCall('boardAckHold', { orderId: orderId }).then(function (res) {
         if (res && res.ok) {
           toast('✓ Acknowledged — the hold is still ON', 3200);
+          // Paint the answer NOW, do not wait for it to come back around.
+          holdAcked[orderId] = { tag: res.tag || '', until: pickOverrideUntil() };
+          if (lastTick && lastTick.held) paintHolds(lastTick.held);
           pollSoon();
         } else {
           delete holdSeen[orderId];
