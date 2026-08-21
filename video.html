@@ -1,0 +1,533 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<!-- ⚠ NEEDED, same as the arcade: without it a tablet renders at a 980px
+     virtual viewport and the whole page comes out tiny. -->
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="apple-mobile-web-app-title" content="HQ Video">
+<meta name="theme-color" content="#111111">
+<title>HQ · Video</title>
+<style>
+  /* ===================================================================
+     HQ VIDEO — the break-room screen.  hq.yassinqurabi.com/video
+     -------------------------------------------------------------------
+     A SEPARATE PAGE on purpose, not a tab inside the arcade cabinet.
+     Caddy's `try_files {path} {path}.html` serves this file at /video with
+     ZERO config change — exactly how /wall needed nothing — so this page
+     cannot break the board, cannot break the arcade, and ships on its own
+     scp with no version cut.
+
+     ⚠⚠ AND IT IS DELIBERATELY NOT ON THE FLOOR BOARD. The objection there
+     was never distraction, it was FRAMES: video decode competes with the
+     20s poll and the rAF loop on the one page that owns ✓ Pick, and a
+     repaint landing mid-gesture destroying that button is what cost about
+     one lost pick a day until August. Nothing behind THIS page matters,
+     which is also why it needs no draggable mini-window — you only want
+     one when there is a pick list underneath you still have to read.
+
+     ⚠ ADS ARE REAL AND EXPECTED. The sanctioned IFrame embed serves them —
+     that is the deal Google offers, and it is precisely why the embed path
+     is not blocked while scrapers are. A direct https video link has no ads
+     and no datacenter-IP exposure, so the empty state says so.
+
+     Classes scoped .hqv-* throughout.
+     =================================================================== */
+
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body { margin:0; height:100%; background:#0c0c0b; overflow:hidden; }
+  body { font-family:'Oswald','Roboto',Arial,sans-serif; color:#fff; }
+
+  /* dvh, NOT vh. Served top-level, a mobile browser calls 100vh the LARGE
+     viewport (URL bar retracted), so the dock ends up under the browser
+     chrome with no way to scroll to it. The arcade learned this the hard
+     way; inherited here rather than re-learned. */
+  #vid { display:flex; flex-direction:column; height:100vh; height:100dvh;
+         background:radial-gradient(circle at 50% -20%, #26241f 0%, #141312 55%, #0c0c0b 100%); }
+
+  /* ---------- top bar — brand family with the arcade on purpose ---------- */
+  .hqv-bar { display:flex; align-items:center; gap:12px;
+             padding:9px 16px; padding-top:calc(9px + env(safe-area-inset-top,0px));
+             background:#1a1a18; border-bottom:2px solid #ffd400; flex:none;
+             transition:opacity .45s ease; }
+  .hqv-title { font-weight:700; letter-spacing:.08em; color:#ffd400; font-size:16px; }
+  .hqv-title span { color:#ffa94d; }
+  .hqv-title small { color:#8a8a84; font-weight:400; letter-spacing:.06em;
+                     margin-left:8px; font-size:11px; text-transform:uppercase; }
+  .hqv-links { margin-left:auto; display:flex; gap:8px; }
+  .hqv-btn { background:none; border:1px solid #4a4a44; color:#ddd; padding:5px 11px;
+             border-radius:6px; cursor:pointer; font-family:'Oswald',sans-serif;
+             letter-spacing:.05em; font-size:12px; text-decoration:none; display:inline-block; }
+  .hqv-btn:hover { border-color:#ffa94d; color:#ffa94d; }
+  .hqv-btn:active { background:#333; }
+
+  /* ---------- the screen ---------- */
+  #screen { flex:1; position:relative; min-height:0; display:flex;
+            align-items:center; justify-content:center; overflow:hidden; }
+
+  /* The player is letterboxed inside the available box rather than stretched:
+     a 16:9 frame that never exceeds the screen area in either direction. */
+  .hqv-stage { position:relative; width:100%; height:100%;
+               display:flex; align-items:center; justify-content:center; }
+  #ytHost, #fileVid { width:min(100%, calc((100dvh - 190px) * 16 / 9));
+                      aspect-ratio:16/9; max-height:100%;
+                      background:#000; border:0; display:none; }
+  body.hqv-playing #ytHost.on, body.hqv-playing #fileVid.on { display:block; }
+
+  /* ---------- the idle lounge ---------- */
+  /* ⚠ An empty black rectangle reads as broken, not as idle. The resting
+     state gets a face — one object and typography, no widgets. */
+  .hqv-idle { position:absolute; inset:0; display:flex; flex-direction:column;
+              align-items:center; justify-content:center; text-align:center;
+              padding:20px; pointer-events:none; }
+  body.hqv-playing .hqv-idle { display:none; }
+  .hqv-glow { position:absolute; width:min(70vw, 520px); aspect-ratio:1;
+              border-radius:50%; opacity:.4;
+              background:radial-gradient(circle, rgba(255,169,77,.42) 0%, rgba(255,169,77,.10) 45%, transparent 70%);
+              filter:blur(12px); }
+  .hqv-mark { position:relative; font-size:clamp(34px, 8vw, 60px); font-weight:700;
+              letter-spacing:.14em; color:#ffd400;
+              text-shadow:0 3px 0 #7a6500, 0 0 26px rgba(255,169,77,.3); }
+  .hqv-mark em { font-style:normal; color:#ffa94d; }
+  .hqv-sub { position:relative; color:#9a9a90; letter-spacing:.2em; font-size:11.5px;
+             text-transform:uppercase; margin-top:10px; }
+  .hqv-hint { position:relative; margin-top:20px; max-width:420px;
+              color:#7a7a72; font-family:'Roboto Mono',monospace; font-size:11px;
+              line-height:1.7; letter-spacing:.02em; }
+  .hqv-hint b { color:#ffa94d; font-weight:400; }
+
+  /* ---------- the dock ---------- */
+  .hqv-dock { flex:none; background:#141412; border-top:1px solid #2c2c27;
+              padding:10px 14px; padding-bottom:calc(10px + env(safe-area-inset-bottom,0px));
+              transition:opacity .45s ease; }
+  .hqv-row { display:flex; gap:8px; align-items:center; }
+  .hqv-in { flex:1; min-width:0; background:#0d0d0c; border:1px solid #3a3a34;
+            color:#eee; border-radius:8px; padding:10px 12px; font-size:14px;
+            font-family:'Roboto Mono',monospace; outline:none; }
+  .hqv-in:focus { border-color:#ffa94d; }
+  .hqv-in::placeholder { color:#5c5c55; }
+  .hqv-go { background:#ffa94d; color:#1a1a18; border:0; border-radius:8px;
+            padding:10px 18px; font-family:'Oswald',sans-serif; font-weight:700;
+            letter-spacing:.07em; font-size:14px; cursor:pointer; flex:none; }
+  .hqv-go:active { transform:translateY(1px); }
+  .hqv-stop { display:none; }
+  body.hqv-playing .hqv-stop { display:inline-block; }
+
+  /* ⚠ THE MESSAGE LINE IS NOT OPTIONAL. On a shared screen the default
+     failure is SILENCE, and silence is indistinguishable from a broken
+     page — so every refusal renders a reason here. */
+  .hqv-msg { margin-top:8px; font-family:'Roboto Mono',monospace; font-size:11.5px;
+             line-height:1.5; min-height:0; display:none; }
+  .hqv-msg.on { display:block; }
+  .hqv-msg.err  { color:#ff8f6b; }
+  .hqv-msg.warn { color:#ffd400; }
+  .hqv-msg.ok   { color:#7fc98a; }
+
+  .hqv-saved { display:flex; gap:7px; margin-top:9px; overflow-x:auto;
+               scrollbar-width:none; padding-bottom:2px; }
+  .hqv-saved::-webkit-scrollbar { display:none; }
+  .hqv-saved:empty { display:none; }
+  .hqv-chip { flex:none; display:flex; align-items:center; gap:7px;
+              background:#1e1e1b; border:1px solid #35352f; border-radius:999px;
+              padding:6px 6px 6px 12px; cursor:pointer; max-width:230px; }
+  .hqv-chip:hover { border-color:#ffa94d; }
+  .hqv-chip.live { border-color:#ffa94d; background:#2a231a; }
+  .hqv-chip .nm { font-family:'Roboto Mono',monospace; font-size:11.5px; color:#ddd;
+                  white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .hqv-chip.live .nm { color:#ffa94d; }
+  /* ⚠ The ✕ only fades in on hover, and its handler is tested BEFORE the
+     chip's — a delete affordance as bright as a play affordance is how the
+     wrong one gets tapped, and an item-first check would PLAY the thing you
+     were trying to delete. Same rule the radio's picker follows. */
+  .hqv-x { flex:none; width:20px; height:20px; border-radius:50%; border:0;
+           background:none; color:#6a6a63; font-size:13px; line-height:1;
+           cursor:pointer; opacity:0; transition:opacity .15s, color .15s; }
+  .hqv-chip:hover .hqv-x { opacity:1; }
+  .hqv-x:hover { color:#ff8f6b; background:#2c2c27; }
+
+  /* ---------- lights down ---------- */
+  /* Recedes while you watch, comes back the moment you move. Never goes to
+     zero — a control you cannot find is a mode with no exit. */
+  body.hqv-dim .hqv-bar, body.hqv-dim .hqv-dock { opacity:.18; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .hqv-bar, .hqv-dock { transition:none; }
+  }
+  @media (max-width:520px) {
+    .hqv-title small { display:none; }
+    .hqv-go { padding:10px 13px; }
+  }
+</style>
+</head>
+<body>
+<div id="vid">
+
+  <div class="hqv-bar" id="bar">
+    <div class="hqv-title">HQ · <span>VIDEO</span><small>break room</small></div>
+    <div class="hqv-links">
+      <!-- ⚠ THE WORD, NEVER A GLYPH. ⛶ renders as "::" on the real tablet —
+           the Floor Board learned this on 2026-08-07 and the rule stands:
+           actions carry a word in Oswald, which is legible in any font stack. -->
+      <button class="hqv-btn" id="fsBtn" onclick="toggleFs()">Full</button>
+      <a class="hqv-btn" href="/arcade">Arcade</a>
+      <a class="hqv-btn" href="/">← Board</a>
+    </div>
+  </div>
+
+  <div id="screen">
+    <div class="hqv-stage">
+      <!-- ⚠ YT.Player SWAPS this div for an iframe that KEEPS THE SAME ID.
+           Do not look for a child iframe and do not expect the host to be
+           removed — two harness bugs were written against that assumption
+           when the radio's station shipped. -->
+      <div id="ytHost"></div>
+      <video id="fileVid" controls playsinline preload="none"></video>
+    </div>
+
+    <div class="hqv-idle">
+      <div class="hqv-glow" id="glow"></div>
+      <div class="hqv-mark">HQ<em>·</em>VIDEO</div>
+      <div class="hqv-sub">nothing playing</div>
+      <div class="hqv-hint">
+        paste a youtube link below — watch, live, shorts or embed.<br>
+        a direct <b>https</b> video link also plays, and has <b>no ads</b>.
+      </div>
+    </div>
+  </div>
+
+  <div class="hqv-dock" id="dock">
+    <div class="hqv-row">
+      <input class="hqv-in" id="box" type="url" inputmode="url"
+             autocomplete="off" autocapitalize="off" spellcheck="false"
+             placeholder="paste a link…">
+      <button class="hqv-go" onclick="playFromBox()">▶ Play</button>
+      <button class="hqv-go hqv-stop" onclick="stopPlaying()">■ Stop</button>
+    </div>
+    <div class="hqv-msg" id="msg"></div>
+    <div class="hqv-saved" id="savedRow"></div>
+  </div>
+
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  var SAVED_KEY = 'hqVideoSaved';
+  var SAVED_MAX = 8;
+  var DIM_MS    = 4000;
+
+  var boxEl   = document.getElementById('box');
+  var msgEl   = document.getElementById('msg');
+  var savedEl = document.getElementById('savedRow');
+  var ytHost  = document.getElementById('ytHost');
+  var fileVid = document.getElementById('fileVid');
+  var glowEl  = document.getElementById('glow');
+
+  var saved = [];       // [{name, yt, url}]
+  var live  = -1;       // index into saved, or -1
+  var ytPlayer = null;  // the YT.Player instance once built
+  var ytLoading = false;
+
+  /* ==================================================================
+     THE LINK RULE — a VERBATIM port of _radioParse in FloorBoard.html.
+     ------------------------------------------------------------------
+     ⚠⚠ TWO COPIES OF ONE RULE. These are separate static files with no
+     shared module, so this rule necessarily exists twice — and two
+     copies of one rule is exactly how `A-9` sorted after `A-50` in three
+     files until August. design-lab/test-video-links.js extracts BOTH
+     copies out of the SHIPPED files and runs them over the same corpus,
+     failing if they ever disagree about a verdict.
+
+     The wording of a message may differ per surface; the DECISION may
+     not. If you change the shape of a link this accepts, change it in
+     FloorBoard.html too and run that test.
+     ================================================================== */
+  function _vidParse(raw) {
+    var t = String(raw || '').trim();
+    if (!t) return { err: 'Paste a YouTube link or an https video URL.' };
+
+    // watch?v= · youtu.be/ · /live/ · /shorts/ · /embed/ — all carry the 11-char id
+    var m = t.match(/(?:youtube\.com\/(?:watch\?(?:[^#]*&)?v=|live\/|shorts\/|embed\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/);
+    if (m) return { yt: m[1], name: 'YouTube · ' + m[1] };
+    if (/youtube\.com|youtu\.be/i.test(t))
+      return { err: 'YouTube link, but no video id in it. Use a watch or live link.' };
+
+    if (/^http:\/\//i.test(t))
+      return { err: 'That link is http. This page is https, so the browser blocks it. Look for an https one.' };
+    if (!/^https:\/\//i.test(t))
+      return { err: 'Not a link. Paste a YouTube link or an https video URL.' };
+
+    var host = t.replace(/^https:\/\//i, '').split('/')[0].replace(/^www\./, '');
+    // ⚠ HLS plays on the Android tablet and NOT in desktop Chrome. Allowed,
+    //   but warned about, because "works in the break room, silent on your
+    //   desk" is the worst kind of half-working.
+    if (/\.m3u8(\?|$)/i.test(t))
+      return { url: t, name: host, warn: 'HLS — plays on the tablet, may be silent on a desktop.' };
+    return { url: t, name: host };
+  }
+
+  // ---------------------------------------------------------------- message
+  function say(text, kind) {
+    if (!text) { msgEl.className = 'hqv-msg'; msgEl.textContent = ''; return; }
+    msgEl.textContent = text;
+    msgEl.className = 'hqv-msg on ' + (kind || '');
+  }
+
+  // ------------------------------------------------------------ saved list
+  function loadSaved() {
+    try {
+      var v = JSON.parse(localStorage.getItem(SAVED_KEY) || '[]');
+      return Array.isArray(v) ? v.filter(function (s) { return s && (s.yt || s.url); }) : [];
+    } catch (e) { return []; }   // an unreadable store is an empty one, never a crash
+  }
+  function persist() {
+    try { localStorage.setItem(SAVED_KEY, JSON.stringify(saved)); } catch (e) {}
+  }
+
+  function renderSaved() {
+    savedEl.innerHTML = '';
+    saved.forEach(function (s, i) {
+      var chip = document.createElement('div');
+      chip.className = 'hqv-chip' + (i === live ? ' live' : '');
+      chip.setAttribute('data-i', String(i));
+      var nm = document.createElement('span');
+      nm.className = 'nm';
+      nm.textContent = s.name;
+      var x = document.createElement('button');
+      x.className = 'hqv-x';
+      x.setAttribute('data-x', String(i));
+      x.setAttribute('title', 'remove');
+      x.textContent = '✕';
+      chip.appendChild(nm); chip.appendChild(x);
+      savedEl.appendChild(chip);
+    });
+  }
+
+  // ⚠ REMOVE IS TESTED BEFORE THE ITEM. The ✕ sits INSIDE the chip, so an
+  //   item-first check would play the very thing you were trying to delete.
+  savedEl.addEventListener('click', function (ev) {
+    var xb = ev.target.closest ? ev.target.closest('[data-x]') : null;
+    if (xb) {
+      var xi = parseInt(xb.getAttribute('data-x'), 10);
+      if (xi === live) stopPlaying();
+      else if (xi < live) live--;
+      saved.splice(xi, 1);
+      persist(); renderSaved();
+      return;
+    }
+    var chip = ev.target.closest ? ev.target.closest('[data-i]') : null;
+    if (!chip) return;
+    playIndex(parseInt(chip.getAttribute('data-i'), 10));
+  });
+
+  function remember(r) {
+    // Already saved? Play it rather than making a duplicate.
+    for (var i = 0; i < saved.length; i++) {
+      if ((r.yt && saved[i].yt === r.yt) || (r.url && saved[i].url === r.url)) return i;
+    }
+    saved.push({ name: r.name, yt: r.yt || '', url: r.url || '' });
+    // Trim the OLDEST — it is all theirs here, there are no built-ins to protect.
+    while (saved.length > SAVED_MAX) { saved.shift(); if (live >= 0) live--; }
+    persist();
+    return saved.length - 1;
+  }
+
+  /* ⭐ A PASTED LINK NAMES ITSELF. It starts as "YouTube · <id>", then
+     onStateChange reads getVideoData().title once it is actually playing
+     and renames it in place. No second network call. */
+  function renameLive(title) {
+    if (live < 0 || !title) return;
+    var clean = String(title).trim();
+    if (!clean || saved[live].name === clean) return;
+    saved[live].name = clean.length > 60 ? clean.slice(0, 59) + '…' : clean;
+    persist(); renderSaved();
+  }
+
+  // -------------------------------------------------------------- playback
+  function showPlayer(which) {
+    document.body.classList.add('hqv-playing');
+    ytHost.classList.toggle('on',  which === 'yt');
+    fileVid.classList.toggle('on', which === 'file');
+  }
+
+  function stopPlaying() {
+    try { if (ytPlayer && ytPlayer.stopVideo) ytPlayer.stopVideo(); } catch (e) {}
+    try { fileVid.pause(); fileVid.removeAttribute('src'); fileVid.load(); } catch (e) {}
+    document.body.classList.remove('hqv-playing', 'hqv-dim');
+    ytHost.classList.remove('on'); fileVid.classList.remove('on');
+    live = -1; renderSaved(); armIdleGlow();
+  }
+  window.stopPlaying = stopPlaying;
+
+  function playIndex(i) {
+    var s = saved[i];
+    if (!s) return;
+    live = i; renderSaved(); say('');
+    if (s.yt) playYt(s.yt); else playFile(s.url);
+  }
+
+  function playFile(url) {
+    showPlayer('file');
+    fileVid.src = url;
+    var p = fileVid.play();
+    if (p && p.catch) p.catch(function () {
+      say('Could not start that one — the link may not be a playable video file.', 'err');
+    });
+    lightsPoke();
+  }
+
+  /* ⚠ LAZY, exactly like the radio's station: the IFrame API script and the
+     iframe are fetched only when something is actually played. Open the page
+     and never play anything and it costs nothing at all. */
+  function playYt(id) {
+    showPlayer('yt');
+    lightsPoke();
+    if (ytPlayer && ytPlayer.loadVideoById) { try { ytPlayer.loadVideoById(id); return; } catch (e) {} }
+    _ytEnsure(function () {
+      if (!ytPlayer) return;
+      try { ytPlayer.loadVideoById(id); } catch (e) {}
+    }, id);
+  }
+
+  function _ytEnsure(cb, firstId) {
+    if (ytPlayer) return cb();
+    if (window.YT && window.YT.Player) return build(firstId, cb);
+    if (ytLoading) return;
+    ytLoading = true;
+    window.onYouTubeIframeAPIReady = function () { build(firstId, cb); };
+    var s = document.createElement('script');
+    s.src = 'https://www.youtube.com/iframe_api';
+    s.onerror = function () {
+      ytLoading = false;
+      say('Could not reach YouTube. If this device is on the VPN, its exit IP may be blocked — try without it.', 'err');
+    };
+    document.head.appendChild(s);
+  }
+
+  function build(firstId, cb) {
+    ytLoading = false;
+    ytPlayer = new YT.Player('ytHost', {
+      videoId: firstId || '',
+      playerVars: { autoplay: 1, playsinline: 1, rel: 0, modestbranding: 1 },
+      events: {
+        onReady: function () { try { ytPlayer.playVideo(); } catch (e) {} if (cb) cb(); },
+        onStateChange: function (e) {
+          if (e && e.data === 1) {                        // PLAYING
+            try { renameLive(ytPlayer.getVideoData().title); } catch (_) {}
+          }
+        },
+        /* ⚠ AN ERROR MUST SAY WHAT HAPPENED. 101/150 mean the OWNER disabled
+           embedding — that is a STOP, not an obstacle to route around, and the
+           only honest thing to do is name it and offer the way out. */
+        onError: function (e) {
+          var c = e && e.data;
+          var why =
+            (c === 101 || c === 150) ? 'The owner of that video does not allow it to play outside YouTube. Nothing to fix here — pick another.' :
+            (c === 100)              ? 'That video is gone — removed, or set private.' :
+            (c === 2)                ? 'That video id looks malformed.' :
+            (c === 5)                ? 'The player could not handle that one on this device.' :
+                                       'YouTube refused to play that one (code ' + c + ').';
+          say(why, 'err');
+          document.body.classList.remove('hqv-dim');
+        }
+      }
+    });
+  }
+
+  // ------------------------------------------------------------- the input
+  function playFromBox() {
+    var r = _vidParse(boxEl.value);
+    if (r.err) { say(r.err, 'err'); return; }
+    var i = remember(r);
+    boxEl.value = '';
+    playIndex(i);
+    if (r.warn) say(r.warn, 'warn');
+  }
+  window.playFromBox = playFromBox;
+
+  boxEl.addEventListener('keydown', function (ev) {
+    if (ev.key === 'Enter') { ev.preventDefault(); playFromBox(); }
+  });
+
+  // --------------------------------------------------------- lights & idle
+  var dimTimer = null;
+  function lightsArm() {
+    if (dimTimer) { clearTimeout(dimTimer); dimTimer = null; }
+    if (!document.body.classList.contains('hqv-playing')) return;
+    dimTimer = setTimeout(function () {
+      dimTimer = null;
+      if (document.body.classList.contains('hqv-playing') &&
+          document.activeElement !== boxEl) {
+        document.body.classList.add('hqv-dim');
+      }
+    }, DIM_MS);
+  }
+  /* ⚠ ONE OWNER FOR THE TIMER. The board's resting panel once cleared this
+     kind of timer ABOVE its own throttle and then returned without re-arming,
+     so the effect never fired again. Poke always clears AND re-arms. */
+  function lightsPoke() {
+    document.body.classList.remove('hqv-dim');
+    lightsArm();
+  }
+  ['pointermove', 'pointerdown', 'keydown', 'wheel'].forEach(function (ev) {
+    document.addEventListener(ev, lightsPoke, { passive: true });
+  });
+
+  /* The idle glow breathes on a sine of ABSOLUTE TIME rather than a looping
+     keyframe — a keyframe visibly stutters at the loop seam, which is what
+     the Floor Board's own `breathe` had to be rewritten to fix. */
+  var glowRaf = null;
+  var REDUCED = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  function glowTick() {
+    if (document.body.classList.contains('hqv-playing')) { glowRaf = null; return; }
+    var s = 0.5 + 0.5 * Math.sin(Date.now() / 2600);
+    glowEl.style.opacity = (0.26 + s * 0.30).toFixed(3);
+    glowRaf = requestAnimationFrame(glowTick);
+  }
+  function armIdleGlow() {
+    if (REDUCED) { glowEl.style.opacity = '0.4'; return; }
+    if (!glowRaf) glowRaf = requestAnimationFrame(glowTick);
+  }
+
+  // ------------------------------------------------------------ fullscreen
+  function toggleFs() {
+    var el = document.documentElement;
+    if (!document.fullscreenElement && !document.webkitFullscreenElement) {
+      (el.requestFullscreen || el.webkitRequestFullscreen || function () {}).call(el);
+    } else {
+      (document.exitFullscreen || document.webkitExitFullscreen || function () {}).call(document);
+    }
+  }
+  window.toggleFs = toggleFs;
+
+  /* ⚠ DRIVEN BY THE EVENT, NOT THE CLICK. Esc and the tablet's own gestures
+     leave fullscreen without ever touching our button, so a label painted on
+     click would start lying the first time someone pressed Escape. */
+  function _fsPaint() {
+    var on = !!(document.fullscreenElement || document.webkitFullscreenElement);
+    document.getElementById('fsBtn').textContent = on ? 'Exit' : 'Full';
+  }
+  document.addEventListener('fullscreenchange', _fsPaint);
+  document.addEventListener('webkitfullscreenchange', _fsPaint);
+
+  // 'f' toggles fullscreen — but never while someone is typing a link.
+  document.addEventListener('keydown', function (ev) {
+    if (document.activeElement === boxEl) return;
+    if (ev.key === 'f' || ev.key === 'F') { ev.preventDefault(); toggleFs(); }
+  });
+
+  // ------------------------------------------------------------------ boot
+  saved = loadSaved();
+  renderSaved();
+  armIdleGlow();
+  document.addEventListener('visibilitychange', function () {
+    if (!document.hidden) armIdleGlow();
+  });
+})();
+</script>
+</body>
+</html>
