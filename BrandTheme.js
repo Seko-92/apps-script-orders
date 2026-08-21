@@ -1255,6 +1255,13 @@ function _applyAllConditionalFormatting(sheet) {
   keep.push.apply(keep, _buildStatusRules(sheet));
   keep.push(_buildHandLowStockRule(sheet));
   keep.push(_buildShipCostPaidRule(sheet));
+  // ⚠ THE HOLD RULES GO BEFORE THE BUYER-NOTE RULE, AND ORDER IS LOAD-BEARING.
+  // Sheets applies the FIRST matching rule per cell. A buyer note that happens
+  // to contain the word "hold" ("please hold for pickup") must light up as a
+  // hold, not sit quietly in italic gold — FAIL TOWARD SHOWING is the standing
+  // rule for every note surface here, and it is what this whole feature exists
+  // to enforce.
+  keep.push.apply(keep, _buildHoldRules(sheet));
   keep.push(_buildBuyerNoteRule(sheet));
 
   sheet.setConditionalFormatRules(keep);
@@ -1354,6 +1361,93 @@ function _buildBuyerNoteRule(sheet) {
     .setItalic(true).setFontColor('#8a7434')
     .setRanges([noteRange]).build();
 }
+
+/**
+ * ⏸ HOLD — the table's half of the 2026-08-21 fix.
+ *
+ * The board has carried an amber HOLD chip since 2026-08-15; the SHEET had
+ * nothing, so a hold sitting in the NOTE column looked like ordinary text on
+ * the surface the whole team actually reads all day. These two rules make the
+ * note cell say its own state, with no extra column and no hidden helper sheet:
+ *
+ *   contains HOLD, no ✓ SEEN  → 🔴 nobody has answered for this
+ *   contains HOLD and ✓ SEEN  → 🟡 held, and it names who has it
+ *
+ * ⭐ SO THE COLOUR OF THE CELL IS THE RECEIPT. Someone reading the table sees
+ * red and knows to phone; sees amber and reads the name and time right there in
+ * the cell. No Telegram, nothing to hover over, nothing to open.
+ *
+ * ⚠ ONE CELL DRIVES EVERYTHING. The board reads the same note text through its
+ * own noteHasHold(), so the sheet and the tablet cannot disagree — and
+ * acknowledging from ANY door repaints both within one poll.
+ *
+ * ⚠ FAILS TOWARD SHOWING, in both directions. Delete the ack text and the cell
+ * goes back to red; delete the word HOLD and both rules stop matching, which is
+ * exactly how a hold is lifted. The clearing path is the same act as editing
+ * the note you were already reading, so there is no separate mechanism to rot.
+ *
+ * @param {Sheet} sheet
+ * @returns {Array} two rules, unseen first
+ */
+function _buildHoldRules(sheet) {
+  var noteRange = sheet.getRange(
+    Schema.dataStartRow, Schema.cols.NOTE,
+    BRAND.dataLast - Schema.bannerRows, 1
+  );
+  var a = '$E' + Schema.dataStartRow;
+  // Whole word, anywhere, any case — the SAME rule the board and Holds.js use.
+  var hasHold = 'REGEXMATCH(TO_TEXT(' + a + '), "(?i)\\bhold\\b")';
+  var hasAck  = 'REGEXMATCH(TO_TEXT(' + a + '), "✓\\s*SEEN")';
+
+  // UNSEEN — red, and loud. This is the state that cost a label.
+  var unseen = SpreadsheetApp.newConditionalFormatRule()
+    .whenFormulaSatisfied('=AND(' + a + '<>"", ' + hasHold + ', NOT(' + hasAck + '))')
+    .setBackground('#ffcdd2').setFontColor('#b71c1c').setBold(true)
+    .setRanges([noteRange]).build();
+
+  // ACKNOWLEDGED — calm, but still marked. Seen is not the same as handled:
+  // the box is still sitting there needing its label voided, so the cell must
+  // not go back to looking like an ordinary note.
+  var seen = SpreadsheetApp.newConditionalFormatRule()
+    .whenFormulaSatisfied('=AND(' + a + '<>"", ' + hasHold + ', ' + hasAck + ')')
+    .setBackground('#fff3c4').setFontColor('#7a5c00')
+    .setRanges([noteRange]).build();
+
+  return [unseen, seen];
+}
+
+
+/**
+ * Install the two hold rules on their own, without re-running the whole theme.
+ * Mirrors setupBuyerNoteHighlighting — same idempotent strip-then-add shape.
+ */
+function setupHoldHighlighting() {
+  var sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(MAIN_SHEET_NAME);
+  if (!sheet) return "❌ No " + MAIN_SHEET_NAME + " sheet.";
+
+  var rules = _stripHoldRules(sheet.getConditionalFormatRules());
+  // Ahead of everything else on the NOTE column, for the reason in
+  // _applyAllConditionalFormatting.
+  rules = _buildHoldRules(sheet).concat(rules);
+  sheet.setConditionalFormatRules(rules);
+  return "✅ Hold highlighting applied — a NOTE containing HOLD now reads red " +
+         "until someone acknowledges it, then amber.";
+}
+
+/** Strip just the two hold rules, preserving every other rule on the sheet. */
+function _stripHoldRules(rules) {
+  return rules.filter(function (rule) {
+    var bc = rule.getBooleanCondition();
+    if (!bc) return true;
+    var formula = (bc.getCriteriaValues() || [''])[0] || '';
+    var ranges = rule.getRanges();
+    var onNote = ranges.some(function (r) {
+      return r.getNumColumns() === 1 && r.getColumn() === Schema.cols.NOTE;
+    });
+    return !(onNote && /\\bhold\\b/i.test(String(formula)));
+  });
+}
+
 
 function _stripBuyerNoteRule(rules) {
   // Strip just the buyer-note rule from a rules array (preserves all others).

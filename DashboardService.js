@@ -228,6 +228,11 @@ function _buildDashboardTick() {
     openOrdersBy: (openOrders && openOrders.byChannel) || { EBAY: 0, DIRECT: 0 },
     // Kits in progress — same lifting problem as `total` above.
     kits:       (openOrders && openOrders.kits) || [],
+    // Held orders, open AND shipped-but-not-yet-collected. Same array-property
+    // lifting problem as `total`. Normally empty — the board's alert strip is
+    // drawn ONLY when this has entries, so a quiet day costs nothing and any
+    // ink on that strip is a finding.
+    held:       (openOrders && openOrders.held) || [],
     serverTime: new Date().toISOString()
   };
 }
@@ -784,6 +789,13 @@ function _dashOpenOrders() {
   capped.kits      = kits;
   capped.byChannel = { EBAY:   _dashCountChannel(out, "EBAY"),
                        DIRECT: _dashCountChannel(out, "DIRECT") };
+  // ⚠ HELD ORDERS — INCLUDING SHIPPED ONES, which is the point (2026-08-21).
+  // Everything above this line filtered to PENDING/PREPARING, so the moment a
+  // label was bought the order stopped existing as far as the board was
+  // concerned — while the box sat in the building for hours. holdScanRows walks
+  // the SAME `data` this scan already read, at full width, so the one surface
+  // that was blind costs zero extra reads to open.
+  capped.held = holdScanRows(data);
   return capped;
 }
 

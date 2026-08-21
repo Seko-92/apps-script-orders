@@ -60,7 +60,7 @@
  * Returns { paidShipping: [rowNumbers], intl: [...], lowStock: [...], notFound: [...] }
  */
 function _scanAlerts() {
-  var out = { paidShipping: [], intl: [], lowStock: [], notFound: [] };
+  var out = { paidShipping: [], intl: [], lowStock: [], notFound: [], heldOrders: [] };
 
   var ss = SpreadsheetApp.getActive() || SpreadsheetApp.openById(SPREADSHEET_ID);
   var sheet = ss.getSheetByName(MAIN_SHEET_NAME);
@@ -96,6 +96,20 @@ function _scanAlerts() {
     if (skuUpper === 'SKU' || skuUpper === '# SKU' || skuUpper === '◈ SKU') continue;
 
     var status = String(data[i][Schema.idx("STATUS")]).trim().toUpperCase();
+
+    /* ⏸ HELD ROWS ARE COLLECTED **ABOVE** THE TERMINAL SKIP, and that placement
+       is the entire fix (2026-08-21). Every other alert here is correctly
+       uninterested in a SHIPPED row — the work is done. A hold is the exact
+       opposite: it lands MOST often right after the label is bought, because
+       buying the label is what tells the buyer their order shipped, which is
+       what prompts "wait, change it". Skipping terminal rows here would rebuild
+       the blind spot on the surface the whole team reads all day.
+       ⚠ CANCELED is still out: that line is not going anywhere. */
+    if (status !== Schema.status.CANCELED) {
+      var heldNote = String(data[i][Schema.idx("NOTE")] || "");
+      if (holdNoteHasHold(heldNote) && !holdNoteHasAck(heldNote)) out.heldOrders.push(rowNum);
+    }
+
     if (Schema.isTerminal(status)) continue;  // SHIPPED/CANCELED — done, not actionable
 
     var location = String(data[i][Schema.idx("LOCATION")]).trim();
@@ -180,7 +194,10 @@ function getActionableAlerts() {
       priceDrift:   { count: _safePriceDriftCount(),     rows: [] },
       kitPriceDrift:{ count: _safeKitPriceDriftCount(),  rows: [] },
       openCases:    { count: _safeOpenCaseCount(),       rows: [] },
-      needPhotos:   { count: _safePhotoCount(),          rows: [] }
+      needPhotos:   { count: _safePhotoCount(),          rows: [] },
+      // ⏸ UNACKNOWLEDGED HOLDS. Rows come free from the scan above, so clicking
+      // the row jumps to and selects exactly the cells that need answering.
+      heldOrders:   { count: alerts.heldOrders.length,    rows: alerts.heldOrders }
     };
   } catch (e) {
     console.error("getActionableAlerts error: " + e);
@@ -195,7 +212,8 @@ function getActionableAlerts() {
       priceDrift:   { count: 0, rows: [] },
       kitPriceDrift:{ count: 0, rows: [] },
       openCases:    { count: 0, rows: [] },
-      needPhotos:   { count: 0, rows: [] }
+      needPhotos:   { count: 0, rows: [] },
+      heldOrders:   { count: 0, rows: [] }
     };
   }
 }

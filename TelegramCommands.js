@@ -576,6 +576,33 @@ var TG_ROUTES = {
     }
   },
 
+  // ⏸ THE PHONE DOOR. The shipping-responsible person is remote, on their
+  // phone, and the incident this exists for started with them announcing a
+  // change into a chat group where it was attached to nothing and nobody had to
+  // answer for it. /hold writes the SAME note the sheet writes, so it lands on
+  // the board, colours the cell, and starts the escalation clock — one line
+  // instead of hunting for a row in mobile Sheets.
+  "/hold": {
+    help:  "hold an order — do NOT hand it to the carrier",
+    usage: "<order> <reason>",
+    run: function (argStr) {
+      if (!argStr) {
+        return "Usage: /hold <order> <reason>\n" +
+               "Example: /hold 24-14979-87359 buyer wants 2-Day, change the service";
+      }
+      return _tgHold(argStr);
+    }
+  },
+
+  "/ack": {
+    help:  "acknowledge a hold — records who saw it, and when",
+    usage: "<order>",
+    run: function (argStr) {
+      if (!argStr) return "Usage: /ack <order>\nExample: /ack 24-14979-87359";
+      return _tgAckHold(argStr.trim().split(/\s+/)[0]);
+    }
+  },
+
   "/unnote": {
     help:  "remove the floor notes from an order (leaves buyer/kit notes)",
     usage: "<order>",
@@ -1252,4 +1279,104 @@ function sendHqControlPanel(chatId) {
 
   _tgSend(target, text, buttons);
   return "Sent to " + target + " - now PIN it in Telegram.";
+}
+
+
+/**
+ * /hold — write a hold onto EVERY live row of an order.
+ *
+ * ⚠ IT DELIBERATELY INCLUDES SHIPPED ROWS, which is the difference between this
+ * and /note. A floor note is for work still being picked; a hold is most often
+ * needed AFTER the label is bought, because buying the label is what tells the
+ * buyer their order shipped — which is what prompts "wait, change it". Refusing
+ * to write on a shipped row would refuse exactly the case this was built for.
+ *
+ * ⚠ FORMULA INJECTION IS IMPOSSIBLE BY CONSTRUCTION: the appended segment always
+ * begins with the word HOLD, so a cell can never start with = + or @ whatever
+ * the sender types.
+ */
+function _tgHold(argStr) {
+  var m = String(argStr || "").trim().match(/^(\S+)\s+([\s\S]+)$/);
+  if (!m) {
+    return "Usage: /hold <order> <reason>\n" +
+           "Example: /hold 24-14979-87359 buyer wants 2-Day\n\n" +
+           "(needs BOTH an order and a reason — the reason is what the floor reads)";
+  }
+  var query = m[1].trim();
+  var text  = m[2].trim().replace(/\s+/g, " ");
+  if (text.length > TG_NOTE_MAX) text = text.slice(0, TG_NOTE_MAX - 1) + "…";
+
+  var lock = LockService.getScriptLock();
+  try { lock.waitLock(15000); }
+  catch (e) { return "⚠ Sheet is busy right now — try again in a moment."; }
+
+  try {
+    var found;
+    try { found = lookupOrder(query); }
+    catch (e) { return "⚠ Lookup failed: " + (e.message || e); }
+    if (!found || !found.rows || !found.rows.length) {
+      return "🔍 No rows on the sheet for " + query + ".\n" +
+             "Check the id — /order " + query + " shows what the system knows.";
+    }
+
+    var live = found.rows.filter(function (r) {
+      return String(r.status || "").trim().toUpperCase() !== Schema.status.CANCELED;
+    });
+    if (!live.length) return "✋ " + query + " is CANCELED — there is nothing left to hold.";
+
+    var sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(MAIN_SHEET_NAME);
+    if (!sheet) return "⚠ All Orders sheet not found.";
+
+    var segment = "HOLD — " + text;
+    var logRows = [], written = 0, shipped = 0;
+    for (var i = 0; i < live.length; i++) {
+      var r = live[i];
+      var existing = String(r.note || "").trim();
+      if (holdNoteHasHold(existing)) continue;      // already held — do not stack
+      var next = existing ? (existing + " · " + segment) : segment;
+      sheet.getRange(r.row, Schema.cols.NOTE).setValue(next);
+      written++;
+      if (String(r.status || "").trim().toUpperCase() === Schema.status.SHIPPED) shipped++;
+      logRows.push(["NOTE", r.salesOrder || query, r.sku, r.qty, "telegram",
+                    "HOLD set", "", next]);
+    }
+    SpreadsheetApp.flush();
+    try { logActivityBatch(logRows); } catch (e) { console.log("_tgHold log: " + e); }
+    try { _dashBustTickCache(); } catch (e) {}
+
+    if (!written) return "⏸ " + query + " is already held — nothing changed.";
+
+    return "⏸ HOLD SET · " + (live[0].salesOrder || query) + "\n\n" +
+           "  " + segment + "\n\n" +
+           "On " + written + " row" + (written === 1 ? "" : "s") +
+           (shipped ? ("  (" + shipped + " already SHIPPED — the box may still be here)") : "") +
+           ".\nThe floor board will sound and take over within a minute.\n" +
+           "If nobody acknowledges it in " + HOLDS.escalateAfterMin + " min, you get told.";
+  } finally {
+    try { lock.releaseLock(); } catch (_) {}
+  }
+}
+
+/**
+ * /ack — the same write the tablet's ✓ Got it makes, from a phone.
+ *
+ * ⚠ Worth being honest about who should use it: this records that somebody has
+ * SEEN the hold. If the person who wrote the hold acknowledges their own hold,
+ * the record says the floor answered when it did not — and the escalation that
+ * would have told them nobody was listening is exactly what gets silenced.
+ */
+function _tgAckHold(query) {
+  query = String(query || "").trim();
+  if (!query) return "Usage: /ack <order>";
+  var res;
+  try { res = boardAckHold(query); }
+  catch (e) { return "⚠ Failed: " + (e.message || e); }
+
+  if (!res || !res.ok) return "⚠ " + ((res && res.error) || "Could not acknowledge that.");
+  if (res.already || !res.rows) {
+    return "ℹ️ " + query + " — nothing to acknowledge (no unanswered hold on it).";
+  }
+  return "✓ Acknowledged · " + query + "\n\n  " + res.tag + "\n\n" +
+         "Stamped on " + res.rows + " row" + (res.rows === 1 ? "" : "s") +
+         ".\n⚠ The hold is STILL ON — this only records that it was seen.";
 }

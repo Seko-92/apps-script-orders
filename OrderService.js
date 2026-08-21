@@ -143,6 +143,16 @@ function doPost(e) {
         boardSetStatus(payload.orderId, payload.status, payload.sku)
       )).setMimeType(ContentService.MimeType.JSON);
     }
+    // ⚠ ACKNOWLEDGING A HOLD — the tablet's half of the 2026-08-21 fix. It is a
+    // WRITE, so it is deliberately absent from DOPOST_LOCK_FREE and keeps the
+    // script lock like every other write. It is NOT gated on the Pick ID: an
+    // urgent alert is the worst possible moment to force someone through a
+    // dropdown, and boardAckHold records "the floor" rather than refusing.
+    if (payload.action === 'boardAckHold') {
+      return ContentService.createTextOutput(JSON.stringify(
+        boardAckHold(payload.orderId)
+      )).setMimeType(ContentService.MimeType.JSON);
+    }
     // --- HOSTED KIT EXPANSION (web-app slice 2) --------------------------------
     // Two endpoints only: read the queue, commit one kit. The client sends
     // IDENTIFIERS and CHOICES; commitKitFromWeb re-derives the kit from a fresh

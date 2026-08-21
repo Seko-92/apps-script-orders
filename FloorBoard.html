@@ -173,6 +173,76 @@ body.beacon .beacon-edge { animation: edgeGlow 2.2s ease-in-out infinite; }
 @keyframes edgeGlow { 0%,100% { opacity: 0.12; box-shadow: inset 0 0 70px rgba(255,212,0,0.5); }
                       50% { opacity: 0.75; box-shadow: inset 0 0 110px rgba(255,212,0,0.6); } }
 
+/* ── ⏸ HOLD — the strip and the takeover (2026-08-21) ────────────────
+   ⚠ RED HERE, AMBER ON THE ROW CHIP, AND THE SPLIT IS DELIBERATE.
+   The 2026-08-15 ruling stands: a hold on a still-PENDING order is a
+   deliberate pause with an owner, not a fault, and spending red on it is
+   how red stops being believed. What changed is that we can now see the
+   OTHER case — a hold landing on an order somebody has already pulled or
+   already bought a label for. That one IS "something disagrees, act on
+   it", which is exactly what red means on this board. So: amber chip on
+   the calm case, red strip on the late one.
+
+   ⚠ THE STRIP GOES CALM ON ACKNOWLEDGEMENT BUT NEVER DISAPPEARS.
+   Acknowledging means "I have seen it", not "it is handled" — the box is
+   still sitting there needing its label voided. If the tap cleared the
+   whole thing we would have swapped a missed message for a dismissed one. */
+.hold-strip { display: none; flex-direction: column; flex: none;
+              border-bottom: 1px solid rgba(255,107,107,0.4); cursor: pointer; }
+.hold-strip.show { display: flex; }
+.hold-strip.unseen { animation: holdPulse 1.5s ease-in-out infinite; }
+@keyframes holdPulse { 0%,100% { background: rgba(255,107,107,0.10); }
+                       50%     { background: rgba(255,107,107,0.28); } }
+.hold-strip.calm { background: rgba(255,184,77,0.10); border-bottom-color: rgba(255,184,77,0.35); }
+.hold-row { display: flex; align-items: center; gap: 12px; padding: 9px 16px;
+            border-top: 1px solid rgba(255,255,255,0.05); }
+.hold-row:first-child { border-top: 0; }
+.hold-mark { font-family: var(--disp); font-weight: 700; letter-spacing: 0.22em;
+             font-size: var(--fs-sub); color: var(--alarm); flex: none; }
+.hold-strip.calm .hold-mark { color: var(--money); }
+.hold-oid  { font-family: var(--mono); font-size: var(--fs-row); color: var(--t1); flex: none; }
+.hold-txt  { font-family: var(--body); font-size: var(--fs-row); color: var(--t1);
+             flex: 1 1 auto; min-width: 0; overflow: hidden;
+             text-overflow: ellipsis; white-space: nowrap; }
+.hold-seen { font-family: var(--mono); font-size: var(--fs-sub); color: var(--ok);
+             flex: none; margin-left: auto; }
+.hold-cta  { font-family: var(--disp); font-weight: 700; letter-spacing: 0.14em;
+             font-size: var(--fs-sub); color: var(--alarm); flex: none; margin-left: auto; }
+
+/* THE TAKEOVER — the interrupt. Deliberately the whole screen: the failure
+   this exists for is a busy person not looking at a strip. */
+.hold-take { position: fixed; inset: 0; z-index: 80; display: flex;
+             align-items: center; justify-content: center;
+             padding: calc(24px + var(--safe-t, 0px)) calc(24px + var(--safe-r, 0px))
+                      calc(24px + var(--safe-b, 0px)) calc(24px + var(--safe-l, 0px));
+             background: rgba(60,8,8,0.90);
+             -webkit-backdrop-filter: blur(5px); backdrop-filter: blur(5px);
+             animation: holdTakeIn 260ms ease-out; }
+.hold-take.hidden { display: none; }
+@keyframes holdTakeIn { from { opacity: 0; } to { opacity: 1; } }
+.ht-card { width: 100%; max-width: 720px; text-align: center;
+           border: 2px solid var(--alarm); border-radius: 18px; padding: 30px 26px;
+           background: rgba(20,14,14,0.94);
+           box-shadow: 0 0 60px rgba(255,107,107,0.35);
+           animation: htBreathe 1.5s ease-in-out infinite; }
+@keyframes htBreathe { 0%,100% { box-shadow: 0 0 40px rgba(255,107,107,0.25); }
+                       50%     { box-shadow: 0 0 90px rgba(255,107,107,0.55); } }
+.ht-mark  { font-family: var(--disp); font-weight: 700; letter-spacing: 0.34em;
+            font-size: 22px; color: var(--alarm); }
+.ht-oid   { font-family: var(--mono); font-size: 30px; color: var(--t1); margin-top: 10px; }
+.ht-state { font-family: var(--disp); font-weight: 600; letter-spacing: 0.16em;
+            font-size: var(--fs-sub); color: var(--money); margin-top: 4px; }
+.ht-txt   { font-family: var(--body); font-size: 21px; color: var(--t1);
+            margin-top: 18px; line-height: 1.45; word-break: break-word; }
+.ht-more  { font-family: var(--mono); font-size: var(--fs-sub); color: var(--t3); margin-top: 12px; }
+.ht-acts  { display: flex; gap: 14px; justify-content: center; margin-top: 26px; flex-wrap: wrap; }
+.ht-btn   { font-family: var(--disp); font-weight: 700; letter-spacing: 0.14em;
+            font-size: var(--fs-row); border-radius: 12px; border: 1px solid var(--ink-rim);
+            padding: 0 26px; min-height: 54px; background: transparent; color: var(--t2);
+            cursor: pointer; }
+.ht-btn.ok { background: var(--brand-yellow); color: #000; border-color: var(--brand-yellow); }
+.ht-note  { font-family: var(--body); font-size: var(--fs-sub); color: var(--t3); margin-top: 16px; }
+
 /* ── THE LIST ─────────────────────────────────────────────────────── */
 .picksplit { flex: 1; min-height: 0; display: flex; position: relative; }
 .pickcol { flex: 1; min-width: 0; overflow-y: auto; padding-bottom: 8px;
@@ -586,6 +656,8 @@ body.ch-direct #pickListDirect { display: block; }
 
 @media (prefers-reduced-motion: reduce) {
   .beacon-strip, .beacon-edge.on, .pick-row.enter, .feed-row.enter { animation: none; }
+  /* the hold's SIGNAL is its colour and its words — the motion is only emphasis */
+  .hold-strip, .hold-take, .ht-card { animation: none; }
   .today-sheet { transition: none; }
 }
 
@@ -1055,6 +1127,13 @@ body.ch-direct #pickListDirect { display: block; }
       <span class="beacon-more" id="beaconMore"></span>
     </div>
 
+    <!-- ⏸ HOLD STRIP — normally NOT DRAWN. It exists only when something is
+         wrong, which is this board's own grammar (healthy rows vanish, the
+         paid-shipping strip appears only above zero). A permanent "orders out
+         today" panel would be tuned out inside a week; a strip that is
+         normally absent is unmissable precisely because it is. -->
+    <div class="hold-strip" id="holdStrip" title="Tap to open"></div>
+
     <!-- THE LIST — two ULs, one per channel; the tabs choose which shows. -->
     <div class="picksplit" id="pickSplit">
       <ul class="pickcol" id="pickListEbay"></ul>
@@ -1147,6 +1226,25 @@ body.ch-direct #pickListDirect { display: block; }
       </div>
     </div>
 
+    <!-- ⏸ THE TAKEOVER — the interrupt for a hold that landed on a box somebody
+         has already pulled or already bought a label for. Dismissable: the
+         strip above carries it afterwards, so nothing is lost by tapping past
+         it, and a modal you cannot escape is a modal that gets resented. -->
+    <div class="hold-take hidden" id="holdTake" role="alertdialog" aria-modal="true">
+      <div class="ht-card">
+        <div class="ht-mark">⏸ HOLD</div>
+        <div class="ht-oid" id="htOid"></div>
+        <div class="ht-state" id="htState"></div>
+        <div class="ht-txt" id="htTxt"></div>
+        <div class="ht-more" id="htMore"></div>
+        <div class="ht-acts">
+          <button class="ht-btn" id="htLater">Later</button>
+          <button class="ht-btn ok" id="htOk">✓ Got it</button>
+        </div>
+        <div class="ht-note">Acknowledging says you have SEEN it — it does not lift the hold.</div>
+      </div>
+    </div>
+
     <audio id="radioAudio" preload="none"></audio>
     <!-- ⚠ HOST FOR THE YOUTUBE-BACKED STATION. Parked OFF-SCREEN rather than
          display:none — the IFrame API refuses to start in an unrenderable box.
@@ -1232,6 +1330,27 @@ body.ch-direct #pickListDirect { display: block; }
       document.getElementById('soundToggle').addEventListener('click', toggleSound);
       document.getElementById('fsToggle').addEventListener('click', toggleFullscreen);
       document.getElementById('beaconStrip').addEventListener('click', beaconClear);
+
+      /* ⏸ HOLD — the strip reopens the takeover, so acknowledging is reachable
+         after someone has tapped past it. A capability you can only reach by
+         being interrupted at the right second is not a capability the floor
+         has — the same lesson as the picker chip that was a <span> for months. */
+      document.getElementById('holdStrip').addEventListener('click', function () {
+        var held = (lastTick && lastTick.held) || [];
+        var pick = null;
+        for (var i = 0; i < held.length; i++) if (!held[i].acked) { pick = held[i]; break; }
+        if (!pick) return;                       // everything already answered for
+        delete holdSeen[pick.orderId];           // let it re-arm the takeover
+        holdFireTakeover([pick]);
+      });
+      document.getElementById('htOk').addEventListener('click', function () {
+        holdAck(holdTakeOid);
+      });
+      /* ⚠ "Later" SILENCES, IT DOES NOT ACKNOWLEDGE — and it must not, or the
+         escape hatch would quietly write somebody's name against a hold they
+         only wanted to get out of the way. The strip stays red, and the
+         server-side escalation still fires. */
+      document.getElementById('htLater').addEventListener('click', holdCloseTakeover);
       // Someone CAN scroll on the tablet — drop the fade once they reach the end.
       ['pickListEbay', 'pickListDirect', 'pickSplit', 'feedList'].forEach(function (id) {
         var el = document.getElementById(id);
@@ -1643,6 +1762,10 @@ body.ch-direct #pickListDirect { display: block; }
       // confirmed, which would make an optimistic pick look like a fresh
       // arrival on the very next tick.
       beaconCheck(tick.openOrders || []);
+      // ⚠ AFTER the pick list, because a held order's rows may be in it — and
+      // BEFORE paintToday so the strip is on screen the same frame the numbers
+      // move. Normally a no-op: `held` is empty on a healthy day.
+      paintHolds(tick.held || []);
       paintToday(c, tick);
       paintLive(c, tick);
       paintFooter(tick);
@@ -1768,6 +1891,175 @@ body.ch-direct #pickListDirect { display: block; }
       document.body.classList.remove('beacon');
       var s = document.getElementById('beaconStrip');
       if (s) s.classList.add('hidden');
+    }
+
+    /* ══════════════ ⏸ HOLD — THE STRIP, THE TAKEOVER, THE SIREN ══════════════
+       Built 2026-08-21 after a shipping change was announced on WhatsApp, missed
+       by a busy picker, and only found after the label had been bought.
+
+       Three failures were stacked and only one was human:
+         · the announcement lived in a CHAT, attached to nothing
+         · the order had gone SHIPPED, so the board stopped showing it at all
+         · the announcer got no feedback, so he assumed it had landed
+
+       This file's half is the middle one plus the interrupt. The note is the
+       single source — the sheet, this strip and the takeover all read the same
+       cell — so acknowledging from ANY door silences it everywhere within one
+       poll, and lifting a hold is just deleting the word while you edit the note
+       you were already reading. The clearing path is the one that usually rots;
+       here there isn't one to rot. */
+
+    var HOLD_SIREN_PLAN = [
+      { every:  20000, times: 6 },   // first ~2 min — hard, this is the moment
+      { every:  60000, times: 5 },   // next ~5 min — a reminder, not a hammering
+      { every: 180000, times: 0 }    // then every 3 min, forever (0 = unbounded)
+    ];
+    var holdSeen    = {};    // orderId -> we have already taken over for this one
+    var holdTakeOid = '';
+    var holdSirenT  = null, holdSirenStep = 0, holdSirenN = 0;
+
+    /* ⚠ THE SOUND DECAYS BUT NEVER EXPIRES, which is the exact OPPOSITE of the
+       arrival beacon three functions up — and the difference is the whole point.
+       That one gives up after 3 minutes because "a beacon that pulses at an empty
+       room all night teaches people to ignore beacons", and for an arrival that
+       is right: the information keeps until someone looks. A hold does not. It
+       has a deadline nobody can see — the carrier — so giving up on it is the
+       failure being fixed. It gets quieter so it cannot become wallpaper; it
+       never goes silent. The EMPTY ROOM is covered by the server-side escalation
+       instead, which is the correct tool for "nobody is here". */
+    function holdSirenStart() {
+      holdSirenStop();
+      // ⚠ OFF-HOURS IS VISUAL ONLY. There is nobody to hear it, and the board
+      // knows the shop is shut. The escalation goes straight to a phone instead.
+      if (isOffHours()) return;
+      holdSirenStep = 0; holdSirenN = 0;
+      siren();
+      holdSirenSchedule();
+    }
+    function holdSirenSchedule() {
+      var plan = HOLD_SIREN_PLAN[Math.min(holdSirenStep, HOLD_SIREN_PLAN.length - 1)];
+      holdSirenT = setTimeout(function () {
+        siren();
+        holdSirenN++;
+        if (plan.times && holdSirenN >= plan.times) { holdSirenStep++; holdSirenN = 0; }
+        holdSirenSchedule();
+      }, plan.every);
+    }
+    function holdSirenStop() {
+      if (holdSirenT) { clearTimeout(holdSirenT); holdSirenT = null; }
+    }
+
+    /* The sentence a human typed, with the machine prefixes and the ack tag
+       stripped — humanNote already owns that grammar for the pick rows. */
+    function holdBody(note) {
+      var h = '';
+      try { h = (humanNote(note) || {}).text || ''; } catch (e) {}
+      var raw = String(h || note || '').trim();
+      return raw.replace(/\s*·?\s*✓\s*SEEN\s.+$/i, '').trim() || '(no text)';
+    }
+    function holdAckText(note) {
+      var m = String(note || '').match(/✓\s*SEEN\s+(.+)$/i);
+      return m ? String(m[1]).trim() : '';
+    }
+
+    function paintHolds(held) {
+      held = held || [];
+      var strip = document.getElementById('holdStrip');
+      if (!strip) return;
+
+      if (!held.length) {
+        strip.className = 'hold-strip';
+        strip.innerHTML = '';
+        holdCloseTakeover();
+        // ⚠ RE-ARM. A future hold on the same order must be able to take over
+        // again — otherwise one lifted hold would permanently deafen the board
+        // to the next one on that box.
+        holdSeen = {}; holdTakeOid = '';
+        return;
+      }
+
+      var unseen = [];
+      for (var u = 0; u < held.length; u++) if (!held[u].acked) unseen.push(held[u]);
+
+      strip.className = 'hold-strip show ' + (unseen.length ? 'unseen' : 'calm');
+      var html = '';
+      for (var i = 0; i < held.length; i++) {
+        var h = held[i];
+        var seen = h.acked ? holdAckText(h.note) : '';
+        html += '<div class="hold-row">' +
+                  '<span class="hold-mark">⏸ HOLD</span>' +
+                  '<span class="hold-oid">' + esc(String(h.orderId || '')) + '</span>' +
+                  '<span class="hold-txt">' + esc(holdBody(h.note)) + '</span>' +
+                  (h.acked
+                    ? '<span class="hold-seen">✓ ' + esc(seen || 'seen') + '</span>'
+                    : '<span class="hold-cta">TAP TO ACKNOWLEDGE</span>') +
+                '</div>';
+      }
+      strip.innerHTML = html;
+
+      /* THE TAKEOVER fires only for a hold that is URGENT — somebody has already
+         pulled the box or already bought the label — and only once per order.
+         A hold on a still-PENDING order stays in the strip and on its rows,
+         which is loud enough for something nobody has acted on yet.
+
+         ⚠ UNLIKE THE ARRIVAL BEACON, THIS DOES FIRE ON THE FIRST TICK AFTER A
+         RELOAD. The beacon suppresses its first tick because it announces
+         EVENTS and history is not news. A hold is not an event, it is an
+         unresolved STATE — a board that reloads next to a box nobody has
+         answered for must say so, not start life pretending it is handled. */
+      var fresh = [];
+      for (var f = 0; f < held.length; f++) {
+        var q = held[f];
+        if (!q.acked && q.urgent && !holdSeen[q.orderId]) fresh.push(q);
+      }
+      if (fresh.length) holdFireTakeover(fresh);
+    }
+
+    function holdFireTakeover(fresh) {
+      var h = fresh[0];
+      for (var i = 0; i < fresh.length; i++) holdSeen[fresh[i].orderId] = true;
+      holdTakeOid = String(h.orderId || '');
+
+      document.getElementById('htOid').textContent = holdTakeOid;
+      document.getElementById('htState').textContent = h.shipped
+        ? 'LABEL ALREADY BOUGHT · the box may still be in the building'
+        : 'ALREADY PULLED · the label is not bought yet';
+      document.getElementById('htTxt').textContent = holdBody(h.note);
+      document.getElementById('htMore').textContent = fresh.length > 1
+        ? ('+' + (fresh.length - 1) + ' more order' + (fresh.length > 2 ? 's' : '') + ' held')
+        : '';
+      document.getElementById('holdTake').classList.remove('hidden');
+      holdSirenStart();
+    }
+
+    function holdCloseTakeover() {
+      holdSirenStop();
+      var t = document.getElementById('holdTake');
+      if (t) t.classList.add('hidden');
+    }
+
+    /* ⚠ A FAILED ACK MUST RE-ARM. The write is the only thing that puts the tag
+       in the note, so if it does not land the hold is still unanswered — and
+       holdSeen would otherwise suppress the takeover forever on a board that
+       thinks it already asked. Same instinct as every optimistic state here:
+       retire on EVIDENCE, never on having tried. */
+    function holdAck(orderId) {
+      orderId = String(orderId || '').trim();
+      if (!orderId) return;
+      holdCloseTakeover();
+      toast('Acknowledging ' + orderId + '…', 1800);
+      hqCall('boardAckHold', { orderId: orderId }).then(function (res) {
+        if (res && res.ok) {
+          toast('✓ Acknowledged — the hold is still ON', 3200);
+          pollSoon();
+        } else {
+          delete holdSeen[orderId];
+          toast('✕ ' + ((res && res.error) || 'Could not save the acknowledgement'), 7000);
+        }
+      }).catch(function () {
+        delete holdSeen[orderId];
+        toast('✕ Could not reach the sheet — this hold is NOT acknowledged', 9000);
+      });
     }
 
     // ---------- TOP BAR — the count that matters + the money caution ----------
@@ -4963,6 +5255,47 @@ body.ch-direct #pickListDirect { display: block; }
             bell(587.33, 0,    0.75); bell(880.00, 0.15, 0.95);
         }
       } catch (e) { /* audio not available — silent */ }
+    }
+
+    /* ⏸ THE HOLD SIREN — deliberately NOT a bell.
+       Every other sound on this board is the same instrument: sine, soft attack,
+       long warm decay. That palette was built so the ear could tell events apart
+       WITHOUT words, and all five of those events are good news or neutral news.
+       A hold is neither, so it gets a different instrument entirely — square
+       wave, hard attack, two alternating tones. It should not be possible to
+       mistake it for an order landing.
+
+       ⚠⚠ IT IGNORES THE MUTE TOGGLE, ON PURPOSE. Every other sound here checks
+       `soundOn` and stays quiet. If this one did too, then "somebody muted the
+       board three weeks ago" would silently disable the one alarm that exists to
+       stop a wrong shipment — and nobody would ever discover it, because the
+       failure looks exactly like a quiet day. The mute is for ambience; this is
+       not ambience. */
+    function siren() {
+      try {
+        if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+        for (var i = 0; i < 3; i++) {
+          buzz(880, i * 0.44,        0.19);
+          buzz(660, i * 0.44 + 0.21, 0.19);
+        }
+      } catch (e) { /* audio not available — the visual is the real signal */ }
+    }
+    function buzz(freq, delay, dur) {
+      var t0   = audioCtx.currentTime + delay;
+      var osc  = audioCtx.createOscillator();
+      var gain = audioCtx.createGain();
+      var filt = audioCtx.createBiquadFilter();
+      // Lowpass keeps a square wave from being harsh on a tablet speaker while
+      // leaving it obviously NOT a bell.
+      filt.type = 'lowpass'; filt.frequency.value = 3200;
+      osc.type = 'square'; osc.frequency.value = freq;
+      gain.gain.setValueAtTime(0, t0);
+      gain.gain.linearRampToValueAtTime(0.10, t0 + 0.006);        // hard attack
+      gain.gain.setValueAtTime(0.10, t0 + Math.max(0.02, dur - 0.03));
+      gain.gain.exponentialRampToValueAtTime(0.0004, t0 + dur);
+      osc.connect(filt); filt.connect(gain); gain.connect(audioCtx.destination);
+      osc.start(t0); osc.stop(t0 + dur + 0.02);
     }
 
     // Soft bell voice — gentle attack, long warm decay, lowpass + faint octave

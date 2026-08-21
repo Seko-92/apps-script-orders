@@ -1417,6 +1417,10 @@ body.dark-theme .zone-header::after {
   gap: 4px;
 }
 
+.alert-hold-act { padding: 8px 10px 10px; display: flex; flex-direction: column; gap: 6px;
+                  border-left: 3px solid #b71c1c; background: rgba(183,26,26,0.07);
+                  border-radius: 6px; margin: 4px 0 8px; }
+.alert-hold-act.hidden { display: none; }
 .alert-row {
   display: flex;
   align-items: center;
@@ -3766,6 +3770,19 @@ body.dark-theme .footer-version { border-color: #2c2c2c; }
           <span class="alert-label">Paid Shipping</span>
           <span class="alert-arrow">›</span>
         </div>
+        <!-- ⏸ HOLDS LEAD THE CARD. Every other alert here reports a backlog —
+             something that will still be true in an hour. A hold has a deadline
+             nobody in this system can see (the carrier), so it goes first. -->
+        <div class="alert-row empty" id="alertHeldOrders" onclick="jumpToAlert('heldOrders')">
+          <span class="alert-count" id="alertCountHeldOrders">0</span>
+          <span class="alert-label">⏸ Held — not acknowledged</span>
+          <span class="alert-arrow">›</span>
+        </div>
+        <div class="alert-hold-act hidden" id="alertHoldAct">
+          <button class="btn-primary" onclick="ackHoldsNow()">✔ Acknowledge selected</button>
+          <span class="empty-hint">Select any row of the held order, then tap.
+            Stamps the time and the Pick ID into the note.</span>
+        </div>
         <div class="alert-row empty" id="alertIntl" onclick="jumpToAlert('intl')">
           <span class="alert-count" id="alertCountIntl">0</span>
           <span class="alert-label">International</span>
@@ -5691,8 +5708,9 @@ function _flashCard(dataId) {
 // ALERTS — actionable counts (paid shipping, intl, low stock, not found, queue)
 // ═══════════════════════════════════════════════════════════════════════════════
 
-var ALERT_KEYS = ['PaidShipping', 'Intl', 'LowStock', 'NotFound', 'OutOfStock', 'NeedPhotos', 'QueueSize', 'NewFromZoho', 'PriceDrift', 'KitPriceDrift', 'OpenCases'];
+var ALERT_KEYS = ['HeldOrders', 'PaidShipping', 'Intl', 'LowStock', 'NotFound', 'OutOfStock', 'NeedPhotos', 'QueueSize', 'NewFromZoho', 'PriceDrift', 'KitPriceDrift', 'OpenCases'];
 var ALERT_KEY_MAP = {
+  HeldOrders:   'heldOrders',
   PaidShipping: 'paidShipping',
   Intl:         'intl',
   LowStock:     'lowStock',
@@ -5731,10 +5749,21 @@ function _paintAlerts(alerts) {
   // Only flash when something actually changed — silent polls stay silent.
   if (anyChanged) _flashCard('alerts');
 
+  // ⏸ The acknowledge button exists only while there is something to answer
+  // for — the same grammar as the rest of this panel, where a healthy state
+  // shows nothing rather than a disabled control.
+  var holdAct = document.getElementById('alertHoldAct');
+  if (holdAct) {
+    var heldN = (alerts.heldOrders && parseInt(alerts.heldOrders.count, 10)) || 0;
+    holdAct.classList.toggle('hidden', heldN <= 0);
+  }
+
   // Hero "has-attention" pulse (Phase 2). Triggers only on warehouse-floor
   // urgencies — Zoho/Prep are already surfaced in the cockpit queue strip,
   // so excluding them avoids a redundant cue layered on the same data.
-  var heroKeys = ['paidShipping', 'intl', 'lowStock', 'notFound', 'outOfStock'];
+  // ⏸ heldOrders leads: it is the only entry here that reaches a CUSTOMER and
+  // is still undoable at the moment it is read.
+  var heroKeys = ['heldOrders', 'paidShipping', 'intl', 'lowStock', 'notFound', 'outOfStock'];
   var heroAlert = heroKeys.some(function(k) {
     return alerts[k] && parseInt(alerts[k].count, 10) > 0;
   });
@@ -5766,6 +5795,37 @@ function _paintAlert(suffix, count) {
  * Click handler for an alert row — server activates the relevant sheet
  * and selects all matching rows. No-op when count is zero.
  */
+/**
+ * ⏸ Acknowledge the hold on whatever rows are selected on the sheet.
+ *
+ * ⚠ THIS IS THE DOOR FOR THE DAY THE TABLET IS NOT USED — flat, forgotten, or
+ * being charged. A capability reachable from only one surface is a capability
+ * the floor loses the moment that surface is unavailable, which is the same
+ * lesson that turned the board's picker chip from a label into a button.
+ *
+ * It writes the SAME tag the tablet writes, into the SAME note, so the two
+ * doors cannot produce different-looking results.
+ */
+function ackHoldsNow() {
+  status.className = 'running';
+  status.textContent = 'Acknowledging…';
+  google.script.run
+    .withSuccessHandler(function (res) {
+      var ok = res && res.ok;
+      status.className = ok ? 'success' : 'error';
+      status.textContent = (res && res.message) || (ok ? 'Done' : 'Nothing acknowledged');
+      playSound(ok ? 'syncDone' : 'error');
+      refreshAlerts();
+      setTimeout(function () { status.className = ''; status.textContent = 'Standing by'; }, 5000);
+    })
+    .withFailureHandler(function (err) {
+      status.className = 'error';
+      status.textContent = 'Failed: ' + (err && err.message ? err.message : err);
+      playSound('error');
+    })
+    .acknowledgeSelectedHold();
+}
+
 function jumpToAlert(alertKey) {
   // Find the corresponding row element to check current state
   var suffix = Object.keys(ALERT_KEY_MAP).filter(function(s) {
@@ -8129,7 +8189,11 @@ window.addEventListener('load',function(){
     '▣':'m-marker','🧮':'m-calc','📥':'m-sync','🔄':'m-sync','🛡':'m-shield',
     '🔗':'m-link','⇅':'m-sort','✔':'m-check','📍':'m-loc','📸':'m-camera',
     '💲':'m-push','📤':'m-push','🩺':'m-health','🧩':'m-part','📄':'m-doc',
-    '⏰':'m-clock','📈':'m-digest','↺':'m-undo','🖨':'m-print','📂':'m-case','⚡':'m-bolt'};
+    '⏰':'m-clock','📈':'m-digest','↺':'m-undo','🖨':'m-print','📂':'m-case','⚡':'m-bolt',
+    /* 🏗 shipped 2026-08-21 without a map entry, so it rendered as the only
+       colour emoji left outside the arcade. m-alert, not m-kit: criticality
+       is a RISK report — the structural sibling of the ripple. */
+    '🏗':'m-alert'};
   var RE=/^(\s*)(\S)(\uFE0F?)\s*/u;
   function mkSvg(id){ var w=document.createElement('span');
     w.innerHTML='<svg><use href="#'+id+'"/></svg>'; return w.firstChild; }

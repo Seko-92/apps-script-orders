@@ -280,6 +280,13 @@ function publishBoardTick(reason) {
     sheet.getRange(PUBLISHED.cells.ERROR).setValue("");
     sheet.getRange(PUBLISHED.cells.SIZE).setValue(json.length);
 
+    // ⚠ THE HOLD SNAPSHOT RIDES THE PUBLISH (2026-08-21). checkHoldEscalation
+    // runs once a minute and must never touch the sheet — see holdRecordLive.
+    // Recording it HERE, after the write, means the property is refreshed
+    // exactly when the answer can have changed (a hold only appears or clears
+    // through a NOTE edit, and every NOTE edit marks the tick dirty).
+    try { holdRecordLive(tick.held || []); } catch (e) { console.log("holdRecordLive: " + e); }
+
     _pubClearDirty();
     // ⚠ RECORD THE FINGERPRINT AFTER the write, so the next run compares against
     // the state this copy represents. Taken fresh rather than reused from the
@@ -346,6 +353,15 @@ function publishBoardTickInline(minGapSec, reason) {
 
 function runPublishTick() {
   try {
+    // ⚠ BEFORE THE SKIP LOGIC, ON PURPOSE. About 76% of runs return early as
+    // "clean and fresh" — and an unacknowledged hold sitting on a quiet board
+    // is precisely the state that produces no changes at all. Hanging the check
+    // below the skip would silence it exactly when it matters. It costs ONE
+    // Script Property read; the sheet is never touched.
+    var esc = "";
+    try { esc = "  |  holds: " + checkHoldEscalation(); }
+    catch (e) { console.log("runPublishTick.holds: " + e); }
+
     var dirty = _pubIsDirty();
     var stale = _pubIsStale();
     var why   = dirty ? "changed" : "keep-fresh";
@@ -358,7 +374,7 @@ function runPublishTick() {
       // the sheet, ~76% of runs land here, and nothing announced is affected.
       if (!_pubShouldFingerprint(new Date().getMinutes())) {
         return "clean and fresh — skipped (net checks every " +
-               PUBLISHED.fpEveryMinutes + " min)";
+               PUBLISHED.fpEveryMinutes + " min)" + esc;
       }
 
       var fp = _pubFingerprint();
@@ -369,17 +385,17 @@ function runPublishTick() {
       // ever failed persistently, "assume changed" would rebuild every minute:
       // 1,440 full rebuilds a day, which is the entire runtime quota. Degrading
       // to today's behaviour (the 8-minute keep-fresh) is the safe direction.
-      if (!fp) return "clean and fresh — skipped (fingerprint unavailable)";
+      if (!fp) return "clean and fresh — skipped (fingerprint unavailable)" + esc;
 
-      if (fp === _pubLastFingerprint()) return "clean and fresh — skipped";
+      if (fp === _pubLastFingerprint()) return "clean and fresh — skipped" + esc;
       dirty = true;
       why   = "sheet moved, unannounced";
     }
 
     var res = publishBoardTick(why);
-    return res.ok
+    return (res.ok
       ? ("published " + res.bytes + " chars in " + res.ms + "ms  (" + why + ")")
-      : ("publish failed: " + res.message);
+      : ("publish failed: " + res.message)) + esc;
   } catch (err) {
     try { console.log("runPublishTick: " + err); } catch (_) {}
     return "error: " + String(err.message || err);
