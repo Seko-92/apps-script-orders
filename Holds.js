@@ -671,6 +671,28 @@ function getHeldOrderCount() {
 }
 
 /**
+ * The single unanswered held order id, or "" when it is not exactly one.
+ * Re-derived from the sheet rather than trusted from a count, so the
+ * no-selection path can never act on a stale number.
+ *
+ * @param {Sheet} sheet
+ * @returns {string}
+ */
+function _holdSoleUnacked(sheet) {
+  try {
+    var lastRow = sheet.getLastRow();
+    if (lastRow < Schema.dataStartRow) return "";
+    var data = sheet.getRange(Schema.dataStartRow, 1,
+                              lastRow - Schema.dataStartRow + 1, Schema.cols.STATUS).getValues();
+    var held = holdScanRows(data);
+    var un = [];
+    for (var i = 0; i < held.length; i++) if (!held[i].acked) un.push(held[i].orderId);
+    return un.length === 1 ? un[0] : "";
+  } catch (e) { return ""; }
+}
+
+
+/**
  * Sidebar entry: acknowledge the hold on whatever rows are selected.
  *
  * ⚠ THIS IS THE DOOR FOR THE DAY THE TABLET IS NOT USED. It exists because a
@@ -687,18 +709,26 @@ function getHeldOrderCount() {
  */
 function acknowledgeSelectedHold() {
   try {
-    var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
-    var sheet = ss.getActiveSheet();
+    /* ⚠⚠ SpreadsheetApp.getActive(), NEVER openById(). This cost a round trip on
+       2026-08-21: openById returns a Spreadsheet handle with NO connection to
+       the user's UI, so getActiveRangeList() on it does not return what the
+       operator has selected — it returns something unrelated, which the
+       dataStartRow guard below then skips, producing a confident "No held rows
+       in the selection" while a held row sat selected on screen.
+       ⚠ THIS IS A DOCUMENTED TRAP IN THIS PROJECT and I walked into it anyway:
+       the v1 openPrepQueue bug was the same mistake (setActiveSheet on an
+       openById reference, so the user's view never switched). KitExpansion —
+       the surface this was modelled on — uses getActive() and gets it right. */
+    var ss = SpreadsheetApp.getActive();
+    var sheet = ss && ss.getActiveSheet();
     if (!sheet || sheet.getName() !== MAIN_SHEET_NAME) {
       return { ok: false, orders: 0, rows: 0,
-               message: "Open the All Orders sheet and select a held row first." };
+               message: "Open the All Orders sheet first, then tap." };
     }
 
-    var ranges = ss.getActiveRangeList();
-    if (!ranges) return { ok: false, orders: 0, rows: 0, message: "Select a row first." };
-
-    var list = ranges.getRanges();
     var wanted = {}, order = [];
+    var ranges = sheet.getActiveRangeList();
+    var list = ranges ? ranges.getRanges() : [];
     for (var r = 0; r < list.length; r++) {
       var start = list[r].getRow(), count = list[r].getNumRows();
       for (var i = 0; i < count; i++) {
@@ -711,9 +741,28 @@ function acknowledgeSelectedHold() {
       }
     }
 
+    /* ⭐ ONE UNANSWERED HOLD NEEDS NO SELECTION AT ALL.
+       Making somebody scroll a 200-row sheet to find and click the row the
+       button is already counting is friction for no safety — when there is
+       exactly ONE candidate the choice is unambiguous by construction, so the
+       tap can just mean it. Two or more and the selection decides, because then
+       it genuinely is a choice and guessing could acknowledge the wrong box. */
+    var autoPicked = "";
     if (!order.length) {
+      var live = getHeldOrderCount();
+      if (live.unacked === 1) {
+        var only = _holdSoleUnacked(sheet);
+        if (only) { order.push(only); autoPicked = only; }
+      }
+    }
+
+    if (!order.length) {
+      var n = 0;
+      try { n = getHeldOrderCount().unacked; } catch (e) {}
       return { ok: false, orders: 0, rows: 0,
-               message: "No held rows in the selection — a hold is a NOTE containing the word HOLD." };
+               message: n > 1
+                 ? ("There are " + n + " unanswered holds — select a row of the one you mean, then tap.")
+                 : "No held rows in the selection — a hold is a NOTE containing the word HOLD." };
     }
 
     var rows = 0;
@@ -722,9 +771,9 @@ function acknowledgeSelectedHold() {
       if (res && res.ok) rows += (res.rows || 0);
     }
     return { ok: true, orders: order.length, rows: rows,
-             message: "✅ Acknowledged " + order.length + " hold" +
-                      (order.length === 1 ? "" : "s") + " · " + rows + " row" +
-                      (rows === 1 ? "" : "s") + " stamped." };
+             message: "✅ Acknowledged " + (autoPicked ? autoPicked : (order.length + " hold" +
+                      (order.length === 1 ? "" : "s"))) + " · " + rows + " row" +
+                      (rows === 1 ? "" : "s") + " stamped. The hold is still ON." };
   } catch (e) {
     console.error("acknowledgeSelectedHold: " + e);
     return { ok: false, orders: 0, rows: 0, message: "Failed: " + String(e.message || e) };
