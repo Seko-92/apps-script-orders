@@ -3778,11 +3778,6 @@ body.dark-theme .footer-version { border-color: #2c2c2c; }
           <span class="alert-label">⏸ Held — not acknowledged</span>
           <span class="alert-arrow">›</span>
         </div>
-        <div class="alert-hold-act hidden" id="alertHoldAct">
-          <button class="btn-primary" onclick="ackHoldsNow()">✔ Acknowledge selected</button>
-          <span class="empty-hint">Select any row of the held order, then tap.
-            Stamps the time and the Pick ID into the note.</span>
-        </div>
         <div class="alert-row empty" id="alertIntl" onclick="jumpToAlert('intl')">
           <span class="alert-count" id="alertCountIntl">0</span>
           <span class="alert-label">International</span>
@@ -4471,6 +4466,19 @@ body.dark-theme .footer-version { border-color: #2c2c2c; }
       <div class="card-toggle">▼</div>
     </div>
     <div class="card-body">
+      <!-- ⏸ THE HOLD SITS ABOVE PRINT PICK LIST, and the position is the point.
+           A hold exists to stop a label being bought — so the control belongs
+           physically between the picker and the button that starts that. It is
+           rendered only while something is held, and the card opens itself when
+           one lands (see refreshAlerts), because a gate inside a collapsed card
+           is not a gate. -->
+      <div class="alert-hold-act hidden" id="alertHoldAct">
+        <button class="btn-primary" onclick="ackHoldsNow()" id="ackHoldBtn">✔ Acknowledge hold</button>
+        <span class="empty-hint">⚠ <strong>Held — do not buy a label yet.</strong>
+          Select any row of that order on the sheet, then tap. Stamps the time and
+          the Pick ID into the note. This records that you have SEEN it — it does
+          not lift the hold.</span>
+      </div>
       <button class="btn-dark" onclick="run('markSelectedPreparing')">Mark Selection Preparing</button>
       <button class="btn-primary" onclick="run('preparePrintSheet')"><span>🖨</span> Print Pick List</button>
     </div>
@@ -5749,13 +5757,28 @@ function _paintAlerts(alerts) {
   // Only flash when something actually changed — silent polls stay silent.
   if (anyChanged) _flashCard('alerts');
 
-  // ⏸ The acknowledge button exists only while there is something to answer
-  // for — the same grammar as the rest of this panel, where a healthy state
-  // shows nothing rather than a disabled control.
+  /* ⏸ The acknowledge control exists only while there is something to answer
+     for — the same grammar as the rest of this panel, where a healthy state
+     shows nothing rather than a disabled control.
+     ⚠ AND THE CARD OPENS ITSELF, because the Fulfillment card is collapsed by
+     default and a gate inside a collapsed card is not a gate. Fired on the RISE
+     only, exactly like the API-quota card: opening it on every poll would fight
+     an operator who deliberately closed it. */
   var holdAct = document.getElementById('alertHoldAct');
   if (holdAct) {
     var heldN = (alerts.heldOrders && parseInt(alerts.heldOrders.count, 10)) || 0;
     holdAct.classList.toggle('hidden', heldN <= 0);
+    var ackBtn = document.getElementById('ackHoldBtn');
+    if (ackBtn) ackBtn.textContent = heldN > 1 ? ('✔ Acknowledge hold (' + heldN + ')')
+                                               : '✔ Acknowledge hold';
+    if (heldN > 0 && _prevHeldCount === 0) {
+      var fc = document.querySelector('.card[data-id="fulfill"]');
+      if (fc && fc.classList.contains('collapsed')) {
+        fc.classList.remove('collapsed');
+        _flashCard('fulfill');
+      }
+    }
+    _prevHeldCount = heldN;
   }
 
   // Hero "has-attention" pulse (Phase 2). Triggers only on warehouse-floor
@@ -5806,6 +5829,10 @@ function _paintAlert(suffix, count) {
  * It writes the SAME tag the tablet writes, into the SAME note, so the two
  * doors cannot produce different-looking results.
  */
+// Held count on the previous poll — so the Fulfillment card opens on the RISE
+// and never re-opens itself under an operator who closed it.
+var _prevHeldCount = 0;
+
 function ackHoldsNow() {
   status.className = 'running';
   status.textContent = 'Acknowledging…';

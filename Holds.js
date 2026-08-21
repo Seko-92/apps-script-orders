@@ -71,10 +71,35 @@ var HOLDS = {
   //
   // ⚠ THE ASYMMETRY PICKS THE NUMBER, not a guess. Escalate too early and it
   // costs one Telegram message. Escalate too late and it costs a voided label,
-  // a re-ship and a customer. So be generous. The real deadline is not a clock
-  // at all — it is carrier pickup, which we cannot see — so this is a floor,
-  // not an estimate.
-  escalateAfterMin: 5,
+  // a re-ship and a customer. The real deadline is not a clock at all — it is
+  // carrier pickup, which we cannot see — so this is a floor, not an estimate.
+  //
+  // ⚠ RAISED 5 → 15 ON 2026-08-21, and the reason matters more than the number.
+  // Five minutes fires while a picker is still WALKING. They may be six aisles
+  // away with the siren going, on their way back to the board — and escalating
+  // on someone who is actively responding is how an alert becomes noise, which
+  // is the precise failure that made the WhatsApp group stop working. Fifteen
+  // means "nobody is coming", not "nobody has arrived yet".
+  //
+  // This one is for a PREPARING hold: pulled from the shelf, label NOT bought.
+  escalateAfterMin: 15,
+
+  // ⭐⭐ SHIPPED GETS ITS OWN, SHORTER WINDOW — the user's call, and the cost of
+  // being late is genuinely different, not just felt differently:
+  //
+  //   PREPARING  · nothing irreversible has happened. The packing bench and the
+  //                label purchase are both still ahead, so a hold caught late
+  //                here costs approximately nothing.
+  //   SHIPPED    · the label is bought. Money is already committed, and the box
+  //                is waiting on a carrier who can arrive at any minute — an
+  //                EXTERNAL deadline this system cannot see. Late here costs the
+  //                label, a re-ship and a customer.
+  //
+  // ⚠ The picker's walk does not get shorter because the order shipped, so this
+  // is deliberately not tiny: eight minutes is still ~24 sirens and a real
+  // chance for someone to reach the board. It trades a little of the walking
+  // allowance for the case where being late actually costs something.
+  escalateShippedAfterMin: 8,
 
   // Script Property holding the last published view of every live hold, written
   // by holdRecordLive() at publish time. The per-minute check reads THIS, never
@@ -88,6 +113,10 @@ var HOLDS = {
   // A key whose hold has vanished is dropped immediately; this only bounds a
   // store that somehow stops being cleaned.
   pruneDays: 14,
+
+  // A held order is 1-3 lines in practice; the cap is a guard against a
+  // fourteen-line kit filling a takeover card nobody can read at a glance.
+  maxItemsShown: 6,
 
   ackMark: "✓ SEEN"
 };
@@ -258,12 +287,31 @@ function holdScanRows(data) {
         // that has been red for 30 seconds otherwise look identical.
         escalated: false,
         escText:   "",
+        /* ⭐ WHAT IS ACTUALLY IN THE BOX (2026-08-21, the user's question).
+           An order id identifies a box to the SYSTEM. It does not identify one
+           to a person standing in an outbound area on a busy afternoon with
+           fifteen boxes in front of them — and a hold that makes you walk to a
+           computer and look up what you are holding has spent most of the time
+           it just saved.
+           ⚠ FREE: these are columns this scan has already read. Deliberately NOT
+           the item title — that lives in Master Inventory, and the cheapest read
+           of it is ~1.9s (the round trip dominates, so narrowing does not help —
+           2026-05-22). SKU + qty + shelf is what identifies a part everywhere
+           else on this board, so it is what identifies one here. */
+        items:   [],
         lines:   0
       };
       order.push(oid);
     }
     var h = byOrder[oid];
     h.lines++;
+    if (h.items.length < HOLDS.maxItemsShown) {
+      h.items.push({
+        sku: sku,
+        qty: data[i][Schema.idx("QTY")],
+        loc: String(data[i][Schema.idx("LOCATION")] || "").trim()
+      });
+    }
     if (status !== Schema.status.SHIPPED) h.shipped = false;
     if (status === Schema.status.PREPARING || status === Schema.status.SHIPPED) h.urgent = true;
     // ⚠ AN ACK ANYWHERE ON THE ORDER COUNTS. The ack is written to every held
@@ -486,7 +534,6 @@ function checkHoldEscalation() {
     catch (e) { state = {}; }
 
     var now     = Date.now();
-    var thresh  = HOLDS.escalateAfterMin * 60000;
     var changed = false;
     var present = {};
     var fired   = 0;
@@ -495,30 +542,79 @@ function checkHoldEscalation() {
       var h = live[i];
       var oid = String(h.o || "").trim();
       if (!oid || h.a) continue;          // acknowledged → nothing to chase
+
+      /* ⚠⚠ URGENT ONLY — PREPARING or SHIPPED. Found 2026-08-21 by the user
+         asking whether that was already true. It was NOT, and the gap was worse
+         than an inconsistency: the takeover and the siren fire only for urgent
+         holds, so a still-PENDING hold produces no prompt to acknowledge at all
+         — which means it could never be answered, which means it would
+         ALWAYS escalate at the threshold. Every calm hold, guaranteed noise, on
+         the channel that exists to be believed.
+
+         A PENDING hold has nothing to undo: no label bought, no box packed, and
+         the picker meets it at every shelf they walk for that order. It is
+         carried by the strip and the row chips, which is the right weight for it.
+
+         ⭐ AND THE CLOCK NOW STARTS AT THE RIGHT MOMENT. Because no state is
+         recorded while it is calm, `first` is stamped the moment the order
+         becomes PREPARING — so the fifteen minutes are counted from when the
+         hold acquired a deadline, not from when it was written. */
+      if (!h.u) continue;
+
       present[oid] = true;
 
-      if (!state[oid]) { state[oid] = { first: now, alerted: 0 }; changed = true; continue; }
-      if (state[oid].alerted) continue;
+      if (!state[oid]) { state[oid] = { first: now, alerted: 0, gate: "" }; changed = true; continue; }
+
+      /* ⭐⭐ TWO GATES, NOT ONE (2026-08-21, the user's call).
+         The rule everywhere else in this system is ALERT ONCE PER CROSSING — and
+         the point is the word CROSSING, not the word once. PREPARING → SHIPPED
+         on a hold nobody has answered for IS a new crossing: the thing you were
+         warned about got materially worse, because a label now exists and money
+         is committed. A second message there is not a repeat, it is a different
+         fact.
+         ⚠ AND IT CANNOT BECOME NOISE, because it only ever fires when somebody
+         SHIPPED an order that had an unacknowledged hold on it — which is the
+         exact disaster this whole feature was built to prevent. If that message
+         is arriving often, the message is not the problem. */
+      var gate = h.s ? "ship" : "prep";
+      if (state[oid].gate === gate) continue;               // already told, same state
+      if (state[oid].gate === "ship") continue;             // ship is terminal — nothing worse to report
+
+      // ⚠ THE WINDOW IS CHOSEN PER ORDER, NOT PER PASS. Reading `h.s` here
+      // rather than stamping a threshold at first sight is what lets a hold that
+      // has been waiting 10 minutes and then ships escalate on the NEXT pass.
+      var thresh = (h.s ? HOLDS.escalateShippedAfterMin : HOLDS.escalateAfterMin) * 60000;
       if (now - state[oid].first < thresh) continue;
 
-      var mins = Math.round((now - state[oid].first) / 60000);
-      var text =
-        "⏸ HOLD NOT ACKNOWLEDGED\n\n" +
-        oid + (h.s ? "  (label already bought)" : "") + "\n" +
-        String(h.n || "").trim() + "\n\n" +
-        "Nobody on the floor has acknowledged this for " + mins + " min.\n" +
-        (h.s ? "The box may still be in the building — worth a call before the carrier takes it."
-             : "Worth a call before the label is bought.");
+      var mins  = Math.round((now - state[oid].first) / 60000);
+      var again = (gate === "ship" && state[oid].gate === "prep");
+      var text = again
+        ? ("🚨 THE HELD ORDER JUST SHIPPED\n\n" +
+           oid + "  (label bought — still not acknowledged)\n" +
+           String(h.n || "").trim() + "\n\n" +
+           "You were told about this " + mins + " min ago and nobody answered.\n" +
+           "A label now exists, so the box is waiting on the carrier — this is the " +
+           "last point where voiding it is still free.")
+        : ("⏸ HOLD NOT ACKNOWLEDGED\n\n" +
+           oid + (h.s ? "  (label already bought)" : "  (picked, label not bought yet)") + "\n" +
+           String(h.n || "").trim() + "\n\n" +
+           "Nobody on the floor has acknowledged this for " + mins + " min" +
+           " (limit " + (h.s ? HOLDS.escalateShippedAfterMin : HOLDS.escalateAfterMin) + ").\n" +
+           (h.s ? "The box may still be in the building — worth a call before the carrier takes it."
+                : "Worth a call before the label is bought."));
 
       var sent = false;
       try { sent = _tgSend(TELEGRAM_ADMIN_CHAT_ID, text); }
       catch (e) { console.log("checkHoldEscalation send: " + e); }
 
       if (sent) {
-        state[oid].alerted = now; changed = true; fired++;
+        state[oid].alerted = now; state[oid].gate = gate; changed = true; fired++;
         // The sheet says it too — see holdStampEscalated. Best-effort by
         // contract: the message is already out and the key is already set, so a
         // failure here can never produce a second alarm.
+        // ⚠ holdStampEscalated refuses to stamp twice, so the second gate adds
+        // no second mark — the cell already says ESCALATED, and repeating it
+        // would lengthen the note without telling anyone anything new.
         try { holdStampEscalated(oid); } catch (e) { console.log("stamp: " + e); }
       }
     }

@@ -209,6 +209,30 @@ body.beacon .beacon-edge { animation: edgeGlow 2.2s ease-in-out infinite; }
 .hold-cta  { font-family: var(--disp); font-weight: 700; letter-spacing: 0.14em;
              font-size: var(--fs-sub); color: var(--alarm); flex: none; margin-left: auto; }
 
+/* ⭐ HOLD LIFTED — the loop closed in the other direction (2026-08-21).
+   Until now nothing told the floor a hold was CLEARED. The strip vanishing was
+   the only signal, and it only reached somebody who happened to be looking — so
+   a box stayed set aside until a human noticed, and the person who lifted it
+   (remotely, on a phone) had no way to know the floor ever found out. That is
+   the same open loop this whole feature was built to close, pointing backwards.
+   Green because it is the one thing here that is good news, and short-lived
+   because it is an EVENT, not a state — unlike the hold itself, which persists
+   until someone deals with it. */
+.lift-strip { display: none; align-items: center; gap: 14px; padding: 0 16px;
+              height: 46px; flex: none; cursor: pointer;
+              background: rgba(76,175,80,0.13);
+              border-bottom: 1px solid rgba(76,175,80,0.40);
+              animation: liftIn 320ms ease-out; }
+.lift-strip.show { display: flex; }
+@keyframes liftIn { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; } }
+.lift-mark { font-family: var(--disp); font-weight: 700; letter-spacing: 0.22em;
+             font-size: var(--fs-sub); color: var(--ok); flex: none; }
+.lift-body { font-family: var(--mono); font-size: var(--fs-row); color: var(--t1);
+             flex: 1 1 auto; min-width: 0; overflow: hidden;
+             text-overflow: ellipsis; white-space: nowrap; }
+.lift-hint { font-family: var(--disp); font-weight: 600; letter-spacing: 0.12em;
+             font-size: var(--fs-sub); color: var(--t3); flex: none; margin-left: auto; }
+
 /* THE TAKEOVER — the interrupt. Deliberately the whole screen: the failure
    this exists for is a busy person not looking at a strip. */
 .hold-take { position: fixed; inset: 0; z-index: 80; display: flex;
@@ -234,6 +258,16 @@ body.beacon .beacon-edge { animation: edgeGlow 2.2s ease-in-out infinite; }
             font-size: var(--fs-sub); color: var(--money); margin-top: 4px; }
 .ht-txt   { font-family: var(--body); font-size: 21px; color: var(--t1);
             margin-top: 18px; line-height: 1.45; word-break: break-word; }
+/* ⭐ WHAT IS IN THE BOX. An order id identifies a box to the system; it does
+   not identify one to a person standing in an outbound area with fifteen boxes
+   in front of them. */
+.ht-items { display: flex; flex-direction: column; gap: 5px; margin-top: 18px;
+            padding-top: 14px; border-top: 1px solid rgba(255,255,255,0.10); }
+.ht-item  { display: flex; align-items: baseline; gap: 12px; justify-content: center;
+            font-family: var(--mono); font-size: var(--fs-row); color: var(--t2); }
+.ht-item b { color: var(--t1); font-weight: 500; }
+.ht-item .q { color: var(--act); }
+.ht-item .l { color: var(--t3); }
 .ht-more  { font-family: var(--mono); font-size: var(--fs-sub); color: var(--t3); margin-top: 12px; }
 .ht-acts  { display: flex; gap: 14px; justify-content: center; margin-top: 26px; flex-wrap: wrap; }
 .ht-btn   { font-family: var(--disp); font-weight: 700; letter-spacing: 0.14em;
@@ -1134,6 +1168,13 @@ body.ch-direct #pickListDirect { display: block; }
          normally absent is unmissable precisely because it is. -->
     <div class="hold-strip" id="holdStrip" title="Tap to open"></div>
 
+    <!-- ⭐ HOLD LIFTED — an EVENT, so it retires by itself. -->
+    <div class="lift-strip" id="liftStrip" title="Tap to dismiss">
+      <span class="lift-mark">✓ HOLD LIFTED</span>
+      <span class="lift-body" id="liftBody"></span>
+      <span class="lift-hint">OK TO SHIP</span>
+    </div>
+
     <!-- THE LIST — two ULs, one per channel; the tabs choose which shows. -->
     <div class="picksplit" id="pickSplit">
       <ul class="pickcol" id="pickListEbay"></ul>
@@ -1236,6 +1277,7 @@ body.ch-direct #pickListDirect { display: block; }
         <div class="ht-oid" id="htOid"></div>
         <div class="ht-state" id="htState"></div>
         <div class="ht-txt" id="htTxt"></div>
+        <div class="ht-items" id="htItems"></div>
         <div class="ht-more" id="htMore"></div>
         <div class="ht-acts">
           <button class="ht-btn" id="htLater">Later</button>
@@ -1351,6 +1393,7 @@ body.ch-direct #pickListDirect { display: block; }
          only wanted to get out of the way. The strip stays red, and the
          server-side escalation still fires. */
       document.getElementById('htLater').addEventListener('click', holdCloseTakeover);
+      document.getElementById('liftStrip').addEventListener('click', holdClearLift);
       // Someone CAN scroll on the tablet — drop the fade once they reach the end.
       ['pickListEbay', 'pickListDirect', 'pickSplit', 'feedList'].forEach(function (id) {
         var el = document.getElementById(id);
@@ -1815,6 +1858,30 @@ body.ch-direct #pickListDirect { display: block; }
                               { passive: true });
     });
 
+    /* ⚠⚠ UNLOCK THE AUDIO ON THE FIRST GESTURE OF THE PAGE'S LIFE.
+       Browsers refuse to start an AudioContext until the user has interacted
+       with the page. Every sound here creates the context LAZILY inside its own
+       call and hopes resume() works — which it cannot, if the tab was opened and
+       then never touched. That is the normal state of a kiosk board: loaded in
+       the morning, left alone, and expected to shout hours later.
+       So this was a latent hole under the arrival beacon too; it only became
+       load-bearing when an ALARM started depending on it. One-shot, passive,
+       removes itself. */
+    (function () {
+      function unlockAudio() {
+        try {
+          if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+          if (audioCtx.state === 'suspended') audioCtx.resume();
+        } catch (e) { /* no audio on this device — the visuals still carry it */ }
+        ['pointerdown', 'touchstart', 'keydown'].forEach(function (ev) {
+          window.removeEventListener(ev, unlockAudio, true);
+        });
+      }
+      ['pointerdown', 'touchstart', 'keydown'].forEach(function (ev) {
+        window.addEventListener(ev, unlockAudio, true);
+      });
+    })();
+
     function beaconCheck(rows) {
       rows = rows || [];
       var t = Date.now();
@@ -1942,6 +2009,26 @@ body.ch-direct #pickListDirect { display: block; }
        over — the TTL only exists for a response that never came back at all. */
     var holdAcked = {};      // orderId -> { tag, until }
 
+    /* ⭐ HOLD LIFTED — the loop closed the other way.
+       Lifting a hold is still just DELETING THE WORD from the note: no new
+       mechanism, no button, no state to rot. What was missing was anyone being
+       TOLD. So the board watches for an order it has been showing as held
+       dropping out of the list, and says so once.
+
+       ⚠⚠ THE ONE FALSE POSITIVE IS EXCLUDED STRUCTURALLY, NOT GUESSED AT. An
+       order can also leave that list because its ROWS were removed — and n8n
+       deletes shipped rows at about 1 AM Houston, which is off-hours. So the
+       announcement is gated to working hours, which rules that out by
+       construction rather than by a heuristic about why it vanished.
+
+       ⚠ AND ONLY FOR ORDERS THIS SESSION ACTUALLY SAW HELD. A board that
+       reloads starts with an empty memory, so it can never announce history as
+       news — the same reasoning that makes the arrival beacon suppress its
+       first tick. Here it matters more: "ok to ship" is an instruction. */
+    var holdKnown  = {};     // orderId -> true, for holds this session rendered
+    var liftTimer  = null;
+    var LIFT_LIFE_MS = 120000;   // an event, not a state — it retires itself
+
     /* ⚠ THE SOUND DECAYS BUT NEVER EXPIRES, which is the exact OPPOSITE of the
        arrival beacon three functions up — and the difference is the whole point.
        That one gives up after 3 minutes because "a beacon that pulses at an empty
@@ -1953,11 +2040,18 @@ body.ch-direct #pickListDirect { display: block; }
        instead, which is the correct tool for "nobody is here". */
     function holdSirenStart() {
       holdSirenStop();
-      // ⚠ OFF-HOURS IS VISUAL ONLY. There is nobody to hear it, and the board
-      // knows the shop is shut. The escalation goes straight to a phone instead.
-      if (isOffHours()) return;
       holdSirenStep = 0; holdSirenN = 0;
       siren();
+      /* ⚠ OFF-HOURS IT SOUNDS ONCE AND THEN GOES QUIET — corrected 2026-08-21
+         after the first build made it silent outright.
+         Silent was wrong in both directions. Off-hours is when the box is MOST
+         certainly still in the building (the carrier has been and gone), and
+         somebody finishing up late is exactly the person who could still act on
+         it — so it has to make a noise at least once. But the repeat decays to
+         every three minutes and never expires, and THAT running all night in an
+         empty warehouse is how a board gets unplugged.
+         One call, then the strip and the phone carry it. */
+      if (isOffHours()) return;
       holdSirenSchedule();
     }
     function holdSirenSchedule() {
@@ -2012,6 +2106,13 @@ body.ch-direct #pickListDirect { display: block; }
       if (!held.length) {
         strip.className = 'hold-strip';
         strip.innerHTML = '';
+        /* ⚠ THE LIFT CHECK RUNS HERE TOO. This branch is the COMMONEST lift of
+           all — there is usually exactly one hold, so clearing it empties the
+           list. An early return before the check would have meant the feature
+           worked for every case except the normal one. */
+        var goneAll = Object.keys(holdKnown);
+        holdKnown = {};
+        if (goneAll.length && !firstTick && !isOffHours()) holdFireLift(goneAll);
         holdCloseTakeover();
         // ⚠ RE-ARM. A future hold on the same order must be able to take over
         // again — otherwise one lifted hold would permanently deafen the board
@@ -2035,7 +2136,9 @@ body.ch-direct #pickListDirect { display: block; }
         html += '<div class="hold-row">' +
                   '<span class="hold-mark">⏸ HOLD</span>' +
                   '<span class="hold-oid">' + esc(String(h.orderId || '')) + '</span>' +
-                  '<span class="hold-txt">' + esc(holdBody(h.note)) + '</span>' +
+                  '<span class="hold-txt">' + esc(holdBody(h.note)) +
+                    (h.lines ? ('  ·  ' + h.lines + ' line' + (h.lines > 1 ? 's' : '')) : '') +
+                  '</span>' +
                   (h.acked
                     ? '<span class="hold-seen">✓ ' + esc(seen || 'seen') + '</span>'
                     /* ⚠ ONCE ESCALATED, SAY SO. A cell red for 40 minutes and one
@@ -2067,6 +2170,35 @@ body.ch-direct #pickListDirect { display: block; }
         if (!q.acked && q.urgent && !holdSeen[q.orderId]) fresh.push(q);
       }
       if (fresh.length) holdFireTakeover(fresh);
+
+      // ── LIFTED? ────────────────────────────────────────────────────────────
+      var nowIds = {};
+      for (var n = 0; n < held.length; n++) nowIds[held[n].orderId] = true;
+      var lifted = [];
+      for (var k in holdKnown) {
+        if (Object.prototype.hasOwnProperty.call(holdKnown, k) && !nowIds[k]) lifted.push(k);
+      }
+      for (var d = 0; d < lifted.length; d++) delete holdKnown[lifted[d]];
+      for (var w = 0; w < held.length; w++) holdKnown[held[w].orderId] = true;
+      if (lifted.length && !firstTick && !isOffHours()) holdFireLift(lifted);
+    }
+
+    function holdFireLift(ids) {
+      document.getElementById('liftBody').textContent =
+        ids.slice(0, 3).join(' · ') +
+        (ids.length > 3 ? ('  +' + (ids.length - 3) + ' more') : '');
+      document.getElementById('liftStrip').classList.add('show');
+      // The board's own "resolved" motif — the same gentle descending phrase it
+      // plays when the pick queue empties. One call: this is news, not an alarm.
+      chime('caughtUp');
+      if (liftTimer) clearTimeout(liftTimer);
+      liftTimer = setTimeout(holdClearLift, LIFT_LIFE_MS);
+    }
+
+    function holdClearLift() {
+      if (liftTimer) { clearTimeout(liftTimer); liftTimer = null; }
+      var el = document.getElementById('liftStrip');
+      if (el) el.classList.remove('show');
     }
 
     function holdFireTakeover(fresh) {
@@ -2079,6 +2211,35 @@ body.ch-direct #pickListDirect { display: block; }
         ? 'LABEL ALREADY BOUGHT · the box may still be in the building'
         : 'ALREADY PULLED · the label is not bought yet';
       document.getElementById('htTxt').textContent = holdBody(h.note);
+
+      /* The contents, so the picker can walk straight to the box instead of
+         going to a computer to look up what they are holding. Hidden entirely
+         when the server has not sent any — an empty ruled box says nothing. */
+      var itemsEl = document.getElementById('htItems');
+      var items = h.items || [];
+      if (items.length) {
+        var rows = '';
+        for (var q = 0; q < items.length; q++) {
+          var it = items[q];
+          var loc = String(it.loc || '').trim();
+          rows += '<div class="ht-item">' +
+                    '<span class="q">×' + esc(String(it.qty == null ? 1 : it.qty)) + '</span>' +
+                    '<b>' + esc(String(it.sku || '')) + '</b>' +
+                    (loc && loc.toUpperCase() !== 'NOT FOUND'
+                      ? '<span class="l">' + esc(loc) + '</span>' : '') +
+                  '</div>';
+        }
+        if (h.lines > items.length) {
+          rows += '<div class="ht-item"><span class="l">+' +
+                  (h.lines - items.length) + ' more line' +
+                  ((h.lines - items.length) > 1 ? 's' : '') + '</span></div>';
+        }
+        itemsEl.innerHTML = rows;
+        itemsEl.style.display = '';
+      } else {
+        itemsEl.innerHTML = '';
+        itemsEl.style.display = 'none';
+      }
       var more = fresh.length > 1
         ? ('+' + (fresh.length - 1) + ' more order' + (fresh.length > 2 ? 's' : '') + ' held')
         : '';
