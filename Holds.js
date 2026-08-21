@@ -411,7 +411,15 @@ function boardAckHold(orderId, source, nameOverride) {
     SpreadsheetApp.flush();
 
     if (!touched) {
-      return { ok: true, rows: 0, tag: tag, already: true };
+      /* ⚠ ALREADY ANSWERED IS A SUCCESS WITH A STORY, not a silent no-op. Return
+         the EXISTING tag so the caller can say who answered and when — "already
+         acknowledged" on its own invites the next question immediately. */
+      var prior = "";
+      for (var k = 0; k < rows.length && !prior; k++) {
+        var n2 = String(sheet.getRange(rows[k], Schema.cols.NOTE).getValue() || "");
+        if (holdNoteHasHold(n2)) prior = holdNoteAckText(n2);
+      }
+      return { ok: true, rows: 0, tag: tag, already: true, priorAck: prior };
     }
 
     try {
@@ -788,15 +796,34 @@ function acknowledgeSelectedHold() {
                  : "No held rows in the selection — a hold is a NOTE containing the word HOLD." };
     }
 
-    var rows = 0;
+    var rows = 0, stamped = 0, already = [], priorOf = {};
     for (var k = 0; k < order.length; k++) {
       var res = boardAckHold(order[k], "sheet");
-      if (res && res.ok) rows += (res.rows || 0);
+      if (!res || !res.ok) continue;
+      if (res.rows > 0) { rows += res.rows; stamped++; }
+      else { already.push(order[k]); priorOf[order[k]] = res.priorAck || ""; }
     }
-    return { ok: true, orders: order.length, rows: rows,
-             message: "✅ Acknowledged " + (autoPicked ? autoPicked : (order.length + " hold" +
-                      (order.length === 1 ? "" : "s"))) + " · " + rows + " row" +
-                      (rows === 1 ? "" : "s") + " stamped. The hold is still ON." };
+
+    /* ⚠ EVERY OUTCOME GETS ITS OWN SENTENCE. The old version reported
+       "Acknowledged 1 hold · 0 rows stamped" when the selection was ALREADY
+       answered — technically true and useless. A control that is always tappable
+       will be tapped in every state, so every state has to answer for itself. */
+    if (!stamped && already.length) {
+      var one = already[0];
+      var when = priorOf[one];
+      return { ok: true, orders: 0, rows: 0, already: true,
+               message: already.length === 1
+                 ? ("ℹ️ " + one + " was already acknowledged" + (when ? (" — " + when) : "") + ".")
+                 : ("ℹ️ All " + already.length + " were already acknowledged.") };
+    }
+
+    var msg = "✅ Acknowledged " + (autoPicked ? autoPicked
+                : (stamped + " hold" + (stamped === 1 ? "" : "s"))) +
+              " · " + rows + " row" + (rows === 1 ? "" : "s") + " stamped. The hold is still ON.";
+    if (already.length) {
+      msg += "  (" + already.length + " already answered.)";
+    }
+    return { ok: true, orders: stamped, rows: rows, message: msg };
   } catch (e) {
     console.error("acknowledgeSelectedHold: " + e);
     return { ok: false, orders: 0, rows: 0, message: "Failed: " + String(e.message || e) };

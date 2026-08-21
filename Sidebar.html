@@ -1417,24 +1417,18 @@ body.dark-theme .zone-header::after {
   gap: 4px;
 }
 
-/* ⏸ ALWAYS PRESENT, and only its VOLUME changes (2026-08-21).
-   It used to render only while something was held — the panel's own grammar,
-   where a healthy state shows nothing. The user pushed back and was right:
-   EVERY other control in this sidebar is permanent, and a button that comes and
-   goes cannot be LEARNED. You can never build the muscle memory of "it is the
-   first thing in Fulfillment" if it is usually not there — which is exactly why
-   it could not be found the first time it was looked for.
-   So the grammar is honoured on VOLUME instead of EXISTENCE: quiet and ordinary
-   when there is nothing to answer for, loud the moment there is. */
-.alert-hold-act { padding: 8px 10px 10px; display: flex; flex-direction: column; gap: 6px;
-                  border-left: 3px solid transparent; border-radius: 6px;
-                  margin: 4px 0 8px; transition: background 200ms ease,
-                  border-color 200ms ease; }
-.alert-hold-act.live { border-left-color: #b71c1c; background: rgba(183,26,26,0.07); }
-.alert-hold-act .hold-warn { display: none; }
-.alert-hold-act.live .hold-warn { display: block; }
-.alert-hold-act:not(.live) #ackHoldBtn { background: transparent; color: var(--text-dim, #8a8a8a);
-                  border: 1px solid rgba(255,255,255,0.12); box-shadow: none; font-weight: 500; }
+/* ⏸ A PLAIN DOOR, LIKE EVERY OTHER BUTTON HERE — final shape, 2026-08-21.
+   It went: rendered only when held → always there but changing volume → this.
+   The user's reason for the last step is the strongest of the three and it is
+   about CORRECTNESS, not taste: a control whose APPEARANCE depends on polled
+   state can be WRONG. The held count arrives on a tick, so it lags by up to a
+   minute and can stall — and a button that looks disabled while a hold is
+   actually outstanding is worse than one that always looks the same.
+   Making it stateless deletes that whole class of problem: the truth is checked
+   FRESH on the server at the moment of the tap, and the answer comes back as a
+   status message. The alert row upstairs still carries the count; that is the
+   signal. This is just the door. */
+.alert-hold-act { padding: 4px 0 8px; display: flex; flex-direction: column; gap: 6px; }
 .alert-row {
   display: flex;
   align-items: center;
@@ -4488,10 +4482,10 @@ body.dark-theme .footer-version { border-color: #2c2c2c; }
            is not a gate. -->
       <div class="alert-hold-act" id="alertHoldAct">
         <button class="btn-primary" onclick="ackHoldsNow()" id="ackHoldBtn">✔ Acknowledge hold</button>
-        <span class="empty-hint hold-warn">⚠ <strong>Held — do not buy a label yet.</strong>
-          With one hold outstanding just tap; with several, select a row of the one
-          you mean first. Stamps the time and the Pick ID into the note. This
-          records that you have SEEN it — it does not lift the hold.</span>
+        <span class="empty-hint">⏸ <strong>A hold means do not buy a label yet.</strong>
+          With one outstanding just tap; with several, select a row of the one you
+          mean first. Stamps the time and the Pick ID into the note — it records
+          that you have SEEN it, and does not lift the hold.</span>
       </div>
       <button class="btn-dark" onclick="run('markSelectedPreparing')">Mark Selection Preparing</button>
       <button class="btn-primary" onclick="run('preparePrintSheet')"><span>🖨</span> Print Pick List</button>
@@ -5803,13 +5797,13 @@ function _paintAlerts(alerts, full) {
      default and a gate inside a collapsed card is not a gate. Fired on the RISE
      only, exactly like the API-quota card: opening it on every poll would fight
      an operator who deliberately closed it. */
-  var holdAct = document.getElementById('alertHoldAct');
-  if (holdAct) {
+  {
     var heldN = (alerts.heldOrders && parseInt(alerts.heldOrders.count, 10)) || 0;
-    holdAct.classList.toggle('live', heldN > 0);
-    var ackBtn = document.getElementById('ackHoldBtn');
-    if (ackBtn) ackBtn.textContent = heldN > 1 ? ('✔ Acknowledge hold (' + heldN + ')')
-                                               : '✔ Acknowledge hold';
+    /* ⚠ THE BUTTON ITSELF IS DELIBERATELY NOT PAINTED FROM THIS COUNT. See the
+       CSS note: a control whose appearance depends on polled state can be wrong,
+       and this count lags by up to a minute. The card still OPENS on the rise,
+       because that is a signal about the hold rather than a claim about the
+       button — and if it is wrong, the worst case is an open card. */
     if (heldN > 0 && _prevHeldCount === 0) {
       var fc = document.querySelector('.card[data-id="fulfill"]');
       if (fc && fc.classList.contains('collapsed')) {
@@ -5878,11 +5872,18 @@ function ackHoldsNow() {
   google.script.run
     .withSuccessHandler(function (res) {
       var ok = res && res.ok;
-      status.className = ok ? 'success' : 'error';
+      /* ⚠ "nothing to acknowledge" and "already answered" are ORDINARY ANSWERS,
+         not failures. The button is always tappable now, so both are reachable
+         on a normal day — painting them red would teach the operator that
+         tapping it is a mistake, which is the opposite of what a permanent
+         control wants. Only a genuine refusal is an error. */
+      var quiet = ok && (res.quiet || res.already);
+      status.className = !ok ? 'error' : (quiet ? '' : 'success');
       status.textContent = (res && res.message) || (ok ? 'Done' : 'Nothing acknowledged');
-      playSound(ok ? 'syncDone' : 'error');
+      if (!quiet) playSound(ok ? 'syncDone' : 'error');
       refreshAlerts();
-      setTimeout(function () { status.className = ''; status.textContent = 'Standing by'; }, 5000);
+      setTimeout(function () { status.className = ''; status.textContent = 'Standing by'; },
+                 quiet ? 6000 : 5000);
     })
     .withFailureHandler(function (err) {
       status.className = 'error';
