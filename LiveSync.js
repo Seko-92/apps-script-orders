@@ -23,6 +23,16 @@ function liveUpdateTrigger(e) {
     var locationResults = [];
     var quantityResults = [];
 
+    // ⚠⚠ POSITIONAL READS HAPPEN FIRST, BEFORE ANYTHING SLOW (2026-08-21).
+    // e.range's coordinates are only trustworthy RIGHT NOW. Map building below
+    // costs 2-5s (~600,000 cells), and n8n inserts arrivals at the top of the
+    // eBay table and sweeps shipped rows all day long. Reading here shrinks the
+    // window from seconds to ~0.
+    //
+    // SALES ORDER values for the edited rows — used to tell a manually-typed
+    // eBay row (Zoho-first) from an automated eBay-order row (MI-first).
+    var soVals = sheet.getRange(startRow, Schema.cols.SALES_ORDER, edits.length, 1).getValues();
+
     // Build maps once (MI for location + eBay stock, Zoho for direct/non-eBay
     // stock). This is cheaper than the old per-row single lookups, which each
     // did a full MI read anyway. The Zoho map is empty if the Zoho Stock sheet
@@ -32,12 +42,25 @@ function liveUpdateTrigger(e) {
     var inventoryMap = maps.inventoryMap;
     var zohoMap = buildZohoStockMap();
 
+    // ⚠⚠ AND NOW RE-CHECK THAT THOSE ROWS STILL MEAN WHAT THEY MEANT.
+    // This is the 2026-05-08 row-shift ruling applied here at last: never write
+    // to a row number captured before a slow operation without confirming it
+    // still holds what you think. Two real failures this closes:
+    //   · rows DELETED  → the coordinates overflow and Apps Script throws
+    //                     "The coordinates of the range are outside the
+    //                     dimensions of the sheet" (emailed 2026-08-20)
+    //   · rows INSERTED → LOCATION and HAND get written to a DIFFERENT order's
+    //                     row, silently, with no error at all. The worse half.
+    // Skipping is the SAFE direction: a blank LOCATION is visible and the picker
+    // retypes, whereas a confidently wrong shelf is not.
+    if (!_liveRowsStillOurs(sheet, startRow, edits)) {
+      console.log("liveUpdateTrigger: rows moved under us at row " + startRow +
+                  " during the map build — skipped rather than writing to the wrong order.");
+      return;   // updateOrderStatsInSheet() below is a documented no-op, so nothing is lost
+    }
+
     // Get boundary row to (a) protect divider/header and (b) route HAND source.
     var boundary = getBoundaryRow();
-
-    // SALES ORDER values for the edited rows — used to tell a manually-typed
-    // eBay row (Zoho-first) from an automated eBay-order row (MI-first).
-    var soVals = sheet.getRange(startRow, Schema.cols.SALES_ORDER, edits.length, 1).getValues();
 
     for (var i = 0; i < edits.length; i++) {
       var currentRow = startRow + i;
@@ -92,6 +115,44 @@ function liveUpdateTrigger(e) {
  * Build both location AND inventory maps at once
  * More efficient than building separately
  */
+/**
+ * Are the rows at `startRow` still the ones that were edited?
+ *
+ * ⚠ THE GUARD IS A COMPARISON, NOT A CLOCK. Re-reading the SKU column and
+ * checking it against what the edit event carried is the only thing that can
+ * tell an unmoved row from a shifted one — elapsed time cannot, because the
+ * sheet may be mutated by n8n at any point during a slow read.
+ *
+ * Also does the bounds check, so a shrunken sheet returns false here instead of
+ * throwing out of a getRange deeper in the function.
+ *
+ * ⚠ Values are compared as TRIMMED STRINGS: live getValues() returns numeric
+ * SKUs as numbers, and both sides come from getValues(), so String() normalises
+ * them consistently. An emptied cell compares "" === "" and is still "ours".
+ *
+ * @param  {Sheet} sheet
+ * @param  {number} startRow
+ * @param  {Array<Array>} edits   the values e.range carried at edit time
+ * @return {boolean}              false ⇒ do not trust the coordinates
+ */
+function _liveRowsStillOurs(sheet, startRow, edits) {
+  try {
+    var n = edits.length;
+    if (!n || startRow < 1) return false;
+    if (startRow + n - 1 > sheet.getMaxRows()) return false;   // rows were deleted
+
+    var now = sheet.getRange(startRow, Schema.cols.SKU, n, 1).getValues();
+    for (var i = 0; i < n; i++) {
+      if (String(now[i][0]).trim() !== String(edits[i][0]).trim()) return false;
+    }
+    return true;
+  } catch (err) {
+    // Unreadable for any reason ⇒ do not write. Same safe direction.
+    console.log("_liveRowsStillOurs: " + err);
+    return false;
+  }
+}
+
 function buildLocationAndInventoryMaps() {
   var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   var dbSheet = ss.getSheetByName(DB_SHEET_NAME);
