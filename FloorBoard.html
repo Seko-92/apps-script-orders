@@ -2015,16 +2015,29 @@ body.ch-direct #pickListDirect { display: block; }
        TOLD. So the board watches for an order it has been showing as held
        dropping out of the list, and says so once.
 
-       ⚠⚠ THE ONE FALSE POSITIVE IS EXCLUDED STRUCTURALLY, NOT GUESSED AT. An
-       order can also leave that list because its ROWS were removed — and n8n
-       deletes shipped rows at about 1 AM Houston, which is off-hours. So the
-       announcement is gated to working hours, which rules that out by
-       construction rather than by a heuristic about why it vanished.
+       ⚠⚠ THE FALSE POSITIVE TO AVOID is an order leaving that list because its
+       ROWS were removed rather than because somebody cleared the note — n8n
+       deletes shipped rows in one sweep at about 1 AM Houston.
+
+       ⚠ MY FIRST GUARD FOR THAT WAS A WORKING-HOURS GATE, AND IT WAS WRONG.
+       It excluded the 1 AM sweep correctly and then excluded almost everything
+       else too: this board also sits on a desk in Riyadh, where Houston working
+       hours are the middle of the night, so the one signal that says "that box
+       can go" would have been invisible to the person most likely to be
+       watching. A guard that silences two thirds of the day to prevent one
+       harmless event is not a guard, it is a switch.
+
+       ⭐ WHAT ACTUALLY SEPARATES THE TWO IS SHAPE, NOT TIME. A person clears one
+       hold. A row sweep drops every shipped order at once. So: announce one or
+       two, stay quiet for three or more. The cost of being wrong is bounded
+       either way — a bulk cleanup is not an "ok to ship" moment anyway, and the
+       strip disappearing still says so to anyone looking.
 
        ⚠ AND ONLY FOR ORDERS THIS SESSION ACTUALLY SAW HELD. A board that
        reloads starts with an empty memory, so it can never announce history as
        news — the same reasoning that makes the arrival beacon suppress its
-       first tick. Here it matters more: "ok to ship" is an instruction. */
+       first tick. Here it matters more: "OK TO SHIP" is an instruction. */
+    var LIFT_SWEEP_MAX = 2;      // 3+ vanishing at once is a sweep, not a lift
     var holdKnown  = {};     // orderId -> true, for holds this session rendered
     var liftTimer  = null;
     var LIFT_LIFE_MS = 120000;   // an event, not a state — it retires itself
@@ -2112,7 +2125,7 @@ body.ch-direct #pickListDirect { display: block; }
            worked for every case except the normal one. */
         var goneAll = Object.keys(holdKnown);
         holdKnown = {};
-        if (goneAll.length && !firstTick && !isOffHours()) holdFireLift(goneAll);
+        if (goneAll.length && goneAll.length <= LIFT_SWEEP_MAX && !firstTick) holdFireLift(goneAll);
         holdCloseTakeover();
         // ⚠ RE-ARM. A future hold on the same order must be able to take over
         // again — otherwise one lifted hold would permanently deafen the board
@@ -2180,7 +2193,7 @@ body.ch-direct #pickListDirect { display: block; }
       }
       for (var d = 0; d < lifted.length; d++) delete holdKnown[lifted[d]];
       for (var w = 0; w < held.length; w++) holdKnown[held[w].orderId] = true;
-      if (lifted.length && !firstTick && !isOffHours()) holdFireLift(lifted);
+      if (lifted.length && lifted.length <= LIFT_SWEEP_MAX && !firstTick) holdFireLift(lifted);
     }
 
     function holdFireLift(ids) {
