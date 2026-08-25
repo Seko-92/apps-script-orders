@@ -329,16 +329,24 @@ function upsertPendingSalesOrder(salesorder) {
   // --- BUILD ROW VALUES FROM PAYLOAD ---
   var rowValues = _payloadToRow(salesorder);
 
-  // Preserve PULLED + PULLED_AT + INVOICE on existing row (upsert doesn't un-pull
-  // or wipe the invoice number; INVOICE is stamped by the separate invoice webhook
-  // and must survive subsequent SO-edit fires).
+  // Preserve PULLED + PULLED_AT + INVOICE + PRICE_CHECK on an existing row.
+  // _payloadToRow builds a fresh row from the Zoho payload alone, so anything
+  // OUR side owns has to be carried across or the write blanks it:
+  //   PULLED / PULLED_AT — an upsert must never un-pull a row
+  //   INVOICE            — stamped by the separate Invoice webhook
+  //   PRICE_CHECK        — ⚠ added 2026-08-25. The stamp below is now SKIPPED
+  //                        for terminal SOs, so without this a row would lose
+  //                        the flag it had earned the moment the order closed.
+  //
+  // ⚠ READ FROM existingValues, NOT THE SHEET. The whole row was already read
+  // at the top of this function and nothing writes to it in between, so the
+  // three getValue() calls that used to be here were three redundant round
+  // trips — and in Apps Script the round trip is the cost.
   if (existingRowNum > 0) {
-    var preservePulled   = sheet.getRange(existingRowNum, PENDING_SO.cols.PULLED).getValue();
-    var preservePulledAt = sheet.getRange(existingRowNum, PENDING_SO.cols.PULLED_AT).getValue();
-    var preserveInvoice  = sheet.getRange(existingRowNum, PENDING_SO.cols.INVOICE).getValue();
-    rowValues[PENDING_SO.idx("PULLED")]    = preservePulled;
-    rowValues[PENDING_SO.idx("PULLED_AT")] = preservePulledAt;
-    rowValues[PENDING_SO.idx("INVOICE")]   = preserveInvoice;
+    rowValues[PENDING_SO.idx("PULLED")]      = existingValues[PENDING_SO.idx("PULLED")];
+    rowValues[PENDING_SO.idx("PULLED_AT")]   = existingValues[PENDING_SO.idx("PULLED_AT")];
+    rowValues[PENDING_SO.idx("INVOICE")]     = existingValues[PENDING_SO.idx("INVOICE")];
+    rowValues[PENDING_SO.idx("PRICE_CHECK")] = existingValues[PENDING_SO.idx("PRICE_CHECK")];
   }
 
   // --- WRITE TO SHEET ---
@@ -356,14 +364,28 @@ function upsertPendingSalesOrder(salesorder) {
   var actionTaken = (existingRowNum > 0) ? "updated" : "inserted";
 
   // --- PRICE CHECK — stamp col N after write (needs MI lookup, not in _payloadToRow) ---
-  // Computed on every webhook fire so the flag stays current as Zoho line
-  // items change AND as MI's currentPrice gets refreshed by Inventory Lite Sync.
+  // Recomputed on every webhook fire so the flag stays current as Zoho line
+  // items change AND as MI's currentPrice gets refreshed upstream.
   // Best-effort: a price-check failure doesn't roll back the row write.
-  try {
-    var priceCheck = _computePriceCheck(salesorder);
-    sheet.getRange(targetRow, PENDING_SO.cols.PRICE_CHECK).setValue(priceCheck.summary);
-  } catch (priceErr) {
-    console.log("upsertPendingSalesOrder: price check stamp failed for " + soNumber + ": " + priceErr);
+  //
+  // ⚠⚠ SKIPPED FOR TERMINAL SOs (2026-08-25) — see _priceCheckIsMoot. This is a
+  // COST gate, and the cost is the point: the check reads Master Inventory, and
+  // it runs inside doPost's script lock, so it queues against runPublishTick,
+  // the Zoho stock push and the floor's ✓ Pick. Paying that to re-derive a
+  // "should we requote this?" flag for an order that is already closed, void or
+  // shipped buys nothing — nobody requotes a shipped order.
+  //
+  // ⚠ Skipping does NOT blank the cell: the existing value was carried into
+  // rowValues by the preserve block above, so a flag earned while the order was
+  // live survives into its terminal state. A brand-new row for an
+  // already-terminal SO is left blank, which is honest — we never checked it.
+  if (!_priceCheckIsMoot(salesorder)) {
+    try {
+      var priceCheck = _computePriceCheck(salesorder);
+      sheet.getRange(targetRow, PENDING_SO.cols.PRICE_CHECK).setValue(priceCheck.summary);
+    } catch (priceErr) {
+      console.log("upsertPendingSalesOrder: price check stamp failed for " + soNumber + ": " + priceErr);
+    }
   }
 
   // --- AUTO-LINK — RETIRED 2026-05-20 ---
@@ -1060,6 +1082,39 @@ function _serializeSlimPayload(salesorder) {
 
 
 /**
+ * Is a price check still worth paying for on this SO?
+ *
+ * The check answers "does Zoho's quoted rate still match eBay?" — a question
+ * that only has a use while the order can still be requoted. Once it is closed,
+ * void, or shipped/fulfilled, nobody acts on the answer.
+ *
+ * ⚠ THIS IS A COST GATE, NOT A CORRECTNESS ONE. _computePriceCheck reads Master
+ * Inventory, and on the webhook path that read happens inside doPost's script
+ * lock — so it queues against runPublishTick, the Zoho stock push and the
+ * floor's ✓ Pick. Added 2026-08-25 after the Zoho SO proxy kept reporting
+ * "connection was aborted": the work was completing, just not before the client
+ * gave up on the socket.
+ *
+ * ⚠ Only the WEBHOOK path consults this. The sidebar preview
+ * (previewPendingSalesOrder) still computes fresh for any SO the operator asks
+ * about — that is on demand, someone is waiting for it, and they may well be
+ * asking precisely because the order is closed.
+ *
+ * @returns {boolean} true when the check should be skipped.
+ */
+function _priceCheckIsMoot(salesorder) {
+  if (!salesorder || typeof salesorder !== 'object') return true;
+  // Same normalisation shape as _handleZohoVoid / _handleZohoShipped, so the
+  // three agree on what these words mean.
+  var status  = String(salesorder.status || "").trim().toLowerCase();
+  var shipped = String(salesorder.shipped_status || "").trim().toLowerCase();
+  if (status === 'closed' || status === 'void') return true;
+  if (shipped === 'shipped' || shipped === 'fulfilled') return true;
+  return false;
+}
+
+
+/**
  * Compare Zoho line-item prices (rate) against MI.currentPrice per SKU.
  * Returns:
  *   {
@@ -1092,16 +1147,27 @@ function _computePriceCheck(salesorder) {
   var lineItems = Array.isArray(salesorder.line_items) ? salesorder.line_items : [];
   if (lineItems.length === 0) return EMPTY;
 
-  var maps;
-  try { maps = buildLocationAndInventoryMaps(); }
-  catch (e) {
-    console.log("_computePriceCheck: buildLocationAndInventoryMaps failed: " + e);
+  // ⚠⚠ THERE USED TO BE A buildLocationAndInventoryMaps() CALL HERE AND IT WAS
+  // DEAD (removed 2026-08-25). It read the WHOLE of Master Inventory —
+  // getDataRange(), ~3,635 x 198 = ~720,000 cells, measured 1.9-4.9s — into a
+  // `maps` variable that nothing below ever read. This function needs prices,
+  // and prices are not in that map's shape (qty/sold/available), so the answer
+  // always came from _buildEbayPriceMap() alone.
+  //
+  // It was not free: this runs inside doPost's script lock on EVERY Zoho SO
+  // webhook fire, so it doubled the lock hold and was the main reason the n8n
+  // proxy kept reporting "connection was aborted" — the client giving up on a
+  // socket while the work quietly completed. Fewer ROUND TRIPS is the lever
+  // that works here; narrowing a read is not (198 cols vs 39 measured
+  // 1,905ms vs 1,872ms on this sheet, 2026-08-19).
+  var priceMap = _buildEbayPriceMap();
+
+  // null means MI could not be read AT ALL — say so, rather than reporting
+  // every line as "not found", which reads as a clean answer about the SO.
+  if (priceMap === null) {
     return { summary: "— MI unavailable", totalDelta: 0, offCount: 0, notFoundCount: 0,
              totalCount: lineItems.length, direction: "EMPTY", items: [] };
   }
-  // currentPrice lives on MI but isn't in the lightweight inventoryMap shape
-  // (which is just qty/sold/available). Read MI directly for the price column.
-  var priceMap = _buildEbayPriceMap();
 
   var absT = (PENDING_SO.priceCheck && PENDING_SO.priceCheck.absThreshold) || 1.0;
   var pctT = (PENDING_SO.priceCheck && PENDING_SO.priceCheck.pctThreshold) || 0.02;
@@ -1202,17 +1268,24 @@ function _computePriceCheck(salesorder) {
  * what the customer will be charged once stock returns, so it's a valid
  * reference for OOS items.
  *
- * Returns an empty Map if MI is missing, has neither price column, or any
- * other read failure — caller treats missing entries as no-reference.
+ * ⚠ RETURNS null WHEN MI COULD NOT BE READ AT ALL — sheet missing, no data
+ * rows, neither price column present, or the read threw. That is a DIFFERENT
+ * fact from "read it fine, this SKU has no price", which is an empty Map, and
+ * the caller renders the two differently ("— MI unavailable" vs "⚠ NOT FOUND").
+ * Collapsing them would put a reassuring label on a broken state.
+ *
+ * Added 2026-08-25 when the dead buildLocationAndInventoryMaps() call — which
+ * had been the only thing detecting an unreadable MI — was removed from
+ * _computePriceCheck. Sole caller, so the contract change is contained.
  */
 function _buildEbayPriceMap() {
   var map = new Map();
   try {
     var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
     var sheet = ss.getSheetByName(DB_SHEET_NAME);
-    if (!sheet) return map;
+    if (!sheet) return null;
     var lastRow = sheet.getLastRow();
-    if (lastRow < 2) return map;
+    if (lastRow < 2) return null;
     var lastCol = sheet.getLastColumn();
     var headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
     var skuIdx = -1;
@@ -1224,7 +1297,7 @@ function _buildEbayPriceMap() {
       else if (h === 'currentprice')         currentIdx = i;
       else if (h === 'startprice')           startIdx   = i;
     }
-    if (skuIdx < 0 || (currentIdx < 0 && startIdx < 0)) return map;
+    if (skuIdx < 0 || (currentIdx < 0 && startIdx < 0)) return null;
     var data = sheet.getRange(2, 1, lastRow - 1, lastCol).getValues();
     for (var r = 0; r < data.length; r++) {
       var sku = String(data[r][skuIdx] || "").trim().toLowerCase();
@@ -1239,6 +1312,7 @@ function _buildEbayPriceMap() {
     }
   } catch (e) {
     console.log("_buildEbayPriceMap error: " + e);
+    return null;
   }
   return map;
 }
