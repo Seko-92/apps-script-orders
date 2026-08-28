@@ -37,6 +37,53 @@ var DOPOST_LOCK_FREE = {
   boardPart: 1, boardPartLite: 1, boardOrder: 1
 };
 
+/* ⭐ DOES THIS REQUEST NEED THE SCRIPT LOCK? (2026-08-28)
+   ─────────────────────────────────────────────────────────────────────────────
+   PURE — no SpreadsheetApp, no LockService, no clock — so the decision that
+   guards the floor's most contended resource is Node-testable in isolation.
+
+   ⚠⚠ WHY THE SECOND CLAUSE EXISTS. eBay is connected to Zoho, so EVERY eBay
+   order becomes a Zoho Sales Order and fires the SO webhook. upsertPendingSalesOrder
+   already discards them — but the filter lives INSIDE it, i.e. AFTER waitLock(30000).
+   So each one took a full place in the lock queue and only then discovered it had
+   nothing to do.
+
+   Measured 2026-08-28: bursts of 4–12+ webhooks in the SAME SECOND, all different
+   SO numbers, all `sales_channel: ebay_us`, all returning
+   `skipped · Non-direct channel: ebay_us`. Roughly 130–180 a day — about 6–9
+   minutes of runtime and that many lock acquisitions, spent on orders we throw away.
+   Zoho polls eBay on a schedule and batch-creates the orders, which is why they
+   arrive all at once rather than spread out.
+
+   ⚠ IT IS PROVABLY SAFE TO SKIP THE LOCK HERE. Read upsertPendingSalesOrder's
+   opening: a type check, a salesorder_number read, then the channel filter returns.
+   The first touch of anything shared — SpreadsheetApp.openById — is AFTER that
+   filter. A non-direct SO never reaches a sheet, a cache or a property.
+
+   ⚠ FOUR THINGS THIS MUST NOT BREAK, each pinned by a test:
+     1. INVOICES still lock. They arrive on the same action with `invoice` rather
+        than `salesorder`, and they DO write (the INVOICE column).
+     2. A BLANK channel still locks — mirroring `if (channel && ...)` inside
+        upsertPendingSalesOrder exactly. If Zoho ever stops sending the field,
+        nothing silently disappears.
+     3. Scoped to action `zohoSalesOrder`. The backfill path is left alone.
+     4. An unparseable body means `payload` is undefined → lock. Fail safe, as before.
+
+   ⚠ The n8n proxy should ALSO filter these upstream so they never arrive at all
+   (that is the bigger win — this saves the lock slot, not the container start).
+   This guard stays regardless: deploy/ holds a from-scratch rebuild template with
+   no filter node in it, so this is what stops the cost silently returning. */
+function _doPostNeedsLock(action, payload) {
+  if (DOPOST_LOCK_FREE[action]) return false;
+
+  if (action === 'zohoSalesOrder' && payload && payload.salesorder) {
+    var ch = String(payload.salesorder.sales_channel || '').trim().toLowerCase();
+    if (ch && ch !== 'direct_sales') return false;   // eBay/Amazon → discarded anyway
+  }
+
+  return true;
+}
+
 function doPost(e) {
   // Peek at the action before deciding on the lock. Parsing touches no shared
   // state, so it is safe to do outside. Both doors are checked: the body (n8n)
@@ -50,7 +97,7 @@ function doPost(e) {
   }
 
   var lock = null;
-  if (!DOPOST_LOCK_FREE[_peekAction]) {
+  if (_doPostNeedsLock(_peekAction, _peek)) {
     lock = LockService.getScriptLock();
     try {
       lock.waitLock(30000);
