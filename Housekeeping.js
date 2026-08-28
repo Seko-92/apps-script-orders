@@ -197,6 +197,22 @@ function _housekeepingPass() {
   try { parts.push(checkPublishedPulse()); }
   catch (e) { parts.push("❌ Pulse: " + e); console.log("Housekeeping Pulse error: " + e); }
 
+  // ORDER ARCHIVE (2026-08-28) — roll each COMPLETED order into one durable row
+  // before purgeOldActivityLog destroys the events it was built from.
+  //
+  // ⚠ THIS IS THE CHEAPEST JOB IN THE PASS ON 11 OF 12 RUNS. It archives whole
+  //   COMPLETED DAYS only, so once the watermark reaches yesterday it returns after a
+  //   single Script Property read — no sheet access at all. The one expensive run per
+  //   day reads the Activity Log once, in full, which is why it lives here rather than
+  //   on a per-transition hook: n8n's shipped sweep flips orders in BATCHES, so
+  //   hooking updateOrderStatus would mean one log read per flipped order AND would
+  //   put work on the floor's hot write path, which this project's own ruling forbids.
+  //
+  // ⚠ It reads the Activity Log itself — none of that is in `maps` — but it stays
+  //   inside the same try/catch discipline as every other job here.
+  try { parts.push(runOrderArchiveSweep()); }
+  catch (e) { parts.push("❌ Order archive: " + e); console.log("Housekeeping archive error: " + e); }
+
   var summary = parts.join("  |  ");
   console.log("Housekeeping: " + summary);
   return summary;
@@ -228,6 +244,13 @@ function setupHousekeeping() {
 
   try { setupPrepQueueSheet(); msgs.push("Prep Queue re-styled + chip"); }
   catch (e) { msgs.push("⚠ Prep Queue setup: " + e); console.log("setupHousekeeping Prep setup error: " + e); }
+
+  // ⚠ No pulse chip on this one, deliberately — see the note on _oaPaintStatus.
+  //   The shared chip's tiers go RED past 26h, and the archive is swept ONCE A DAY
+  //   by design, so a perfectly healthy sheet would sit amber and drift red before
+  //   every sweep. It carries a plain factual status line instead.
+  try { setupOrderArchiveSheet(); msgs.push("Order Archive ready"); }
+  catch (e) { msgs.push("⚠ Order Archive setup: " + e); console.log("setupHousekeeping Archive setup error: " + e); }
 
   // --- 2) Trigger swap ---
   var removed = 0;

@@ -4445,6 +4445,28 @@ body.dark-theme .footer-version { border-color: #2c2c2c; }
     </div>
   </div>
 
+  <div class="card collapsed" data-id="order-archive" draggable="true">
+    <div class="card-header" onclick="toggleCollapse(this)">
+      <div class="drag-handle" title="Drag to reorder">☰</div>
+      <div class="card-title"><div class="card-icon">📄</div><h3>Order Archive</h3></div>
+      <div class="card-toggle">▼</div>
+    </div>
+    <div class="card-body">
+      <button class="btn-secondary" onclick="run('openOrderArchive')">Open Sheet</button>
+      <details class="card-more">
+        <summary>More tools</summary>
+        <div class="card-more-content">
+          <button class="btn-info" id="oaSweepBtn" onclick="sweepArchiveNow()">🔄 Sweep now</button>
+          <button class="btn-info" id="oaBackfillBtn" onclick="backfillArchiveNow()">↺ Backfill from the log</button>
+        </div>
+      </details>
+      <div id="oaResult" class="empty-hint">
+        The Activity Log is <strong>purged at 90 days</strong>. This rolls every <strong>completed</strong> order into one permanent row first — who picked it, how long it waited, how long the work took.<br><br>
+        It runs itself, hourly, and archives <strong>whole finished days</strong>, so an order shipped today is archived tomorrow. <strong>Backfill</strong> catches up everything still in the log — run it repeatedly until it says DONE.
+      </div>
+    </div>
+  </div>
+
   <div class="card collapsed" data-id="location-update" draggable="true">
     <div class="card-header" onclick="toggleCollapse(this)">
       <div class="drag-handle" title="Drag to reorder">☰</div>
@@ -7758,6 +7780,59 @@ function resetWatchdogNow() {
           function (r) { r.resetStragglerWatchdog(); });
 }
 
+// ---- Order Archive ----------------------------------------------------------
+// `oa` prefix on purpose: `wd*` is the Weekly Digest and `sw*` is the Straggler
+// Watchdog. Third collision avoided in the same file.
+var isArchiveBusy = false;
+
+function _oaPaint(text) {
+  var el = document.getElementById('oaResult');
+  if (!el) return;
+  el.classList.remove('empty-hint');
+  el.style.whiteSpace = 'pre-wrap';
+  el.style.fontFamily = "'Roboto Mono', monospace";
+  el.style.fontSize = '11px';
+  el.textContent = text;
+}
+
+function _oaCall(btnId, label, busyLabel, statusMsg, okMsg, fn) {
+  if (isArchiveBusy || typeof google === 'undefined' || !google.script) return;
+  var btn = document.getElementById(btnId);
+  isArchiveBusy = true;
+  if (btn) { btn.disabled = true; btn.textContent = busyLabel; }
+  status.className = 'syncing'; status.textContent = statusMsg;
+  var done = function () {
+    isArchiveBusy = false;
+    if (btn) { btn.disabled = false; btn.textContent = label; }
+  };
+  var runner = google.script.run
+    .withSuccessHandler(function (text) {
+      done();
+      status.className = 'success'; status.textContent = okMsg;
+      _oaPaint(text);
+      playSound('syncDone');
+    })
+    .withFailureHandler(function (err) {
+      done();
+      status.className = 'error'; status.textContent = 'Archive failed: ' + err;
+      playSound('error');
+    });
+  fn(runner);
+}
+
+function sweepArchiveNow() {
+  _oaCall('oaSweepBtn', '🔄 Sweep now', '⏳ Sweeping…',
+          'Archiving completed orders…', '✓ Archive swept',
+          function (r) { r.runOrderArchiveSweep(); });
+}
+
+function backfillArchiveNow() {
+  if (!confirm('Catch the archive up from the Activity Log?\n\nThis processes up to 45 days per run. If it reports MORE REMAINS, run it again until it says DONE.\n\nIt only ever ADDS rows — orders already archived are skipped.')) return;
+  _oaCall('oaBackfillBtn', '↺ Backfill from the log', '⏳ Backfilling…',
+          'Backfilling the order archive…', '✓ Backfill pass complete',
+          function (r) { r.backfillOrderArchive(); });
+}
+
 // ---- Kit Health text reports · ripple + criticality --------------------------
 // Two lenses on the same engine, both read-only, both painting into the Kit
 // Health card's result panel.
@@ -8107,7 +8182,7 @@ function applyZones() {
     ['today',        "TODAY'S WORK", ['alerts', 'order-lookup', 'investigations', 'zoho-pull', 'kit-expand', 'fulfill', 'displays']],
     ['table-tools',  'TABLE TOOLS',  ['ebay', 'direct', 'live', 'location-update']],
     ['inventory',    'INVENTORY',    ['part-console', 'prep-queue', 'out-of-stock', 'low-stock', 'stock-highlight', 'price-audit', 'kit-pricing', 'kit-health']],
-    ['diagnostics',  'DIAGNOSTICS',  ['weekly-digest', 'watchdog', 'duplicates', 'sheet-protect', 'api-monitor', 'arcade']]
+    ['diagnostics',  'DIAGNOSTICS',  ['weekly-digest', 'watchdog', 'order-archive', 'duplicates', 'sheet-protect', 'api-monitor', 'arcade']]
   ];
 
   // Snapshot all cards by id before we move anything
@@ -8224,7 +8299,9 @@ window.addEventListener('load',function(){
     'price-push':'m-push','kit-health':'m-health','displays':'m-board',
     'location-update':'m-loc',fulfill:'m-print','zoho-pull':'m-pull',ebay:'m-stock',
     direct:'m-case',duplicates:'m-alert','stock-highlight':'m-oos','api-monitor':'m-digest',
-    arcade:'m-board'};
+    arcade:'m-board',
+    /* the archive is a RECORD — m-doc, the same mark the PDF report wears. */
+    'order-archive':'m-doc'};
   function mark(el,id){ el.innerHTML='<svg><use href="#'+id+'"/></svg>'; }
   document.querySelectorAll('.card').forEach(function(c){
     var ic=c.querySelector('.card-icon'); if(!ic) return;
