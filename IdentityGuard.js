@@ -54,7 +54,16 @@ var IDENTITY_GUARD = {
   // credibility on the normal case — the ruling that killed the "not counted" marker.
   watch: ["SKU", "SALES_ORDER"],
 
-  flagBg:   "#ffe0b2",          // amber — a fact to check, not the red that means act now
+  // ⚠⚠ #ffe0b2 WAS TOO CLOSE TO THE BANDING. The row banding is #fff8e7 cream, and a
+  //   pale amber beside it is indistinguishable by eye — so a CLEARED row and a FLAGGED
+  //   row looked the same, and 2026-08-29 was spent chasing a highlight that was just
+  //   banding. A signal you cannot tell from the background is not a signal.
+  //   #ffab40 is unmistakable and still not the red that means "act now".
+  flagBg:   "#ffab40",
+  // ⚠ Any colour this flag has EVER worn. A row still wearing an old one would
+  //   otherwise be unclearable — the clear looks for the current colour only, so a
+  //   rename would strand every flag painted before it. Never remove entries.
+  legacyBg: ["#ffe0b2"],
   flagNote: "⚠ IDENTITY UNKNOWN",
 
   dirtyKey:   "IDENTITY_GUARD_DIRTY",
@@ -81,6 +90,14 @@ var IDENTITY_GUARD = {
 // =======================================================================================
 // PURE CORE — no Sheets, no network. Node-testable.
 // =======================================================================================
+
+/** Is this background one of OURS — current colour or any it has worn before? */
+function _igIsOurFlag(bg) {
+  var c = String(bg || "").toLowerCase();
+  if (c === IDENTITY_GUARD.flagBg.toLowerCase()) return true;
+  return IDENTITY_GUARD.legacyBg.some(function (o) { return c === o.toLowerCase(); });
+}
+
 
 /** Identity signature. Matches doPost's dedupe key so the two can never disagree. */
 function _igSig(orderId, sku) {
@@ -269,7 +286,7 @@ function runIdentityReconcile() {
       status:  r[Schema.idx("STATUS")]
     }, known);
 
-    var isFlagged = String(bgs[i][0] || "").toLowerCase() === IDENTITY_GUARD.flagBg.toLowerCase();
+    var isFlagged = _igIsOurFlag(bgs[i][0]);
 
     if (v.verdict === "mismatch") {
       if (!isFlagged) _igPaint(sheet, rowNum, true);
@@ -420,7 +437,7 @@ function clearIdentityFlags() {
   var bgs = sheet.getRange(Schema.dataStartRow, 1, n, Schema.dataWidth).getBackgrounds();
   var cleared = 0;
   for (var i = 0; i < bgs.length; i++) {
-    if (String(bgs[i][0] || "").toLowerCase() !== IDENTITY_GUARD.flagBg.toLowerCase()) continue;
+    if (!_igIsOurFlag(bgs[i][0])) continue;
     _igPaint(sheet, Schema.dataStartRow + i, false);
     cleared++;
   }
@@ -548,9 +565,42 @@ function diagnoseIdentityFlags() {
 
   var head = "── IDENTITY FLAGS ──\n" + rows.length + " row(s) currently wearing OUR amber (" +
              IDENTITY_GUARD.flagBg + ")";
+
+  // ⚠⚠ ALWAYS REPORT WHAT IS ACTUALLY THERE. 2026-08-29: a row was visibly tan while the
+  //   reconcile reported "0 flagged · 0 cleared" — it could not clear paint it had not
+  //   applied, and there was no way to learn the real colour except by asking the sheet.
+  //   A diagnostic that only looks for its OWN colour cannot answer "then whose is it?",
+  //   which was the entire question.
+  var seen = {};
+  for (var j = 0; j < n; j++) {
+    var c = String(bgs[j][0] || "").toLowerCase();
+    if (!seen[c]) seen[c] = { count: 0, rows: [] };
+    seen[c].count++;
+    if (seen[c].rows.length < 6) seen[c].rows.push(Schema.dataStartRow + j);
+  }
+  var WHOSE = {
+    "#ffab40": "the identity guard  ← OURS",
+    "#ffe0b2": "the identity guard (OLD colour, pre-2026-08-29)  ← OURS",
+    "#fff8e7": "row banding (normal, alternating)",
+    "#ffffff": "NO static fill — what you SEE here is the banding or a CF rule",
+    "#ffd400": "the DIRECT divider band",
+    "#1d1d1b": "a header row (banner row 3, or the DIRECT header)",
+    "#fff3b0": "duplicate SALES ORDER highlight — setupDuplicateSalesOrderHighlighting",
+    "#ffe5e5": "Zoho removed/qty-changed flag — _flagDirectRow",
+    "#ffe5e5": "Zoho removed/qty-changed flag — _flagDirectRow"
+  };
+  head += "\n\nEVERY background actually present in column A:";
+  Object.keys(seen).sort(function (a, b) { return seen[b].count - seen[a].count; })
+    .forEach(function (c) {
+      head += "\n  " + (c || "(none)") + "  ×" + seen[c].count +
+              "   rows " + seen[c].rows.join(", ") + (seen[c].count > 6 ? " …" : "") +
+              "\n      " + (WHOSE[c] || "⚠ UNRECOGNISED — not painted by anything we know of");
+    });
+
   if (!rows.length) {
-    head += "\n\nNothing is flagged by the guard. Any tan you can see is the row banding\n" +
-            "(#fff8e7) or the duplicate-SO highlight (#fff3b0), neither of which is ours.";
+    head += "\n\nNothing is flagged by the guard, so a tan row you can see was painted by\n" +
+            "something else — find its colour above. clearIdentityFlags() only removes\n" +
+            IDENTITY_GUARD.flagBg + " and will not touch it.";
     console.log(head);
     return head;
   }
