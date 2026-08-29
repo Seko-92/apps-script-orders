@@ -1414,9 +1414,9 @@ function updateMessageStatus(chatId, messageId, originalText, orderId, newStatus
 // ═══════════════════════════════════════════════════════════════════════════════════════
 
 /**
- * onEdit handler for manual order entry — fires for BOTH tables.
+ * onEdit handler for MANUAL order entry in the All Orders sheet.
  *
- * Use cases:
+ * Fires for the two human-entry paths:
  *   - DIRECT-table sales orders: typed by hand below the boundary divider.
  *   - eBay-table replacement orders: occasionally typed by hand above the
  *     boundary (e.g., a replacement we're sending for a damaged item that
@@ -1428,19 +1428,33 @@ function updateMessageStatus(chatId, messageId, originalText, orderId, newStatus
  *
  * Trigger condition:
  *   - Edit is on the All Orders sheet
- *   - Cell is in the SALES_ORDER column (col D)
+ *   - SKU (col A) OR SALES_ORDER (col D) intersects the edited range
  *   - Row is in a data area (≥ dataStartRow, not the divider or DIRECT header)
- *   - Single-cell edit (multi-cell paste skipped — different code path)
- *   - New value is non-empty AND different from the old value
+ *   - The row's identity is COMPLETE — both SKU and SALES_ORDER non-empty
  *
- * Note: we log on EVERY meaningful SO change (not just empty→value). The
- * real workflow includes filling in templated values like "Replacement for #:"
- * → "Replacement for #: 26-14551-63163". A typo correction WILL produce two
- * RECEIVED rows in the log — that's the audit trail working correctly,
+ * ⚠⚠ IT LOGS ONE OF TWO EVENTS, AND THE DIFFERENCE IS LOAD-BEARING (2026-08-30).
+ *   `_mrClassify` decides:
+ *
+ *     RECEIVED       the identity just became complete, or the new value EXTENDS
+ *                    the old one ("Replacement for #:" → "Replacement for #: 26-…").
+ *                    An order arrived.
+ *     IDENTITY_EDIT  a complete identity was REPLACED with a different one.
+ *                    An alteration. Kept for the audit trail — the old value goes
+ *                    in DETAIL, so it is recoverable — but NEVER treated as
+ *                    evidence that the new identity is legitimate.
+ *
+ *   Before this split, every non-empty change logged RECEIVED, which is what let
+ *   the 2026-08-28 incident write its own alibi: the identity guard reads RECEIVED
+ *   events as the record of what a row's identity may be, so overwriting a live
+ *   SALES_ORDER legitimised the corrupted value a minute before the guard looked
+ *   at it. See _mrClassify and IdentityGuard.js.
+ *
+ * A typo correction still produces two log rows — that's the audit trail working,
  * showing the correction happened.
  *
  * The DETAIL string distinguishes the table the entry came from
- * ("eBay manual (replacement)" vs "DIRECT manual") for log readability.
+ * ("eBay manual (replacement)" vs "DIRECT manual") for log readability, and
+ * carries the alteration note when there is one.
  *
  * Dispatched from Main.js onEditInstallable. Defensive — never blocks other
  * handlers.
@@ -1456,11 +1470,17 @@ function manualReceiveOnEdit(e) {
     var startCol = e.range.getColumn();
     var numRows  = e.range.getNumRows();
     var numCols  = e.range.getNumColumns();
+    var lastCol  = startCol + numCols - 1;
 
-    // The SALES_ORDER column must intersect the edited range. (For a paste
-    // covering A13:F13, we need col D in [startCol, startCol+numCols).)
-    var soColInRange = Schema.cols.SALES_ORDER - startCol;  // 0-based offset
-    if (soColInRange < 0 || soColInRange >= numCols) return;
+    // ⚠⚠ EITHER identity column, not SALES_ORDER alone. Until 2026-08-30 this
+    //   tested col D only, so typing the SO FIRST and the SKU SECOND logged
+    //   NOTHING: the SO edit bailed on the still-missing SKU (below), and the
+    //   later SKU edit never reached this handler at all. That row then carried
+    //   no RECEIVED event anywhere — invisible to the archive, the metrics and
+    //   the digest, and permanently flagged by the identity guard.
+    var skuTouched = (Schema.cols.SKU >= startCol && Schema.cols.SKU <= lastCol);
+    var soTouched  = (Schema.cols.SALES_ORDER >= startCol && Schema.cols.SALES_ORDER <= lastCol);
+    if (!skuTouched && !soTouched) return;
 
     // Diagnostic breadcrumb — useful when debugging "didn't land in log" reports.
     console.log("manualReceiveOnEdit: range=" + e.range.getA1Notation() +
@@ -1469,12 +1489,9 @@ function manualReceiveOnEdit(e) {
     var boundary = getBoundaryRow();
     var isSingleCell = (numRows === 1 && numCols === 1);
 
-    // Read range values + the full row context for each row in one shot.
-    var rangeValues = e.range.getValues();
-    // Read cols A..G for ALL affected rows, so we can pull SKU + QTY + NOTE
-    // per row without repeated getRange calls.
-    var contextStartRow = startRow;
-    var contextValues = sheet.getRange(contextStartRow, 1, numRows, Schema.cols.HAND).getValues();
+    // Cols A..G per row. Both identity halves are read from the ROW, never from
+    // the edited range — the edit may have touched only one of the two.
+    var contextValues = sheet.getRange(startRow, 1, numRows, Schema.cols.HAND).getValues();
 
     var batch = [];
 
@@ -1484,37 +1501,32 @@ function manualReceiveOnEdit(e) {
       // Skip boundary divider + DIRECT header row
       if (boundary > 0 && (row === boundary || row === boundary + 1)) continue;
 
-      var newVal = String(rangeValues[i][soColInRange] || "").trim();
-      if (!newVal) continue;  // nothing meaningful in the SO cell
-
-      // For single-cell edits we have e.oldValue → real change detection.
-      // For multi-cell, e.oldValue is undefined; we log the receive optimistically.
-      // Liberal logging is the user's stated preference — better to have noise
-      // than to miss events. Audit trail handles dedup at read time.
-      if (isSingleCell) {
-        var oldVal = String(e.oldValue || "").trim();
-        if (newVal === oldVal) continue;  // no real change
-      }
-
       var rowCtx = contextValues[i];
       var sku = String(rowCtx[Schema.idx("SKU")] || "").trim();
-      // Require a SKU on the row — without it, this isn't a real order.
-      if (!sku) continue;
-      var qty = parseInt(rowCtx[Schema.idx("QTY")]) || 1;
+      var so  = String(rowCtx[Schema.idx("SALES_ORDER")] || "").trim();
+
+      // An identity is only worth recording once BOTH halves exist. A half-typed
+      // row is someone mid-entry, not a receipt.
+      if (!sku || !so) continue;
+
+      var kind = _mrClassify(e, isSingleCell, startCol, sku, so);
+      if (!kind) continue;                       // no real change on this row
+
+      var qty  = parseInt(rowCtx[Schema.idx("QTY")]) || 1;
       var note = String(rowCtx[Schema.idx("NOTE")] || "").trim();
 
       // Tag DETAIL with the originating table so logs are readable at a glance.
       var inEbayTable = (boundary <= 0) || (row < boundary);
-      var detail = inEbayTable ? "eBay manual (replacement)" : "DIRECT manual";
+      var origin = inEbayTable ? "eBay manual (replacement)" : "DIRECT manual";
 
       // Slots: [event, orderId, sku, qty, source, detail, picker?, note]
       batch.push([
-        "RECEIVED",
-        newVal,
+        kind.event,
+        so,
         sku,
         qty,
         "manual",
-        detail,
+        kind.detail ? (origin + " · " + kind.detail) : origin,
         undefined,    // picker — let logActivityBatch resolve from G2
         note
       ]);
@@ -1524,6 +1536,61 @@ function manualReceiveOnEdit(e) {
   } catch (err) {
     try { Logger.log("manualReceiveOnEdit error: " + err); } catch (_) {}
   }
+}
+
+
+/**
+ * Is this edit a RECEIPT or an ALTERATION?
+ *
+ * ⚠⚠ WHY THIS EXISTS — 2026-08-30. RECEIVED must mean "an order arrived". It had
+ *   come to mean "somebody typed in column D", because the 2026-05-01 fix removed
+ *   the empty→filled guard so EVERY non-empty change logged RECEIVED.
+ *
+ *   That is what made the 2026-08-28 incident undetectable. The identity guard
+ *   builds its known-good set from RECEIVED events, so overwriting a live
+ *   SALES_ORDER wrote the very evidence that legitimised the new value — the
+ *   corrupted pair was in the set before the guard ever looked, and the verdict
+ *   came back "ok". The corruption wrote its own alibi.
+ *
+ * @param {Event}   e             the onEdit event
+ * @param {boolean} isSingleCell
+ * @param {number}  startCol      the edited column (meaningful only when single-cell)
+ * @param {string}  sku           the row's CURRENT sku  (already non-empty)
+ * @param {string}  so            the row's CURRENT order id (already non-empty)
+ * @returns {{event: string, detail: string}|null}  null → nothing worth logging
+ */
+function _mrClassify(e, isSingleCell, startCol, sku, so) {
+  // ⚠ A PASTE CARRIES NO e.oldValue, so creation and mutation are
+  //   indistinguishable from the event alone — and the row cannot be read back,
+  //   because onEdit fires AFTER the write. Stay optimistic, preserving the
+  //   2026-05-01 liberal-logging ruling; the DUPLICATE rule catches the
+  //   consequence of a pasted row in both directions (into an empty row, and
+  //   over an occupied one — each creates a second row with the same pair).
+  if (!isSingleCell) return { event: "RECEIVED", detail: "" };
+
+  var oldVal = String(e && e.oldValue != null ? e.oldValue : "").trim();
+  var editedSku = (startCol === Schema.cols.SKU);
+  var newVal = editedSku ? sku : so;
+
+  if (newVal === oldVal) return null;            // no real change
+
+  // Both halves are non-empty by the time we get here, so an EMPTY old value on
+  // the edited cell means the identity was incomplete before and is complete now.
+  // A real new row — whichever of the two cells finished it.
+  if (!oldVal) return { event: "RECEIVED", detail: "" };
+
+  // ⭐ A COMPLETION, NOT A REPLACEMENT. The templated fill the 2026-05-01 fix
+  //   exists for — "Replacement for #:" → "Replacement for #: 26-14551-63163" —
+  //   EXTENDS the old value rather than discarding it. Still a receipt.
+  if (newVal.indexOf(oldVal) === 0) return { event: "RECEIVED", detail: "" };
+
+  // ⚠⚠ AN ALTERATION OF A LIVE IDENTITY — the 2026-08-28 shape. Recorded for the
+  //   audit trail (the old value is now recoverable, which it never was before),
+  //   and NEVER counted as evidence by the identity guard.
+  return {
+    event: "IDENTITY_EDIT",
+    detail: "identity changed · " + (editedSku ? "SKU" : "SALES_ORDER") + " was " + oldVal
+  };
 }
 
 

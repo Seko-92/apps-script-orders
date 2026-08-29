@@ -222,6 +222,13 @@ function setupActivityLogSheet() {
   keptRules.push(eventRule('PRINTED', '#e3f2fd', '#0d47a1'));   // soft blue — printed/processed
   keptRules.push(eventRule('NOTE', '#fff4b0', '#1d1d1b'));   // soft yellow — note added/changed
   keptRules.push(eventRule('FAILURE', '#ff6b6b', '#ffffff'));   // red
+  // ⚠ IDENTITY_EDIT — an ALTERATION of a live row's SKU or SALES ORDER, never a receipt.
+  // Deep amber so it reads apart from the cream RECEIVED directly above it: the whole
+  // point of the 2026-08-30 split is that these two must never be confused, because the
+  // identity guard treats RECEIVED as permission and this as evidence of the opposite.
+  // DETAIL carries the previous value, so the log is now the only place a hand-overwritten
+  // identity can be recovered from.
+  keptRules.push(eventRule('IDENTITY_EDIT', '#ffab40', '#1d1d1b'));
 
   // Also drop any prior PICKER-column rule, then add: soft yellow tint when populated
   keptRules = keptRules.filter(function (r) {
