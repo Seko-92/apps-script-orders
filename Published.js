@@ -362,6 +362,17 @@ function runPublishTick() {
     try { esc = "  |  holds: " + checkHoldEscalation(); }
     catch (e) { console.log("runPublishTick.holds: " + e); }
 
+    // ⚠ SAME REASONING, SAME PLACE — above the skip. An identity edit sets a dirty
+    // flag and nothing else; this is where it gets looked at. A clean run costs ONE
+    // property read, so it is affordable on a per-minute trigger.
+    //
+    // ⭐ AND IT MUST RUN ON SKIPPED TICKS TOO. The whole point of the second design
+    // is that a flag CLEARS ITSELF once the row is corrected — and a correction that
+    // republishes nothing would, below the skip, leave the row amber indefinitely.
+    // That was the exact complaint the first design produced.
+    try { esc += "  |  identity: " + runIdentityReconcile(); }
+    catch (e) { console.log("runPublishTick.identity: " + e); }
+
     var dirty = _pubIsDirty();
     var stale = _pubIsStale();
     var why   = dirty ? "changed" : "keep-fresh";

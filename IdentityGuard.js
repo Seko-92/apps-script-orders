@@ -1,85 +1,72 @@
 // =======================================================================================
-// IDENTITYGUARD.JS — the backstop for a row's identity columns
+// IDENTITYGUARD.JS — does every open row's identity match something we actually received?
 // =======================================================================================
 //
-// WHY THIS EXISTS, AFTER THE LOCK
-//   `protectAllOrdersSheet()` (BrandTheme.js) hard-locks SKU / QTY / SALES ORDER against
-//   everyone who is not the owner. **Protection does not restrict the owner.** So the
-//   exact 2026-08-28 slip — `09-15094-35132` overwritten with `Missing #: 05-15052-93025`
-//   on a row already picked and shelf-counted — is still available to you, and to every
-//   script path that runs as you.
+// WHY IT EXISTS
+//   2026-08-28: a SALES_ORDER cell was overwritten by hand on a row already picked and
+//   shelf-counted. doPost dedupes on SALES_ORDER + "|" + SKU, so the signature stopped
+//   existing and n8n re-inserted the line four minutes later. Nothing alerted; the only
+//   trace was two rows that looked like twins.
 //
-//   The lock stops the floor. This stops you.
+// ⚠⚠ THIS IS THE SECOND DESIGN. The first compared e.oldValue against e.value on every
+//   edit, and it FAILED IN PRODUCTION on 2026-08-29 in four ways — all reported from
+//   real use, all traceable to the same root cause:
 //
-// ⚠ FLAG, NEVER AUTO-REVERT. This codebase's standing rule is "annotate, never override"
-//   — the same call the Zoho removed-line flag made. An auto-revert would fight someone
-//   legitimately correcting a typo'd order id, and it would do so silently, which is the
-//   worse failure. Paint it, say it, and let a human decide.
+//     · Ctrl+Z could not win. Undo is itself a user edit, so it re-entered the handler;
+//       the guard put its value back, the operator undid it again, and round it went.
+//     · Restoring the CORRECT value still alarmed. Old-vs-new cannot tell "putting it
+//       right" from "breaking it" — the alert named a restored value as the offender,
+//       with that same value listed underneath as the recovery candidate.
+//     · An event-based flag CAN NEVER CLEAR ITSELF, because no edit event means "it is
+//       fine now". A corrected row stayed amber forever.
+//     · Reverting a SKU left a MIXED ROW: liveUpdateTrigger had already written LOCATION
+//       and HAND for the new sku, so the old sku sat beside the wrong shelf and stock.
 //
-// ⚠⚠ THE SHAPE THAT MAKES THIS HARD, AND IT IS THE ONE THAT ACTUALLY HAPPENED.
-//   `e.oldValue` is populated for SINGLE-CELL edits ONLY. The 08-28 event at 12:31:43 was
-//   a MULTI-ROW PASTE, where it is `undefined` — so a guard keyed on the old value misses
-//   one of the two real shapes. For multi-cell edits this keys on whether the row looks
-//   ESTABLISHED instead: a recognised STATUS. Nothing auto-fills STATUS on manual entry
-//   (checked — liveUpdateTrigger writes LOCATION and HAND, never STATUS), so a row being
-//   typed fresh has a blank one while a live row does not.
+//   ⭐ THE REFRAME: ask about STATE, not the EVENT. Not "what changed?" but "does this
+//   row's identity match something we actually received?" Every failure above is a
+//   symptom of event-comparison, and every one disappears when the question changes.
 //
-// ⭐ THE WINDOW IS REAL. On 08-28 there were FOUR MINUTES between the overwrite and n8n's
-//   re-insert. An alert lands well inside it, which is why carrying the OLD VALUE matters:
-//   it makes the row recoverable by hand rather than merely mourned.
+// ⭐ THE ANSWER IS ALREADY ON THE SHEET. Every row that legitimately exists has a
+//   RECEIVED entry in the Activity Log carrying its order id and SKU — written by
+//   doPost, Zoho pull, kit expansion, manual entry, and /missing. That is the SAME
+//   SALES_ORDER|SKU signature doPost dedupes on, so the log IS the record of what a
+//   row's identity is allowed to be.
 //
-// RUNS AS THE OWNER (installable trigger), so it can still write its flag onto the very
-// columns the lock protects.
+// HOW IT RUNS
+//   onEdit does almost nothing: an identity column was touched, so set a dirty flag.
+//   One property write. No sheet reads, no alarm, and — critically — NOTHING IS EVER
+//   WRITTEN BACK TO AN IDENTITY CELL, so it cannot fight the operator or half-correct
+//   a row.
+//
+//   The reconcile rides runPublishTick, once a minute, exactly like hold escalation.
+//   A clean run costs ONE property read. A burst of twenty edits collapses into one
+//   check, and that check sees the SETTLED row instead of a transient mid-undo state.
+//
+// ⚠ NO AUTOMATIC REVERT, deliberately. Revert is what was fighting the operator. This
+//   flags, clears itself, and says what the row should be. Teeth can go on top of a
+//   detector that has been proven calm — not before.
 // =======================================================================================
 
 
 var IDENTITY_GUARD = {
-  // Only these two carry a row's identity. QTY is locked by the sheet protection but is
-  // deliberately NOT watched here: a qty correction on a live row is ordinary work, and
-  // flagging it would spend the alert's credibility on the normal case — the standing
-  // ruling that killed the "not counted" marker and the always-on dashboard.
+  // The two columns that say WHICH ROW THIS IS. QTY is deliberately unwatched: a qty
+  // correction on a live row is ordinary work, and flagging it would spend the alert's
+  // credibility on the normal case — the ruling that killed the "not counted" marker.
   watch: ["SKU", "SALES_ORDER"],
 
-  flagBg:   "#ffe0b2",   // amber — a fact to check, NOT the red that means "act now"
-  flagNote: "⚠ IDENTITY CHANGED",
+  flagBg:   "#ffe0b2",          // amber — a fact to check, not the red that means act now
+  flagNote: "⚠ IDENTITY UNKNOWN",
 
-  // Cap the rows a single event may flag. A hundred-row paste is a bulk operation, not a
-  // slip, and painting all of it would bury the signal in its own noise.
-  maxRowsPerEvent: 25,
+  dirtyKey:   "IDENTITY_GUARD_DIRTY",
+  alertedKey: "IDENTITY_GUARD_ALERTED",   // alert once per crossing, watchdog-style
+  toggleKey:  "IDENTITY_GUARD_ALERTS",    // "off" silences Telegram, never the flag
 
-  // Script Property: set to "off" to silence the Telegram half without touching code.
-  alertToggleKey: "IDENTITY_GUARD_ALERTS",
+  // How much Activity Log tail to trust as the known-good record. Open rows are recent
+  // by construction — n8n sweeps shipped ones at ~1 AM — so a tail is enough, and
+  // reading 90 days every minute would not be.
+  logTailRows: 4000,
 
-  // ⭐ REVERT — the teeth. Set the property to "off" to fall back to flag-only.
-  revertToggleKey: "IDENTITY_GUARD_REVERT",
-
-  // ⚠⚠ ONLY SALES_ORDER IS REVERTED. SKU is flagged but never put back, and the
-  //   reason is that a SKU edit is not a lone write: liveUpdateTrigger fires on it
-  //   and fills LOCATION and HAND for the NEW SKU. Reverting just the SKU leaves the
-  //   old SKU sitting beside the wrong SKU's shelf and stock — a MIXED ROW, which is
-  //   worse than the edit it undid, and it looks correct at a glance. SALES_ORDER has
-  //   no such entanglement (nothing derives from it), so it reverts cleanly.
-  //   Reported from real use 2026-08-29.
-  revertColumns: ["SALES_ORDER"],
-
-  // ⚠ SECOND ATTEMPT WINS. Blind revert would make a LEGITIMATE identity correction
-  //   impossible — you would fix a typo'd order id and watch it undo itself forever.
-  //   So: revert the first attempt, allow the second. A slip happens once; a deliberate
-  //   correction gets repeated. Same "retire on EVIDENCE" shape as the pick override and
-  //   the hold acknowledgement, and it needs no toggle anyone can forget is on.
-  attemptMemoKey: "IDENTITY_GUARD_ATTEMPTS",
-  attemptMemoMax: 40,        // prune — this is a slip log, not a history
-
-  // ⚠⚠ STAND DOWN AFTER A REVERT. The first build fought the user: Ctrl+Z is itself
-  //   a user edit, so undoing a revert re-triggered the guard, which reverted again —
-  //   a loop you could not win. And retyping the ORIGINAL value alarmed too, because
-  //   the guard only compares old-vs-new and cannot tell "restoring" from "breaking".
-  //
-  //   So once a cell has been reverted, LEAVE IT ALONE for a while. Somebody is
-  //   visibly working on that cell; the alarm has already been raised, and continuing
-  //   to fight them adds nothing. Every edit to that cell inside the window is allowed
-  //   and silent — Ctrl+Z works, retyping works, correcting it works.
-  standDownSec: 600          // 10 min of "you clearly have this"
+  alertedMax: 60                // prune; a live-issue list, not a history
 };
 
 
@@ -87,15 +74,14 @@ var IDENTITY_GUARD = {
 // PURE CORE — no Sheets, no network. Node-testable.
 // =======================================================================================
 
-/**
- * Is this row an ESTABLISHED one, i.e. was it live before the edit?
- *
- * Signal: a recognised STATUS. A row being typed fresh has a blank one until the person
- * picks from the dropdown; an n8n insert writes PENDING immediately. Deliberately does
- * NOT use LOCATION or HAND — `liveUpdateTrigger` fills both the moment a SKU is typed,
- * so a brand-new row would look established within a second and every fresh manual entry
- * would false-positive.
- */
+/** Identity signature. Matches doPost's dedupe key so the two can never disagree. */
+function _igSig(orderId, sku) {
+  return String(orderId == null ? "" : orderId).trim().toLowerCase() + "|" +
+         String(sku == null ? "" : sku).trim().toLowerCase();
+}
+
+
+/** Is this row live? A recognised STATUS — a blank one means it is being typed now. */
 function _igIsEstablished(statusValue) {
   var s = String(statusValue == null ? "" : statusValue).trim();
   if (!s) return false;
@@ -104,336 +90,277 @@ function _igIsEstablished(statusValue) {
 
 
 /**
- * THE DECISION. Pure, so the part that decides whether to cry wolf is testable alone.
+ * THE VERDICT for one row. Pure — the part that decides whether to cry wolf.
  *
- * @param {{singleCell: boolean, oldValue: *, newValue: *, status: *}} o
- * @returns {{flag: boolean, oldKnown: boolean, reason: string}}
+ * @returns {{verdict: string, reason: string}}  verdict: "ok" | "mismatch" | "skip"
  */
-function _igDecide(o) {
-  o = o || {};
-  var oldV = String(o.oldValue == null ? "" : o.oldValue).trim();
-  var newV = String(o.newValue == null ? "" : o.newValue).trim();
+function _igVerdict(row, known) {
+  var orderId = String(row.orderId == null ? "" : row.orderId).trim();
+  var sku     = String(row.sku == null ? "" : row.sku).trim();
 
-  if (o.singleCell) {
-    // A no-op edit (retype the same value, or Escape) must never alarm.
-    if (oldV === newV) return { flag: false, oldKnown: true, reason: "unchanged" };
-    // Filling a BLANK identity cell is ordinary — that is how a manual row is created.
-    if (!oldV) return { flag: false, oldKnown: true, reason: "was blank — new row" };
-    return { flag: true, oldKnown: true, reason: "overwrote an existing value" };
+  // A half-typed row is not a mismatch — it is someone mid-entry.
+  if (!orderId || !sku) return { verdict: "skip", reason: "incomplete row" };
+
+  // ⚠ Only judge LIVE rows. A blank status means the row is being created right now
+  //   and nothing has been received for it yet.
+  if (!_igIsEstablished(row.status)) return { verdict: "skip", reason: "not established" };
+
+  if (known.pairs[_igSig(orderId, sku)]) {
+    return { verdict: "ok", reason: "matches a RECEIVED event" };
   }
 
-  // MULTI-CELL: e.oldValue is undefined, so fall back to the row's own state.
-  // ⚠ This is the branch the 12:31:43 paste took. A guard without it misses the
-  //   incident it was built for.
-  if (_igIsEstablished(o.status)) {
-    return { flag: true, oldKnown: false, reason: "multi-cell edit on an established row" };
+  // ⚠⚠ ONLY FLAG WHERE THERE IS EVIDENCE. If neither the order nor the SKU appears in
+  //   the tail at all, this row simply predates what we can see. Flagging it would be
+  //   an accusation built on an absence — the same "mistook 'I could not read it' for
+  //   'there is nothing there'" bug already fixed once in the stock audit.
+  var haveOrder = !!known.orders[orderId.toLowerCase()];
+  var haveSku   = !!known.skus[sku.toLowerCase()];
+  if (!haveOrder && !haveSku) {
+    return { verdict: "skip", reason: "no log evidence either way — older than the tail" };
   }
-  return { flag: false, oldKnown: false, reason: "row not established — looks like new entry" };
+
+  return { verdict: "mismatch", reason: "this order/SKU pair was never received" };
 }
 
 
 /**
- * Should this flagged edit be REVERTED, or allowed through as a deliberate repeat?
- * PURE — the rule that decides whether to undo someone's typing is testable alone.
- *
- * @param {{cellKey: string, attempted: string, oldKnown: boolean}} hit
- * @param {Object} memo   cellKey → { v: attemptedValue, t: msTimestamp }
- * @param {number} nowMs
- * @returns {{revert: boolean, reason: string}}
+ * Compose the alert. Pure, so the wording is pinned by tests.
+ * ⚠ It never claims to know the OLD value. The previous design's habit of asserting one
+ *   is exactly what produced a message naming a correct value as the offender.
  */
-function _igRevertDecision(hit, memo, nowMs) {
-  // ⚠⚠ STAND-DOWN FIRST, and it must come before every other rule. Once this cell has
-  //   been reverted, the person is visibly working on it — undoing, retyping, putting
-  //   the original back. Every one of those is a user edit that re-enters this handler,
-  //   and the first build fought all of them: Ctrl+Z restored the bad value, the guard
-  //   reverted it again, and there was no way to win. SILENT means no revert, no flag,
-  //   no message — the alarm was already raised once, and that was the point.
-  var prior = memo && memo[hit.cellKey];
-  if (prior && (nowMs - Number(prior.t || 0)) <= IDENTITY_GUARD.standDownSec * 1000) {
-    return { revert: false, silent: true, reason: "stand-down — already raised on this cell" };
-  }
-
-  // ⚠ Cannot restore what we never saw. e.oldValue is single-cell only, so a
-  //   multi-row paste is detect-only by construction. Writing a GUESSED old value
-  //   back would be worse than leaving it — the recovery candidates in the alert
-  //   are a hint for a human, never something to act on automatically.
-  if (!hit.oldKnown) {
-    return { revert: false, silent: false, reason: "old value unknown (multi-cell)" };
-  }
-
-  // ⚠ SKU is flagged but never reverted — see revertColumns. Reverting it alone
-  //   leaves the row mixed, because liveUpdateTrigger has already written LOCATION
-  //   and HAND for the new SKU.
-  if (IDENTITY_GUARD.revertColumns.indexOf(hit.column) === -1) {
-    return { revert: false, silent: false, reason: "flag-only column" };
-  }
-
-  return { revert: true, silent: false, reason: "reverted" };
-}
-
-
-/** Load the attempt memo. A corrupt store degrades to empty, never to "allow". */
-function _igLoadMemo() {
-  try {
-    var raw = PropertiesService.getScriptProperties().getProperty(IDENTITY_GUARD.attemptMemoKey);
-    if (!raw) return {};
-    var o = JSON.parse(raw);
-    return (o && typeof o === "object") ? o : {};
-  } catch (e) { return {}; }
-}
-
-
-/** Save, pruned oldest-first so the property cannot grow without bound. */
-function _igSaveMemo(memo) {
-  try {
-    var keys = Object.keys(memo);
-    if (keys.length > IDENTITY_GUARD.attemptMemoMax) {
-      keys.sort(function (a, b) { return Number(memo[a].t || 0) - Number(memo[b].t || 0); });
-      keys.slice(0, keys.length - IDENTITY_GUARD.attemptMemoMax).forEach(function (k) { delete memo[k]; });
-    }
-    PropertiesService.getScriptProperties()
-      .setProperty(IDENTITY_GUARD.attemptMemoKey, JSON.stringify(memo));
-  } catch (e) { console.log("identityEditGuard: memo save failed: " + e); }
-}
-
-
-/** Compose the alert. Pure, so the wording is pinned by tests. */
 function _igComposeAlert(hits) {
-  var anyReverted = hits.some(function (h) { return h.action === "reverted"; });
-  var L = [anyReverted ? "↺ ROW IDENTITY REVERTED" : "⚠ ROW IDENTITY CHANGED", ""];
-
+  var L = ["⚠ ROW IDENTITY DOES NOT MATCH ANY RECEIVED ORDER", ""];
   hits.forEach(function (h) {
-    L.push("Row " + h.row + " · " + h.column);
-    L.push("  tried:  " + (h.newValue || "(blank)"));
-    if (h.oldKnown) {
-      L.push("  was:    " + (h.oldValue || "(blank)"));
+    L.push("Row " + h.row + " · " + h.sku + " on " + h.orderId);
+    if (h.suggest && h.suggest.length) {
+      L.push("  this SKU was received on: " + h.suggest.join(" · "));
     } else {
-      // Honest about the limit rather than silently omitting it — the recovery
-      // candidates below are what make this branch still actionable.
-      L.push("  was:    unknown (multi-cell edit — Sheets does not report the old value)");
-    }
-    if (h.recovery && h.recovery.length) {
-      L.push("  recently logged for this SKU: " + h.recovery.join(" · "));
-    }
-
-    if (h.action === "reverted") {
-      L.push("  → PUT BACK automatically. Type it again to confirm if you meant it.");
-    } else {
-      L.push("  → left as-is. Ctrl+Z if it was a slip.");
+      L.push("  no received order carries this SKU");
     }
     L.push("");
   });
+  L.push("Nothing was changed. Fix the row and the flag clears within a minute.");
   return L.join("\n");
 }
 
 
 // =======================================================================================
-// THE HANDLER
+// THE EDIT MARKER — deliberately almost nothing
 // =======================================================================================
 
 /**
- * Dispatched from `onEditInstallable` (Main.js) in its own try/catch, like every other
- * handler there — defense in depth, so a throw here can never take the others down.
+ * Dispatched from onEditInstallable. Its whole job is to say "worth a look".
+ *
+ * ⚠ IT STORES NO ROW NUMBERS. A minute from now row 17 may be a different row — n8n
+ *   inserts at the top all day. Storing coordinates captured before a delay is the
+ *   2026-05-08 / 2026-08-21 row-shift bug class, twice bitten here. The reconcile
+ *   re-derives everything from the sheet instead.
  */
 function identityEditGuard(e) {
   if (!e || !e.range) return;
-
   var sheet = e.range.getSheet();
   if (!sheet || sheet.getName() !== MAIN_SHEET_NAME) return;
 
-  var firstRow = e.range.getRow();
-  var numRows  = e.range.getNumRows();
   var firstCol = e.range.getColumn();
-  var numCols  = e.range.getNumColumns();
-  var lastCol  = firstCol + numCols - 1;
+  var lastCol  = firstCol + e.range.getNumColumns() - 1;
 
-  // Which watched columns does this edit actually touch?
-  var touched = [];
-  IDENTITY_GUARD.watch.forEach(function (name) {
+  var touched = IDENTITY_GUARD.watch.some(function (name) {
     var c = Schema.cols[name];
-    if (c >= firstCol && c <= lastCol) touched.push({ name: name, col: c });
+    return c >= firstCol && c <= lastCol;
   });
-  if (!touched.length) return;
+  if (!touched) return;
 
-  var singleCell = (numRows === 1 && numCols === 1);
-  if (numRows > IDENTITY_GUARD.maxRowsPerEvent) return;   // a bulk op, not a slip
-
-  // Read the whole affected block ONCE — status for the established test, plus the
-  // current values of the watched columns and the SKU for the recovery hint.
-  var block = sheet.getRange(firstRow, 1, numRows, Schema.dataWidth).getValues();
-
-  var boundary = -1;
-  try { boundary = getBoundaryRow(); } catch (err) { boundary = -1; }
-
-  var hits = [];
-  for (var i = 0; i < numRows; i++) {
-    var row = firstRow + i;
-    if (row < Schema.dataStartRow) continue;                       // banner / headers
-    if (boundary > 0 && (row === boundary || row === boundary + 1)) continue;  // divider
-
-    var rowVals = block[i];
-    var status  = rowVals[Schema.idx("STATUS")];
-
-    for (var j = 0; j < touched.length; j++) {
-      var t = touched[j];
-      var newValue = rowVals[t.col - 1];
-      var d = _igDecide({
-        singleCell: singleCell,
-        oldValue:   singleCell ? e.oldValue : undefined,
-        newValue:   newValue,
-        status:     status
-      });
-      if (!d.flag) continue;
-
-      hits.push({
-        row: row,
-        column: t.name,
-        newValue: String(newValue == null ? "" : newValue),
-        oldValue: singleCell ? String(e.oldValue == null ? "" : e.oldValue) : "",
-        oldKnown: d.oldKnown,
-        sku: String(rowVals[Schema.idx("SKU")] || ""),
-        recovery: []
-      });
-    }
-  }
-  if (!hits.length) return;
-
-  // Recovery candidates — only on the branch that needs them, and only for a handful
-  // of rows, because it costs an Activity Log read.
-  hits.forEach(function (h) {
-    if (h.oldKnown || !h.sku) return;
-    try { h.recovery = _igRecentOrdersForSku(h.sku); } catch (err) { h.recovery = []; }
-  });
-
-  // ---- REVERT, or take a repeat as deliberate ----
-  // ⚠ SAFE FROM RECURSION BY CONSTRUCTION: a programmatic setValue does NOT fire
-  //   onEdit, so putting the old value back cannot re-enter this handler. That is
-  //   the same platform fact every insert path here relies on.
-  var revertOn = true;
   try {
-    revertOn = String(PropertiesService.getScriptProperties()
-      .getProperty(IDENTITY_GUARD.revertToggleKey) || "").trim().toLowerCase() !== "off";
-  } catch (e) {}
-
-  var memo = _igLoadMemo();
-  var now = new Date().getTime();
-  var memoTouched = false;
-
-  var reverted = false;
-  hits.forEach(function (h) {
-    h.cellKey = "R" + h.row + "C" + Schema.cols[h.column];
-    h.attempted = h.newValue;
-
-    var d = revertOn ? _igRevertDecision(h, memo, now)
-                     : { revert: false, silent: false, reason: "revert off" };
-    h.silent = !!d.silent;
-    if (h.silent) return;                       // dropped below — no flag, no message
-
-    if (d.revert) {
-      try {
-        sheet.getRange(h.row, Schema.cols[h.column]).setValue(h.oldValue);
-        h.action = "reverted";
-        reverted = true;
-        // Open the stand-down window. Everything that follows on this cell — the undo,
-        // the retype, the correction — is the same person sorting it out.
-        memo[h.cellKey] = { v: h.attempted, t: now };
-        memoTouched = true;
-      } catch (err) {
-        // A failed revert must still be reported — never swallow it into silence.
-        h.action = "flagged";
-        console.log("identityEditGuard: revert failed on row " + h.row + ": " + err);
-      }
-    } else {
-      h.action = "flagged";
-    }
-  });
-
-  // ⚠ Drop the silent ones BEFORE any paint or send. This is what makes Ctrl+Z and a
-  //   manual restore feel like nothing happened, which is the whole point of it.
-  hits = hits.filter(function (h) { return !h.silent; });
-  if (memoTouched) _igSaveMemo(memo);
-  if (!hits.length) return;
-
-  // A reverted SALES_ORDER leaves the col-D rich-text link pointing at the value that
-  // was just undone. Cheap to repair, and only on this rare path.
-  if (reverted) {
-    try { refreshAllOrdersEnrichment(); } catch (err) {
-      console.log("identityEditGuard: link refresh failed: " + err);
-    }
-  }
-
-  // Paint — the durable half, and it must survive a Telegram failure.
-  // ⚠ A REVERTED row is still painted. The value is correct again, but somebody
-  //   should see that it happened; an invisible fix teaches nobody.
-  hits.forEach(function (h) {
-    try { _igFlagRow(sheet, h.row, h.action); } catch (err) {
-      console.log("identityEditGuard: paint failed on row " + h.row + ": " + err);
-    }
-  });
-
-  try { _igAlert(_igComposeAlert(hits)); } catch (err) {
-    console.log("identityEditGuard: alert failed: " + err);
+    PropertiesService.getScriptProperties()
+      .setProperty(IDENTITY_GUARD.dirtyKey, String(new Date().getTime()));
+  } catch (err) {
+    console.log("identityEditGuard: could not mark dirty: " + err);
   }
 }
 
 
-/** Amber wash + a cell note naming what happened. Cosmetic only — no values change. */
-function _igFlagRow(sheet, row, action) {
-  sheet.getRange(row, 1, 1, Schema.dataWidth).setBackground(IDENTITY_GUARD.flagBg);
-
-  // ⭐ THE NOTE IS WHERE THE RULE HAS TO BE DISCOVERABLE. Someone who just watched
-  //   their edit undo itself is looking at this cell, confused — so the instruction
-  //   belongs here, not only in a Telegram they may not read for an hour.
-  var tail;
-  if (action === "reverted") {
-    // ⭐ Say what to do next, here, where the confused person is looking. The guard
-    //   now stands down on this cell for 10 minutes, so a correction just works.
-    tail = "\nPut back automatically. Edit it again if you meant it — " +
-           "this cell is left alone for the next 10 minutes.";
-  } else {
-    tail = "\nLeft as-is. Ctrl+Z if this was a slip.";
-  }
-
-  sheet.getRange(row, Schema.cols.SALES_ORDER)
-       .setNote(IDENTITY_GUARD.flagNote + " · " +
-                Utilities.formatDate(new Date(), "America/Chicago", "M/d h:mm a") + tail);
-}
-
+// =======================================================================================
+// THE RECONCILE — rides runPublishTick, once a minute
+// =======================================================================================
 
 /**
- * Order ids recently logged against this SKU — the recovery candidates for a
- * multi-cell edit, where Sheets gives us no old value. Best-effort by contract.
+ * Compare every live row's identity against the Activity Log, flag what does not match,
+ * and CLEAR what does. Returns a short string for the publish log.
+ *
+ * ⭐ THE SELF-CLEARING HALF IS THE POINT. An event-based flag can never retire itself,
+ *   because no edit means "it is fine now" — which is why the first design left rows
+ *   amber after they had been corrected. A state check answers fresh every time, so
+ *   fixing the row removes the flag on its own.
  */
-function _igRecentOrdersForSku(sku) {
-  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
-  var log = ss.getSheetByName(ACTIVITY_LOG.sheetName);
-  if (!log) return [];
-  var last = log.getLastRow();
-  if (last < ACTIVITY_LOG.dataStartRow) return [];
+function runIdentityReconcile() {
+  var props = PropertiesService.getScriptProperties();
 
-  var n = Math.min(400, last - ACTIVITY_LOG.dataStartRow + 1);   // recent tail only
-  var start = last - n + 1;
-  var rows = log.getRange(start, 1, n, ACTIVITY_LOG.dataWidth).getValues();
-  var want = String(sku).trim().toLowerCase();
-  var seen = {}, out = [];
-  for (var i = rows.length - 1; i >= 0 && out.length < 3; i--) {
-    if (String(rows[i][ACTIVITY_LOG.idx("SKU")] || "").trim().toLowerCase() !== want) continue;
-    var oid = String(rows[i][ACTIVITY_LOG.idx("ORDER_ID")] || "").trim();
-    if (!oid || seen[oid]) continue;
-    seen[oid] = 1;
-    out.push(oid);
+  // ⭐ CHEAP ON EVERY CLEAN RUN — one property read and out, the same shape as hold
+  //   escalation. The sheet is touched only after an identity column was really edited.
+  var dirty;
+  try { dirty = props.getProperty(IDENTITY_GUARD.dirtyKey); } catch (e) { return "skip"; }
+  if (!dirty) return "clean";
+
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  var sheet = ss.getSheetByName(MAIN_SHEET_NAME);
+  if (!sheet) return "no sheet";
+
+  var known = _igKnownFromLog(ss);
+  if (!known) return "no log";           // cannot judge without the record — say so
+
+  var lastRow = sheet.getLastRow();
+  if (lastRow < Schema.dataStartRow) {
+    props.deleteProperty(IDENTITY_GUARD.dirtyKey);
+    return "empty";
   }
-  return out;
+
+  var n = lastRow - Schema.dataStartRow + 1;
+  var range = sheet.getRange(Schema.dataStartRow, 1, n, Schema.dataWidth);
+  var data  = range.getValues();
+  var bgs   = range.getBackgrounds();
+
+  var boundary = -1;
+  try { boundary = getBoundaryRow(); } catch (e) { boundary = -1; }
+
+  var flagged = [], cleared = 0;
+
+  for (var i = 0; i < n; i++) {
+    var rowNum = Schema.dataStartRow + i;
+    if (boundary > 0 && (rowNum === boundary || rowNum === boundary + 1)) continue;
+
+    var r = data[i];
+    var v = _igVerdict({
+      orderId: r[Schema.idx("SALES_ORDER")],
+      sku:     r[Schema.idx("SKU")],
+      status:  r[Schema.idx("STATUS")]
+    }, known);
+
+    var isFlagged = String(bgs[i][0] || "").toLowerCase() === IDENTITY_GUARD.flagBg.toLowerCase();
+
+    if (v.verdict === "mismatch") {
+      if (!isFlagged) _igPaint(sheet, rowNum, true);
+      flagged.push({
+        row: rowNum,
+        orderId: String(r[Schema.idx("SALES_ORDER")] || "").trim(),
+        sku:     String(r[Schema.idx("SKU")] || "").trim(),
+        suggest: _igOrdersForSku(known, r[Schema.idx("SKU")])
+      });
+    } else if (isFlagged) {
+      // ⭐ SELF-CLEARING. It was flagged and now reconciles — or the row moved out of
+      //   scope entirely. Either way the amber has done its job.
+      _igPaint(sheet, rowNum, false);
+      cleared++;
+    }
+  }
+
+  props.deleteProperty(IDENTITY_GUARD.dirtyKey);
+
+  // Alert once per crossing on a STABLE key. A row number is not stable, so the
+  // identity signature is — the same rule the straggler watchdog runs on.
+  var fresh = _igNewAlerts(flagged);
+  if (fresh.length) {
+    try { _igAlert(_igComposeAlert(fresh)); } catch (e) { console.log("identityEditGuard alert: " + e); }
+  }
+
+  return flagged.length + " flagged · " + cleared + " cleared" +
+         (fresh.length ? " · " + fresh.length + " new" : "");
 }
 
 
-/** Telegram the admin chat. Silenced by Script Property, best-effort otherwise. */
+/** Build the known-good record: RECEIVED signatures from the Activity Log tail. */
+function _igKnownFromLog(ss) {
+  try {
+    var log = ss.getSheetByName(ACTIVITY_LOG.sheetName);
+    if (!log) return null;
+    var last = log.getLastRow();
+    if (last < ACTIVITY_LOG.dataStartRow) return null;
+
+    var n = Math.min(IDENTITY_GUARD.logTailRows, last - ACTIVITY_LOG.dataStartRow + 1);
+    var rows = log.getRange(last - n + 1, 1, n, ACTIVITY_LOG.dataWidth).getValues();
+
+    var pairs = {}, orders = {}, skus = {}, bySku = {};
+    for (var i = 0; i < rows.length; i++) {
+      if (String(rows[i][ACTIVITY_LOG.idx("EVENT")] || "").trim().toUpperCase() !== "RECEIVED") continue;
+      var oid = String(rows[i][ACTIVITY_LOG.idx("ORDER_ID")] || "").trim();
+      var sku = String(rows[i][ACTIVITY_LOG.idx("SKU")] || "").trim();
+      if (!oid || !sku) continue;
+      pairs[_igSig(oid, sku)] = 1;
+      orders[oid.toLowerCase()] = 1;
+      skus[sku.toLowerCase()] = 1;
+      var k = sku.toLowerCase();
+      if (!bySku[k]) bySku[k] = [];
+      if (bySku[k].indexOf(oid) === -1 && bySku[k].length < 4) bySku[k].push(oid);
+    }
+    return { pairs: pairs, orders: orders, skus: skus, bySku: bySku };
+  } catch (e) {
+    console.log("_igKnownFromLog: " + e);
+    return null;
+  }
+}
+
+
+/** Which orders legitimately carry this SKU — the recovery hint. */
+function _igOrdersForSku(known, sku) {
+  var k = String(sku == null ? "" : sku).trim().toLowerCase();
+  return (known && known.bySku && known.bySku[k]) ? known.bySku[k] : [];
+}
+
+
+/** Paint or unpaint one row. Cosmetic only — no value is ever touched. */
+function _igPaint(sheet, row, on) {
+  var band = sheet.getRange(row, 1, 1, Schema.dataWidth);
+  var cell = sheet.getRange(row, Schema.cols.SALES_ORDER);
+  if (on) {
+    band.setBackground(IDENTITY_GUARD.flagBg);
+    cell.setNote(IDENTITY_GUARD.flagNote +
+      "\nThis order/SKU pair was never received. Nothing was changed." +
+      "\nFix the row and this clears within a minute.");
+  } else {
+    // ⚠ null, not white — restores the row to the BANDING underneath rather than
+    //   painting over it. Same anti-bleed the Zoho flag clear uses.
+    band.setBackground(null);
+    cell.clearNote();
+  }
+}
+
+
+/** Alert-once-per-crossing, keyed on the identity signature rather than a row number. */
+function _igNewAlerts(flagged) {
+  var props = PropertiesService.getScriptProperties();
+  var seen = {};
+  try {
+    var raw = props.getProperty(IDENTITY_GUARD.alertedKey);
+    if (raw) seen = JSON.parse(raw) || {};
+  } catch (e) { seen = {}; }
+
+  var now = new Date().getTime();
+  var fresh = [], live = {};
+
+  flagged.forEach(function (h) {
+    var k = _igSig(h.orderId, h.sku);
+    live[k] = seen[k] || now;
+    if (!seen[k]) fresh.push(h);
+  });
+
+  // ⚠ Keep only keys still flagged, so a fixed row can alert again if it recurs.
+  var keys = Object.keys(live);
+  if (keys.length > IDENTITY_GUARD.alertedMax) {
+    keys.sort(function (a, b) { return live[a] - live[b]; });
+    keys.slice(0, keys.length - IDENTITY_GUARD.alertedMax).forEach(function (k) { delete live[k]; });
+  }
+  try { props.setProperty(IDENTITY_GUARD.alertedKey, JSON.stringify(live)); } catch (e) {}
+  return fresh;
+}
+
+
+/** Telegram the admin chat. Silenced by Script Property; the flag is never silenced. */
 function _igAlert(text) {
   var off = "";
-  try { off = PropertiesService.getScriptProperties().getProperty(IDENTITY_GUARD.alertToggleKey) || ""; } catch (e) {}
-  if (String(off).trim().toLowerCase() === "off") { console.log("identityEditGuard (alerts off):\n" + text); return; }
-
+  try {
+    off = PropertiesService.getScriptProperties().getProperty(IDENTITY_GUARD.toggleKey) || "";
+  } catch (e) {}
   console.log("identityEditGuard:\n" + text);
+  if (String(off).trim().toLowerCase() === "off") return;
   if (typeof TELEGRAM_ADMIN_CHAT_ID === "undefined" || !TELEGRAM_ADMIN_CHAT_ID) return;
   UrlFetchApp.fetch("https://api.telegram.org/bot" + TELEGRAM_BOT_TOKEN + "/sendMessage", {
     method: "post",
@@ -445,29 +372,36 @@ function _igAlert(text) {
 
 
 /**
- * Clear every identity flag. The companion that makes the paint safe to live with —
- * without it the sheet slowly accumulates amber rows nobody can clear.
+ * Clear every identity flag by hand. Rarely needed now the reconcile clears its own,
+ * but it is the escape hatch if a flag ever outlives its cause.
  */
 function clearIdentityFlags() {
   var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   var sheet = ss.getSheetByName(MAIN_SHEET_NAME);
   if (!sheet) return "❌ Main sheet not found.";
-
   var last = sheet.getLastRow();
   if (last < Schema.dataStartRow) return "Nothing to clear.";
 
   var n = last - Schema.dataStartRow + 1;
-  var range = sheet.getRange(Schema.dataStartRow, 1, n, Schema.dataWidth);
-  var bgs = range.getBackgrounds();
+  var bgs = sheet.getRange(Schema.dataStartRow, 1, n, Schema.dataWidth).getBackgrounds();
   var cleared = 0;
-
   for (var i = 0; i < bgs.length; i++) {
     if (String(bgs[i][0] || "").toLowerCase() !== IDENTITY_GUARD.flagBg.toLowerCase()) continue;
-    // ⚠ null, not white — restores the row to the BANDING underneath rather than
-    //   painting over it, the same anti-bleed the Zoho flag clear uses.
-    sheet.getRange(Schema.dataStartRow + i, 1, 1, Schema.dataWidth).setBackground(null);
-    sheet.getRange(Schema.dataStartRow + i, Schema.cols.SALES_ORDER).clearNote();
+    _igPaint(sheet, Schema.dataStartRow + i, false);
     cleared++;
   }
+  try { PropertiesService.getScriptProperties().deleteProperty(IDENTITY_GUARD.alertedKey); } catch (e) {}
   return "✅ Cleared " + cleared + " identity flag(s).";
+}
+
+
+/** Editor wrapper — the Run button shows no return value, so it logs. */
+function checkIdentityNow() {
+  try {
+    PropertiesService.getScriptProperties()
+      .setProperty(IDENTITY_GUARD.dirtyKey, String(new Date().getTime()));
+  } catch (e) {}
+  var out = runIdentityReconcile();
+  console.log("identity reconcile: " + out);
+  return out;
 }

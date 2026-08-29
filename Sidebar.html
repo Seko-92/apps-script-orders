@@ -4192,16 +4192,19 @@ body.dark-theme .footer-version { border-color: #2c2c2c; }
            next to buttons the floor uses. -->
       <div style="margin-top:12px;padding-top:10px;border-top:1px solid rgba(0,0,0,0.1);">
         <button class="btn-primary" onclick="run('warnOnIdentityEdits')">🛡 Warn on identity edits</button>
+        <button class="btn-secondary" onclick="run('checkIdentityNow')">👁 Check identity now</button>
         <button class="btn-info" onclick="run('clearIdentityFlags')">Clear identity flags</button>
-        <button class="btn-secondary" onclick="run('describeAllOrdersLock')">👁 Protection status</button>
         <button class="btn-danger" onclick="run('unwarnIdentityEdits')">↺ Remove warning</button>
         <p style="font-size:11px;color:#888;margin-top:8px;">
-          Puts a <em>confirm</em> dialog on <strong>SKU</strong>, <strong>QTY</strong> and
+          A <em>confirm</em> dialog on <strong>SKU</strong>, <strong>QTY</strong> and
           <strong>SALES&nbsp;ORDER</strong> before a hand edit. <strong>Whole columns</strong>, so
           rows added or deleted later are covered automatically. Script writes — the sidebar,
           n8n, Telegram — pass straight through, because there is no human to warn.
-          Paired with the identity guard, which puts a changed order id
-          <strong>back</strong> and messages you the old value.
+          <br><br>
+          Alongside it, once a minute, every live row is checked against the
+          <strong>Activity Log</strong>: an order&nbsp;+&nbsp;SKU pair that was never received
+          gets flagged amber and messaged once. Nothing is ever written back to a cell, and
+          <strong>fixing the row clears the flag on its own</strong>.
         </p>
       </div>
     </div>
