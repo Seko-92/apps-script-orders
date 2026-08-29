@@ -4202,10 +4202,12 @@ body.dark-theme .footer-version { border-color: #2c2c2c; }
           rows added or deleted later are covered automatically. Script writes — the sidebar,
           n8n, Telegram — pass straight through, because there is no human to warn.
           <br><br>
-          Alongside it, once a minute, every live row is checked against the
-          <strong>Activity Log</strong>: an order&nbsp;+&nbsp;SKU pair that was never received
-          gets flagged amber and messaged once. Nothing is ever written back to a cell, and
-          <strong>fixing the row clears the flag on its own</strong>.
+          Alongside it, every live row is checked against the <strong>Activity Log</strong>:
+          an order&nbsp;+&nbsp;SKU pair that was never received is <strong>messaged to you
+          once</strong>. It is <strong>read-only</strong> — it never marks, paints or changes
+          anything on the sheet, so there is nothing to clear and nothing to go stale.
+          <em>Clear identity flags</em> is a one-time cleanup for marks left by earlier
+          versions.
         </p>
       </div>
     </div>

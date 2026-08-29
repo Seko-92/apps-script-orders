@@ -181,7 +181,7 @@ function _igComposeAlert(hits) {
     }
     L.push("");
   });
-  L.push("Nothing was changed. Fix the row and the flag clears within a minute.");
+  L.push("Nothing on the sheet was changed or marked — this is a message only.");
   return L.join("\n");
 }
 
@@ -268,12 +268,11 @@ function runIdentityReconcile() {
   var n = lastRow - Schema.dataStartRow + 1;
   var range = sheet.getRange(Schema.dataStartRow, 1, n, Schema.dataWidth);
   var data  = range.getValues();
-  var bgs   = range.getBackgrounds();
 
   var boundary = -1;
   try { boundary = getBoundaryRow(); } catch (e) { boundary = -1; }
 
-  var flagged = [], cleared = 0;
+  var flagged = [];
 
   for (var i = 0; i < n; i++) {
     var rowNum = Schema.dataStartRow + i;
@@ -286,21 +285,23 @@ function runIdentityReconcile() {
       status:  r[Schema.idx("STATUS")]
     }, known);
 
-    var isFlagged = _igIsOurFlag(bgs[i][0]);
-
+    // ⚠⚠ READ-ONLY, AND THAT IS THE WHOLE DESIGN NOW (2026-08-29).
+    //   This used to paint the row and clear the paint again. Every single problem
+    //   this feature had came from that one write: the paint could not be told apart
+    //   from the row banding; clearing depended on a re-check that undo did not always
+    //   queue; liveUpdateTrigger's LOCATION/HAND write meant Ctrl+Z popped the wrong
+    //   operation first; and a stale flag had no way to retire itself. Five rounds of
+    //   edge cases, all downstream of writing to a sheet somebody else is working in.
+    //
+    //   The DETECTION was never the problem. So: observe, report, touch nothing.
+    //   Nothing to clear, nothing to confuse, nothing to go stale.
     if (v.verdict === "mismatch") {
-      if (!isFlagged) _igPaint(sheet, rowNum, true);
       flagged.push({
         row: rowNum,
         orderId: String(r[Schema.idx("SALES_ORDER")] || "").trim(),
         sku:     String(r[Schema.idx("SKU")] || "").trim(),
         suggest: _igOrdersForSku(known, r[Schema.idx("SKU")])
       });
-    } else if (isFlagged) {
-      // ⭐ SELF-CLEARING. It was flagged and now reconciles — or the row moved out of
-      //   scope entirely. Either way the amber has done its job.
-      _igPaint(sheet, rowNum, false);
-      cleared++;
     }
   }
 
@@ -313,8 +314,7 @@ function runIdentityReconcile() {
     try { _igAlert(_igComposeAlert(fresh)); } catch (e) { console.log("identityEditGuard alert: " + e); }
   }
 
-  return flagged.length + " flagged · " + cleared + " cleared" +
-         (fresh.length ? " · " + fresh.length + " new" : "");
+  return flagged.length + " mismatched" + (fresh.length ? " · " + fresh.length + " reported" : "");
 }
 
 
@@ -357,7 +357,11 @@ function _igOrdersForSku(known, sku) {
 }
 
 
-/** Paint or unpaint one row. Cosmetic only — no value is ever touched. */
+/**
+ * ⚠ CLEANUP ONLY. The reconcile no longer paints anything — see the note in its loop.
+ *   This survives solely so clearIdentityFlags() can remove marks left by the versions
+ *   that did, in either colour they wore. Nothing else should ever call it with on=true.
+ */
 function _igPaint(sheet, row, on) {
   var band = sheet.getRange(row, 1, 1, Schema.dataWidth);
   var cell = sheet.getRange(row, Schema.cols.SALES_ORDER);
@@ -425,6 +429,11 @@ function _igAlert(text) {
 /**
  * Clear every identity flag by hand. Rarely needed now the reconcile clears its own,
  * but it is the escape hatch if a flag ever outlives its cause.
+ */
+/**
+ * Remove every mark left by the painting versions of this guard — both colours, plus
+ * the note. Run once after 2026-08-29; after that there is nothing to clear, because
+ * the guard writes nothing.
  */
 function clearIdentityFlags() {
   var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
