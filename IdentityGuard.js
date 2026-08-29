@@ -85,7 +85,11 @@ var IDENTITY_GUARD = {
   // hardcoded inside _buildIdentityRules (BrandTheme.js) because a CF formula cannot
   // take a variable — change it in both places or the rule silently stops matching.
   sheetName: "__Identity",
-  listMax:   500,               // matches the CF rule's $A$1:$A$500 window
+  listMax:   500,               // matches the CF rules' $A$1:$A$500 / $B$1:$B$500 windows
+  // Two published columns, because the two questions need different keys:
+  //   A · order|sku       — is this row's IDENTITY one we received?
+  //   B · order|sku|qty   — is this row's QTY the one we received for that identity?
+  listCols:  { identity: 1, qty: 2 },
 
   dirtyKey:   "IDENTITY_GUARD_DIRTY",
   alertedKey: "IDENTITY_GUARD_ALERTED",   // alert once per crossing, watchdog-style
@@ -106,6 +110,10 @@ var IDENTITY_GUARD = {
 
   alertedMax: 60,               // prune; a live-issue list, not a history
 
+  // GONE · UNKNOWN · DUPLICATED · QTY. Kept here so the diagnostics cannot drift from
+  // what _buildIdentityRules actually installs.
+  ruleCount: 4,
+
   // ⚠ LEGACY ONLY — the colours the PAINTING versions wore, kept so clearIdentityFlags()
   //   can still remove marks they left. Nothing paints a static fill any more.
   legacyBg: ["#ffab40", "#ffe0b2"],
@@ -121,6 +129,20 @@ var IDENTITY_GUARD = {
 function _igSig(orderId, sku) {
   return String(orderId == null ? "" : orderId).trim().toLowerCase() + "|" +
          String(sku == null ? "" : sku).trim().toLowerCase();
+}
+
+
+/**
+ * Identity + quantity. A row can carry a perfectly legitimate identity and still have had
+ * its QTY typed over, so the qty question needs its own key.
+ *
+ * ⚠ Nothing in this codebase writes Schema.cols.QTY after insert — verified by grep, and
+ *   Zoho Pull's insert_delta creates a NEW row with its own RECEIVED event rather than
+ *   editing an existing qty. So a qty that does not match what was received is always a
+ *   hand-edit, which is what makes this safe to flag.
+ */
+function _igQtySig(orderId, sku, qty) {
+  return _igSig(orderId, sku) + "|" + String(qty == null ? "" : qty).trim();
 }
 
 
@@ -186,8 +208,10 @@ function _igScanRows(data, boundary) {
 
     if (!_igIsEstablished(status)) continue;
 
-    var entry = { row: rowNum, sku: sku, orderId: so, note: note,
-                  status: status, sig: _igSig(so, sku) };
+    var qty = r[Schema.idx("QTY")];
+    var entry = { row: rowNum, sku: sku, orderId: so, note: note, qty: qty,
+                  status: status, sig: _igSig(so, sku),
+                  qtySig: _igQtySig(so, sku, qty) };
     rows.push(entry);
 
     if (sku && so && !_igIsDeltaRow(note)) {
@@ -258,6 +282,18 @@ function _igVerdict(row, known, pairCounts) {
     return { verdict: "duplicate", reason: "this exact pair is on more than one row" };
   }
 
+  // ⚠ THE IDENTITY IS RIGHT AND THE QUANTITY IS NOT. Judged only once the pair is known,
+  //   so a row we cannot vouch for at all is never also accused of a wrong qty — one
+  //   problem per row, and the more fundamental one wins.
+  var qtyRaw = String(row.qty == null ? "" : row.qty).trim();
+  if (qtyRaw && known.qtyByPair) {
+    var seen = known.qtyByPair[sig];
+    if (seen && !seen[qtyRaw]) {
+      return { verdict: "qty",
+               reason: "we received " + Object.keys(seen).join(" or ") + " of this, not " + qtyRaw };
+    }
+  }
+
   return { verdict: "ok", reason: "matches a RECEIVED event" };
 }
 
@@ -268,7 +304,7 @@ function _igVerdict(row, known, pairCounts) {
  *   produced a message naming a correct value as the offender.
  */
 function _igComposeAlert(hits) {
-  var byKind = { gone: [], mismatch: [], duplicate: [] };
+  var byKind = { gone: [], mismatch: [], duplicate: [], qty: [] };
   hits.forEach(function (h) { if (byKind[h.verdict]) byKind[h.verdict].push(h); });
 
   var L = ["⚠ ROW IDENTITY PROBLEM ON THE SHEET", ""];
@@ -301,6 +337,15 @@ function _igComposeAlert(hits) {
       L.push("Row " + h.row + " · " + h.sku + " on " + h.orderId);
     });
     L.push("  A duplicate depresses HAND for that SKU and doubles the pick line.");
+    L.push("");
+  }
+
+  if (byKind.qty.length) {
+    L.push("── QUANTITY CHANGED ──");
+    byKind.qty.forEach(function (h) {
+      L.push("Row " + h.row + " · " + h.sku + " on " + h.orderId);
+      L.push("  " + h.reason);
+    });
     L.push("");
   }
 
@@ -387,7 +432,7 @@ function runIdentityReconcile() {
   var scan  = _igScanRows(data, boundary);
   var known = _igKnownFromLog(ss);
 
-  var flagged = [], mismatchPairs = [];
+  var flagged = [], mismatchPairs = [], qtyKeys = [];
 
   for (var i = 0; i < scan.rows.length; i++) {
     var entry = scan.rows[i];
@@ -409,9 +454,12 @@ function runIdentityReconcile() {
     if (v.verdict === "mismatch" && mismatchPairs.indexOf(entry.sig) === -1) {
       mismatchPairs.push(entry.sig);
     }
+    if (v.verdict === "qty" && qtyKeys.indexOf(entry.qtySig) === -1) {
+      qtyKeys.push(entry.qtySig);
+    }
   }
 
-  try { _igWriteMismatchList(ss, mismatchPairs); }
+  try { _igWriteMismatchList(ss, mismatchPairs, qtyKeys); }
   catch (e) { console.log("identityEditGuard list write: " + e); }
 
   props.deleteProperty(IDENTITY_GUARD.dirtyKey);
@@ -439,7 +487,7 @@ function _igKnownFromLog(ss) {
     var n = Math.min(IDENTITY_GUARD.logTailRows, last - ACTIVITY_LOG.dataStartRow + 1);
     var rows = log.getRange(last - n + 1, 1, n, ACTIVITY_LOG.dataWidth).getValues();
 
-    var pairs = {}, orders = {}, skus = {}, bySku = {};
+    var pairs = {}, orders = {}, skus = {}, bySku = {}, qtyByPair = {};
     for (var i = 0; i < rows.length; i++) {
       // ⚠ RECEIVED ONLY. IDENTITY_EDIT rows are in this same log and are deliberately
       //   NOT counted — an alteration is not a receipt. See _mrClassify.
@@ -447,14 +495,23 @@ function _igKnownFromLog(ss) {
       var oid = String(rows[i][ACTIVITY_LOG.idx("ORDER_ID")] || "").trim();
       var sku = String(rows[i][ACTIVITY_LOG.idx("SKU")] || "").trim();
       if (!oid || !sku) continue;
-      pairs[_igSig(oid, sku)] = 1;
+      var psig = _igSig(oid, sku);
+      pairs[psig] = 1;
+      // ⚠ EVERY qty ever received for this pair, not just the latest. A pair can be
+      //   received more than once — a re-entry, or Zoho Pull's delta row — and each is
+      //   legitimate, so the row matches if it equals ANY of them.
+      var q = String(rows[i][ACTIVITY_LOG.idx("QTY")] == null ? "" : rows[i][ACTIVITY_LOG.idx("QTY")]).trim();
+      if (q) {
+        if (!qtyByPair[psig]) qtyByPair[psig] = {};
+        qtyByPair[psig][q] = 1;
+      }
       orders[oid.toLowerCase()] = 1;
       skus[sku.toLowerCase()] = 1;
       var k = sku.toLowerCase();
       if (!bySku[k]) bySku[k] = [];
       if (bySku[k].indexOf(oid) === -1 && bySku[k].length < 4) bySku[k].push(oid);
     }
-    return { pairs: pairs, orders: orders, skus: skus, bySku: bySku };
+    return { pairs: pairs, orders: orders, skus: skus, bySku: bySku, qtyByPair: qtyByPair };
   } catch (e) {
     console.log("_igKnownFromLog: " + e);
     return null;
@@ -487,26 +544,32 @@ function _igOrdersForSku(known, sku) {
  * ⚠ '@' plain text on the column — Gotcha #16. An order id like 24-14979-87359 left on a
  *   default format would be coerced to a Date and could never match the row again.
  */
-function _igWriteMismatchList(ss, pairs) {
-  var capped = (pairs || []).slice(0, IDENTITY_GUARD.listMax);
-
+function _igWriteMismatchList(ss, pairs, qtyKeys) {
   var sheet = ss.getSheetByName(IDENTITY_GUARD.sheetName);
   if (!sheet) {
     sheet = ss.insertSheet(IDENTITY_GUARD.sheetName);
-    sheet.getRange(1, 1, IDENTITY_GUARD.listMax, 1).setNumberFormat('@');
+    sheet.getRange(1, 1, IDENTITY_GUARD.listMax, 2).setNumberFormat('@');
   }
   try { sheet.hideSheet(); } catch (e) { /* already hidden — fine */ }
 
-  // Idempotent: compare before writing so a steady state costs nothing.
-  var existing = _igReadMismatchList(ss);
+  var wrote = 0;
+  wrote += _igWriteOneList(sheet, ss, IDENTITY_GUARD.listCols.identity, pairs);
+  wrote += _igWriteOneList(sheet, ss, IDENTITY_GUARD.listCols.qty, qtyKeys);
+  return wrote;
+}
+
+
+/** One published column. Idempotent: a steady state costs nothing. */
+function _igWriteOneList(sheet, ss, col, keys) {
+  var capped = (keys || []).slice(0, IDENTITY_GUARD.listMax);
+  var existing = _igReadMismatchList(ss, col);
   if (existing.length === capped.length &&
       existing.every(function (v, i) { return v === capped[i]; })) {
-    return capped.length;
+    return 0;
   }
-
-  sheet.getRange(1, 1, IDENTITY_GUARD.listMax, 1).clearContent();
+  sheet.getRange(1, col, IDENTITY_GUARD.listMax, 1).clearContent();
   if (capped.length) {
-    sheet.getRange(1, 1, capped.length, 1)
+    sheet.getRange(1, col, capped.length, 1)
          .setNumberFormat('@')
          .setValues(capped.map(function (p) { return [p]; }));
   }
@@ -514,15 +577,16 @@ function _igWriteMismatchList(ss, pairs) {
 }
 
 
-/** Read the published mismatch list back. Returns [] when the sheet is absent. */
-function _igReadMismatchList(ss) {
+/** Read one published column back. Returns [] when the sheet is absent. */
+function _igReadMismatchList(ss, col) {
   try {
+    var c = col || IDENTITY_GUARD.listCols.identity;
     var target = ss || SpreadsheetApp.openById(SPREADSHEET_ID);
     var sheet = target.getSheetByName(IDENTITY_GUARD.sheetName);
     if (!sheet) return [];
     var last = Math.min(sheet.getLastRow(), IDENTITY_GUARD.listMax);
     if (last < 1) return [];
-    return sheet.getRange(1, 1, last, 1).getValues()
+    return sheet.getRange(1, c, last, 1).getValues()
       .map(function (r) { return String(r[0] || "").trim(); })
       .filter(function (v) { return !!v; });
   } catch (e) {
@@ -599,9 +663,10 @@ function _igAlert(text) {
  * @param {Array}  list      published mismatch pairs
  * @returns {Array} row numbers with a problem
  */
-function _igIssueRows(data, boundary, list) {
-  var set = {};
+function _igIssueRows(data, boundary, list, qtyList) {
+  var set = {}, qset = {};
   (list || []).forEach(function (p) { set[p] = 1; });
+  (qtyList || []).forEach(function (p) { qset[p] = 1; });
 
   var scan = _igScanRows(data, boundary);
   var out = [];
@@ -609,6 +674,7 @@ function _igIssueRows(data, boundary, list) {
   scan.rows.forEach(function (entry) {
     var bad = (!entry.sku || !entry.orderId) ||          // GONE
               (set[entry.sig] === 1) ||                   // UNKNOWN
+              (qset[entry.qtySig] === 1) ||               // WRONG QTY
               (scan.pairCounts[entry.sig] > 1);           // DUPLICATED
     if (bad) out.push(entry.row);
   });
@@ -691,11 +757,21 @@ function _igCountInstalledRules(sheet) {
     var n = 0;
     rules.forEach(function (rule) {
       var ranges = rule.getRanges();
-      if (!ranges || ranges.length !== 2) return;
-      var cols = ranges.map(function (r) {
-        return (r.getNumColumns() === 1) ? r.getColumn() : -1;
-      }).sort(function (x, y) { return x - y; });
-      if (cols[0] === Schema.cols.SKU && cols[1] === Schema.cols.SALES_ORDER) n++;
+      if (!ranges) return;
+      // GONE · UNKNOWN · DUPLICATED — two single-column ranges, on SKU and SALES ORDER
+      if (ranges.length === 2) {
+        var cols = ranges.map(function (r) {
+          return (r.getNumColumns() === 1) ? r.getColumn() : -1;
+        }).sort(function (x, y) { return x - y; });
+        if (cols[0] === Schema.cols.SKU && cols[1] === Schema.cols.SALES_ORDER) { n++; return; }
+      }
+      // QTY — column B alone, naming our helper sheet
+      if (ranges.length === 1 && ranges[0].getNumColumns() === 1 &&
+          ranges[0].getColumn() === Schema.cols.QTY) {
+        var bc = rule.getBooleanCondition();
+        var f = bc ? String((bc.getCriteriaValues() || [''])[0] || '') : '';
+        if (f.indexOf(IDENTITY_GUARD.sheetName) !== -1) n++;
+      }
     });
     return n;
   } catch (e) {
@@ -734,16 +810,18 @@ function diagnoseIdentityFlags() {
 
   var scan  = _igScanRows(data, boundary);
   var known = _igKnownFromLog(ss);
-  var list  = _igReadMismatchList(ss);
+  var list  = _igReadMismatchList(ss, IDENTITY_GUARD.listCols.identity);
+  var qlist = _igReadMismatchList(ss, IDENTITY_GUARD.listCols.qty);
 
   var installed = _igCountInstalledRules(sheet);
 
   var L = ["── IDENTITY ──"];
-  L.push("CF rules installed:       " + installed + " of 3" +
-         (installed === 3 ? "   ✓" : "   ⚠⚠ THE SHEET CANNOT MARK ANYTHING"));
-  if (installed !== 3) {
+  L.push("CF rules installed:       " + installed + " of " + IDENTITY_GUARD.ruleCount +
+         (installed === IDENTITY_GUARD.ruleCount ? "   ✓" : "   ⚠⚠ THE SHEET CANNOT MARK ANYTHING"));
+  if (installed !== IDENTITY_GUARD.ruleCount) {
     L.push("");
-    L.push("  ⚠⚠ NOTHING WILL EVER TURN RED UNTIL THIS READS 3 OF 3.");
+    L.push("  ⚠⚠ NOTHING WILL EVER TURN RED UNTIL THIS READS " +
+           IDENTITY_GUARD.ruleCount + " OF " + IDENTITY_GUARD.ruleCount + ".");
     L.push("     Run  setupIdentityHighlighting()  once, from the editor.");
     L.push("     The mark is conditional formatting — a display layer — so an");
     L.push("     UNINSTALLED feature and a clean sheet look identical. There is no");
@@ -751,8 +829,10 @@ function diagnoseIdentityFlags() {
     L.push("");
   }
   L.push("established rows judged:  " + scan.rows.length);
-  L.push("published mismatch list:  " + list.length + " pair(s)  [" +
-         IDENTITY_GUARD.sheetName + "]");
+  L.push("published identity list:   " + list.length + " pair(s)   [" +
+         IDENTITY_GUARD.sheetName + "!A]");
+  L.push("published qty list:        " + qlist.length + " key(s)    [" +
+         IDENTITY_GUARD.sheetName + "!B]");
   L.push("Activity Log:             " + (known ? "readable (tail " + IDENTITY_GUARD.logTailRows + ")"
                                                : "UNREADABLE — no verdict possible"));
   var dirty = null;
@@ -830,8 +910,8 @@ function diagnoseIdentityCF() {
   var installed = _igCountInstalledRules(sheet);
   L.push("CF rules on the sheet:        " + all.length);
   L.push("…touching col A or col D:     " + onIdentityCols.length);
-  L.push("…that are OURS (A+D pair):    " + installed + " of 3" +
-         (installed === 3 ? "   ✓" : "   ⚠⚠ NOTHING CAN MARK"));
+  L.push("…that are OURS:               " + installed + " of " + IDENTITY_GUARD.ruleCount +
+         (installed === IDENTITY_GUARD.ruleCount ? "   ✓" : "   ⚠⚠ NOTHING CAN MARK"));
   L.push("");
   L.push("EVERY rule touching A or D, IN ORDER (Sheets applies the FIRST match per cell):");
   if (!onIdentityCols.length) L.push("  (none — run setupIdentityHighlighting())");
@@ -848,10 +928,13 @@ function diagnoseIdentityCF() {
 
   // ── 2 · the published list ─────────────────────────────────────────────────────────
   var identSheet = ss.getSheetByName(IDENTITY_GUARD.sheetName);
-  var list = _igReadMismatchList(ss);
-  L.push("__Identity sheet exists:      " + (identSheet ? "YES" : "NO  ⚠ the UNKNOWN rule can never match"));
-  L.push("published mismatch pairs:     " + list.length);
+  var list  = _igReadMismatchList(ss, IDENTITY_GUARD.listCols.identity);
+  var qlist = _igReadMismatchList(ss, IDENTITY_GUARD.listCols.qty);
+  L.push("__Identity sheet exists:      " + (identSheet ? "YES" : "NO  ⚠ neither lookup rule can match"));
+  L.push("published identity pairs (A): " + list.length);
   list.slice(0, 5).forEach(function (p) { L.push("     " + JSON.stringify(p)); });
+  L.push("published qty keys (B):       " + qlist.length);
+  qlist.slice(0, 5).forEach(function (p) { L.push("     " + JSON.stringify(p)); });
   L.push("");
 
   // ── 3 · pick a row to test: prefer one the reconcile flagged ───────────────────────
@@ -896,6 +979,7 @@ function diagnoseIdentityCF() {
     ["GONE",         F.gone],
     ["UNKNOWN",      F.unknown],
     ["DUPLICATED",   F.duplicated],
+    ["QTY",          F.qty],
     ["sig the FORMULA builds",
       '=LOWER(TRIM($D' + target.row + '))&"|"&LOWER(TRIM($A' + target.row + '))'],
     ["MATCH position in the list",

@@ -1886,6 +1886,7 @@ function _stripHoldRules(rules) {
  */
 function _identityFormulas(anchorRow) {
   var a = '$A' + anchorRow;   // SKU
+  var b = '$B' + anchorRow;   // QTY
   var d = '$D' + anchorRow;   // SALES ORDER
   var f = '$F' + anchorRow;   // STATUS
 
@@ -1899,8 +1900,12 @@ function _identityFormulas(anchorRow) {
 
   var bothPresent = a + '<>"", ' + d + '<>""';
 
-  var listRef = 'INDIRECT("\'' + IDENTITY_GUARD.sheetName + '\'!$A$1:$A$' +
-                IDENTITY_GUARD.listMax + '")';
+  function listRefFor(colLetter) {
+    return 'INDIRECT("\'' + IDENTITY_GUARD.sheetName + '\'!$' + colLetter + '$1:$' +
+           colLetter + '$' + IDENTITY_GUARD.listMax + '")';
+  }
+  var listRef    = listRefFor('A');   // order|sku      — identity
+  var qtyListRef = listRefFor('B');   // order|sku|qty  — quantity
 
   var pairCount =
     'COUNTIFS($A$' + Schema.dataStartRow + ':$A,' + a +
@@ -1933,7 +1938,18 @@ function _identityFormulas(anchorRow) {
        ⚠ Open-ended $A$4:$A, never a bounded absolute range — n8n inserts at the top all
          day and a fixed end drifts. */
     duplicated: '=AND(' + established + ', ' + bothPresent + ', ' +
-                pairCount + '-' + deltaCount + '>1)'
+                pairCount + '-' + deltaCount + '>1)',
+
+    /* QTY — the identity is right and the quantity is not.
+       ⚠ NOTHING in this codebase writes column B after insert (verified by grep), and Zoho
+         Pull's insert_delta creates a NEW row with its own RECEIVED event rather than
+         editing an existing qty — so a qty that does not match what was received is always
+         a hand-edit. That is what makes this safe to flag at all.
+       ⚠ It paints column B alone: the identity is fine, so saying so on A and D would
+         point at the wrong cells. */
+    qty: '=AND(' + established + ', ' + bothPresent + ', ' + b + '<>"", ' +
+         'IFERROR(ISNUMBER(MATCH(LOWER(TRIM(' + d + '))&"|"&LOWER(TRIM(' + a + '))&"|"&TRIM(' + b + '), ' +
+         qtyListRef + ', 0)), FALSE))'
   };
 }
 
@@ -1964,18 +1980,21 @@ function _buildIdentityRules(sheet) {
     sheet.getRange(Schema.dataStartRow, Schema.cols.SKU, rows, 1),
     sheet.getRange(Schema.dataStartRow, Schema.cols.SALES_ORDER, rows, 1)
   ];
+  var qtyRange = [sheet.getRange(Schema.dataStartRow, Schema.cols.QTY, rows, 1)];
   var F = _identityFormulas(Schema.dataStartRow);
 
-  function rule(formula) {
+  function rule(formula, on) {
     return SpreadsheetApp.newConditionalFormatRule()
       .whenFormulaSatisfied(formula)
       // The deep red the escalated-hold rule already owns — "act now", and unmistakable
       // against the cream banding that made the 08-29 amber invisible.
       .setBackground('#b71c1c').setFontColor('#ffffff').setBold(true)
-      .setRanges(ranges).build();
+      .setRanges(on || ranges).build();
   }
 
-  return [rule(F.gone), rule(F.unknown), rule(F.duplicated)];
+  // ⚠ The qty rule paints column B ALONE. The identity is fine on such a row, so marking
+  //   A and D would point the reader at the wrong two cells.
+  return [rule(F.gone), rule(F.unknown), rule(F.duplicated), rule(F.qty, qtyRange)];
 }
 
 
@@ -2005,12 +2024,26 @@ function setupIdentityHighlighting() {
 function _stripIdentityRules(rules) {
   return rules.filter(function (rule) {
     var ranges = rule.getRanges();
-    if (!ranges || ranges.length !== 2) return true;
-    var cols = ranges.map(function (r) {
-      return (r.getNumColumns() === 1) ? r.getColumn() : -1;
-    }).sort(function (x, y) { return x - y; });
-    var isIdentity = (cols[0] === Schema.cols.SKU && cols[1] === Schema.cols.SALES_ORDER);
-    return !isIdentity;
+    if (!ranges) return true;
+
+    // the three identity rules: exactly two single-column ranges, on SKU and SALES ORDER
+    if (ranges.length === 2) {
+      var cols = ranges.map(function (r) {
+        return (r.getNumColumns() === 1) ? r.getColumn() : -1;
+      }).sort(function (x, y) { return x - y; });
+      if (cols[0] === Schema.cols.SKU && cols[1] === Schema.cols.SALES_ORDER) return false;
+    }
+
+    // the qty rule: column B alone, and it names our helper sheet. ⚠ The sheet-name test
+    // matters — column B is otherwise unclaimed, and a future rule there should survive.
+    if (ranges.length === 1 && ranges[0].getNumColumns() === 1 &&
+        ranges[0].getColumn() === Schema.cols.QTY) {
+      var bc = rule.getBooleanCondition();
+      var f = bc ? String((bc.getCriteriaValues() || [''])[0] || '') : '';
+      if (f.indexOf(IDENTITY_GUARD.sheetName) !== -1) return false;
+    }
+
+    return true;
   });
 }
 

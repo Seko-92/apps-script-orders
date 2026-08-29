@@ -153,7 +153,10 @@ function _scanAlerts() {
   // feature exists to answer.
   try {
     if (typeof _igIssueRows === "function") {
-      out.identityIssues = _igIssueRows(data, boundary, _igReadMismatchList(ss));
+      out.identityIssues = _igIssueRows(
+        data, boundary,
+        _igReadMismatchList(ss, IDENTITY_GUARD.listCols.identity),
+        _igReadMismatchList(ss, IDENTITY_GUARD.listCols.qty));
     }
   } catch (e) {
     console.log("_scanAlerts identity: " + e);   // degrade to zero, never break the payload
