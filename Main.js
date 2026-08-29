@@ -262,6 +262,22 @@ function onEditInstallable(e) {
     Logger.log("orderLinkOnEdit (installable) error: " + err);
   }
 
+  // ⚠ ROW IDENTITY — the backstop for the 2026-08-28 slip, where a SALES_ORDER
+  // cell was overwritten on a row already picked and shelf-counted.
+  //
+  // Placed AFTER the handlers that legitimately change a row, and BEFORE the
+  // cache bust, for two reasons: it only READS and PAINTS (it can never fight
+  // another handler's write), and running it late means the row it inspects is
+  // the settled one rather than a half-applied edit.
+  //
+  // ⚠ It still matters after protectAllOrdersSheet() locks cols A/B/D: protection
+  // does not restrict the OWNER, so this is what catches your own slips.
+  try {
+    identityEditGuard(e);
+  } catch (err) {
+    Logger.log("identityEditGuard (installable) error: " + err);
+  }
+
   // ⚠ LAST, AND ON PURPOSE: tell the board the sheet moved under it.
   // Companion to the same call in onChangeInstallable — see the long note
   // there. That one covers row inserts/deletes; this covers a person typing

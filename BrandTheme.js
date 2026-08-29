@@ -318,6 +318,220 @@ function unprotectSheetStructure() {
 }
 
 
+// =======================================================================================
+// THE ALL-ORDERS LOCK — hard protection, scoped to one sheet
+// =======================================================================================
+//
+// WHY (2026-08-28): a SALES_ORDER cell was overwritten by hand on a row that had
+// already been picked and shelf-counted. A slip, not an intrusion — the right intent,
+// the wrong cell. `protectSheetStructure` above is WARNING-ONLY: a dialog you click
+// through. This is a real wall.
+//
+// ⭐ WHY A WALL IS NOW POSSIBLE. It was ruled out on the grounds that hard protection
+// needs an editor list and would break the sidebar for employees. Measured in incognito
+// 2026-08-29: an anonymous link-editor gets NO sidebar and NO ⚙️ menu — no
+// google.script.run at all. They can only type in cells. So there is no asymmetry to
+// create, and "block every anonymous editor on the identity columns" is exactly the
+// policy wanted. Every legitimate writer runs as the OWNER:
+//
+//   n8n doPost inserts · Telegram · /kits          → owner  ✅
+//   onEditInstallable handlers (LiveSync, guards)  → owner  ✅ (installable = owner)
+//   your sidebar / the editor                      → owner is never restricted
+//   n8n's DIRECT Sheets-API writes                 → ❌ a NAMED account — see below
+//   an anonymous employee                          → ❌ blocked, which is the point
+//
+// ⚠⚠ SHEET-LEVEL WITH CARVE-OUTS, NOT THREE COLUMN PROTECTIONS. This flips the default
+// to DENY: a column added later is protected automatically instead of silently open —
+// the same posture as DOPOST_LOCK_FREE, where anything unnamed keeps the lock. It also
+// stops accidental row/column DELETION, which lives right next to the 08-28 slip. And
+// it is scoped: Prep Queue, Out of Stock, Location Update and the employees' own temp
+// tabs are untouched, so the manual-SKU workflows that live there keep working.
+
+var ALL_ORDERS_LOCK = {
+  tag: "HQ-LOCK",
+
+  // Script Property holding the Google account n8n's Sheets credential runs as.
+  // ⚠⚠ THE INSTALLER REFUSES WITHOUT IT, and that refusal is the whole point:
+  //    `E5. Delete SHIPPED Row` in the eBay orders workflow writes to All Orders
+  //    DIRECTLY through the Sheets node — not through Apps Script — so it is a
+  //    NAMED account, not the owner. Protection blocks non-editors from structural
+  //    changes, so forgetting this stops the ~1 AM shipped-row sweep. The symptom
+  //    would be "the sheet is filling up with shipped rows", noticed days later.
+  //    Fail loudly up front instead.
+  n8nAccountKey: "N8N_SHEETS_ACCOUNT",
+
+  // Set the property to this literal to assert, deliberately, that no external
+  // named account writes to All Orders and none needs an exception.
+  noneSentinel: "none"
+};
+
+
+/**
+ * Report the current lock state WITHOUT changing anything. Run this first, and
+ * again after installing — the Run button shows no return value, so it logs.
+ */
+function describeAllOrdersLock() {
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  var sheet = ss.getSheetByName(MAIN_SHEET_NAME);
+  if (!sheet) { console.log("❌ Main sheet not found."); return "❌ Main sheet not found."; }
+
+  var out = ["── ALL ORDERS LOCK ──"];
+  var sheetProts = sheet.getProtections(SpreadsheetApp.ProtectionType.SHEET);
+  var mine = sheetProts.filter(function (p) {
+    return String(p.getDescription() || "").indexOf(ALL_ORDERS_LOCK.tag) === 0;
+  });
+
+  if (!mine.length) {
+    out.push("state:      NOT LOCKED (no " + ALL_ORDERS_LOCK.tag + " sheet protection)");
+  } else {
+    var p = mine[0];
+    out.push("state:      LOCKED");
+    out.push("editors:    " + (p.getEditors().map(function (u) { return u.getEmail(); }).join(", ") || "(owner only)"));
+    out.push("open cells: " + p.getUnprotectedRanges().map(function (r) { return r.getA1Notation(); }).join(" · "));
+  }
+
+  var acct = "";
+  try { acct = PropertiesService.getScriptProperties().getProperty(ALL_ORDERS_LOCK.n8nAccountKey) || ""; } catch (e) {}
+  out.push("n8n acct:   " + (acct || "⚠ NOT SET — the installer will refuse"));
+
+  var warn = sheet.getProtections(SpreadsheetApp.ProtectionType.RANGE).filter(function (p) {
+    return String(p.getDescription() || "").indexOf("HQ-STRUCTURE") === 0;
+  }).length;
+  out.push("warn-only:  " + warn + " HQ-STRUCTURE range protection(s) (kept — they still warn YOU)");
+
+  var msg = out.join("\n");
+  console.log(msg);
+  return msg;
+}
+
+
+/**
+ * Install the lock. Idempotent — strips any prior HQ-LOCK protection first, so
+ * re-running refreshes the carve-outs rather than stacking.
+ *
+ * WHAT STAYS EDITABLE (everything else on this sheet is locked):
+ *   NOTE   — notes, holds, and now location corrections
+ *   STATUS — PENDING → PREPARING → SHIPPED, the floor's main action
+ *   LEFT   — the picker's shelf count
+ *   Pick ID for Shipping + Pick ID for Adjustment — printing hard-refuses without them
+ *
+ * ⚠ LOCATION IS DELIBERATELY LOCKED (user's call 2026-08-29). It is auto-filled, and a
+ *   correction goes in the NOTE. A real shelf change belongs on the Location Update sheet.
+ *
+ * ⚠ KNOWN AND ACCEPTED: the carve-outs are whole-column-from-dataStartRow, so the DIRECT
+ *   header row's NOTE/STATUS/LEFT label cells fall inside them and stay editable.
+ *   Excluding them would need ranges recomputed every time the boundary moves, which it
+ *   does all day. The cells are cosmetic, getBoundaryRow() reads only column A (locked),
+ *   and protectSheetStructure()'s warning-only protection still covers those rows.
+ */
+function protectAllOrdersSheet() {
+  var props = PropertiesService.getScriptProperties();
+  var acct = String(props.getProperty(ALL_ORDERS_LOCK.n8nAccountKey) || "").trim();
+
+  // ⚠⚠ THE REFUSAL THAT PROTECTS THE NIGHTLY SWEEP. See n8nAccountKey above.
+  if (!acct) {
+    return "❌ REFUSED — set the Script Property '" + ALL_ORDERS_LOCK.n8nAccountKey + "' first.\n\n" +
+           "n8n's `E5. Delete SHIPPED Row` writes to All Orders DIRECTLY via the Sheets\n" +
+           "API, as a NAMED account rather than as the owner. Locking this sheet without\n" +
+           "granting that account an exception STOPS the ~1 AM shipped-row sweep, and the\n" +
+           "symptom (a sheet filling up with shipped rows) shows days later.\n\n" +
+           "Set it to the account email from the n8n Google Sheets credential, or to the\n" +
+           "literal 'none' if you have CONFIRMED in the live n8n UI that nothing writes to\n" +
+           "All Orders outside Apps Script.";
+  }
+
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  var sheet = ss.getSheetByName(MAIN_SHEET_NAME);
+  if (!sheet) return "❌ Main sheet not found.";
+
+  // ---- 1. Strip any prior HQ-LOCK protection (idempotent re-run) ----
+  var removed = 0;
+  sheet.getProtections(SpreadsheetApp.ProtectionType.SHEET).forEach(function (p) {
+    if (String(p.getDescription() || "").indexOf(ALL_ORDERS_LOCK.tag) === 0) {
+      try { p.remove(); removed++; } catch (e) { /* ignore */ }
+    }
+  });
+
+  // ---- 2. Protect the whole sheet, then narrow the editor list to the owner ----
+  var prot = sheet.protect().setDescription(
+    ALL_ORDERS_LOCK.tag + ": All Orders — identity columns locked (2026-08-29)");
+  prot.removeEditors(prot.getEditors());
+  try { if (prot.canDomainEdit()) prot.setDomainEdit(false); } catch (e) { /* not a Workspace domain */ }
+
+  // ---- 3. Grant the ONE named external writer its exception ----
+  var granted = "none";
+  if (acct.toLowerCase() !== ALL_ORDERS_LOCK.noneSentinel) {
+    try { prot.addEditor(acct); granted = acct; }
+    catch (e) {
+      try { prot.remove(); } catch (e2) {}
+      return "❌ Could not add '" + acct + "' as an editor: " + e + "\n" +
+             "Nothing was locked — fix the account and re-run.";
+    }
+  }
+
+  // ---- 4. Carve out what the floor actually works in ----
+  // ⚠ Built from Schema, never from A1 literals, so a column move cannot silently
+  //   open the wrong one — this is the file where a wrong range is a locked-out shift.
+  var maxRow = sheet.getMaxRows();
+  var span = maxRow - Schema.dataStartRow + 1;
+  var open = [
+    sheet.getRange(Schema.dataStartRow, Schema.cols.NOTE,   span, 1),
+    sheet.getRange(Schema.dataStartRow, Schema.cols.STATUS, span, 1),
+    sheet.getRange(Schema.dataStartRow, Schema.cols.LEFT,   span, 1)
+  ];
+
+  // The two Pick ID cells. ⚠ Pick ID for Shipping is a MERGE (F2:G2 today), and a
+  // merge is only editable through its whole range — so resolve the merge rather
+  // than hardcoding the second column, which has already moved once (2026-05-19).
+  [Schema.cellEmployeeId, Schema.cellAdjustmentId].forEach(function (a1) {
+    var cell = sheet.getRange(a1);
+    var merges = cell.getMergedRanges();
+    open.push(merges && merges.length ? merges[0] : cell);
+  });
+
+  prot.setUnprotectedRanges(open);
+  SpreadsheetApp.flush();
+
+  return "✅ All Orders LOCKED" +
+         (removed ? " (refreshed — " + removed + " prior)" : "") +
+         "\n   editable: " + open.map(function (r) { return r.getA1Notation(); }).join(" · ") +
+         "\n   n8n exception: " + granted +
+         "\n\n⚠ Verify in an incognito window before trusting it: col D must refuse," +
+         "\n   NOTE / STATUS / LEFT must accept, and both Pick ID dropdowns must work.";
+}
+
+
+/**
+ * Remove the lock. One call, full reversal — the escape hatch that makes the
+ * whole thing safe to try. Leaves HQ-STRUCTURE warning-only protections alone.
+ */
+function unprotectAllOrdersSheet() {
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  var sheet = ss.getSheetByName(MAIN_SHEET_NAME);
+  if (!sheet) return "❌ Main sheet not found.";
+
+  var removed = 0;
+  sheet.getProtections(SpreadsheetApp.ProtectionType.SHEET).forEach(function (p) {
+    if (String(p.getDescription() || "").indexOf(ALL_ORDERS_LOCK.tag) === 0) {
+      try { p.remove(); removed++; } catch (e) {}
+    }
+  });
+  return "✅ Removed " + removed + " " + ALL_ORDERS_LOCK.tag + " protection(s). All Orders is open again.";
+}
+
+
+/**
+ * One-shot setter so the account can be configured without touching code.
+ * ⚠ Zero-arg wrapper below, because the editor Run button cannot pass arguments.
+ */
+function setN8nSheetsAccount(email) {
+  var v = String(email || "").trim();
+  if (!v) return "❌ Pass the account email, or the literal 'none'.";
+  PropertiesService.getScriptProperties().setProperty(ALL_ORDERS_LOCK.n8nAccountKey, v);
+  return "✅ " + ALL_ORDERS_LOCK.n8nAccountKey + " = " + v;
+}
+
+
 /**
  * Inserts the HQ logo over cell A1 from a Drive file.
  * @param {string} driveFileIdOrUrl - Drive file ID or share URL
