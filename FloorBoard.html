@@ -951,6 +951,52 @@ body.ch-direct #pickListDirect { display: block; }
    failures, so say what went wrong instead of doing nothing. */
 .radio-note { padding: 0 12px 8px; font-size: 10.5px; line-height: 1.45; color: var(--mute-soft); }
 .radio-note.err { color: #ff9a9a; }
+/* ── MISSING / REPLACEMENT LINE (2026-08-29) ────────────────────────────────
+   The floor's door for adding a pick line, once All Orders is column-locked.
+   ⚠ These are TEXT inputs, which summon the OS keyboard — the numpad exists
+   precisely to avoid that for numbers, but an order id and a SKU are
+   alphanumeric, so there is no way around it here. */
+.rl-seg { display: flex; gap: 6px; margin-bottom: 14px; }
+.rl-seg button {
+      flex: 1 1 0; padding: 9px 8px; border-radius: 8px; cursor: pointer;
+      background: rgba(255,255,255,0.06); color: var(--mute);
+      border: 1px solid rgba(255,255,255,0.12);
+      font-family: 'Oswald', sans-serif; font-size: 11.5px;
+      letter-spacing: 0.08em; text-transform: uppercase;
+    }
+.rl-seg button.on {
+      background: var(--brand-rim); color: #1a1a1a; border-color: var(--brand-rim);
+    }
+.rl-field { margin-bottom: 11px; }
+.rl-field label {
+      display: block; font-family: 'Oswald', sans-serif; font-size: 10px;
+      letter-spacing: 0.12em; text-transform: uppercase;
+      color: var(--mute-soft); margin-bottom: 4px;
+    }
+.rl-field input {
+      width: 100%; box-sizing: border-box; background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.12); border-radius: 8px;
+      padding: 10px 11px; color: var(--paper);
+      font-family: 'Roboto Mono', monospace; font-size: 13px; outline: none;
+    }
+.rl-field input:focus { border-color: var(--brand-rim); }
+.rl-row { display: flex; gap: 10px; }
+.rl-row .rl-field { flex: 1 1 0; }
+.rl-row .rl-field.qty { flex: 0 0 84px; }
+.rl-go {
+      width: 100%; margin-top: 6px; padding: 13px; border: 0; border-radius: 9px;
+      background: var(--brand-rim); color: #1a1a1a; cursor: pointer;
+      font-family: 'Oswald', sans-serif; font-size: 13px;
+      letter-spacing: 0.1em; text-transform: uppercase;
+    }
+.rl-go[disabled] { opacity: 0.5; cursor: default; }
+/* A refusal from the engine TEACHES — it names the row that already exists, or
+   the order it could not find. Give it room to be read, and never clear the
+   fields behind it: retyping an order id on a tablet is the real cost. */
+.rl-msg { margin-top: 12px; font-size: 12px; line-height: 1.5; border-radius: 8px; padding: 10px 12px; }
+.rl-msg.err { background: rgba(255,107,107,0.12); color: #ff9a9a; }
+.rl-msg.ok  { background: rgba(126,217,87,0.12);  color: #a8e88a; }
+.rl-hint { font-size: 11px; line-height: 1.5; color: var(--mute-soft); margin-bottom: 14px; }
 /* synthetic equalizer — dances while the radio plays (audio stays untouched) */
     .eq { display: inline-flex; align-items: flex-end; gap: 2px; height: 14px; }
 .eq i {
@@ -1254,6 +1300,14 @@ body.ch-direct #pickListDirect { display: block; }
       <a class="menu-item" href="/video" title="Break-room screen — paste a link and watch">
         <i class="ftr-ico">▤</i><span>Video</span>
       </a>
+      <!-- ⚠ IN THE ⋯ MENU, not the footer bar — same ruling that placed /video
+           here. The footer is where PRINT and the picker chip live and a mis-tap
+           there costs something; adding a pick line should take a deliberate tap.
+           This is the floor's ONLY door for a missing line once All Orders is
+           column-locked: doPost runs as the owner, so it writes past protection. -->
+      <span class="menu-item" id="missingBtn" title="Add a line for a missing or replacement item">
+        <i class="ftr-ico">✚</i><span>Missing line</span>
+      </span>
       <span class="menu-item" id="soundToggle" title="Sound — distinct chime per event">
         <i class="ftr-ico">♪</i><span class="ftr-lbl">off</span>
       </span>
@@ -1378,6 +1432,7 @@ body.ch-direct #pickListDirect { display: block; }
       soundOn = (_snd === null) ? true : (_snd === '1');
       paintSoundToggle();
       document.getElementById('soundToggle').addEventListener('click', toggleSound);
+      document.getElementById('missingBtn').addEventListener('click', openMissingLine);
       document.getElementById('fsToggle').addEventListener('click', toggleFullscreen);
       document.getElementById('beaconStrip').addEventListener('click', beaconClear);
 
@@ -3632,6 +3687,134 @@ body.ch-direct #pickListDirect { display: block; }
     function drwFail(msg) {
       document.getElementById('drwBody').innerHTML =
         '<div class="drw-empty">' + esc(msg) + '</div>';
+    }
+
+    /* ── MISSING / REPLACEMENT LINE ─────────────────────────────────────────
+       The floor's door for adding a pick line. Exists because once All Orders is
+       column-locked an employee cannot type into col D at all — and this path
+       goes through doPost, which runs as the OWNER, so it writes past protection.
+
+       ⚠ STATE LIVES OUT HERE, not in the DOM. Every refusal from the engine is a
+       TEACHING refusal ("that exact line already exists — row 5 is …"), and the
+       user has to read it while their input is still on screen. Repainting from
+       rlState is what lets an error keep the fields instead of making somebody
+       retype an order id on a tablet. It is also what makes the picker replay
+       work: askForPicker wipes the drawer body, and rlState is what rebuilds it. */
+    var rlState = { kind: 'missing', order: '', sku: '', qty: '1', note: '' };
+
+    function openMissingLine() {
+      document.getElementById('menuPop').classList.add('hidden');
+      drwShow('Add a line', 'missing from a shipment, or a replacement');
+      rlPaint('', '');
+    }
+
+    /** Read the inputs back into rlState so a repaint never loses typing. */
+    function rlRead() {
+      var g = function (id) {
+        var el = document.getElementById(id);
+        return el ? String(el.value || '').trim() : '';
+      };
+      rlState.order = g('rlOrder');
+      rlState.sku   = g('rlSku');
+      rlState.qty   = g('rlQty') || '1';
+      rlState.note  = g('rlNote');
+    }
+
+    /* ⚠ PAINTS FROM rlState, NOT FROM THE DOM. Any caller whose DOM is newer than
+       rlState must call rlRead() FIRST or it will repaint stale (blank) fields and
+       silently throw away the user's typing. Every real caller does — the kind
+       toggle and rlSubmit both read first; openMissingLine wants a fresh paint on
+       purpose. Calling this directly from outside cost one misleading screenshot
+       during the build: the render showed placeholders and looked like a data-loss
+       bug in working code. */
+    function rlPaint(msg, kind) {
+      var isMissing = rlState.kind === 'missing';
+      var h =
+        '<div class="rl-seg">' +
+          '<button data-rlkind="missing"' + (isMissing ? ' class="on"' : '') + '>Missing</button>' +
+          '<button data-rlkind="replacement"' + (!isMissing ? ' class="on"' : '') + '>Replacement</button>' +
+        '</div>' +
+        '<div class="rl-hint">' +
+          (isMissing ? 'An item that was left out of a shipment that already went.'
+                     : 'A replacement for an item that arrived wrong or damaged.') +
+          ' It lands at the top of the eBay table as PENDING.' +
+        '</div>' +
+        '<div class="rl-field"><label>Original order</label>' +
+          '<input id="rlOrder" type="text" inputmode="text" autocomplete="off" ' +
+          'placeholder="05-15052-93025" value="' + esc(rlState.order) + '"></div>' +
+        '<div class="rl-row">' +
+          '<div class="rl-field"><label>SKU</label>' +
+            '<input id="rlSku" type="text" inputmode="text" autocomplete="off" ' +
+            'placeholder="212498" value="' + esc(rlState.sku) + '"></div>' +
+          '<div class="rl-field qty"><label>Qty</label>' +
+            '<input id="rlQty" type="number" inputmode="numeric" min="1" ' +
+            'value="' + esc(rlState.qty) + '"></div>' +
+        '</div>' +
+        '<div class="rl-field"><label>Note (optional)</label>' +
+          '<input id="rlNote" type="text" autocomplete="off" ' +
+          'placeholder="ship the gaskets only" value="' + esc(rlState.note) + '"></div>' +
+        '<button class="rl-go" id="rlGo">Add line</button>' +
+        (msg ? '<div class="rl-msg ' + (kind || 'err') + '">' + esc(msg) + '</div>' : '');
+
+      var body = document.getElementById('drwBody');
+      body.innerHTML = h;
+
+      /* ⚠ ASSIGNMENT, NOT addEventListener — the same stacking trap the picker
+         list hit: innerHTML replaces the CHILDREN but drwBody itself persists,
+         so a listener added per repaint fires N times on one tap. */
+      body.onclick = function (ev) {
+        var seg = ev.target.closest('[data-rlkind]');
+        if (seg) {
+          rlRead();                                   // keep typing across the toggle
+          rlState.kind = seg.getAttribute('data-rlkind');
+          return rlPaint('', '');
+        }
+        if (ev.target.closest('#rlGo')) rlSubmit();
+      };
+    }
+
+    function rlSubmit() {
+      rlRead();
+      if (!rlState.order || !rlState.sku) {
+        return rlPaint('Order id and SKU are both required.', 'err');
+      }
+
+      var btn = document.getElementById('rlGo');
+      if (btn) { btn.disabled = true; btn.textContent = 'Adding…'; }
+
+      hqCall('boardMissingLine', {
+        kind:          rlState.kind,
+        originalOrder: rlState.order,
+        sku:           rlState.sku,
+        qty:           rlState.qty,
+        note:          rlState.note
+      }).then(function (r) {
+        /* The server gate refused for want of a name. Open the picker drawer and
+           replay — rlState survives, so the form comes back filled in. */
+        if (r && r.needsPicker) {
+          return askForPicker(false, function () { openMissingLine(); rlSubmit(); },
+                              'required before adding a line');
+        }
+        if (!r || !r.ok) {
+          return rlPaint((r && r.message) || 'Could not add that line.', 'err');
+        }
+
+        /* Clear the identity fields but KEEP the kind — a second missing line for
+           the same shipment is the common follow-up, and re-picking the type
+           every time is friction for nothing. */
+        rlState.order = ''; rlState.sku = ''; rlState.qty = '1'; rlState.note = '';
+        var out = r.message;
+        if (r.warnings && r.warnings.length) out += '\n⚠ ' + r.warnings.join('\n⚠ ');
+        rlPaint(out, 'ok');
+        pollSoon();                                   // show it on the list now
+      }).catch(function (e) {
+        /* ⚠ A transport failure is "I DO NOT KNOW", not "it failed" — the same
+           ruling the pick button runs on. Say nothing landed only when we know
+           the request never went; hqCall tags genuine hop faults as transport. */
+        rlPaint(e && e.transport
+          ? 'Could not reach the sheet — nothing was added. Tap Add line again.'
+          : String((e && e.message) || e), 'err');
+      });
     }
 
     /* How many of this SKU other OPEN lines are already holding. The board is

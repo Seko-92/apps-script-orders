@@ -200,6 +200,26 @@ function doPost(e) {
         boardAckHold(payload.orderId, 'board')
       )).setMimeType(ContentService.MimeType.JSON);
     }
+    // ⚠ THE FLOOR'S DOOR FOR A MISSING / REPLACEMENT LINE (2026-08-29).
+    // A WRITE, so deliberately ABSENT from DOPOST_LOCK_FREE — it keeps the script
+    // lock like every other write, and the allowlist being deny-by-default means
+    // simply not naming it here is the correct and safe outcome.
+    //
+    // Unlike boardAckHold above, this one IS gated on the Pick ID
+    // (boardAddReplacementLine → _boardRequirePicker). A hold ack is an emergency
+    // where a dropdown is the wrong ask; adding a pick line is deliberate data
+    // entry, and it should carry a name. `needsPicker` comes back to the board,
+    // which opens the picker drawer and replays the action.
+    //
+    // This exists because once All Orders is column-locked, an employee cannot
+    // type into col D at all — and doPost runs as the OWNER, so this path writes
+    // straight past that protection. That is the point.
+    if (payload.action === 'boardMissingLine') {
+      return ContentService.createTextOutput(JSON.stringify(
+        boardAddReplacementLine(payload.kind, payload.originalOrder,
+                                payload.sku, payload.qty, payload.note)
+      )).setMimeType(ContentService.MimeType.JSON);
+    }
     // --- HOSTED KIT EXPANSION (web-app slice 2) --------------------------------
     // Two endpoints only: read the queue, commit one kit. The client sends
     // IDENTIFIERS and CHOICES; commitKitFromWeb re-derives the kit from a fresh

@@ -567,6 +567,35 @@ var TG_ROUTES = {
     }
   },
 
+  // ⭐ THE DOOR. Hand-typing into All Orders was the last major operation in this
+  // system with no proper entry point, and on 2026-08-28 that cost a picked and
+  // counted row: someone meant to add a missing line and overwrote a live order id
+  // instead. These two commands INSERT ONLY — they have no code path that can touch
+  // an existing row, so that slip is impossible here by construction.
+  "/missing": {
+    help:  "add a line for an item missing from a shipment",
+    usage: "<original order> <sku> [qty] [note]",
+    run: function (argStr) {
+      if (!argStr) {
+        return "Usage: /missing <original order> <sku> [qty] [note]\n" +
+               "Example: /missing 05-15052-93025 212498 1";
+      }
+      return _tgReplacementPreview("missing", argStr);
+    }
+  },
+
+  "/replacement": {
+    help:  "add a replacement line for a wrong or damaged item",
+    usage: "<original order> <sku> [qty] [note]",
+    run: function (argStr) {
+      if (!argStr) {
+        return "Usage: /replacement <original order> <sku> [qty] [note]\n" +
+               "Example: /replacement 19-14597-26309 171378 1 gaskets and studs only";
+      }
+      return _tgReplacementPreview("replacement", argStr);
+    }
+  },
+
   "/note": {
     help:  "pin a note to an order — shows on the Floor Board",
     usage: "<order> <text>",
@@ -651,6 +680,14 @@ var TG_ACTIONS = {
   "pull": {
     toast: "Pulling…",
     run: function (soNumber) { return _tgPullApply(soNumber); }
+  },
+  "rline": {
+    toast: "Adding…",
+    run: function (token) { return _tgReplacementApply(token); }
+  },
+  "rlcancel": {
+    toast: "Cancelled",
+    run: function () { return "✖ Cancelled — nothing was added to the sheet."; }
   },
   "cancel": {
     toast: "Cancelled",
@@ -742,6 +779,116 @@ function _tgPullApply(soNumber) {
          "\n\n" + r.applied.inserted + " row" + (r.applied.inserted === 1 ? "" : "s") +
          " added to DIRECT." +
          (r.skipped && r.skipped.length ? "\n⚠ " + r.skipped.length + " skipped." : "");
+}
+
+
+// =======================================================================================
+// /missing  +  /replacement  —  THE INSERT-ONLY DOOR
+// =======================================================================================
+//
+// Both commands share one engine (Replacements.js). The card confirms, the button
+// commits. Same two-step shape as /pull, for the same reason: this writes a real pick
+// line to the floor's list, so it should take a deliberate second tap.
+//
+// ⚠ WHY THE PAYLOAD GOES THROUGH THE CACHE AND NOT INTO callback_data
+//   Telegram caps callback_data at 64 BYTES. Order id + SKU + qty already spends ~40
+//   of those, and an optional note would blow it — silently, because Telegram simply
+//   refuses to render the button. Caching under a short token keeps the callback tiny
+//   and is the pattern the kit-expansion modal already uses for its queue.
+//
+// ⚠ THE TOKEN IS SCRIPT-SCOPED, NOT USER-SCOPED. In a group chat the person who taps
+//   the button is frequently NOT the person who typed the command; a user cache would
+//   hand them an empty token and the tap would die with a confusing "expired".
+
+var TG_REPLACEMENT_CACHE_SEC = 1800;   // 30 min — a card older than that should be re-run
+
+/** Build the confirmation card for /missing or /replacement. */
+function _tgReplacementPreview(kind, argStr) {
+  var a = _rlParseCommandArgs(argStr);
+
+  if (!a.originalOrder || !a.sku) {
+    return "Usage: /" + kind + " <original order> <sku> [qty] [note]\n" +
+           "Example: /" + kind + " 05-15052-93025 212498 1";
+  }
+
+  var p = previewReplacementLine(kind, a.originalOrder, a.sku, a.qty, a.note);
+  if (!p.ok) return "⚠ " + p.error;
+
+  var c = p.clean;
+  var token = Utilities.getUuid().replace(/-/g, "").slice(0, 10);
+  try {
+    CacheService.getScriptCache().put(
+      "rl:" + token,
+      JSON.stringify({ kind: c.kind, originalOrder: c.originalOrder, sku: c.sku,
+                       qty: c.qty, note: c.note }),
+      TG_REPLACEMENT_CACHE_SEC);
+  } catch (e) {
+    return "⚠ Could not stage that line (cache unavailable) — try again.";
+  }
+
+  var L = [];
+  L.push("➕ " + c.label + " LINE");
+  L.push("");
+  L.push("  " + c.qty + "× " + c.sku +
+         (p.stock.location && p.stock.location !== "NOT FOUND"
+            ? "   " + p.stock.location : "   ⚠ no shelf"));
+  L.push("  on hand " + p.stock.hand);
+  L.push("");
+  L.push("For order " + c.originalOrder + "  (found " + p.original.where + ")");
+  L.push("Column D will read:  " + c.salesOrder);
+  if (c.note) L.push("Note: " + _tgClip(c.note, 60));
+
+  if (p.warnings.length) {
+    L.push("");
+    p.warnings.forEach(function (w) { L.push("⚠ " + w); });
+  }
+
+  L.push("");
+  L.push("It lands at the top of the eBay table as PENDING.");
+
+  return {
+    text: L.join("\n"),
+    buttons: [[
+      { text: "✅ Add line", data: "rline:" + token },
+      { text: "✖ Cancel",   data: "rlcancel:" + token }
+    ]]
+  };
+}
+
+
+/** Commit the staged line. Called from the button tap. */
+function _tgReplacementApply(token) {
+  var raw;
+  try {
+    raw = CacheService.getScriptCache().get("rl:" + String(token || "").trim());
+  } catch (e) {
+    return "⚠ Could not read the staged line — re-run the command.";
+  }
+  if (!raw) {
+    return "⏳ That card expired (30 min) — re-run the command to add the line.";
+  }
+
+  var d;
+  try { d = JSON.parse(raw); }
+  catch (e2) { return "⚠ The staged line was unreadable — re-run the command."; }
+
+  // ⚠ addReplacementLine RE-VALIDATES from scratch: the original order, the stock, and
+  //   the duplicate guard all run again at apply time. State can move between the card
+  //   and the tap — someone may have added the same line on the sheet in between — and
+  //   the duplicate refusal is what makes a double-tap safe rather than doubling a
+  //   pick line. Same property /pull gets from re-running its diff.
+  var r = addReplacementLine(d.kind, d.originalOrder, d.sku, d.qty, d.note, "telegram");
+  if (!r || !r.ok) return "⚠ " + ((r && r.message) || "Could not add that line.");
+
+  // Burn the token so a second tap cannot even reach the engine.
+  try { CacheService.getScriptCache().remove("rl:" + token); } catch (_) {}
+
+  var out = [r.message];
+  if (r.warnings && r.warnings.length) {
+    out.push("");
+    r.warnings.forEach(function (w) { out.push("⚠ " + w); });
+  }
+  return out.join("\n");
 }
 
 
