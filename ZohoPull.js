@@ -436,6 +436,11 @@ function _findKitComponentRows(sheet, soNumber, kitSku) {
  * }}
  */
 function applyZohoPullSelection(query, selections, note) {
+  // ⚠ WRITES A PROTECTED SHEET. google.script.run runs as the INVOKING USER, so under
+  //   the All Orders lock a staff call would be refused. Come back in through /exec,
+  //   where doPost executes as the OWNER — see OwnerBridge.js.
+  if (!_obIsOwner()) return _asOwner('applyZohoPullSelection', [query, selections, note]);
+
   var out = {
     ok: false,
     reason: "",

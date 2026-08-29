@@ -356,6 +356,38 @@ function _resolveStatusTargetRows(sheet, target, lastRow) {
     return hit;
   }
 
+  // ⚠ MANY LINES AT ONCE: { pairs: [{orderId, sku}, …] }.
+  //
+  // Added 2026-08-30 for the owner bridge. A bulk "mark PREPARING" used to pass
+  // { startRow, numRows } — row COORDINATES — which is safe only while the caller and
+  // the write share one execution. Once the write hops through /exec to run as the
+  // owner, those coordinates were read in a DIFFERENT execution, and n8n inserts at the
+  // top of the sheet all day: the same row-shift class as 2026-05-08 and 2026-08-21.
+  //
+  // So the selection is resolved to VALUES by the caller (a read, which protection never
+  // blocks) and re-resolved to rows HERE, under the lock. One lock for the whole
+  // selection rather than one per line.
+  if (target && typeof target === 'object' && Array.isArray(target.pairs)) {
+    var want = {};
+    target.pairs.forEach(function (p) {
+      if (!p) return;
+      var so = String(p.orderId == null ? "" : p.orderId).trim().toLowerCase();
+      var sk = String(p.sku == null ? "" : p.sku).trim().toLowerCase();
+      if (so && sk) want[so + "|" + sk] = 1;
+    });
+    if (!Object.keys(want).length) return [];
+    var all = sheet.getRange(Schema.dataStartRow, 1,
+                             lastRow - Schema.dataStartRow + 1,
+                             Schema.dataWidth).getValues();
+    var found = [];
+    for (var p2 = 0; p2 < all.length; p2++) {
+      var k = String(all[p2][Schema.idx("SALES_ORDER")]).trim().toLowerCase() + "|" +
+              String(all[p2][Schema.idx("SKU")]).trim().toLowerCase();
+      if (want[k]) found.push(Schema.dataStartRow + p2);
+    }
+    return found;
+  }
+
   // Array of row numbers
   if (Array.isArray(target)) {
     return target.filter(function(r) {

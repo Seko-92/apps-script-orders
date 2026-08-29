@@ -262,6 +262,9 @@ function getPrintHtmlForBoard() {
  * Don't take a local lock — updateOrderStatus acquires its own.
  */
 function markSelectedPreparing() {
+  // ⭐ READ AS THE USER, WRITE AS THE OWNER. Reading the selection is never blocked by
+  //   protection — only the write is — so the split falls exactly here. doPost has no
+  //   active range at all, which is why the selection must be resolved before any hop.
   var range = SpreadsheetApp.getActiveRange();
   if (!range) return "No selection.";
 
@@ -276,8 +279,46 @@ function markSelectedPreparing() {
   }
   if (numRows <= 0) return "Selection is above the data area.";
 
+  var sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(MAIN_SHEET_NAME);
+  if (!sheet) return "❌ Main sheet not found.";
+  var lastRow = sheet.getLastRow();
+  if (startRow + numRows - 1 > lastRow) numRows = lastRow - startRow + 1;
+  if (numRows <= 0) return "Selection is below the data area.";
+
+  // ⚠⚠ VALUES, NOT ROW NUMBERS. Row coordinates are only safe while the read and the
+  //   write share one execution; the moment this hops through /exec they were captured in
+  //   a DIFFERENT one, and n8n inserts at the top of the sheet all day. That is the
+  //   2026-05-08 / 2026-08-21 row-shift class, twice bitten here.
+  var span = sheet.getRange(startRow, 1, numRows, Schema.dataWidth).getValues();
+  var boundary = -1;
+  try { boundary = getBoundaryRow(); } catch (e) {}
+
+  var pairs = [];
+  for (var i = 0; i < span.length; i++) {
+    var row = startRow + i;
+    if (boundary > 0 && (row === boundary || row === boundary + 1)) continue;
+    var sku = String(span[i][Schema.idx("SKU")] || "").trim();
+    var so  = String(span[i][Schema.idx("SALES_ORDER")] || "").trim();
+    if (sku && so) pairs.push({ orderId: so, sku: sku });
+  }
+  if (!pairs.length) return "Nothing in the selection has both a SKU and a sales order.";
+
+  if (!_obIsOwner()) return _asOwner('markPreparingByValues', [pairs]);
+  return markPreparingByValues(pairs);
+}
+
+
+/**
+ * The write half of markSelectedPreparing — allowlisted in OwnerBridge.js so it can run in
+ * the owner's context when a locked sheet refuses the staff member who asked for it.
+ *
+ * ⚠ Takes VALUES. It never sees, and must never be given, a row number.
+ */
+function markPreparingByValues(pairs) {
+  if (!Array.isArray(pairs) || !pairs.length) return "Nothing to mark.";
+
   var result = updateOrderStatus(
-    { startRow: startRow, numRows: numRows },
+    { pairs: pairs },
     Schema.status.PREPARING,
     { source: "sidebar-bulk", sortAfter: true }
   );
@@ -291,6 +332,7 @@ function markSelectedPreparing() {
   }
   return msg;
 }
+
 
 // =======================================================================================
 // HELPERS — used by preparePrintSheet()

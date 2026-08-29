@@ -1399,6 +1399,11 @@ function setupKitRowHighlighting() {
  * call writes all formats in a single API trip, no matter how many rows.
  */
 function refreshKitSkuMarkers() {
+  // ⚠ WRITES A PROTECTED SHEET. google.script.run runs as the INVOKING USER, so under
+  //   the All Orders lock a staff call would be refused. Come back in through /exec,
+  //   where doPost executes as the OWNER — see OwnerBridge.js.
+  if (!_obIsOwner()) return _asOwner('refreshKitSkuMarkers', []);
+
   var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   var sheet = ss.getSheetByName(MAIN_SHEET_NAME);
   if (!sheet) return "❌ Main sheet not found";

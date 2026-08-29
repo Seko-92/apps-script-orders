@@ -178,5 +178,15 @@ function updateAllExistingRows(tableNumber) {
 }
 
 // Wrapper functions for sidebar
-function runUpdateLocationsTableOne() { return updateAllExistingRows(1); }
-function runUpdateLocationsTableTwo() { return updateAllExistingRows(2); }
+function runUpdateLocationsTableOne() {
+  // ⚠ WRITES A PROTECTED SHEET. google.script.run runs as the INVOKING USER, so under
+  //   the All Orders lock a staff call would be refused. Come back in through /exec,
+  //   where doPost executes as the OWNER — see OwnerBridge.js.
+  if (!_obIsOwner()) return _asOwner('runUpdateLocationsTableOne', []);
+ return updateAllExistingRows(1); }
+function runUpdateLocationsTableTwo() {
+  // ⚠ WRITES A PROTECTED SHEET. google.script.run runs as the INVOKING USER, so under
+  //   the All Orders lock a staff call would be refused. Come back in through /exec,
+  //   where doPost executes as the OWNER — see OwnerBridge.js.
+  if (!_obIsOwner()) return _asOwner('runUpdateLocationsTableTwo', []);
+ return updateAllExistingRows(2); }

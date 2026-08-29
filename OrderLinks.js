@@ -170,6 +170,11 @@ function refreshOrderLinks() {
  * button and the programmatic insert sites so one refresh covers both columns.
  */
 function refreshAllOrdersEnrichment() {
+  // ⚠ WRITES A PROTECTED SHEET. google.script.run runs as the INVOKING USER, so under
+  //   the All Orders lock a staff call would be refused. Come back in through /exec,
+  //   where doPost executes as the OWNER — see OwnerBridge.js.
+  if (!_obIsOwner()) return _asOwner('refreshAllOrdersEnrichment', []);
+
   var sku = refreshSkuEnrichment();
   var ord = refreshOrderLinks();
   return sku + '  ·  ' + ord;

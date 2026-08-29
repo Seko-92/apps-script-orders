@@ -85,6 +85,17 @@ function _doPostNeedsLock(action, payload) {
 }
 
 function doPost(e) {
+  // ⚠⚠ EVERY doPost EXECUTION IS ALREADY THE OWNER — the web app is deployed "execute as
+  //   me", which is the whole reason a picker with no Google account can tap ✓ Pick. Saying
+  //   so up front means the guarded writers on the ARRIVAL path (refreshKitSkuMarkers,
+  //   refreshAllOrdersEnrichment, setupDuplicateSalesOrderHighlighting) run DIRECTLY rather
+  //   than paying a pointless round trip on every n8n insert.
+  //
+  //   Without this the email lookup would still be consulted, and if it ever came back
+  //   empty — which Session.getEffectiveUser() does in several contexts — each arrival
+  //   would hop to itself. Terminating, thanks to the same flag, but ~2s wasted per order.
+  _OB_IN_OWNER_CONTEXT = true;
+
   // Peek at the action before deciding on the lock. Parsing touches no shared
   // state, so it is safe to do outside. Both doors are checked: the body (n8n)
   // and the query string (the Zoho proxies), matching the dispatch below.
@@ -214,6 +225,20 @@ function doPost(e) {
     // This exists because once All Orders is column-locked, an employee cannot
     // type into col D at all — and doPost runs as the OWNER, so this path writes
     // straight past that protection. That is the point.
+    // ⚠⚠ RUN AN ALLOWLISTED ACTION AS THE OWNER. This is what lets All Orders stay
+    //   protected while staff keep a working sidebar: google.script.run executes as the
+    //   INVOKING USER, so a locked sheet blocks every staff write. Coming back in through
+    //   /exec runs it as the OWNER instead. See OwnerBridge.js for the whole story.
+    //
+    // ⚠ It is NOT in DOPOST_LOCK_FREE, deliberately — these are writes and must keep the
+    //   script lock. Saying so explicitly because the default there is "locked unless
+    //   named", and that default is the right one here.
+    if (payload.action === 'runAsOwner') {
+      return ContentService.createTextOutput(JSON.stringify(
+        _obRunAsOwner(payload.fn, payload.args)
+      )).setMimeType(ContentService.MimeType.JSON);
+    }
+
     if (payload.action === 'boardMissingLine') {
       return ContentService.createTextOutput(JSON.stringify(
         boardAddReplacementLine(payload.kind, payload.originalOrder,
@@ -2045,8 +2070,18 @@ function sortTableByStatusAndLocation(tableNumber) {
   return "✅ Sorted";
 }
 
-function sortEbayTable() { return sortTableByStatusAndLocation(1); }
-function sortDirectTable() { return sortTableByStatusAndLocation(2); }
+function sortEbayTable() {
+  // ⚠ WRITES A PROTECTED SHEET. google.script.run runs as the INVOKING USER, so under
+  //   the All Orders lock a staff call would be refused. Come back in through /exec,
+  //   where doPost executes as the OWNER — see OwnerBridge.js.
+  if (!_obIsOwner()) return _asOwner('sortEbayTable', []);
+ return sortTableByStatusAndLocation(1); }
+function sortDirectTable() {
+  // ⚠ WRITES A PROTECTED SHEET. google.script.run runs as the INVOKING USER, so under
+  //   the All Orders lock a staff call would be refused. Come back in through /exec,
+  //   where doPost executes as the OWNER — see OwnerBridge.js.
+  if (!_obIsOwner()) return _asOwner('sortDirectTable', []);
+ return sortTableByStatusAndLocation(2); }
 
 function refreshProDashboard() {
   // Stats banner (G1) refresh. The date in B1 auto-updates via the

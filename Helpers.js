@@ -309,6 +309,11 @@ function removeHandRecomputeTrigger() {
  * Replaces all manual setBackground calls.
  */
 function setupHandConditionalFormatting() {
+  // ⚠ WRITES A PROTECTED SHEET. google.script.run runs as the INVOKING USER, so under
+  //   the All Orders lock a staff call would be refused. Come back in through /exec,
+  //   where doPost executes as the OWNER — see OwnerBridge.js.
+  if (!_obIsOwner()) return _asOwner('setupHandConditionalFormatting', []);
+
   var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   var sheet = ss.getSheetByName(MAIN_SHEET_NAME);
   if (!sheet) return;

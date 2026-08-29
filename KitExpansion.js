@@ -690,6 +690,11 @@ function openKitExpansionModal(deployQty) {
  * }}
  */
 function commitKitFromModal(sessionId, excludedSkus, extras, force, alterations) {
+  // ⚠ WRITES A PROTECTED SHEET. google.script.run runs as the INVOKING USER, so under
+  //   the All Orders lock a staff call would be refused. Come back in through /exec,
+  //   where doPost executes as the OWNER — see OwnerBridge.js.
+  if (!_obIsOwner()) return _asOwner('commitKitFromModal', [sessionId, excludedSkus, extras, force, alterations]);
+
   var lock = LockService.getScriptLock();
   if (!lock.tryLock(30000)) {
     return { ok: false, reason: "Another operation in progress. Try again.",

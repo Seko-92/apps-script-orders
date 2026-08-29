@@ -25,8 +25,18 @@ function deleteEmptyRows(t) {
   return "ℹ️ Already clean.";
 }
 
-function runDeleteEmptyRowsTableOne() { return deleteEmptyRows(1); }
-function runDeleteEmptyRowsTableTwo() { return deleteEmptyRows(2); }
+function runDeleteEmptyRowsTableOne() {
+  // ⚠ WRITES A PROTECTED SHEET. google.script.run runs as the INVOKING USER, so under
+  //   the All Orders lock a staff call would be refused. Come back in through /exec,
+  //   where doPost executes as the OWNER — see OwnerBridge.js.
+  if (!_obIsOwner()) return _asOwner('runDeleteEmptyRowsTableOne', []);
+ return deleteEmptyRows(1); }
+function runDeleteEmptyRowsTableTwo() {
+  // ⚠ WRITES A PROTECTED SHEET. google.script.run runs as the INVOKING USER, so under
+  //   the All Orders lock a staff call would be refused. Come back in through /exec,
+  //   where doPost executes as the OWNER — see OwnerBridge.js.
+  if (!_obIsOwner()) return _asOwner('runDeleteEmptyRowsTableTwo', []);
+ return deleteEmptyRows(2); }
 
 /**
  * Ensures the DIRECT table always has at least 3 empty buffer rows
@@ -72,6 +82,11 @@ function ensureDirectTableBuffer() {
  * @returns {string} - Status message
  */
 function addRowsTableOne(n) {
+  // ⚠ WRITES A PROTECTED SHEET. google.script.run runs as the INVOKING USER, so under
+  //   the All Orders lock a staff call would be refused. Come back in through /exec,
+  //   where doPost executes as the OWNER — see OwnerBridge.js.
+  if (!_obIsOwner()) return _asOwner('addRowsTableOne', [n]);
+
   var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   var sheet = ss.getSheetByName(MAIN_SHEET_NAME);
   var boundary = getBoundaryRow();
@@ -91,6 +106,11 @@ function addRowsTableOne(n) {
  * @returns {string} - Status message
  */
 function addRowsTableTwo(n) {
+  // ⚠ WRITES A PROTECTED SHEET. google.script.run runs as the INVOKING USER, so under
+  //   the All Orders lock a staff call would be refused. Come back in through /exec,
+  //   where doPost executes as the OWNER — see OwnerBridge.js.
+  if (!_obIsOwner()) return _asOwner('addRowsTableTwo', [n]);
+
   var sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(MAIN_SHEET_NAME);
   var numRows = parseInt(n);
   var lastRow = sheet.getLastRow();
@@ -271,6 +291,11 @@ function setupDuplicateHighlighting() {
 }
 
 function highlightAllDuplicates() {
+  // ⚠ WRITES A PROTECTED SHEET. google.script.run runs as the INVOKING USER, so under
+  //   the All Orders lock a staff call would be refused. Come back in through /exec,
+  //   where doPost executes as the OWNER — see OwnerBridge.js.
+  if (!_obIsOwner()) return _asOwner('highlightAllDuplicates', []);
+
   setupDuplicateHighlighting();
   return "✅ Duplicate SKU highlighting enabled.";
 }
@@ -309,6 +334,11 @@ function removeDuplicateHighlightRules(sheet) {
 }
 
 function clearAllDuplicateHighlights() {
+  // ⚠ WRITES A PROTECTED SHEET. google.script.run runs as the INVOKING USER, so under
+  //   the All Orders lock a staff call would be refused. Come back in through /exec,
+  //   where doPost executes as the OWNER — see OwnerBridge.js.
+  if (!_obIsOwner()) return _asOwner('clearAllDuplicateHighlights', []);
+
   var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   var sheet = ss.getSheetByName(MAIN_SHEET_NAME);
   removeDuplicateHighlightRules(sheet);
