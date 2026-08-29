@@ -286,10 +286,15 @@ function removeDuplicateHighlightRules(sheet) {
         var formula = values[0];
         if (formula === '=1=1' || formula === '=2=2') continue;
         var ranges = rules[i].getRanges();
-        var isSkuColumn = false;
+        // ⚠⚠ EVERY range must be column A — see the identical note in
+        //   removeLegacySalesOrderCFRules. The identity rules (2026-08-30) span cols A AND
+        //   D and their status guard contains UPPER(TRIM(, so an "ANY range" test deleted
+        //   them here too. A duplicate-SKU rule targets column A and nothing else.
+        var isSkuColumn = ranges.length > 0;
         for (var j = 0; j < ranges.length; j++) {
-          if (ranges[j].getColumn() === Schema.cols.SKU && ranges[j].getNumColumns() === 1) {
-            isSkuColumn = true;
+          if (!(ranges[j].getColumn() === Schema.cols.SKU &&
+                ranges[j].getNumColumns() === 1)) {
+            isSkuColumn = false;
             break;
           }
         }
@@ -676,10 +681,20 @@ function removeLegacySalesOrderCFRules(sheet) {
       if (values.length > 0) {
         var formula = values[0];
         var ranges = rules[i].getRanges();
-        var isOrderColumn = false;
+        // ⚠⚠ EVERY range must be column D — not merely ONE of them. 2026-08-30: this
+        //   read "does ANY range touch col D", and the identity rules span cols A AND D
+        //   while their status guard contains TRIM( — so all three were deleted on the
+        //   FIRST edit after they were installed. The feature simply never marked
+        //   anything, and because conditional formatting is a display layer there was no
+        //   residue to notice: an uninstalled rule and a clean sheet look identical.
+        //
+        //   A LEGACY rule from the old background-highlight approach targeted column D
+        //   and nothing else, so requiring that is both tighter and semantically right.
+        var isOrderColumn = ranges.length > 0;
         for (var j = 0; j < ranges.length; j++) {
-          if (ranges[j].getColumn() === Schema.cols.SALES_ORDER && ranges[j].getNumColumns() === 1) {
-            isOrderColumn = true;
+          if (!(ranges[j].getColumn() === Schema.cols.SALES_ORDER &&
+                ranges[j].getNumColumns() === 1)) {
+            isOrderColumn = false;
             break;
           }
         }
