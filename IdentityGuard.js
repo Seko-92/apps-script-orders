@@ -66,7 +66,15 @@ var IDENTITY_GUARD = {
   // reading 90 days every minute would not be.
   logTailRows: 4000,
 
-  alertedMax: 60                // prune; a live-issue list, not a history
+  alertedMax: 60,               // prune; a live-issue list, not a history
+
+  // ⚠⚠ A FLAG MUST NEVER OUTLIVE ITS CAUSE. Clearing used to happen only on a run that
+  //   an EDIT had queued — and that assumption broke in production: a Ctrl+Z after a SKU
+  //   edit pops liveUpdateTrigger's LOCATION/HAND write rather than the SKU itself, so
+  //   nothing queued a re-check and the amber simply sat there. Rather than chase which
+  //   operation undo pops, remove the dependency: while any flag is live, re-check on a
+  //   slow heartbeat regardless. Rare and short-lived, so a few extra reads cost nothing.
+  sweepEveryMin: 5
 };
 
 
@@ -78,6 +86,23 @@ var IDENTITY_GUARD = {
 function _igSig(orderId, sku) {
   return String(orderId == null ? "" : orderId).trim().toLowerCase() + "|" +
          String(sku == null ? "" : sku).trim().toLowerCase();
+}
+
+
+/**
+ * Should the reconcile do real work this minute? PURE, so the thing that decides how
+ * often the sheet is touched is testable on its own.
+ *
+ * ⚠ TWO REASONS TO RUN, and the second is the one added after production:
+ *   · something was edited            → check now
+ *   · a flag is live                  → keep checking until it clears, because the fix
+ *                                        may not arrive as an edit we can see
+ */
+function _igShouldReconcile(dirty, hasLiveFlags, minute) {
+  if (dirty) return true;
+  if (!hasLiveFlags) return false;
+  var every = IDENTITY_GUARD.sweepEveryMin;
+  return (Number(minute) % every) === 0;
 }
 
 
@@ -197,9 +222,18 @@ function runIdentityReconcile() {
 
   // ⭐ CHEAP ON EVERY CLEAN RUN — one property read and out, the same shape as hold
   //   escalation. The sheet is touched only after an identity column was really edited.
-  var dirty;
-  try { dirty = props.getProperty(IDENTITY_GUARD.dirtyKey); } catch (e) { return "skip"; }
-  if (!dirty) return "clean";
+  var dirty = null, alerted = null;
+  try {
+    dirty   = props.getProperty(IDENTITY_GUARD.dirtyKey);
+    alerted = props.getProperty(IDENTITY_GUARD.alertedKey);
+  } catch (e) { return "skip"; }
+
+  // ⭐ A live flag keeps the check alive. See sweepEveryMin — clearing must not depend
+  //   on the correction arriving as an edit, because in practice it does not.
+  var hasLiveFlags = !!(alerted && alerted !== "{}" && alerted.length > 2);
+  if (!_igShouldReconcile(dirty, hasLiveFlags, new Date().getMinutes())) {
+    return hasLiveFlags ? "waiting" : "clean";
+  }
 
   var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   var sheet = ss.getSheetByName(MAIN_SHEET_NAME);
@@ -404,4 +438,127 @@ function checkIdentityNow() {
   var out = runIdentityReconcile();
   console.log("identity reconcile: " + out);
   return out;
+}
+
+
+/**
+ * Explain ONE row in full: what it holds, whether it is actually flagged by US, what
+ * verdict it gets and why, and what the Activity Log says about its order and its SKU.
+ *
+ * ⚠ WHY THIS EXISTS. 2026-08-29: a row stayed amber after being corrected and there was
+ *   no way to tell, from looking, whether it was our flag, the row banding (#fff8e7),
+ *   the duplicate-SO highlight (#fff3b0) or a Zoho flag — nor whether the reconcile had
+ *   judged it at all. Three plausible causes, one appearance. This answers it in one Run
+ *   instead of another round of inference.
+ *
+ * ⚠ Output goes to the EXECUTION LOG — the Run button shows no return value, a lesson
+ *   that has now cost this project two evenings.
+ */
+function diagnoseIdentityRow(rowNumber) {
+  var row = Number(rowNumber);
+  if (!row || row < Schema.dataStartRow) {
+    var msg = "Pass a data row number, e.g. diagnoseIdentityRow(12)";
+    console.log(msg); return msg;
+  }
+
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  var sheet = ss.getSheetByName(MAIN_SHEET_NAME);
+  if (!sheet) { console.log("no sheet"); return "no sheet"; }
+
+  var vals = sheet.getRange(row, 1, 1, Schema.dataWidth).getValues()[0];
+  var bg   = sheet.getRange(row, 1).getBackground();
+  var note = sheet.getRange(row, Schema.cols.SALES_ORDER).getNote();
+
+  var orderId = String(vals[Schema.idx("SALES_ORDER")] || "").trim();
+  var sku     = String(vals[Schema.idx("SKU")] || "").trim();
+  var status  = String(vals[Schema.idx("STATUS")] || "").trim();
+
+  var L = ["── ROW " + row + " ──"];
+  L.push("SKU:      " + (sku || "(blank)"));
+  L.push("ORDER:    " + (orderId || "(blank)"));
+  L.push("STATUS:   " + (status || "(blank)") + (_igIsEstablished(status) ? "  [established]" : "  [not established — skipped]"));
+  L.push("");
+
+  // ⭐ THE DISCRIMINATOR. Several things paint a row tan here; only ours writes the note.
+  var ours = String(bg || "").toLowerCase() === IDENTITY_GUARD.flagBg.toLowerCase();
+  L.push("background:  " + bg + (ours ? "   ← OUR flag" : "   ← NOT our flag"));
+  if (!ours) {
+    L.push("             (" + IDENTITY_GUARD.flagBg + " is ours; #fff8e7 is the row banding,");
+    L.push("              #fff3b0 is the duplicate-SO highlight)");
+  }
+  L.push("note:        " + (note ? JSON.stringify(note.slice(0, 60)) : "(none)") +
+         (note && note.indexOf(IDENTITY_GUARD.flagNote) === 0 ? "   ← ours" : ""));
+  L.push("");
+
+  var known = _igKnownFromLog(ss);
+  if (!known) {
+    L.push("Activity Log: UNREADABLE — no verdict is possible.");
+    console.log(L.join("\n")); return L.join("\n");
+  }
+
+  var v = _igVerdict({ orderId: orderId, sku: sku, status: status }, known);
+  L.push("VERDICT:  " + v.verdict.toUpperCase() + "  —  " + v.reason);
+  L.push("");
+  L.push("evidence in the last " + IDENTITY_GUARD.logTailRows + " log rows:");
+  L.push("  this exact order+SKU pair received?  " + (known.pairs[_igSig(orderId, sku)] ? "YES" : "no"));
+  L.push("  this ORDER seen at all?              " + (known.orders[orderId.toLowerCase()] ? "YES" : "no"));
+  L.push("  this SKU seen at all?                " + (known.skus[sku.toLowerCase()] ? "YES" : "no"));
+  var sug = _igOrdersForSku(known, sku);
+  L.push("  orders that received this SKU:       " + (sug.length ? sug.join(" · ") : "(none)"));
+  L.push("");
+
+  var dirty = null;
+  try { dirty = PropertiesService.getScriptProperties().getProperty(IDENTITY_GUARD.dirtyKey); } catch (e) {}
+  L.push("pending check queued: " + (dirty ? "YES — the next publish tick will act" : "no"));
+  if (ours && v.verdict !== "mismatch" && !dirty) {
+    L.push("");
+    L.push("⚠ FLAGGED BUT RECONCILES. Nothing has queued a re-check, so the flag is");
+    L.push("  stale — run checkIdentityNow() and it will clear.");
+  }
+
+  var out = L.join("\n");
+  console.log(out);
+  return out;
+}
+
+
+/**
+ * Explain EVERY flagged row. No argument, because the editor Run button cannot pass one —
+ * a trap this project has now walked into three times, most recently with
+ * diagnoseIdentityRow, which answered "Pass a data row number" and nothing else.
+ *
+ * ⚠ Output goes to the EXECUTION LOG.
+ */
+function diagnoseIdentityFlags() {
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  var sheet = ss.getSheetByName(MAIN_SHEET_NAME);
+  if (!sheet) { console.log("no sheet"); return "no sheet"; }
+
+  var last = sheet.getLastRow();
+  if (last < Schema.dataStartRow) { console.log("no data"); return "no data"; }
+
+  var n = last - Schema.dataStartRow + 1;
+  var bgs = sheet.getRange(Schema.dataStartRow, 1, n, Schema.dataWidth).getBackgrounds();
+  var rows = [];
+  for (var i = 0; i < n; i++) {
+    if (String(bgs[i][0] || "").toLowerCase() === IDENTITY_GUARD.flagBg.toLowerCase()) {
+      rows.push(Schema.dataStartRow + i);
+    }
+  }
+
+  var head = "── IDENTITY FLAGS ──\n" + rows.length + " row(s) currently wearing OUR amber (" +
+             IDENTITY_GUARD.flagBg + ")";
+  if (!rows.length) {
+    head += "\n\nNothing is flagged by the guard. Any tan you can see is the row banding\n" +
+            "(#fff8e7) or the duplicate-SO highlight (#fff3b0), neither of which is ours.";
+    console.log(head);
+    return head;
+  }
+
+  var out = [head, ""];
+  rows.slice(0, 10).forEach(function (r) { out.push(diagnoseIdentityRow(r)); out.push(""); });
+  if (rows.length > 10) out.push("… and " + (rows.length - 10) + " more");
+  var txt = out.join("\n");
+  console.log(txt);
+  return txt;
 }
