@@ -53,14 +53,33 @@ var IDENTITY_GUARD = {
   // ⭐ REVERT — the teeth. Set the property to "off" to fall back to flag-only.
   revertToggleKey: "IDENTITY_GUARD_REVERT",
 
+  // ⚠⚠ ONLY SALES_ORDER IS REVERTED. SKU is flagged but never put back, and the
+  //   reason is that a SKU edit is not a lone write: liveUpdateTrigger fires on it
+  //   and fills LOCATION and HAND for the NEW SKU. Reverting just the SKU leaves the
+  //   old SKU sitting beside the wrong SKU's shelf and stock — a MIXED ROW, which is
+  //   worse than the edit it undid, and it looks correct at a glance. SALES_ORDER has
+  //   no such entanglement (nothing derives from it), so it reverts cleanly.
+  //   Reported from real use 2026-08-29.
+  revertColumns: ["SALES_ORDER"],
+
   // ⚠ SECOND ATTEMPT WINS. Blind revert would make a LEGITIMATE identity correction
   //   impossible — you would fix a typo'd order id and watch it undo itself forever.
   //   So: revert the first attempt, allow the second. A slip happens once; a deliberate
   //   correction gets repeated. Same "retire on EVIDENCE" shape as the pick override and
   //   the hold acknowledgement, and it needs no toggle anyone can forget is on.
   attemptMemoKey: "IDENTITY_GUARD_ATTEMPTS",
-  attemptWindowSec: 300,     // 5 min to repeat it and mean it
-  attemptMemoMax: 40         // prune — this is a slip log, not a history
+  attemptMemoMax: 40,        // prune — this is a slip log, not a history
+
+  // ⚠⚠ STAND DOWN AFTER A REVERT. The first build fought the user: Ctrl+Z is itself
+  //   a user edit, so undoing a revert re-triggered the guard, which reverted again —
+  //   a loop you could not win. And retyping the ORIGINAL value alarmed too, because
+  //   the guard only compares old-vs-new and cannot tell "restoring" from "breaking".
+  //
+  //   So once a cell has been reverted, LEAVE IT ALONE for a while. Somebody is
+  //   visibly working on that cell; the alarm has already been raised, and continuing
+  //   to fight them adds nothing. Every edit to that cell inside the window is allowed
+  //   and silent — Ctrl+Z works, retyping works, correcting it works.
+  standDownSec: 600          // 10 min of "you clearly have this"
 };
 
 
@@ -123,18 +142,33 @@ function _igDecide(o) {
  * @returns {{revert: boolean, reason: string}}
  */
 function _igRevertDecision(hit, memo, nowMs) {
+  // ⚠⚠ STAND-DOWN FIRST, and it must come before every other rule. Once this cell has
+  //   been reverted, the person is visibly working on it — undoing, retyping, putting
+  //   the original back. Every one of those is a user edit that re-enters this handler,
+  //   and the first build fought all of them: Ctrl+Z restored the bad value, the guard
+  //   reverted it again, and there was no way to win. SILENT means no revert, no flag,
+  //   no message — the alarm was already raised once, and that was the point.
+  var prior = memo && memo[hit.cellKey];
+  if (prior && (nowMs - Number(prior.t || 0)) <= IDENTITY_GUARD.standDownSec * 1000) {
+    return { revert: false, silent: true, reason: "stand-down — already raised on this cell" };
+  }
+
   // ⚠ Cannot restore what we never saw. e.oldValue is single-cell only, so a
   //   multi-row paste is detect-only by construction. Writing a GUESSED old value
   //   back would be worse than leaving it — the recovery candidates in the alert
   //   are a hint for a human, never something to act on automatically.
-  if (!hit.oldKnown) return { revert: false, reason: "old value unknown (multi-cell)" };
-
-  var prior = memo && memo[hit.cellKey];
-  if (prior && prior.v === hit.attempted &&
-      (nowMs - Number(prior.t || 0)) <= IDENTITY_GUARD.attemptWindowSec * 1000) {
-    return { revert: false, reason: "second attempt — deliberate, allowed" };
+  if (!hit.oldKnown) {
+    return { revert: false, silent: false, reason: "old value unknown (multi-cell)" };
   }
-  return { revert: true, reason: "first attempt — reverted" };
+
+  // ⚠ SKU is flagged but never reverted — see revertColumns. Reverting it alone
+  //   leaves the row mixed, because liveUpdateTrigger has already written LOCATION
+  //   and HAND for the new SKU.
+  if (IDENTITY_GUARD.revertColumns.indexOf(hit.column) === -1) {
+    return { revert: false, silent: false, reason: "flag-only column" };
+  }
+
+  return { revert: true, silent: false, reason: "reverted" };
 }
 
 
@@ -184,8 +218,6 @@ function _igComposeAlert(hits) {
 
     if (h.action === "reverted") {
       L.push("  → PUT BACK automatically. Type it again to confirm if you meant it.");
-    } else if (h.action === "allowed") {
-      L.push("  → allowed — you typed it twice, so it was taken as deliberate.");
     } else {
       L.push("  → left as-is. Ctrl+Z if it was a slip.");
     }
@@ -287,33 +319,48 @@ function identityEditGuard(e) {
   var now = new Date().getTime();
   var memoTouched = false;
 
+  var reverted = false;
   hits.forEach(function (h) {
     h.cellKey = "R" + h.row + "C" + Schema.cols[h.column];
     h.attempted = h.newValue;
 
-    if (!revertOn) { h.action = "flagged"; return; }
+    var d = revertOn ? _igRevertDecision(h, memo, now)
+                     : { revert: false, silent: false, reason: "revert off" };
+    h.silent = !!d.silent;
+    if (h.silent) return;                       // dropped below — no flag, no message
 
-    var d = _igRevertDecision(h, memo, now);
     if (d.revert) {
       try {
         sheet.getRange(h.row, Schema.cols[h.column]).setValue(h.oldValue);
         h.action = "reverted";
-        memo[h.cellKey] = { v: h.attempted, t: now };   // remember, so a repeat gets through
+        reverted = true;
+        // Open the stand-down window. Everything that follows on this cell — the undo,
+        // the retype, the correction — is the same person sorting it out.
+        memo[h.cellKey] = { v: h.attempted, t: now };
         memoTouched = true;
       } catch (err) {
         // A failed revert must still be reported — never swallow it into silence.
         h.action = "flagged";
         console.log("identityEditGuard: revert failed on row " + h.row + ": " + err);
       }
-    } else if (d.reason.indexOf("second attempt") === 0) {
-      h.action = "allowed";
-      delete memo[h.cellKey];                            // consumed
-      memoTouched = true;
     } else {
-      h.action = "flagged";                              // multi-cell — cannot restore
+      h.action = "flagged";
     }
   });
+
+  // ⚠ Drop the silent ones BEFORE any paint or send. This is what makes Ctrl+Z and a
+  //   manual restore feel like nothing happened, which is the whole point of it.
+  hits = hits.filter(function (h) { return !h.silent; });
   if (memoTouched) _igSaveMemo(memo);
+  if (!hits.length) return;
+
+  // A reverted SALES_ORDER leaves the col-D rich-text link pointing at the value that
+  // was just undone. Cheap to repair, and only on this rare path.
+  if (reverted) {
+    try { refreshAllOrdersEnrichment(); } catch (err) {
+      console.log("identityEditGuard: link refresh failed: " + err);
+    }
+  }
 
   // Paint — the durable half, and it must survive a Telegram failure.
   // ⚠ A REVERTED row is still painted. The value is correct again, but somebody
@@ -339,9 +386,10 @@ function _igFlagRow(sheet, row, action) {
   //   belongs here, not only in a Telegram they may not read for an hour.
   var tail;
   if (action === "reverted") {
-    tail = "\nPut back automatically. Type it again to confirm if you meant it.";
-  } else if (action === "allowed") {
-    tail = "\nAllowed — you typed it twice, so it was taken as deliberate.";
+    // ⭐ Say what to do next, here, where the confused person is looking. The guard
+    //   now stands down on this cell for 10 minutes, so a correction just works.
+    tail = "\nPut back automatically. Edit it again if you meant it — " +
+           "this cell is left alone for the next 10 minutes.";
   } else {
     tail = "\nLeft as-is. Ctrl+Z if this was a slip.";
   }
