@@ -260,3 +260,153 @@ function diagnoseOwnerBridge() {
   console.log(out);
   return out;
 }
+
+
+// =======================================================================================
+// THE ROLLOUT — one Run, with the pre-flight enforced rather than remembered
+// =======================================================================================
+
+/**
+ * Prove the bridge works END TO END, without changing any policy.
+ *
+ * ⭐ IT DOES A REAL ROUND-TRIPPED WRITE, not just a reachability ping. `_asOwner` always
+ *   hops — even for you — so this exercises the exact path a staff member's sidebar click
+ *   will take: UrlFetchApp → /exec → doPost → runAsOwner → the function, as the owner.
+ *   `refreshKitSkuMarkers` is chosen because it is idempotent and writes only number
+ *   formats, so running it twice costs nothing and changes no data.
+ *
+ * ⚠ Zero-arg — the editor Run button cannot pass one. Output goes to the EXECUTION LOG.
+ */
+function verifyOwnerBridge() {
+  var L = ["══ OWNER BRIDGE · END-TO-END ══", ""];
+  var ok = true;
+
+  // 1 · the allowlist, over the wire
+  var probe = _obPostToSelf({ action: "runAsOwner", fn: "__probe__", args: [] });
+  if (probe.ok) {
+    L.push("1 · allowlist   ⚠⚠ FAILED — an unlisted action was ACCEPTED.");
+    ok = false;
+  } else if (/__probe__/.test(probe.error || "")) {
+    L.push("1 · allowlist   ✓ the hop works and the allowlist held");
+  } else {
+    L.push("1 · allowlist   ⚠⚠ FAILED — " + probe.error);
+    L.push("                a page instead of a result means the deployment is stale:");
+    L.push("                cut a New Version. 'Could not reach' means WEB_APP_URL is wrong.");
+    ok = false;
+  }
+
+  // 2 · a real write, forced through the hop
+  try {
+    var res = _asOwner("refreshKitSkuMarkers", []);
+    L.push("2 · real write  ✓ ran as the owner through /exec — " + String(res).slice(0, 60));
+  } catch (e) {
+    L.push("2 · real write  ⚠⚠ FAILED — " + e.message);
+    ok = false;
+  }
+
+  // 3 · who am I, and would I hop?
+  L.push("3 · identity    " + (_obIsOwner()
+        ? "you are recognised as the owner — your own writes stay direct"
+        : "⚠ you are NOT recognised as the owner; check OWNER_EMAIL in Secrets.js"));
+
+  L.push("");
+  L.push(ok ? "✅ THE BRIDGE WORKS. installAllOrdersLock() will proceed."
+            : "❌ DO NOT INSTALL THE LOCK YET — fix the above first.");
+  var out = L.join("\n");
+  console.log(out);
+  return out;
+}
+
+
+/**
+ * Install the All Orders lock, but ONLY once the bridge is proven.
+ *
+ * ⚠⚠ THIS ORDER IS THE WHOLE POINT, AND REVERSING IT IS A FLOOR OUTAGE. Protection without
+ *   a working bridge removes every staff sidebar write — kit expansion, Zoho pull, sort,
+ *   update locations, cleanup, add rows, bulk status — with no route around it. That is
+ *   exactly what happened on 2026-08-29, and it was removed the same day.
+ *
+ * ⚠ It also refuses without N8N_SHEETS_ACCOUNT, because `E5. Delete SHIPPED Row` writes All
+ *   Orders DIRECTLY via the Sheets node as a NAMED account. Locking without that exception
+ *   stops the ~1 AM sweep, and the symptom — a sheet filling with shipped rows — shows days
+ *   later. It is the only silent failure in the whole design.
+ *
+ * Rollback at any point: unprotectAllOrdersSheet().
+ */
+function installAllOrdersLock() {
+  var L = ["══ INSTALL THE ALL ORDERS LOCK ══", ""];
+
+  // ── gate 1 · the bridge must actually work ──────────────────────────────────────────
+  var probe = _obPostToSelf({ action: "runAsOwner", fn: "__probe__", args: [] });
+  var bridgeOk = !probe.ok && /__probe__/.test(probe.error || "");
+  if (!bridgeOk) {
+    L.push("❌ REFUSED — the owner bridge is not answering.");
+    L.push("   " + (probe.error || "the probe unexpectedly succeeded"));
+    L.push("");
+    L.push("   Without it, locking this sheet removes EVERY staff sidebar write with no");
+    L.push("   route around it. Run verifyOwnerBridge() and fix what it reports first.");
+    console.log(L.join("\n")); return L.join("\n");
+  }
+  L.push("1 · bridge      ✓ answering, allowlist holding");
+
+  // ── gate 2 · n8n's direct writer must have an exception ─────────────────────────────
+  var acct = "";
+  try { acct = String(PropertiesService.getScriptProperties()
+          .getProperty(ALL_ORDERS_LOCK.n8nAccountKey) || "").trim(); } catch (e) {}
+  if (!acct) {
+    L.push("2 · n8n acct    ❌ NOT SET");
+    L.push("");
+    L.push("   Set the Script Property '" + ALL_ORDERS_LOCK.n8nAccountKey + "' to the Google");
+    L.push("   account on n8n's Sheets credential — or to the literal 'none' if you have");
+    L.push("   CONFIRMED in the live n8n UI that nothing writes All Orders outside Apps");
+    L.push("   Script. setN8nSheetsAccountNow() does it in one Run.");
+    console.log(L.join("\n")); return L.join("\n");
+  }
+  L.push("2 · n8n acct    ✓ " + acct);
+
+  // ── install ─────────────────────────────────────────────────────────────────────────
+  var res = protectAllOrdersSheet();
+  L.push("3 · protection  " + res);
+  L.push("");
+  L.push("── NOW TEST IT THE WAY STAFF ACTUALLY WORK ──");
+  L.push("  ⚠⚠ NOT in an incognito window. That is the mistake 2026-08-29 made: an");
+  L.push("     anonymous user has no sidebar and no ⚙️ menu at all, so protection looked");
+  L.push("     harmless. Your staff sign in with a company account and use the sidebar all");
+  L.push("     day — that is the population that matters.");
+  L.push("");
+  L.push("  1. signed in as staff: a sort, Update Locations, a kit commit, a Zoho pull");
+  L.push("  2. typing into SKU / QTY / LOCATION / SALES ORDER is refused");
+  L.push("  3. NOTE, STATUS and LEFT still accept, and the F2/H2 dropdowns still work");
+  L.push("  4. ⚠ let a real n8n sync land, then confirm the ~1 AM sweep still deletes");
+  L.push("     shipped rows — the only failure here that is silent");
+  L.push("");
+  L.push("  Rollback at any point: unprotectAllOrdersSheet()");
+
+  var out = L.join("\n");
+  console.log(out);
+  return out;
+}
+
+
+/**
+ * Set the n8n Sheets account in one Run — the editor Run button cannot pass arguments,
+ * a trap this project has walked into three times.
+ *
+ * ⚠ EDIT THE VALUE BELOW FIRST. Use the account email from n8n's Google Sheets credential,
+ *   or the literal "none" if you have confirmed nothing outside Apps Script writes to All
+ *   Orders. Getting this wrong stops the ~1 AM shipped-row sweep, silently.
+ */
+function setN8nSheetsAccountNow() {
+  var VALUE = "";   // ← put the n8n Sheets account email here, or "none"
+
+  if (!VALUE) {
+    var msg = "❌ Edit VALUE inside setN8nSheetsAccountNow() first — the n8n Sheets " +
+              "account email, or the literal 'none'.";
+    console.log(msg); return msg;
+  }
+  PropertiesService.getScriptProperties()
+    .setProperty(ALL_ORDERS_LOCK.n8nAccountKey, String(VALUE).trim());
+  var out = "✅ " + ALL_ORDERS_LOCK.n8nAccountKey + " = " + VALUE +
+            "\n   Now run installAllOrdersLock().";
+  console.log(out); return out;
+}
