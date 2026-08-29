@@ -4180,18 +4180,28 @@ body.dark-theme .footer-version { border-color: #2c2c2c; }
            family of concern, visually separated because confusing "a dialog you
            click through" with "the cell refuses" is exactly the misunderstanding
            worth preventing. -->
+      <!-- ── ROW IDENTITY (2026-08-29) ─────────────────────────────────────────
+           ⚠⚠ THERE IS DELIBERATELY NO "LOCK" BUTTON HERE. Hard protection was
+           built, installed and then removed: google.script.run runs as the
+           INVOKING USER, so locking the sheet blocks every staff sidebar action
+           that writes All Orders — kit expansion, Zoho pull, sort, the lot.
+           Sheets protection checks WHO, never WHERE FROM, and the only way round
+           it is a Web App round trip (rejected: latency across seven workflows).
+           protectAllOrdersSheet() still exists in BrandTheme.js for reference and
+           is reachable from the editor, but it must NOT be a one-click button
+           next to buttons the floor uses. -->
       <div style="margin-top:12px;padding-top:10px;border-top:1px solid rgba(0,0,0,0.1);">
-        <button class="btn-secondary" onclick="run('describeAllOrdersLock')">👁 Lock status</button>
-        <button class="btn-primary" onclick="lockAllOrders()">🛡 Lock All Orders</button>
-        <button class="btn-danger" onclick="run('unprotectAllOrdersSheet')">↺ Unlock All Orders</button>
+        <button class="btn-primary" onclick="run('warnOnIdentityEdits')">🛡 Warn on identity edits</button>
         <button class="btn-info" onclick="run('clearIdentityFlags')">Clear identity flags</button>
+        <button class="btn-secondary" onclick="run('describeAllOrdersLock')">👁 Protection status</button>
+        <button class="btn-danger" onclick="run('unwarnIdentityEdits')">↺ Remove warning</button>
         <p style="font-size:11px;color:#888;margin-top:8px;">
-          <strong>Hard</strong> protection — the cell <em>refuses</em>, no dialog. Locks every column
-          except <strong>NOTE</strong>, <strong>STATUS</strong>, <strong>LEFT</strong> and the two
-          Pick&nbsp;ID cells. Scoped to All Orders only; Prep Queue, Out of Stock and temp tabs are
-          untouched. The owner is never restricted — that is what the identity guard is for.
-          <strong>⚠ Set the n8n account first</strong> or it refuses, because n8n's ~1&nbsp;AM
-          shipped-row sweep writes here directly and would otherwise silently stop.
+          Puts a <em>confirm</em> dialog on <strong>SKU</strong>, <strong>QTY</strong> and
+          <strong>SALES&nbsp;ORDER</strong> before a hand edit. <strong>Whole columns</strong>, so
+          rows added or deleted later are covered automatically. Script writes — the sidebar,
+          n8n, Telegram — pass straight through, because there is no human to warn.
+          Paired with the identity guard, which puts a changed order id
+          <strong>back</strong> and messages you the old value.
         </p>
       </div>
     </div>
@@ -7380,18 +7390,6 @@ function _olTime(ts) {
    one costs you the order id you just typed. Only a SUCCESS clears, and even then
    the KIND is kept: a second missing line for the same shipment is the common
    follow-up. Same rule the Floor Board's copy of this form runs on. */
-/* Lock All Orders. Confirmed because it changes WHO CAN EDIT the sheet the whole
-   floor works in — the one control here whose blast radius is other people.
-   ⚠ Reversible in one click (Unlock), and it refuses outright if the n8n account
-   is unset, so the dangerous direction is already closed server-side. */
-function lockAllOrders() {
-  if (!confirm('Lock All Orders?\n\n' +
-               'Everyone except you will be blocked from every column EXCEPT ' +
-               'NOTE, STATUS, LEFT and the two Pick ID cells.\n\n' +
-               'Reversible with Unlock. Verify in an incognito window afterwards.')) return;
-  run('protectAllOrdersSheet');
-}
-
 var mlKind = 'missing';
 
 function mlSetKind(kind) {

@@ -48,7 +48,19 @@ var IDENTITY_GUARD = {
   maxRowsPerEvent: 25,
 
   // Script Property: set to "off" to silence the Telegram half without touching code.
-  alertToggleKey: "IDENTITY_GUARD_ALERTS"
+  alertToggleKey: "IDENTITY_GUARD_ALERTS",
+
+  // ⭐ REVERT — the teeth. Set the property to "off" to fall back to flag-only.
+  revertToggleKey: "IDENTITY_GUARD_REVERT",
+
+  // ⚠ SECOND ATTEMPT WINS. Blind revert would make a LEGITIMATE identity correction
+  //   impossible — you would fix a typo'd order id and watch it undo itself forever.
+  //   So: revert the first attempt, allow the second. A slip happens once; a deliberate
+  //   correction gets repeated. Same "retire on EVIDENCE" shape as the pick override and
+  //   the hold acknowledgement, and it needs no toggle anyone can forget is on.
+  attemptMemoKey: "IDENTITY_GUARD_ATTEMPTS",
+  attemptWindowSec: 300,     // 5 min to repeat it and mean it
+  attemptMemoMax: 40         // prune — this is a slip log, not a history
 };
 
 
@@ -101,26 +113,84 @@ function _igDecide(o) {
 }
 
 
+/**
+ * Should this flagged edit be REVERTED, or allowed through as a deliberate repeat?
+ * PURE — the rule that decides whether to undo someone's typing is testable alone.
+ *
+ * @param {{cellKey: string, attempted: string, oldKnown: boolean}} hit
+ * @param {Object} memo   cellKey → { v: attemptedValue, t: msTimestamp }
+ * @param {number} nowMs
+ * @returns {{revert: boolean, reason: string}}
+ */
+function _igRevertDecision(hit, memo, nowMs) {
+  // ⚠ Cannot restore what we never saw. e.oldValue is single-cell only, so a
+  //   multi-row paste is detect-only by construction. Writing a GUESSED old value
+  //   back would be worse than leaving it — the recovery candidates in the alert
+  //   are a hint for a human, never something to act on automatically.
+  if (!hit.oldKnown) return { revert: false, reason: "old value unknown (multi-cell)" };
+
+  var prior = memo && memo[hit.cellKey];
+  if (prior && prior.v === hit.attempted &&
+      (nowMs - Number(prior.t || 0)) <= IDENTITY_GUARD.attemptWindowSec * 1000) {
+    return { revert: false, reason: "second attempt — deliberate, allowed" };
+  }
+  return { revert: true, reason: "first attempt — reverted" };
+}
+
+
+/** Load the attempt memo. A corrupt store degrades to empty, never to "allow". */
+function _igLoadMemo() {
+  try {
+    var raw = PropertiesService.getScriptProperties().getProperty(IDENTITY_GUARD.attemptMemoKey);
+    if (!raw) return {};
+    var o = JSON.parse(raw);
+    return (o && typeof o === "object") ? o : {};
+  } catch (e) { return {}; }
+}
+
+
+/** Save, pruned oldest-first so the property cannot grow without bound. */
+function _igSaveMemo(memo) {
+  try {
+    var keys = Object.keys(memo);
+    if (keys.length > IDENTITY_GUARD.attemptMemoMax) {
+      keys.sort(function (a, b) { return Number(memo[a].t || 0) - Number(memo[b].t || 0); });
+      keys.slice(0, keys.length - IDENTITY_GUARD.attemptMemoMax).forEach(function (k) { delete memo[k]; });
+    }
+    PropertiesService.getScriptProperties()
+      .setProperty(IDENTITY_GUARD.attemptMemoKey, JSON.stringify(memo));
+  } catch (e) { console.log("identityEditGuard: memo save failed: " + e); }
+}
+
+
 /** Compose the alert. Pure, so the wording is pinned by tests. */
 function _igComposeAlert(hits) {
-  var L = ["⚠ ROW IDENTITY CHANGED", ""];
+  var anyReverted = hits.some(function (h) { return h.action === "reverted"; });
+  var L = [anyReverted ? "↺ ROW IDENTITY REVERTED" : "⚠ ROW IDENTITY CHANGED", ""];
+
   hits.forEach(function (h) {
     L.push("Row " + h.row + " · " + h.column);
-    L.push("  now:  " + (h.newValue || "(blank)"));
+    L.push("  tried:  " + (h.newValue || "(blank)"));
     if (h.oldKnown) {
-      L.push("  was:  " + (h.oldValue || "(blank)"));
+      L.push("  was:    " + (h.oldValue || "(blank)"));
     } else {
       // Honest about the limit rather than silently omitting it — the recovery
       // candidates below are what make this branch still actionable.
-      L.push("  was:  unknown (multi-cell edit — Sheets does not report the old value)");
+      L.push("  was:    unknown (multi-cell edit — Sheets does not report the old value)");
     }
     if (h.recovery && h.recovery.length) {
       L.push("  recently logged for this SKU: " + h.recovery.join(" · "));
     }
+
+    if (h.action === "reverted") {
+      L.push("  → PUT BACK automatically. Type it again to confirm if you meant it.");
+    } else if (h.action === "allowed") {
+      L.push("  → allowed — you typed it twice, so it was taken as deliberate.");
+    } else {
+      L.push("  → left as-is. Ctrl+Z if it was a slip.");
+    }
     L.push("");
   });
-  L.push("The row was NOT changed back — this is a flag, not a revert.");
-  L.push("Undo in the sheet (Ctrl+Z) if it was a slip.");
   return L.join("\n");
 }
 
@@ -203,9 +273,53 @@ function identityEditGuard(e) {
     try { h.recovery = _igRecentOrdersForSku(h.sku); } catch (err) { h.recovery = []; }
   });
 
-  // Paint first — it is the durable half and must survive a Telegram failure.
+  // ---- REVERT, or take a repeat as deliberate ----
+  // ⚠ SAFE FROM RECURSION BY CONSTRUCTION: a programmatic setValue does NOT fire
+  //   onEdit, so putting the old value back cannot re-enter this handler. That is
+  //   the same platform fact every insert path here relies on.
+  var revertOn = true;
+  try {
+    revertOn = String(PropertiesService.getScriptProperties()
+      .getProperty(IDENTITY_GUARD.revertToggleKey) || "").trim().toLowerCase() !== "off";
+  } catch (e) {}
+
+  var memo = _igLoadMemo();
+  var now = new Date().getTime();
+  var memoTouched = false;
+
   hits.forEach(function (h) {
-    try { _igFlagRow(sheet, h.row); } catch (err) {
+    h.cellKey = "R" + h.row + "C" + Schema.cols[h.column];
+    h.attempted = h.newValue;
+
+    if (!revertOn) { h.action = "flagged"; return; }
+
+    var d = _igRevertDecision(h, memo, now);
+    if (d.revert) {
+      try {
+        sheet.getRange(h.row, Schema.cols[h.column]).setValue(h.oldValue);
+        h.action = "reverted";
+        memo[h.cellKey] = { v: h.attempted, t: now };   // remember, so a repeat gets through
+        memoTouched = true;
+      } catch (err) {
+        // A failed revert must still be reported — never swallow it into silence.
+        h.action = "flagged";
+        console.log("identityEditGuard: revert failed on row " + h.row + ": " + err);
+      }
+    } else if (d.reason.indexOf("second attempt") === 0) {
+      h.action = "allowed";
+      delete memo[h.cellKey];                            // consumed
+      memoTouched = true;
+    } else {
+      h.action = "flagged";                              // multi-cell — cannot restore
+    }
+  });
+  if (memoTouched) _igSaveMemo(memo);
+
+  // Paint — the durable half, and it must survive a Telegram failure.
+  // ⚠ A REVERTED row is still painted. The value is correct again, but somebody
+  //   should see that it happened; an invisible fix teaches nobody.
+  hits.forEach(function (h) {
+    try { _igFlagRow(sheet, h.row, h.action); } catch (err) {
       console.log("identityEditGuard: paint failed on row " + h.row + ": " + err);
     }
   });
@@ -217,12 +331,24 @@ function identityEditGuard(e) {
 
 
 /** Amber wash + a cell note naming what happened. Cosmetic only — no values change. */
-function _igFlagRow(sheet, row) {
+function _igFlagRow(sheet, row, action) {
   sheet.getRange(row, 1, 1, Schema.dataWidth).setBackground(IDENTITY_GUARD.flagBg);
+
+  // ⭐ THE NOTE IS WHERE THE RULE HAS TO BE DISCOVERABLE. Someone who just watched
+  //   their edit undo itself is looking at this cell, confused — so the instruction
+  //   belongs here, not only in a Telegram they may not read for an hour.
+  var tail;
+  if (action === "reverted") {
+    tail = "\nPut back automatically. Type it again to confirm if you meant it.";
+  } else if (action === "allowed") {
+    tail = "\nAllowed — you typed it twice, so it was taken as deliberate.";
+  } else {
+    tail = "\nLeft as-is. Ctrl+Z if this was a slip.";
+  }
+
   sheet.getRange(row, Schema.cols.SALES_ORDER)
        .setNote(IDENTITY_GUARD.flagNote + " · " +
-                Utilities.formatDate(new Date(), "America/Chicago", "M/d h:mm a") +
-                "\nThe row was not changed back. Ctrl+Z if this was a slip.");
+                Utilities.formatDate(new Date(), "America/Chicago", "M/d h:mm a") + tail);
 }
 
 

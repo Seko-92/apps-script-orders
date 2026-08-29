@@ -501,6 +501,124 @@ function protectAllOrdersSheet() {
 }
 
 
+// =======================================================================================
+// THE WARNING LAYER — the identity columns get a speed bump, not a wall
+// =======================================================================================
+//
+// ⚠⚠ WHY THE HARD LOCK WAS ABANDONED (2026-08-29, and this is the important note).
+//   protectAllOrdersSheet works, and it was installed and verified — then removed, because
+//   it broke the sidebar for everyone who is not the owner.
+//
+//   The measurement that misled me: an INCOGNITO window has no sidebar and no ⚙️ menu, so
+//   I concluded hard protection breaks nothing. But the staff are not anonymous — they are
+//   signed in with a COMPANY GOOGLE ACCOUNT, so they do have the sidebar and they use all
+//   of it. I measured the wrong population and generalised from it.
+//
+//   google.script.run executes as the INVOKING USER. So under the lock, every sidebar
+//   action that writes All Orders fails for them: kit expansion, Zoho pull, sort, update
+//   locations, cleanup, add rows, bulk status.
+//
+//   ⭐ AND THE CONSTRAINT IS ABSOLUTE, not a gap in our knowledge. Confirmed against
+//   Google's own docs and the canonical workaround (tanaikech, 2020): Sheets protection
+//   checks WHO, never WHERE FROM. A cell edit and a setValues from the sidebar are the
+//   same user doing the same operation. The ONLY documented way to separate them is to
+//   run the write as the owner via a Web App round trip — rejected here for latency and
+//   for the blast radius across seven working workflows.
+//
+//   ⚠ Also learned: removeEditors() SILENTLY IGNORES the owner's email. The owner can
+//   never be locked out of their own protected ranges. That is why identityEditGuard
+//   exists and is not optional — no protection scheme can ever restrict you.
+//
+// SO: a dialog before (here) and an undo plus an alert after (IdentityGuard.js).
+// A speed bump and an alarm, not a wall — and the 08-28 event was a slip, which is
+// exactly what a speed bump catches.
+//
+// ⭐ WHY THIS DOES NOT BREAK THE SIDEBAR. setWarningOnly produces a UI DIALOG ONLY.
+//   There is no human to warn on a script write, so setValues from the sidebar passes
+//   straight through. protectSheetStructure has covered rows 1-3 this way for months
+//   without one complaint.
+//
+// ⚠ AND WHY IT ONLY WORKS NOW. The standing ruling is that a warning firing on the
+//   NORMAL case gets clicked through and tuned out inside a week — the same reasoning
+//   that killed the "not counted" marker. Until Phase 1 shipped, typing into column D
+//   WAS normal: it was the only way to add a missing line. /missing, /replacement and
+//   the Floor Board button changed that, so a hand-edit there is now genuinely abnormal.
+//   Do not install this on a system where the door does not exist.
+
+var IDENTITY_WARN = {
+  tag: "HQ-IDENTITY",
+  // ⚠ WHOLE COLUMNS, in A1 notation, NOT a row range. This table inserts rows all day —
+  //   n8n at the top, kit expansion mid-table, Zoho pull into DIRECT, the 1 AM sweep
+  //   deleting them again — and a fixed range would need re-applying every time the
+  //   boundary moved. "A:A" is unbounded, so it covers every row that exists now and
+  //   every row created later, for free and forever.
+  columns: ["SKU", "QTY", "SALES_ORDER"]
+};
+
+
+/** 1 → "A", 27 → "AA". Small, but a wrong letter here protects the wrong column. */
+function _iwColumnLetter(n) {
+  var s = "";
+  while (n > 0) {
+    var r = (n - 1) % 26;
+    s = String.fromCharCode(65 + r) + s;
+    n = (n - r - 1) / 26;
+  }
+  return s;
+}
+
+
+/**
+ * Install the warning dialog on the identity columns. Idempotent — strips any prior
+ * HQ-IDENTITY protection first, so re-running refreshes rather than stacking.
+ */
+function warnOnIdentityEdits() {
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  var sheet = ss.getSheetByName(MAIN_SHEET_NAME);
+  if (!sheet) return "❌ Main sheet not found.";
+
+  var removed = 0;
+  sheet.getProtections(SpreadsheetApp.ProtectionType.RANGE).forEach(function (p) {
+    if (String(p.getDescription() || "").indexOf(IDENTITY_WARN.tag) === 0) {
+      try { p.remove(); removed++; } catch (e) { /* ignore */ }
+    }
+  });
+
+  var done = [];
+  IDENTITY_WARN.columns.forEach(function (name) {
+    var col = Schema.cols[name];
+    if (!col) return;
+    var a1 = _iwColumnLetter(col) + ":" + _iwColumnLetter(col);
+    sheet.getRange(a1)
+      .protect()
+      .setDescription(IDENTITY_WARN.tag + ": " + name + " (" + a1 + ") — identity column, confirm before editing")
+      .setWarningOnly(true);
+    done.push(name + " " + a1);
+  });
+
+  return "✅ Warning installed on " + done.join(" · ") +
+         (removed ? "  (refreshed — " + removed + " prior)" : "") +
+         "\n\nA dialog now appears before a hand edit. Script writes — the sidebar, n8n," +
+         "\nTelegram — pass through untouched, because there is no human to warn." +
+         "\n\nWhole columns, so rows added or deleted later are covered automatically.";
+}
+
+
+/** Remove the warning layer. */
+function unwarnIdentityEdits() {
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  var sheet = ss.getSheetByName(MAIN_SHEET_NAME);
+  if (!sheet) return "❌ Main sheet not found.";
+  var removed = 0;
+  sheet.getProtections(SpreadsheetApp.ProtectionType.RANGE).forEach(function (p) {
+    if (String(p.getDescription() || "").indexOf(IDENTITY_WARN.tag) === 0) {
+      try { p.remove(); removed++; } catch (e) {}
+    }
+  });
+  return "✅ Removed " + removed + " " + IDENTITY_WARN.tag + " protection(s).";
+}
+
+
 /**
  * Remove the lock. One call, full reversal — the escape hatch that makes the
  * whole thing safe to try. Leaves HQ-STRUCTURE warning-only protections alone.
@@ -529,6 +647,35 @@ function setN8nSheetsAccount(email) {
   if (!v) return "❌ Pass the account email, or the literal 'none'.";
   PropertiesService.getScriptProperties().setProperty(ALL_ORDERS_LOCK.n8nAccountKey, v);
   return "✅ " + ALL_ORDERS_LOCK.n8nAccountKey + " = " + v;
+}
+
+
+/**
+ * Zero-arg wrapper — the editor Run button cannot pass arguments, so without this
+ * the property could only be set by editing code or through the raw Script
+ * Properties UI. Same shape as setMyPricePushPassphraseNow.
+ *
+ * ⚠ EDIT THE VALUE ON THE LINE BELOW, then Run. Output goes to the EXECUTION LOG;
+ *   the Run button does not display return values.
+ *
+ * Which value:
+ *   • the email n8n's Google Sheets credential is OAuth'd as
+ *   • or the literal 'none' if that account IS the sheet owner — protection never
+ *     restricts the owner, so E5 keeps working and no exception is needed.
+ */
+function setN8nSheetsAccountNow() {
+  var out = setN8nSheetsAccount("PUT-THE-ACCOUNT-EMAIL-OR-none-HERE");
+  console.log(out);
+  return out;
+}
+
+
+/** Read it back, for confirming what is actually stored. */
+function getN8nSheetsAccount() {
+  var v = PropertiesService.getScriptProperties().getProperty(ALL_ORDERS_LOCK.n8nAccountKey);
+  var out = ALL_ORDERS_LOCK.n8nAccountKey + " = " + (v || "(not set)");
+  console.log(out);
+  return out;
 }
 
 
