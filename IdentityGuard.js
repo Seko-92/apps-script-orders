@@ -1,5 +1,5 @@
 // =======================================================================================
-// IDENTITYGUARD.JS — does every open row's identity match something we actually received?
+// IDENTITYGUARD.JS — does every row's identity match something we actually received?
 // =======================================================================================
 //
 // WHY IT EXISTS
@@ -8,96 +8,114 @@
 //   existing and n8n re-inserted the line four minutes later. Nothing alerted; the only
 //   trace was two rows that looked like twins.
 //
-// ⚠⚠ THIS IS THE SECOND DESIGN. The first compared e.oldValue against e.value on every
-//   edit, and it FAILED IN PRODUCTION on 2026-08-29 in four ways — all reported from
-//   real use, all traceable to the same root cause:
+// ⚠⚠ THIS IS THE THIRD DESIGN, AND THE FIRST ONE THAT PUTS ANYTHING ON THE SHEET.
 //
-//     · Ctrl+Z could not win. Undo is itself a user edit, so it re-entered the handler;
-//       the guard put its value back, the operator undid it again, and round it went.
-//     · Restoring the CORRECT value still alarmed. Old-vs-new cannot tell "putting it
-//       right" from "breaking it" — the alert named a restored value as the offender,
-//       with that same value listed underneath as the recovery candidate.
-//     · An event-based flag CAN NEVER CLEAR ITSELF, because no edit event means "it is
-//       fine now". A corrected row stayed amber forever.
-//     · Reverting a SKU left a MIXED ROW: liveUpdateTrigger had already written LOCATION
-//       and HAND for the new sku, so the old sku sat beside the wrong shelf and stock.
+//   v1 compared e.oldValue against e.value on every edit and reverted. It fought the
+//   operator: Ctrl+Z re-entered the handler, restoring the CORRECT value still alarmed,
+//   and a reverted SKU left a mixed row because liveUpdateTrigger had already written
+//   LOCATION and HAND for the new one.
 //
-//   ⭐ THE REFRAME: ask about STATE, not the EVENT. Not "what changed?" but "does this
-//   row's identity match something we actually received?" Every failure above is a
-//   symptom of event-comparison, and every one disappears when the question changes.
+//   v2 asked about STATE instead of the EVENT — the right question — but still PAINTED
+//   the row, and every remaining problem came from that one write: the paint could not be
+//   told from the #fff8e7 banding, clearing depended on a re-check undo did not queue,
+//   and a stale mark had no way to retire itself. v2 ended read-only: a Telegram message
+//   and nothing on the sheet at all.
 //
-// ⭐ THE ANSWER IS ALREADY ON THE SHEET. Every row that legitimately exists has a
-//   RECEIVED entry in the Activity Log carrying its order id and SKU — written by
-//   doPost, Zoho pull, kit expansion, manual entry, and /missing. That is the SAME
-//   SALES_ORDER|SKU signature doPost dedupes on, so the log IS the record of what a
-//   row's identity is allowed to be.
+//   ⭐⭐ v3 — THE MARK IS CONDITIONAL FORMATTING, NOT A STATIC FILL. CF is a DISPLAY
+//   LAYER: Sheets recomputes it live from a formula and stores NOTHING on the row. Fix
+//   the cell and the red vanishes in the same keystroke — no trigger, no property, no
+//   clearing pass, nothing that can go stale. Ctrl+Z is just another value change.
+//   Every failure listed above is structurally impossible.
+//
+//   ⚠ WHAT THIS FILE WRITES, AND WHERE. It never touches a data row. It writes the LIST
+//   OF MISMATCHED PAIRS to a hidden __Identity sheet, and the CF rule does nothing but
+//   look a row's own pair up in that list. Inverting the helper that way is what makes
+//   the timing safe — see _igWriteMismatchList.
+//
+// ⭐ THE EVIDENCE IS ALREADY ON THE SHEET. Every row that legitimately exists has a
+//   RECEIVED entry in the Activity Log carrying its order id and SKU — written by doPost,
+//   Zoho pull, kit expansion, manual entry and /missing. That is the SAME SALES_ORDER|SKU
+//   signature doPost dedupes on, so the log IS the record of what a row's identity is
+//   allowed to be.
+//
+//   ⚠⚠ AND UNTIL 2026-08-30 A HAND-EDIT WROTE ITS OWN ALIBI INTO THAT RECORD.
+//   manualReceiveOnEdit logged RECEIVED for EVERY non-empty change to column D, so
+//   overwriting a live SALES_ORDER legitimised the corrupted value a minute before this
+//   file ever looked at it — and the verdict came back "ok". The 08-28 incident was
+//   undetectable by construction. Fixed in _mrClassify (OrderService.js): a replacement
+//   of a complete identity now logs IDENTITY_EDIT, which is audit only and never evidence.
 //
 // HOW IT RUNS
-//   onEdit does almost nothing: an identity column was touched, so set a dirty flag.
-//   One property write. No sheet reads, no alarm, and — critically — NOTHING IS EVER
-//   WRITTEN BACK TO AN IDENTITY CELL, so it cannot fight the operator or half-correct
-//   a row.
+//   onEdit does almost nothing: an identity column was touched, so set a dirty flag. One
+//   property write, no sheet reads, nothing written back to a cell.
 //
 //   The reconcile rides runPublishTick, once a minute, exactly like hold escalation.
-//   A clean run costs ONE property read. A burst of twenty edits collapses into one
-//   check, and that check sees the SETTLED row instead of a transient mid-undo state.
+//   A clean run costs ONE property read.
 //
-// ⚠ NO AUTOMATIC REVERT, deliberately. Revert is what was fighting the operator. This
-//   flags, clears itself, and says what the row should be. Teeth can go on top of a
-//   detector that has been proven calm — not before.
+//   ⭐ THE ONCE-A-MINUTE CADENCE IS THE GRACE PERIOD, AND IT IS LOAD-BEARING. doPost
+//   inserts rows (OrderService.js:854) BEFORE writing their RECEIVED events (:889), and
+//   insertRowsBefore forces a flush — so for a moment a brand-new order exists with no
+//   evidence. A live formula reading the log would paint it red. Listing a pair only
+//   AFTER the reconcile has judged it removes that window entirely.
+//
+//   ⚠ SO THE ASYMMETRY IS DELIBERATE: red APPEARS within a minute, and VANISHES on the
+//   keystroke. Same shape as every override on the board — retire on evidence, expire on
+//   a timer.
+//
+// WHAT IT CATCHES (three rules, painted by BrandTheme.js on cols A + D)
+//   GONE        an established row missing its SKU or its SALES_ORDER   · local, instant
+//   UNKNOWN     the pair was never received                             · via the list
+//   DUPLICATED  the same pair on two rows — the copied-row case         · local, instant
+//
+// ⚠ NO AUTOMATIC REVERT, deliberately. Revert is what fought the operator in v1. This
+//   observes, marks and reports. Teeth can go on top of a detector proven calm.
 // =======================================================================================
 
 
 var IDENTITY_GUARD = {
-  // The two columns that say WHICH ROW THIS IS. QTY is deliberately unwatched: a qty
-  // correction on a live row is ordinary work, and flagging it would spend the alert's
-  // credibility on the normal case — the ruling that killed the "not counted" marker.
-  watch: ["SKU", "SALES_ORDER"],
+  // The columns that make a row judgeable. SKU + SALES_ORDER are the identity itself;
+  // STATUS is watched because a row only becomes judgeable ONCE IT HAS ONE — type an
+  // identity, get skipped as "not established", then set the status a minute later and
+  // nothing would ever look again. QTY is deliberately unwatched: a qty correction on a
+  // live row is ordinary work, and flagging it would spend the alert's credibility on
+  // the normal case — the ruling that killed the "not counted" marker.
+  watch: ["SKU", "SALES_ORDER", "STATUS"],
 
-  // ⚠⚠ #ffe0b2 WAS TOO CLOSE TO THE BANDING. The row banding is #fff8e7 cream, and a
-  //   pale amber beside it is indistinguishable by eye — so a CLEARED row and a FLAGGED
-  //   row looked the same, and 2026-08-29 was spent chasing a highlight that was just
-  //   banding. A signal you cannot tell from the background is not a signal.
-  //   #ffab40 is unmistakable and still not the red that means "act now".
-  flagBg:   "#ffab40",
-  // ⚠ Any colour this flag has EVER worn. A row still wearing an old one would
-  //   otherwise be unclearable — the clear looks for the current colour only, so a
-  //   rename would strand every flag painted before it. Never remove entries.
-  legacyBg: ["#ffe0b2"],
-  flagNote: "⚠ IDENTITY UNKNOWN",
+  // The hidden sheet holding the mismatch list the CF rule reads. ⚠ Its name is also
+  // hardcoded inside _buildIdentityRules (BrandTheme.js) because a CF formula cannot
+  // take a variable — change it in both places or the rule silently stops matching.
+  sheetName: "__Identity",
+  listMax:   500,               // matches the CF rule's $A$1:$A$500 window
 
   dirtyKey:   "IDENTITY_GUARD_DIRTY",
   alertedKey: "IDENTITY_GUARD_ALERTED",   // alert once per crossing, watchdog-style
-  toggleKey:  "IDENTITY_GUARD_ALERTS",    // "off" silences Telegram, never the flag
+  toggleKey:  "IDENTITY_GUARD_ALERTS",    // "off" silences Telegram, never the mark
 
-  // How much Activity Log tail to trust as the known-good record. Open rows are recent
-  // by construction — n8n sweeps shipped ones at ~1 AM — so a tail is enough, and
-  // reading 90 days every minute would not be.
-  logTailRows: 4000,
+  // How much Activity Log tail to trust as the known-good record.
+  // ⚠ THIS IS THE CONSTANT THAT BOUNDS THE ONE REAL FALSE POSITIVE. A row on the sheet
+  //   whose RECEIVED has aged out of this window, but whose SKU still sells, reads as a
+  //   mismatch. Live rows are recent by construction and n8n sweeps shipped ones at
+  //   ~1 AM, so in practice that means a long-lived CANCELED row. If one ever flags,
+  //   raise this — it is not a redesign.
+  logTailRows: 8000,
+
+  // The note Zoho Pull writes on a legitimate second row for the same pair. ⚠ MUST stay
+  // in step with ZohoPull.js's _noteOverride and with the COUNTIFS criterion inside
+  // _buildIdentityRules. There is a drift test.
+  deltaNoteToken: "delta from Zoho",
 
   alertedMax: 60,               // prune; a live-issue list, not a history
 
-  // ⚠⚠ A FLAG MUST NEVER OUTLIVE ITS CAUSE. Clearing used to happen only on a run that
-  //   an EDIT had queued — and that assumption broke in production: a Ctrl+Z after a SKU
-  //   edit pops liveUpdateTrigger's LOCATION/HAND write rather than the SKU itself, so
-  //   nothing queued a re-check and the amber simply sat there. Rather than chase which
-  //   operation undo pops, remove the dependency: while any flag is live, re-check on a
-  //   slow heartbeat regardless. Rare and short-lived, so a few extra reads cost nothing.
-  sweepEveryMin: 5
+  // ⚠ LEGACY ONLY — the colours the PAINTING versions wore, kept so clearIdentityFlags()
+  //   can still remove marks they left. Nothing paints a static fill any more.
+  legacyBg: ["#ffab40", "#ffe0b2"],
+  legacyNote: "⚠ IDENTITY UNKNOWN"
 };
 
 
 // =======================================================================================
 // PURE CORE — no Sheets, no network. Node-testable.
 // =======================================================================================
-
-/** Is this background one of OURS — current colour or any it has worn before? */
-function _igIsOurFlag(bg) {
-  var c = String(bg || "").toLowerCase();
-  if (c === IDENTITY_GUARD.flagBg.toLowerCase()) return true;
-  return IDENTITY_GUARD.legacyBg.some(function (o) { return c === o.toLowerCase(); });
-}
-
 
 /** Identity signature. Matches doPost's dedupe key so the two can never disagree. */
 function _igSig(orderId, sku) {
@@ -106,20 +124,23 @@ function _igSig(orderId, sku) {
 }
 
 
+/** Is this background one the PAINTING versions left behind? Cleanup only. */
+function _igIsLegacyFlag(bg) {
+  var c = String(bg || "").toLowerCase();
+  return IDENTITY_GUARD.legacyBg.some(function (o) { return c === o.toLowerCase(); });
+}
+
+
 /**
  * Should the reconcile do real work this minute? PURE, so the thing that decides how
  * often the sheet is touched is testable on its own.
  *
- * ⚠ TWO REASONS TO RUN, and the second is the one added after production:
- *   · something was edited            → check now
- *   · a flag is live                  → keep checking until it clears, because the fix
- *                                        may not arrive as an edit we can see
+ * ⭐ ONE REASON ONLY, now. v2 also swept on a heartbeat while any flag was live, because
+ *   a painted flag could not clear itself. The CF clears itself, so there is nothing to
+ *   sweep for.
  */
-function _igShouldReconcile(dirty, hasLiveFlags, minute) {
-  if (dirty) return true;
-  if (!hasLiveFlags) return false;
-  var every = IDENTITY_GUARD.sweepEveryMin;
-  return (Number(minute) % every) === 0;
+function _igShouldReconcile(dirty) {
+  return !!dirty;
 }
 
 
@@ -131,57 +152,160 @@ function _igIsEstablished(statusValue) {
 }
 
 
+/** Does this row's NOTE mark it as Zoho Pull's legitimate delta twin? */
+function _igIsDeltaRow(note) {
+  return String(note == null ? "" : note)
+           .toLowerCase()
+           .indexOf(IDENTITY_GUARD.deltaNoteToken.toLowerCase()) !== -1;
+}
+
+
+/**
+ * Reduce a block of All Orders values to the rows worth judging, and count how many
+ * times each identity pair appears. PURE.
+ *
+ * ⚠ DELTA ROWS ARE EXCLUDED FROM THE COUNT, NOT FROM THE SCAN. Zoho Pull's insert_delta
+ *   legitimately creates a second row carrying the same pair, and the note it writes
+ *   exists precisely to tell that apart from a duplicate. Counting only the non-delta
+ *   rows means a delta twin reads 1 and stays quiet, while a copied row reads 2.
+ *
+ * @returns {{rows: Array, pairCounts: Object}}
+ */
+function _igScanRows(data, boundary) {
+  var rows = [], pairCounts = {};
+
+  for (var i = 0; i < data.length; i++) {
+    var rowNum = Schema.dataStartRow + i;
+    if (boundary > 0 && (rowNum === boundary || rowNum === boundary + 1)) continue;
+
+    var r = data[i];
+    var sku    = String(r[Schema.idx("SKU")] || "").trim();
+    var so     = String(r[Schema.idx("SALES_ORDER")] || "").trim();
+    var note   = String(r[Schema.idx("NOTE")] || "").trim();
+    var status = r[Schema.idx("STATUS")];
+
+    if (!_igIsEstablished(status)) continue;
+
+    var entry = { row: rowNum, sku: sku, orderId: so, note: note,
+                  status: status, sig: _igSig(so, sku) };
+    rows.push(entry);
+
+    if (sku && so && !_igIsDeltaRow(note)) {
+      pairCounts[entry.sig] = (pairCounts[entry.sig] || 0) + 1;
+    }
+  }
+
+  return { rows: rows, pairCounts: pairCounts };
+}
+
+
 /**
  * THE VERDICT for one row. Pure — the part that decides whether to cry wolf.
  *
- * @returns {{verdict: string, reason: string}}  verdict: "ok" | "mismatch" | "skip"
+ * ⚠ ORDER MATTERS. "gone" comes first because an incomplete row cannot be looked up at
+ *   all; "mismatch" outranks "duplicate" because a wrong identity is more informative
+ *   than a repeated one when a row is somehow both.
+ *
+ * @param {Object} row         from _igScanRows
+ * @param {Object} known       from _igKnownFromLog
+ * @param {Object} pairCounts  from _igScanRows
+ * @returns {{verdict: string, reason: string}}
+ *          verdict: "ok" | "gone" | "mismatch" | "duplicate" | "skip"
  */
-function _igVerdict(row, known) {
+function _igVerdict(row, known, pairCounts) {
   var orderId = String(row.orderId == null ? "" : row.orderId).trim();
   var sku     = String(row.sku == null ? "" : row.sku).trim();
 
-  // A half-typed row is not a mismatch — it is someone mid-entry.
-  if (!orderId || !sku) return { verdict: "skip", reason: "incomplete row" };
-
-  // ⚠ Only judge LIVE rows. A blank status means the row is being created right now
-  //   and nothing has been received for it yet.
+  // ⚠ THE STATUS GATE COMES FIRST, and it must — the CF rule checks it first too, and a
+  //   verdict function that trusted its caller to have filtered would silently disagree
+  //   with the red on the sheet. A row with no recognised status is being typed right
+  //   now, or is a header; either way it is not ours to judge.
   if (!_igIsEstablished(row.status)) return { verdict: "skip", reason: "not established" };
 
-  if (known.pairs[_igSig(orderId, sku)]) {
-    return { verdict: "ok", reason: "matches a RECEIVED event" };
+  // ⚠ AN ESTABLISHED ROW WITH HALF AN IDENTITY IS BROKEN, NOT "mid-entry". v2 returned
+  //   skip here and was therefore completely blind to the likeliest slip of all —
+  //   hitting Delete on the wrong cell.
+  if (!orderId || !sku) {
+    return { verdict: "gone", reason: (!orderId && !sku) ? "row has no identity at all"
+                                    : (!orderId ? "SALES ORDER is missing" : "SKU is missing") };
   }
 
-  // ⚠⚠ ONLY FLAG WHERE THERE IS EVIDENCE. If neither the order nor the SKU appears in
-  //   the tail at all, this row simply predates what we can see. Flagging it would be
-  //   an accusation built on an absence — the same "mistook 'I could not read it' for
-  //   'there is nothing there'" bug already fixed once in the stock audit.
-  var haveOrder = !!known.orders[orderId.toLowerCase()];
-  var haveSku   = !!known.skus[sku.toLowerCase()];
-  if (!haveOrder && !haveSku) {
+  var sig = _igSig(orderId, sku);
+
+  if (!known || !known.pairs) {
+    // Cannot judge without the record. Duplication is still knowable from the sheet
+    // alone, so fall through to that rather than returning nothing useful.
+    if (pairCounts && pairCounts[sig] > 1) {
+      return { verdict: "duplicate", reason: "this exact pair is on more than one row" };
+    }
+    return { verdict: "skip", reason: "Activity Log unreadable — no verdict possible" };
+  }
+
+  if (!known.pairs[sig]) {
+    // ⚠⚠ ONLY FLAG WHERE THERE IS EVIDENCE. If neither the order nor the SKU appears in
+    //   the tail at all, this row simply predates what we can see. Flagging it would be
+    //   an accusation built on an absence — the same "mistook 'I could not read it' for
+    //   'there is nothing there'" bug already fixed once in the stock audit.
+    var haveOrder = !!known.orders[orderId.toLowerCase()];
+    var haveSku   = !!known.skus[sku.toLowerCase()];
+    if (haveOrder || haveSku) {
+      return { verdict: "mismatch", reason: "this order/SKU pair was never received" };
+    }
     return { verdict: "skip", reason: "no log evidence either way — older than the tail" };
   }
 
-  return { verdict: "mismatch", reason: "this order/SKU pair was never received" };
+  if (pairCounts && pairCounts[sig] > 1) {
+    return { verdict: "duplicate", reason: "this exact pair is on more than one row" };
+  }
+
+  return { verdict: "ok", reason: "matches a RECEIVED event" };
 }
 
 
 /**
  * Compose the alert. Pure, so the wording is pinned by tests.
- * ⚠ It never claims to know the OLD value. The previous design's habit of asserting one
- *   is exactly what produced a message naming a correct value as the offender.
+ * ⚠ It never claims to know the OLD value. v1's habit of asserting one is exactly what
+ *   produced a message naming a correct value as the offender.
  */
 function _igComposeAlert(hits) {
-  var L = ["⚠ ROW IDENTITY DOES NOT MATCH ANY RECEIVED ORDER", ""];
-  hits.forEach(function (h) {
-    L.push("Row " + h.row + " · " + h.sku + " on " + h.orderId);
-    if (h.suggest && h.suggest.length) {
-      L.push("  this SKU was received on: " + h.suggest.join(" · "));
-    } else {
-      L.push("  no received order carries this SKU");
-    }
+  var byKind = { gone: [], mismatch: [], duplicate: [] };
+  hits.forEach(function (h) { if (byKind[h.verdict]) byKind[h.verdict].push(h); });
+
+  var L = ["⚠ ROW IDENTITY PROBLEM ON THE SHEET", ""];
+
+  if (byKind.gone.length) {
+    L.push("── HALF AN IDENTITY ──");
+    byKind.gone.forEach(function (h) {
+      L.push("Row " + h.row + " · " + (h.sku || "(no SKU)") + " on " + (h.orderId || "(no order)"));
+      L.push("  " + h.reason);
+    });
     L.push("");
-  });
-  L.push("Nothing on the sheet was changed or marked — this is a message only.");
+  }
+
+  if (byKind.mismatch.length) {
+    L.push("── NEVER RECEIVED ──");
+    byKind.mismatch.forEach(function (h) {
+      L.push("Row " + h.row + " · " + h.sku + " on " + h.orderId);
+      if (h.suggest && h.suggest.length) {
+        L.push("  this SKU was received on: " + h.suggest.join(" · "));
+      } else {
+        L.push("  no received order carries this SKU");
+      }
+    });
+    L.push("");
+  }
+
+  if (byKind.duplicate.length) {
+    L.push("── THE SAME LINE TWICE ──");
+    byKind.duplicate.forEach(function (h) {
+      L.push("Row " + h.row + " · " + h.sku + " on " + h.orderId);
+    });
+    L.push("  A duplicate depresses HAND for that SKU and doubles the pick line.");
+    L.push("");
+  }
+
+  L.push("The cells are marked red on the sheet. Nothing was changed — fix the row and");
+  L.push("the mark clears itself immediately.");
   return L.join("\n");
 }
 
@@ -226,38 +350,27 @@ function identityEditGuard(e) {
 // =======================================================================================
 
 /**
- * Compare every live row's identity against the Activity Log, flag what does not match,
- * and CLEAR what does. Returns a short string for the publish log.
+ * Judge every established row, publish the mismatch list the CF rule reads, and Telegram
+ * anything new. Returns a short string for the publish log.
  *
- * ⭐ THE SELF-CLEARING HALF IS THE POINT. An event-based flag can never retire itself,
- *   because no edit means "it is fine now" — which is why the first design left rows
- *   amber after they had been corrected. A state check answers fresh every time, so
- *   fixing the row removes the flag on its own.
+ * ⭐ IT WRITES TO A HIDDEN SHEET AND NOWHERE ELSE. No data row is ever touched, which is
+ *   what removes every failure mode v1 and v2 had.
  */
 function runIdentityReconcile() {
   var props = PropertiesService.getScriptProperties();
 
   // ⭐ CHEAP ON EVERY CLEAN RUN — one property read and out, the same shape as hold
-  //   escalation. The sheet is touched only after an identity column was really edited.
-  var dirty = null, alerted = null;
+  //   escalation. The sheet is touched only after a watched column was really edited.
+  var dirty = null;
   try {
-    dirty   = props.getProperty(IDENTITY_GUARD.dirtyKey);
-    alerted = props.getProperty(IDENTITY_GUARD.alertedKey);
+    dirty = props.getProperty(IDENTITY_GUARD.dirtyKey);
   } catch (e) { return "skip"; }
 
-  // ⭐ A live flag keeps the check alive. See sweepEveryMin — clearing must not depend
-  //   on the correction arriving as an edit, because in practice it does not.
-  var hasLiveFlags = !!(alerted && alerted !== "{}" && alerted.length > 2);
-  if (!_igShouldReconcile(dirty, hasLiveFlags, new Date().getMinutes())) {
-    return hasLiveFlags ? "waiting" : "clean";
-  }
+  if (!_igShouldReconcile(dirty)) return "clean";
 
   var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   var sheet = ss.getSheetByName(MAIN_SHEET_NAME);
   if (!sheet) return "no sheet";
-
-  var known = _igKnownFromLog(ss);
-  if (!known) return "no log";           // cannot judge without the record — say so
 
   var lastRow = sheet.getLastRow();
   if (lastRow < Schema.dataStartRow) {
@@ -266,55 +379,52 @@ function runIdentityReconcile() {
   }
 
   var n = lastRow - Schema.dataStartRow + 1;
-  var range = sheet.getRange(Schema.dataStartRow, 1, n, Schema.dataWidth);
-  var data  = range.getValues();
+  var data = sheet.getRange(Schema.dataStartRow, 1, n, Schema.dataWidth).getValues();
 
   var boundary = -1;
   try { boundary = getBoundaryRow(); } catch (e) { boundary = -1; }
 
-  var flagged = [];
+  var scan  = _igScanRows(data, boundary);
+  var known = _igKnownFromLog(ss);
 
-  for (var i = 0; i < n; i++) {
-    var rowNum = Schema.dataStartRow + i;
-    if (boundary > 0 && (rowNum === boundary || rowNum === boundary + 1)) continue;
+  var flagged = [], mismatchPairs = [];
 
-    var r = data[i];
-    var v = _igVerdict({
-      orderId: r[Schema.idx("SALES_ORDER")],
-      sku:     r[Schema.idx("SKU")],
-      status:  r[Schema.idx("STATUS")]
-    }, known);
+  for (var i = 0; i < scan.rows.length; i++) {
+    var entry = scan.rows[i];
+    var v = _igVerdict(entry, known, scan.pairCounts);
+    if (v.verdict === "ok" || v.verdict === "skip") continue;
 
-    // ⚠⚠ READ-ONLY, AND THAT IS THE WHOLE DESIGN NOW (2026-08-29).
-    //   This used to paint the row and clear the paint again. Every single problem
-    //   this feature had came from that one write: the paint could not be told apart
-    //   from the row banding; clearing depended on a re-check that undo did not always
-    //   queue; liveUpdateTrigger's LOCATION/HAND write meant Ctrl+Z popped the wrong
-    //   operation first; and a stale flag had no way to retire itself. Five rounds of
-    //   edge cases, all downstream of writing to a sheet somebody else is working in.
-    //
-    //   The DETECTION was never the problem. So: observe, report, touch nothing.
-    //   Nothing to clear, nothing to confuse, nothing to go stale.
-    if (v.verdict === "mismatch") {
-      flagged.push({
-        row: rowNum,
-        orderId: String(r[Schema.idx("SALES_ORDER")] || "").trim(),
-        sku:     String(r[Schema.idx("SKU")] || "").trim(),
-        suggest: _igOrdersForSku(known, r[Schema.idx("SKU")])
-      });
+    flagged.push({
+      row:     entry.row,
+      orderId: entry.orderId,
+      sku:     entry.sku,
+      verdict: v.verdict,
+      reason:  v.reason,
+      suggest: _igOrdersForSku(known, entry.sku)
+    });
+
+    // ⚠ ONLY "mismatch" NEEDS THE LIST. "gone" and "duplicate" are decidable from the
+    //   row alone, so their CF rules are local formulas — instant in both directions,
+    //   with no dependency on this function having run.
+    if (v.verdict === "mismatch" && mismatchPairs.indexOf(entry.sig) === -1) {
+      mismatchPairs.push(entry.sig);
     }
   }
 
+  try { _igWriteMismatchList(ss, mismatchPairs); }
+  catch (e) { console.log("identityEditGuard list write: " + e); }
+
   props.deleteProperty(IDENTITY_GUARD.dirtyKey);
 
-  // Alert once per crossing on a STABLE key. A row number is not stable, so the
-  // identity signature is — the same rule the straggler watchdog runs on.
+  // Alert once per crossing on a STABLE key. A row number is not stable, so the identity
+  // signature is — the same rule the straggler watchdog runs on.
   var fresh = _igNewAlerts(flagged);
   if (fresh.length) {
-    try { _igAlert(_igComposeAlert(fresh)); } catch (e) { console.log("identityEditGuard alert: " + e); }
+    try { _igAlert(_igComposeAlert(fresh)); }
+    catch (e) { console.log("identityEditGuard alert: " + e); }
   }
 
-  return flagged.length + " mismatched" + (fresh.length ? " · " + fresh.length + " reported" : "");
+  return flagged.length + " flagged" + (fresh.length ? " · " + fresh.length + " reported" : "");
 }
 
 
@@ -331,6 +441,8 @@ function _igKnownFromLog(ss) {
 
     var pairs = {}, orders = {}, skus = {}, bySku = {};
     for (var i = 0; i < rows.length; i++) {
+      // ⚠ RECEIVED ONLY. IDENTITY_EDIT rows are in this same log and are deliberately
+      //   NOT counted — an alteration is not a receipt. See _mrClassify.
       if (String(rows[i][ACTIVITY_LOG.idx("EVENT")] || "").trim().toUpperCase() !== "RECEIVED") continue;
       var oid = String(rows[i][ACTIVITY_LOG.idx("ORDER_ID")] || "").trim();
       var sku = String(rows[i][ACTIVITY_LOG.idx("SKU")] || "").trim();
@@ -358,23 +470,64 @@ function _igOrdersForSku(known, sku) {
 
 
 /**
- * ⚠ CLEANUP ONLY. The reconcile no longer paints anything — see the note in its loop.
- *   This survives solely so clearIdentityFlags() can remove marks left by the versions
- *   that did, in either colour they wore. Nothing else should ever call it with on=true.
+ * ⭐⭐ THE HELPER HOLDS THE VERDICT, NOT THE EVIDENCE — and that is the whole reason the
+ * on-sheet mark is safe.
+ *
+ * The obvious design was a formula mirror of the Activity Log for the CF to search. It
+ * is wrong: doPost inserts rows (OrderService.js:854) BEFORE writing their RECEIVED
+ * events (:889), and insertRowsBefore forces a flush, so every legitimate arrival would
+ * flash red in the gap — and a single failed logActivityBatch, which is best-effort by
+ * design, would leave a real order red permanently.
+ *
+ * Listing only pairs the reconcile has ALREADY judged removes that window: the once-a-
+ * minute cadence is the grace period. A stale entry is harmless, because no row matches
+ * it any more — and if someone re-types that exact bad value it goes red instantly.
+ *
+ * ⚠ Rewritten only when the set CHANGES. Usually empty, so usually zero writes.
+ * ⚠ '@' plain text on the column — Gotcha #16. An order id like 24-14979-87359 left on a
+ *   default format would be coerced to a Date and could never match the row again.
  */
-function _igPaint(sheet, row, on) {
-  var band = sheet.getRange(row, 1, 1, Schema.dataWidth);
-  var cell = sheet.getRange(row, Schema.cols.SALES_ORDER);
-  if (on) {
-    band.setBackground(IDENTITY_GUARD.flagBg);
-    cell.setNote(IDENTITY_GUARD.flagNote +
-      "\nThis order/SKU pair was never received. Nothing was changed." +
-      "\nFix the row and this clears within a minute.");
-  } else {
-    // ⚠ null, not white — restores the row to the BANDING underneath rather than
-    //   painting over it. Same anti-bleed the Zoho flag clear uses.
-    band.setBackground(null);
-    cell.clearNote();
+function _igWriteMismatchList(ss, pairs) {
+  var capped = (pairs || []).slice(0, IDENTITY_GUARD.listMax);
+
+  var sheet = ss.getSheetByName(IDENTITY_GUARD.sheetName);
+  if (!sheet) {
+    sheet = ss.insertSheet(IDENTITY_GUARD.sheetName);
+    sheet.getRange(1, 1, IDENTITY_GUARD.listMax, 1).setNumberFormat('@');
+  }
+  try { sheet.hideSheet(); } catch (e) { /* already hidden — fine */ }
+
+  // Idempotent: compare before writing so a steady state costs nothing.
+  var existing = _igReadMismatchList(ss);
+  if (existing.length === capped.length &&
+      existing.every(function (v, i) { return v === capped[i]; })) {
+    return capped.length;
+  }
+
+  sheet.getRange(1, 1, IDENTITY_GUARD.listMax, 1).clearContent();
+  if (capped.length) {
+    sheet.getRange(1, 1, capped.length, 1)
+         .setNumberFormat('@')
+         .setValues(capped.map(function (p) { return [p]; }));
+  }
+  return capped.length;
+}
+
+
+/** Read the published mismatch list back. Returns [] when the sheet is absent. */
+function _igReadMismatchList(ss) {
+  try {
+    var target = ss || SpreadsheetApp.openById(SPREADSHEET_ID);
+    var sheet = target.getSheetByName(IDENTITY_GUARD.sheetName);
+    if (!sheet) return [];
+    var last = Math.min(sheet.getLastRow(), IDENTITY_GUARD.listMax);
+    if (last < 1) return [];
+    return sheet.getRange(1, 1, last, 1).getValues()
+      .map(function (r) { return String(r[0] || "").trim(); })
+      .filter(function (v) { return !!v; });
+  } catch (e) {
+    console.log("_igReadMismatchList: " + e);
+    return [];
   }
 }
 
@@ -392,7 +545,9 @@ function _igNewAlerts(flagged) {
   var fresh = [], live = {};
 
   flagged.forEach(function (h) {
-    var k = _igSig(h.orderId, h.sku);
+    // ⚠ The verdict is part of the key: a row that goes from duplicate to mismatch is a
+    //   different fact and deserves to be said once more.
+    var k = h.verdict + ":" + _igSig(h.orderId, h.sku);
     live[k] = seen[k] || now;
     if (!seen[k]) fresh.push(h);
   });
@@ -408,7 +563,7 @@ function _igNewAlerts(flagged) {
 }
 
 
-/** Telegram the admin chat. Silenced by Script Property; the flag is never silenced. */
+/** Telegram the admin chat. Silenced by Script Property; the sheet mark is never silenced. */
 function _igAlert(text) {
   var off = "";
   try {
@@ -426,14 +581,66 @@ function _igAlert(text) {
 }
 
 
+// =======================================================================================
+// READERS — used by the sidebar Alerts card
+// =======================================================================================
+
 /**
- * Clear every identity flag by hand. Rarely needed now the reconcile clears its own,
- * but it is the escape hatch if a flag ever outlives its cause.
+ * Classify rows the way the CF rules do — from the SHEET and the published list, never
+ * from the Activity Log.
+ *
+ * ⭐ THIS IS WHY THE SIDEBAR COUNT CANNOT GO STALE. It is recomputed from the same two
+ *   inputs the CF reads, so the badge and the red cells always agree. A snapshot count
+ *   parked in a Script Property would have drifted the moment a row was fixed — which is
+ *   the exact complaint this whole feature exists to answer.
+ *
+ * @param {Array}  data      All Orders values, from Schema.dataStartRow
+ * @param {number} boundary
+ * @param {Array}  list      published mismatch pairs
+ * @returns {Array} row numbers with a problem
  */
+function _igIssueRows(data, boundary, list) {
+  var set = {};
+  (list || []).forEach(function (p) { set[p] = 1; });
+
+  var scan = _igScanRows(data, boundary);
+  var out = [];
+
+  scan.rows.forEach(function (entry) {
+    var bad = (!entry.sku || !entry.orderId) ||          // GONE
+              (set[entry.sig] === 1) ||                   // UNKNOWN
+              (scan.pairCounts[entry.sig] > 1);           // DUPLICATED
+    if (bad) out.push(entry.row);
+  });
+
+  return out;
+}
+
+
+// =======================================================================================
+// DIAGNOSTICS + LEGACY CLEANUP
+// =======================================================================================
+
 /**
- * Remove every mark left by the painting versions of this guard — both colours, plus
- * the note. Run once after 2026-08-29; after that there is nothing to clear, because
- * the guard writes nothing.
+ * ⚠ CLEANUP ONLY. Nothing paints a static fill any more — the mark is conditional
+ *   formatting. This survives solely so clearIdentityFlags() can remove marks left by
+ *   the versions that did, in either colour they wore.
+ */
+function _igPaint(sheet, row, on) {
+  var band = sheet.getRange(row, 1, 1, Schema.dataWidth);
+  var cell = sheet.getRange(row, Schema.cols.SALES_ORDER);
+  if (on) throw new Error("_igPaint: painting was removed 2026-08-29 — see the file header.");
+  // ⚠ null, not white — restores the row to the BANDING underneath rather than painting
+  //   over it. Same anti-bleed the Zoho flag clear uses.
+  band.setBackground(null);
+  cell.clearNote();
+}
+
+
+/**
+ * Remove every mark left by the painting versions of this guard — both colours, plus the
+ * note. Run once after 2026-08-29; after that there is nothing to clear, because the
+ * guard writes nothing to a data row.
  */
 function clearIdentityFlags() {
   var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
@@ -446,12 +653,12 @@ function clearIdentityFlags() {
   var bgs = sheet.getRange(Schema.dataStartRow, 1, n, Schema.dataWidth).getBackgrounds();
   var cleared = 0;
   for (var i = 0; i < bgs.length; i++) {
-    if (!_igIsOurFlag(bgs[i][0])) continue;
+    if (!_igIsLegacyFlag(bgs[i][0])) continue;
     _igPaint(sheet, Schema.dataStartRow + i, false);
     cleared++;
   }
   try { PropertiesService.getScriptProperties().deleteProperty(IDENTITY_GUARD.alertedKey); } catch (e) {}
-  return "✅ Cleared " + cleared + " identity flag(s).";
+  return "✅ Cleared " + cleared + " legacy identity flag(s).";
 }
 
 
@@ -468,92 +675,48 @@ function checkIdentityNow() {
 
 
 /**
- * Explain ONE row in full: what it holds, whether it is actually flagged by US, what
- * verdict it gets and why, and what the Activity Log says about its order and its SKU.
+ * How many of the three identity CF rules are actually installed on the sheet?
  *
- * ⚠ WHY THIS EXISTS. 2026-08-29: a row stayed amber after being corrected and there was
- *   no way to tell, from looking, whether it was our flag, the row banding (#fff8e7),
- *   the duplicate-SO highlight (#fff3b0) or a Zoho flag — nor whether the reconcile had
- *   judged it at all. Three plausible causes, one appearance. This answers it in one Run
- *   instead of another round of inference.
+ * ⚠⚠ WHY THIS EXISTS. 2026-08-30: the whole feature can be perfectly correct and mark
+ *   NOTHING, for one boring reason — setupIdentityHighlighting() was never run, so there
+ *   are no rules to evaluate. And because the mark is a DISPLAY LAYER, an uninstalled
+ *   feature and a clean sheet look exactly the same. There is no residue to notice.
+ *   Every diagnostic here must answer this FIRST.
  *
- * ⚠ Output goes to the EXECUTION LOG — the Run button shows no return value, a lesson
- *   that has now cost this project two evenings.
+ * Identified by range signature, the same way _stripIdentityRules finds them.
  */
-function diagnoseIdentityRow(rowNumber) {
-  var row = Number(rowNumber);
-  if (!row || row < Schema.dataStartRow) {
-    var msg = "Pass a data row number, e.g. diagnoseIdentityRow(12)";
-    console.log(msg); return msg;
+function _igCountInstalledRules(sheet) {
+  try {
+    var rules = sheet.getConditionalFormatRules();
+    var n = 0;
+    rules.forEach(function (rule) {
+      var ranges = rule.getRanges();
+      if (!ranges || ranges.length !== 2) return;
+      var cols = ranges.map(function (r) {
+        return (r.getNumColumns() === 1) ? r.getColumn() : -1;
+      }).sort(function (x, y) { return x - y; });
+      if (cols[0] === Schema.cols.SKU && cols[1] === Schema.cols.SALES_ORDER) n++;
+    });
+    return n;
+  } catch (e) {
+    console.log("_igCountInstalledRules: " + e);
+    return -1;
   }
-
-  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
-  var sheet = ss.getSheetByName(MAIN_SHEET_NAME);
-  if (!sheet) { console.log("no sheet"); return "no sheet"; }
-
-  var vals = sheet.getRange(row, 1, 1, Schema.dataWidth).getValues()[0];
-  var bg   = sheet.getRange(row, 1).getBackground();
-  var note = sheet.getRange(row, Schema.cols.SALES_ORDER).getNote();
-
-  var orderId = String(vals[Schema.idx("SALES_ORDER")] || "").trim();
-  var sku     = String(vals[Schema.idx("SKU")] || "").trim();
-  var status  = String(vals[Schema.idx("STATUS")] || "").trim();
-
-  var L = ["── ROW " + row + " ──"];
-  L.push("SKU:      " + (sku || "(blank)"));
-  L.push("ORDER:    " + (orderId || "(blank)"));
-  L.push("STATUS:   " + (status || "(blank)") + (_igIsEstablished(status) ? "  [established]" : "  [not established — skipped]"));
-  L.push("");
-
-  // ⭐ THE DISCRIMINATOR. Several things paint a row tan here; only ours writes the note.
-  var ours = String(bg || "").toLowerCase() === IDENTITY_GUARD.flagBg.toLowerCase();
-  L.push("background:  " + bg + (ours ? "   ← OUR flag" : "   ← NOT our flag"));
-  if (!ours) {
-    L.push("             (" + IDENTITY_GUARD.flagBg + " is ours; #fff8e7 is the row banding,");
-    L.push("              #fff3b0 is the duplicate-SO highlight)");
-  }
-  L.push("note:        " + (note ? JSON.stringify(note.slice(0, 60)) : "(none)") +
-         (note && note.indexOf(IDENTITY_GUARD.flagNote) === 0 ? "   ← ours" : ""));
-  L.push("");
-
-  var known = _igKnownFromLog(ss);
-  if (!known) {
-    L.push("Activity Log: UNREADABLE — no verdict is possible.");
-    console.log(L.join("\n")); return L.join("\n");
-  }
-
-  var v = _igVerdict({ orderId: orderId, sku: sku, status: status }, known);
-  L.push("VERDICT:  " + v.verdict.toUpperCase() + "  —  " + v.reason);
-  L.push("");
-  L.push("evidence in the last " + IDENTITY_GUARD.logTailRows + " log rows:");
-  L.push("  this exact order+SKU pair received?  " + (known.pairs[_igSig(orderId, sku)] ? "YES" : "no"));
-  L.push("  this ORDER seen at all?              " + (known.orders[orderId.toLowerCase()] ? "YES" : "no"));
-  L.push("  this SKU seen at all?                " + (known.skus[sku.toLowerCase()] ? "YES" : "no"));
-  var sug = _igOrdersForSku(known, sku);
-  L.push("  orders that received this SKU:       " + (sug.length ? sug.join(" · ") : "(none)"));
-  L.push("");
-
-  var dirty = null;
-  try { dirty = PropertiesService.getScriptProperties().getProperty(IDENTITY_GUARD.dirtyKey); } catch (e) {}
-  L.push("pending check queued: " + (dirty ? "YES — the next publish tick will act" : "no"));
-  if (ours && v.verdict !== "mismatch" && !dirty) {
-    L.push("");
-    L.push("⚠ FLAGGED BUT RECONCILES. Nothing has queued a re-check, so the flag is");
-    L.push("  stale — run checkIdentityNow() and it will clear.");
-  }
-
-  var out = L.join("\n");
-  console.log(out);
-  return out;
 }
 
 
 /**
- * Explain EVERY flagged row. No argument, because the editor Run button cannot pass one —
- * a trap this project has now walked into three times, most recently with
- * diagnoseIdentityRow, which answered "Pass a data row number" and nothing else.
+ * Explain EVERY flagged row: what it holds, what verdict it gets and why, and what the
+ * Activity Log says about its order and its SKU.
  *
- * ⚠ Output goes to the EXECUTION LOG.
+ * ⚠⚠ IT NEVER LOOKS AT CELL BACKGROUNDS, AND THAT IS THE POINT. getBackgrounds() returns
+ *   STATIC fills ONLY — conditional formatting and row banding are DISPLAY LAYERS and
+ *   never appear in it. The v2 version of this function hunted for its own paint, which
+ *   is both why it could not answer "then whose colour is that?" and why it would report
+ *   nothing at all now. It computes the verdict instead.
+ *
+ * ⚠ Zero-arg — the editor Run button cannot pass one, a trap this project has walked
+ *   into three times. Output goes to the EXECUTION LOG.
  */
 function diagnoseIdentityFlags() {
   var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
@@ -564,60 +727,210 @@ function diagnoseIdentityFlags() {
   if (last < Schema.dataStartRow) { console.log("no data"); return "no data"; }
 
   var n = last - Schema.dataStartRow + 1;
-  var bgs = sheet.getRange(Schema.dataStartRow, 1, n, Schema.dataWidth).getBackgrounds();
-  var rows = [];
-  for (var i = 0; i < n; i++) {
-    if (String(bgs[i][0] || "").toLowerCase() === IDENTITY_GUARD.flagBg.toLowerCase()) {
-      rows.push(Schema.dataStartRow + i);
+  var data = sheet.getRange(Schema.dataStartRow, 1, n, Schema.dataWidth).getValues();
+
+  var boundary = -1;
+  try { boundary = getBoundaryRow(); } catch (e) { boundary = -1; }
+
+  var scan  = _igScanRows(data, boundary);
+  var known = _igKnownFromLog(ss);
+  var list  = _igReadMismatchList(ss);
+
+  var installed = _igCountInstalledRules(sheet);
+
+  var L = ["── IDENTITY ──"];
+  L.push("CF rules installed:       " + installed + " of 3" +
+         (installed === 3 ? "   ✓" : "   ⚠⚠ THE SHEET CANNOT MARK ANYTHING"));
+  if (installed !== 3) {
+    L.push("");
+    L.push("  ⚠⚠ NOTHING WILL EVER TURN RED UNTIL THIS READS 3 OF 3.");
+    L.push("     Run  setupIdentityHighlighting()  once, from the editor.");
+    L.push("     The mark is conditional formatting — a display layer — so an");
+    L.push("     UNINSTALLED feature and a clean sheet look identical. There is no");
+    L.push("     residue to notice, which is why this line comes first.");
+    L.push("");
+  }
+  L.push("established rows judged:  " + scan.rows.length);
+  L.push("published mismatch list:  " + list.length + " pair(s)  [" +
+         IDENTITY_GUARD.sheetName + "]");
+  L.push("Activity Log:             " + (known ? "readable (tail " + IDENTITY_GUARD.logTailRows + ")"
+                                               : "UNREADABLE — no verdict possible"));
+  var dirty = null;
+  try { dirty = PropertiesService.getScriptProperties().getProperty(IDENTITY_GUARD.dirtyKey); } catch (e) {}
+  L.push("pending check queued:     " + (dirty ? "YES — the next publish tick will act" : "no"));
+  L.push("");
+  L.push("⚠ The mark is CONDITIONAL FORMATTING, so getBackgrounds() cannot see it and");
+  L.push("  neither can this. What follows is the verdict, recomputed from scratch.");
+  L.push("");
+
+  var bad = 0;
+  scan.rows.forEach(function (entry) {
+    var v = _igVerdict(entry, known, scan.pairCounts);
+    if (v.verdict === "ok" || v.verdict === "skip") return;
+    bad++;
+    if (bad > 15) return;
+    L.push("Row " + entry.row + "  " + v.verdict.toUpperCase() + "  —  " + v.reason);
+    L.push("   SKU " + (entry.sku || "(blank)") + "   ORDER " + (entry.orderId || "(blank)"));
+    if (v.verdict === "mismatch") {
+      L.push("   in the published list? " + (list.indexOf(entry.sig) !== -1 ? "YES — cells are red" :
+             "no — the reconcile has not run since this appeared; red lands within a minute"));
+      var sug = _igOrdersForSku(known, entry.sku);
+      L.push("   orders that received this SKU: " + (sug.length ? sug.join(" · ") : "(none)"));
     }
-  }
+    if (v.verdict === "duplicate") {
+      L.push("   times this pair appears (delta rows excluded): " + scan.pairCounts[entry.sig]);
+    }
+    L.push("");
+  });
 
-  var head = "── IDENTITY FLAGS ──\n" + rows.length + " row(s) currently wearing OUR amber (" +
-             IDENTITY_GUARD.flagBg + ")";
+  if (!bad) L.push("Nothing is flagged. Every established row's identity matches a RECEIVED event.");
+  else if (bad > 15) L.push("… and " + (bad - 15) + " more");
 
-  // ⚠⚠ ALWAYS REPORT WHAT IS ACTUALLY THERE. 2026-08-29: a row was visibly tan while the
-  //   reconcile reported "0 flagged · 0 cleared" — it could not clear paint it had not
-  //   applied, and there was no way to learn the real colour except by asking the sheet.
-  //   A diagnostic that only looks for its OWN colour cannot answer "then whose is it?",
-  //   which was the entire question.
-  var seen = {};
-  for (var j = 0; j < n; j++) {
-    var c = String(bgs[j][0] || "").toLowerCase();
-    if (!seen[c]) seen[c] = { count: 0, rows: [] };
-    seen[c].count++;
-    if (seen[c].rows.length < 6) seen[c].rows.push(Schema.dataStartRow + j);
-  }
-  var WHOSE = {
-    "#ffab40": "the identity guard  ← OURS",
-    "#ffe0b2": "the identity guard (OLD colour, pre-2026-08-29)  ← OURS",
-    "#fff8e7": "row banding (normal, alternating)",
-    "#ffffff": "NO static fill — what you SEE here is the banding or a CF rule",
-    "#ffd400": "the DIRECT divider band",
-    "#1d1d1b": "a header row (banner row 3, or the DIRECT header)",
-    "#fff3b0": "duplicate SALES ORDER highlight — setupDuplicateSalesOrderHighlighting",
-    "#ffe5e5": "Zoho removed/qty-changed flag — _flagDirectRow",
-    "#ffe5e5": "Zoho removed/qty-changed flag — _flagDirectRow"
-  };
-  head += "\n\nEVERY background actually present in column A:";
-  Object.keys(seen).sort(function (a, b) { return seen[b].count - seen[a].count; })
-    .forEach(function (c) {
-      head += "\n  " + (c || "(none)") + "  ×" + seen[c].count +
-              "   rows " + seen[c].rows.join(", ") + (seen[c].count > 6 ? " …" : "") +
-              "\n      " + (WHOSE[c] || "⚠ UNRECOGNISED — not painted by anything we know of");
+  var out = L.join("\n");
+  console.log(out);
+  return out;
+}
+
+
+/**
+ * ⭐⭐ THE SELF-TEST. Reports what is ACTUALLY on the sheet, and — the part that matters —
+ * EVALUATES THE REAL FORMULAS IN REAL CELLS and reads back what Sheets returns.
+ *
+ * ⚠⚠ WHY IT EXISTS. 2026-08-30: this feature was reported doing nothing twice running, and
+ *   both rounds of reasoning about why were wrong (first the strippers, then a theory about
+ *   key formats). Reasoning about a CF rule from outside Sheets is guessing. This asks
+ *   Sheets.
+ *
+ *   It writes the SAME strings _buildIdentityRules installs — from the one shared
+ *   _identityFormulas builder — into a scratch column, reads the booleans back, then clears
+ *   them. If a rule says FALSE here, the formula is wrong. If it says TRUE and the cell is
+ *   not red, the rule is missing or something precedes it. Those are different bugs and
+ *   this is what tells them apart.
+ *
+ * ⚠ Zero-arg — the editor Run button cannot pass one. Output goes to the EXECUTION LOG.
+ */
+function diagnoseIdentityCF() {
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  var sheet = ss.getSheetByName(MAIN_SHEET_NAME);
+  if (!sheet) { console.log("no sheet"); return "no sheet"; }
+
+  var L = ["══ IDENTITY · CF SELF-TEST ══", ""];
+
+  // ── 1 · what rules are actually on the sheet, and in what order ────────────────────
+  var all = sheet.getConditionalFormatRules();
+  var onIdentityCols = [];
+  all.forEach(function (r, i) {
+    var rs = r.getRanges(), hit = false;
+    rs.forEach(function (g) {
+      if (g.getColumn() === Schema.cols.SKU || g.getColumn() === Schema.cols.SALES_ORDER) hit = true;
     });
+    if (hit) onIdentityCols.push({ i: i, rule: r, ranges: rs });
+  });
 
-  if (!rows.length) {
-    head += "\n\nNothing is flagged by the guard, so a tan row you can see was painted by\n" +
-            "something else — find its colour above. clearIdentityFlags() only removes\n" +
-            IDENTITY_GUARD.flagBg + " and will not touch it.";
-    console.log(head);
-    return head;
+  var installed = _igCountInstalledRules(sheet);
+  L.push("CF rules on the sheet:        " + all.length);
+  L.push("…touching col A or col D:     " + onIdentityCols.length);
+  L.push("…that are OURS (A+D pair):    " + installed + " of 3" +
+         (installed === 3 ? "   ✓" : "   ⚠⚠ NOTHING CAN MARK"));
+  L.push("");
+  L.push("EVERY rule touching A or D, IN ORDER (Sheets applies the FIRST match per cell):");
+  if (!onIdentityCols.length) L.push("  (none — run setupIdentityHighlighting())");
+  onIdentityCols.forEach(function (e) {
+    var bc = e.rule.getBooleanCondition();
+    var f = bc ? (bc.getCriteriaValues() || [''])[0] : '(not a formula rule)';
+    var cols = e.ranges.map(function (g) {
+      return g.getA1Notation();
+    }).join(", ");
+    L.push("  [" + e.i + "] " + cols);
+    L.push("       " + String(f).slice(0, 150));
+  });
+  L.push("");
+
+  // ── 2 · the published list ─────────────────────────────────────────────────────────
+  var identSheet = ss.getSheetByName(IDENTITY_GUARD.sheetName);
+  var list = _igReadMismatchList(ss);
+  L.push("__Identity sheet exists:      " + (identSheet ? "YES" : "NO  ⚠ the UNKNOWN rule can never match"));
+  L.push("published mismatch pairs:     " + list.length);
+  list.slice(0, 5).forEach(function (p) { L.push("     " + JSON.stringify(p)); });
+  L.push("");
+
+  // ── 3 · pick a row to test: prefer one the reconcile flagged ───────────────────────
+  var lastRow = sheet.getLastRow();
+  if (lastRow < Schema.dataStartRow) { L.push("no data rows"); console.log(L.join("\n")); return L.join("\n"); }
+  var n = lastRow - Schema.dataStartRow + 1;
+  var data = sheet.getRange(Schema.dataStartRow, 1, n, Schema.dataWidth).getValues();
+  var boundary = -1;
+  try { boundary = getBoundaryRow(); } catch (e) {}
+  var scan = _igScanRows(data, boundary);
+
+  var target = null;
+  for (var i = 0; i < scan.rows.length; i++) {
+    if (list.indexOf(scan.rows[i].sig) !== -1) { target = scan.rows[i]; break; }
+  }
+  if (!target && scan.rows.length) target = scan.rows[0];
+  if (!target) { L.push("no established rows to test"); console.log(L.join("\n")); return L.join("\n"); }
+
+  L.push("── TEST ROW " + target.row + (list.indexOf(target.sig) !== -1 ?
+         "  (the reconcile flagged this one — it SHOULD be red)" :
+         "  (not flagged — expect FALSE everywhere, which is correct)") + " ──");
+  var raw = sheet.getRange(target.row, 1, 1, Schema.dataWidth).getValues()[0];
+  L.push("  A (SKU)          " + JSON.stringify(raw[Schema.idx("SKU")]) +
+         "   typeof " + (typeof raw[Schema.idx("SKU")]));
+  L.push("  D (SALES ORDER)  " + JSON.stringify(raw[Schema.idx("SALES_ORDER")]) +
+         "   typeof " + (typeof raw[Schema.idx("SALES_ORDER")]));
+  L.push("  F (STATUS)       " + JSON.stringify(raw[Schema.idx("STATUS")]) +
+         "   typeof " + (typeof raw[Schema.idx("STATUS")]));
+  L.push("  sig JS builds:   " + JSON.stringify(target.sig));
+  L.push("");
+
+  // ── 4 · ⭐ EVALUATE THE REAL FORMULAS IN REAL CELLS ────────────────────────────────
+  var scratchCol = Math.max(Schema.dataWidth + 6, 16);
+  if (sheet.getMaxColumns() < scratchCol) {
+    L.push("⚠ not enough columns for a scratch evaluation (need col " + scratchCol + ")");
+    console.log(L.join("\n")); return L.join("\n");
   }
 
-  var out = [head, ""];
-  rows.slice(0, 10).forEach(function (r) { out.push(diagnoseIdentityRow(r)); out.push(""); });
-  if (rows.length > 10) out.push("… and " + (rows.length - 10) + " more");
-  var txt = out.join("\n");
-  console.log(txt);
-  return txt;
+  var F = _identityFormulas(target.row);
+  var probes = [
+    ["status guard", F.established],
+    ["GONE",         F.gone],
+    ["UNKNOWN",      F.unknown],
+    ["DUPLICATED",   F.duplicated],
+    ["sig the FORMULA builds",
+      '=LOWER(TRIM($D' + target.row + '))&"|"&LOWER(TRIM($A' + target.row + '))'],
+    ["MATCH position in the list",
+      '=IFERROR(MATCH(LOWER(TRIM($D' + target.row + '))&"|"&LOWER(TRIM($A' + target.row +
+      ')), INDIRECT("\'' + IDENTITY_GUARD.sheetName + '\'!$A$1:$A$' + IDENTITY_GUARD.listMax +
+      '"), 0), "NO MATCH")'],
+    ["the list, seen through INDIRECT",
+      '=IFERROR(COUNTA(INDIRECT("\'' + IDENTITY_GUARD.sheetName + '\'!$A$1:$A$' +
+      IDENTITY_GUARD.listMax + '")), "INDIRECT FAILED")']
+  ];
+
+  var cell = sheet.getRange(target.row, scratchCol);
+  L.push("── WHAT SHEETS ACTUALLY RETURNS (evaluated live, then cleared) ──");
+  try {
+    probes.forEach(function (p) {
+      cell.setFormula(p[1]);
+      SpreadsheetApp.flush();
+      var v = cell.getValue();
+      L.push("  " + (p[0] + "                          ").slice(0, 26) + JSON.stringify(v));
+    });
+  } catch (e) {
+    L.push("  ⚠ evaluation threw: " + e);
+  } finally {
+    try { cell.clearContent(); } catch (e) {}
+  }
+
+  L.push("");
+  L.push("── HOW TO READ THIS ──");
+  L.push("  UNKNOWN=true  + rule present + cell not red  → something PRECEDES our rule above.");
+  L.push("  UNKNOWN=false + a MATCH position             → the guard clauses are the problem.");
+  L.push("  'NO MATCH' but the sigs are equal            → the list is not where INDIRECT looks.");
+  L.push("  INDIRECT FAILED                              → the __Identity sheet is missing.");
+  L.push("  rules OURS < 3                               → run setupIdentityHighlighting().");
+
+  var out = L.join("\n");
+  console.log(out);
+  return out;
 }

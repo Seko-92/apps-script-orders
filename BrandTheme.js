@@ -1581,6 +1581,8 @@ function repairDirectDividerGlyph() {
  *   2. HAND low-stock — font-only #b71c1c bold (no bg, disciplined secondary signal)
  *   3. SHIP COST paid — yellow bg #fff4b0 + bold black ("money on the line" cue)
  *   4. Buyer Note — italic muted gold #8a7434 (subtle audit overlay)
+ *   5. Identity — deep red #b71c1c on cols A+D when a row's identity is broken
+ *      (missing half, never received, or duplicated). See _buildIdentityRules.
  *
  * Kit SKU markers (▣ glyph prefix) are NOT a CF rule — they live in the cells'
  * number-format property and are applied/refreshed by refreshKitSkuMarkers().
@@ -1624,6 +1626,12 @@ function _applyAllConditionalFormatting(sheet) {
   // to enforce.
   keep.push.apply(keep, _buildHoldRules(sheet));
   keep.push(_buildBuyerNoteRule(sheet));
+  // ⚠⚠ THE IDENTITY RULES MUST BE REBUILT HERE OR applyBrandTheme() DELETES THEM.
+  // They span cols A + D, and the strip above discards ANY single-column rule on col A
+  // (it is in themeColumns to clear the retired italic Kit-SKU rule). Without this line
+  // a theme re-apply would silently remove the whole feature — and, because the mark is
+  // a display layer, leave no trace that it had ever been there.
+  keep.push.apply(keep, _buildIdentityRules(sheet));
 
   sheet.setConditionalFormatRules(keep);
 }
@@ -1823,6 +1831,188 @@ function _stripHoldRules(rules) {
   });
 }
 
+
+
+/**
+ * ⚠ IDENTITY — the sheet's half of the 2026-08-28 fix, and the third attempt at it.
+ *
+ * ⭐⭐ WHY THESE ARE CF RULES AND NOT A SCRIPT PAINTING CELLS. Five rounds on 2026-08-29
+ * painted a static background on the offending row, and every single failure came from
+ * that one write: the paint could not be told from the #fff8e7 banding; clearing it
+ * needed a SECOND write, so it depended on a trigger that Ctrl+Z does not reliably queue
+ * (undo pops liveUpdateTrigger's LOCATION/HAND write, not the SKU); and a stale mark had
+ * no way to retire itself. The feature ended read-only — a Telegram message and nothing
+ * on the sheet.
+ *
+ * Conditional formatting is a DISPLAY LAYER. Sheets recomputes it live and stores NOTHING
+ * on the row, so fixing the cell removes the red in the same keystroke — no trigger, no
+ * property, no clearing pass, nothing that can go stale. That is the entire point.
+ *
+ * THREE STATES, all on the two identity cells (A + D) and nowhere else, so the row keeps
+ * its STATUS colour:
+ *
+ *   GONE        an established row missing its SKU or its SALES ORDER
+ *   UNKNOWN     the pair is on the reconcile's published mismatch list
+ *   DUPLICATED  the same pair sits on more than one row
+ *
+ * ⭐ TWO OF THE THREE ARE PURELY LOCAL — GONE and DUPLICATED read nothing but the sheet,
+ * so they are instant in BOTH directions and cannot be affected by any timing. Only
+ * UNKNOWN needs a lookup, and it deliberately reads a list of ALREADY-JUDGED pairs rather
+ * than the Activity Log: doPost inserts rows before writing their RECEIVED events, so a
+ * rule that searched the log would flash red on every legitimate arrival.
+ *
+ * ⚠ EVERY LITERAL IS BUILT FROM A CONSTANT — Schema.validStatuses, Schema.cols,
+ * IDENTITY_GUARD.sheetName / .listMax / .deltaNoteToken. Nothing here is typed twice, so
+ * there is nothing to drift. A test asserts that.
+ *
+ * @param {Sheet} sheet
+ * @returns {Array} three rules
+ */
+/**
+ * The three formulas, anchored at a row you choose.
+ *
+ * ⭐ SPLIT OUT 2026-08-30 SO A DIAGNOSTIC CAN EVALUATE THE REAL THING. The rules were
+ *   reported as doing nothing twice running, and every round of reasoning about WHY was
+ *   wrong. `diagnoseIdentityCF()` now writes these same strings into a scratch cell and
+ *   reads back what Sheets actually returns — which is the only way to know. If this were
+ *   a second copy of the formula the answer would be worthless, so there is exactly one.
+ *
+ * ⚠ Absolute COLUMNS, relative ROW ($A4, not A4 or $A$4). A rule with two ranges anchors
+ *   relative references at the first range's top-left, then offsets per range; with the
+ *   column pinned, only the row moves, which is what makes A and D behave identically.
+ *
+ * @param {number} anchorRow
+ * @returns {{gone: string, unknown: string, duplicated: string, established: string}}
+ */
+function _identityFormulas(anchorRow) {
+  var a = '$A' + anchorRow;   // SKU
+  var d = '$D' + anchorRow;   // SALES ORDER
+  var f = '$F' + anchorRow;   // STATUS
+
+  // ⚠ THE STATUS LIST IS THE HEADER GUARD, and it earns its keep twice. The DIRECT header
+  //   row carries the literal "STATUS" in col F and the boundary divider's F is blank, so
+  //   both fall out for free — the same trick _buildStatusRules uses. It also means a row
+  //   being typed right now (no status yet) is never judged.
+  var established = 'OR(' + Schema.validStatuses.map(function (s) {
+    return 'UPPER(TRIM(' + f + '))="' + s + '"';
+  }).join(',') + ')';
+
+  var bothPresent = a + '<>"", ' + d + '<>""';
+
+  var listRef = 'INDIRECT("\'' + IDENTITY_GUARD.sheetName + '\'!$A$1:$A$' +
+                IDENTITY_GUARD.listMax + '")';
+
+  var pairCount =
+    'COUNTIFS($A$' + Schema.dataStartRow + ':$A,' + a +
+    ',$D$' + Schema.dataStartRow + ':$D,' + d + ')';
+  var deltaCount =
+    'COUNTIFS($A$' + Schema.dataStartRow + ':$A,' + a +
+    ',$D$' + Schema.dataStartRow + ':$D,' + d +
+    ',$E$' + Schema.dataStartRow + ':$E,"*' + IDENTITY_GUARD.deltaNoteToken + '*")';
+
+  return {
+    established: '=' + established,
+
+    /* GONE — half an identity on a live row. The v2 guard returned "skip" here and was
+       therefore blind to the likeliest slip of all: hitting Delete on the wrong cell. */
+    gone: '=AND(' + established + ', OR(' + a + '="", ' + d + '=""))',
+
+    /* UNKNOWN — a dumb lookup in the published list, no verdict logic of its own.
+       ⚠ IFERROR-wrapped so a missing __Identity sheet FAILS SILENT rather than screaming:
+         the MATCH errors, the rule reads FALSE, nothing flags. Same ruling as "an
+         unreadable fingerprint means SKIP, not PUBLISH". */
+    unknown: '=AND(' + established + ', ' + bothPresent + ', ' +
+             'IFERROR(ISNUMBER(MATCH(LOWER(TRIM(' + d + '))&"|"&LOWER(TRIM(' + a + ')), ' +
+             listRef + ', 0)), FALSE))',
+
+    /* DUPLICATED — the copied-row case, which GONE and UNKNOWN are both blind to because
+       the pair is complete AND was genuinely received, on the source row.
+       ⭐ The one legitimate twin identifies itself: Zoho Pull's insert_delta writes a note
+         that exists precisely to tell a delta row from a duplicate, so subtracting the
+         delta-noted rows means a delta pair reads 2-1=1 and stays quiet.
+       ⚠ Open-ended $A$4:$A, never a bounded absolute range — n8n inserts at the top all
+         day and a fixed end drifts. */
+    duplicated: '=AND(' + established + ', ' + bothPresent + ', ' +
+                pairCount + '-' + deltaCount + '>1)'
+  };
+}
+
+
+/**
+ * ⚠ IDENTITY — the sheet's half of the 2026-08-28 fix, and the third attempt at it.
+ *
+ * ⭐⭐ WHY THESE ARE CF RULES AND NOT A SCRIPT PAINTING CELLS. Five rounds on 2026-08-29
+ * painted a static background on the offending row, and every single failure came from
+ * that one write: the paint could not be told from the #fff8e7 banding; clearing it needed
+ * a SECOND write, so it depended on a trigger that Ctrl+Z does not reliably queue; and a
+ * stale mark had no way to retire itself.
+ *
+ * Conditional formatting is a DISPLAY LAYER. Sheets recomputes it live and stores NOTHING
+ * on the row, so fixing the cell removes the red in the same keystroke.
+ *
+ * ⚠⚠ TWO OTHER FUNCTIONS STRIP CF RULES AND BOTH DELETED THESE ON EVERY EDIT until
+ * 2026-08-30 — removeLegacySalesOrderCFRules and removeDuplicateHighlightRules, each asking
+ * "does ANY range touch MY column?" while these span A AND D. Before changing anything
+ * here, grep setConditionalFormatRules across the whole project. Sixteen files write CF.
+ *
+ * @param {Sheet} sheet
+ * @returns {Array} three rules
+ */
+function _buildIdentityRules(sheet) {
+  var rows = BRAND.dataLast - Schema.bannerRows;
+  var ranges = [
+    sheet.getRange(Schema.dataStartRow, Schema.cols.SKU, rows, 1),
+    sheet.getRange(Schema.dataStartRow, Schema.cols.SALES_ORDER, rows, 1)
+  ];
+  var F = _identityFormulas(Schema.dataStartRow);
+
+  function rule(formula) {
+    return SpreadsheetApp.newConditionalFormatRule()
+      .whenFormulaSatisfied(formula)
+      // The deep red the escalated-hold rule already owns — "act now", and unmistakable
+      // against the cream banding that made the 08-29 amber invisible.
+      .setBackground('#b71c1c').setFontColor('#ffffff').setBold(true)
+      .setRanges(ranges).build();
+  }
+
+  return [rule(F.gone), rule(F.unknown), rule(F.duplicated)];
+}
+
+
+/**
+ * Install the three identity rules on their own, without re-running the whole theme.
+ * Mirrors setupHoldHighlighting — same idempotent strip-then-add shape.
+ */
+function setupIdentityHighlighting() {
+  var sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(MAIN_SHEET_NAME);
+  if (!sheet) return "❌ No " + MAIN_SHEET_NAME + " sheet.";
+
+  var rules = _stripIdentityRules(sheet.getConditionalFormatRules());
+  rules = _buildIdentityRules(sheet).concat(rules);
+  sheet.setConditionalFormatRules(rules);
+
+  return "✅ Identity highlighting applied — the SKU and SALES ORDER cells turn red when " +
+         "a row is missing half its identity, carries a pair that was never received, or " +
+         "duplicates another row. Fix the cell and the red clears itself instantly.";
+}
+
+/**
+ * Strip just the three identity rules, preserving every other rule on the sheet.
+ * ⚠ Identified by RANGE SIGNATURE — exactly two single-column ranges, on SKU and on
+ *   SALES ORDER. Nothing else in this codebase spans that pair, and unlike a formula
+ *   substring it cannot be broken by rewording the rule.
+ */
+function _stripIdentityRules(rules) {
+  return rules.filter(function (rule) {
+    var ranges = rule.getRanges();
+    if (!ranges || ranges.length !== 2) return true;
+    var cols = ranges.map(function (r) {
+      return (r.getNumColumns() === 1) ? r.getColumn() : -1;
+    }).sort(function (x, y) { return x - y; });
+    var isIdentity = (cols[0] === Schema.cols.SKU && cols[1] === Schema.cols.SALES_ORDER);
+    return !isIdentity;
+  });
+}
 
 function _stripBuyerNoteRule(rules) {
   // Strip just the buyer-note rule from a rules array (preserves all others).

@@ -3815,6 +3815,15 @@ body.dark-theme .footer-version { border-color: #2c2c2c; }
           <span class="alert-label">⏸ Held — not acknowledged</span>
           <span class="alert-arrow">›</span>
         </div>
+        <!-- ⚠ IDENTITY sits with the holds, not with the backlogs. A row whose SKU or
+             SALES ORDER is wrong is actively lying about what it is, and n8n will
+             re-insert the line it can no longer dedupe. Everything below this point
+             will still be true in an hour; this will have caused a second row. -->
+        <div class="alert-row empty" id="alertIdentityIssues" onclick="jumpToAlert('identityIssues')">
+          <span class="alert-count" id="alertCountIdentityIssues">0</span>
+          <span class="alert-label">⚠ Row identity broken</span>
+          <span class="alert-arrow">›</span>
+        </div>
         <div class="alert-row empty" id="alertIntl" onclick="jumpToAlert('intl')">
           <span class="alert-count" id="alertCountIntl">0</span>
           <span class="alert-label">International</span>
@@ -5855,9 +5864,10 @@ function _flashCard(dataId) {
 // ALERTS — actionable counts (paid shipping, intl, low stock, not found, queue)
 // ═══════════════════════════════════════════════════════════════════════════════
 
-var ALERT_KEYS = ['HeldOrders', 'PaidShipping', 'Intl', 'LowStock', 'NotFound', 'OutOfStock', 'NeedPhotos', 'QueueSize', 'NewFromZoho', 'PriceDrift', 'KitPriceDrift', 'OpenCases'];
+var ALERT_KEYS = ['HeldOrders', 'IdentityIssues', 'PaidShipping', 'Intl', 'LowStock', 'NotFound', 'OutOfStock', 'NeedPhotos', 'QueueSize', 'NewFromZoho', 'PriceDrift', 'KitPriceDrift', 'OpenCases'];
 var ALERT_KEY_MAP = {
   HeldOrders:   'heldOrders',
+  IdentityIssues:'identityIssues',
   PaidShipping: 'paidShipping',
   Intl:         'intl',
   LowStock:     'lowStock',
@@ -5950,7 +5960,7 @@ function _paintAlerts(alerts, full) {
   // so excluding them avoids a redundant cue layered on the same data.
   // ⏸ heldOrders leads: it is the only entry here that reaches a CUSTOMER and
   // is still undoable at the moment it is read.
-  var heroKeys = ['heldOrders', 'paidShipping', 'intl', 'lowStock', 'notFound', 'outOfStock'];
+  var heroKeys = ['heldOrders', 'identityIssues', 'paidShipping', 'intl', 'lowStock', 'notFound', 'outOfStock'];
   var heroAlert = heroKeys.some(function(k) {
     return alerts[k] && parseInt(alerts[k].count, 10) > 0;
   });

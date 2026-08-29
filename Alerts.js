@@ -60,7 +60,8 @@
  * Returns { paidShipping: [rowNumbers], intl: [...], lowStock: [...], notFound: [...] }
  */
 function _scanAlerts() {
-  var out = { paidShipping: [], intl: [], lowStock: [], notFound: [], heldOrders: [] };
+  var out = { paidShipping: [], intl: [], lowStock: [], notFound: [], heldOrders: [],
+              identityIssues: [] };
 
   var ss = SpreadsheetApp.getActive() || SpreadsheetApp.openById(SPREADSHEET_ID);
   var sheet = ss.getSheetByName(MAIN_SHEET_NAME);
@@ -142,6 +143,22 @@ function _scanAlerts() {
     }
   }
 
+  // ⚠ IDENTITY — rides the read above, so it costs one small extra read (the published
+  // mismatch list) and nothing else.
+  //
+  // ⭐ IT IS RECOMPUTED, NEVER A STORED COUNT. The badge reads the same two inputs the
+  // conditional-formatting rules read — the sheet, and the list — so the number and the
+  // red cells can never disagree. A snapshot parked in a Script Property would have gone
+  // stale the moment somebody fixed a row, which is the exact complaint this whole
+  // feature exists to answer.
+  try {
+    if (typeof _igIssueRows === "function") {
+      out.identityIssues = _igIssueRows(data, boundary, _igReadMismatchList(ss));
+    }
+  } catch (e) {
+    console.log("_scanAlerts identity: " + e);   // degrade to zero, never break the payload
+  }
+
   return out;
 }
 
@@ -197,7 +214,11 @@ function getActionableAlerts() {
       needPhotos:   { count: _safePhotoCount(),          rows: [] },
       // ⏸ UNACKNOWLEDGED HOLDS. Rows come free from the scan above, so clicking
       // the row jumps to and selects exactly the cells that need answering.
-      heldOrders:   { count: alerts.heldOrders.length,    rows: alerts.heldOrders }
+      heldOrders:   { count: alerts.heldOrders.length,    rows: alerts.heldOrders },
+      // ⚠ A row whose identity is broken: missing half of it, carrying a pair that was
+      // never received, or duplicating another row. Rows come free from the scan, so
+      // clicking selects exactly the cells that are wrong.
+      identityIssues:{count: alerts.identityIssues.length, rows: alerts.identityIssues }
     };
   } catch (e) {
     console.error("getActionableAlerts error: " + e);
@@ -213,7 +234,8 @@ function getActionableAlerts() {
       kitPriceDrift:{ count: 0, rows: [] },
       openCases:    { count: 0, rows: [] },
       needPhotos:   { count: 0, rows: [] },
-      heldOrders:   { count: 0, rows: [] }
+      heldOrders:   { count: 0, rows: [] },
+      identityIssues:{count: 0, rows: [] }
     };
   }
 }
