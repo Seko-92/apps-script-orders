@@ -89,11 +89,16 @@ var BRAND = {
  */
 var MASTHEAD = {
   baseUrl:      "https://hq.yassinqurabi.com/mast/",
-  version:      "v1",
+  version:      "v2",  // v2 = the hour-lit set (6 states x 24 Houston hours)
   ext:          "png",  // ⚠ NOT gif — Sheets shows only a GIF's first frame (see above)
   imgH:         44,    // px — mode-4 explicit sizing, so nothing letterboxes
   imgW:         280,   // px — fits A1:C1 (287px) with breathing room
   restAccent:   "#7e8894",  // the cool tone the rest face wears — shared with its curve
+  // ⭐ THE FACE KEEPS THE HOUR. It cannot MOVE (a floating image scrolls off the frozen
+  //    banner; =IMAGE() shows a GIF's first frame only) — but it can be LIT. Light is the
+  //    one thing that reads correctly at ~1 frame per minute, because a day changes
+  //    slowly anyway. Cold before dawn, amber as the floor opens, clean at noon, an ember
+  //    horizon at 5pm, quiet by midnight. The Floor Board's night dial, on the sheet.
   rowHeight:    52,    // 42 is too cramped for two lines — proven in the render
   lateMinutes:  180,   // matches the Floor Board's own 3h redline
   staleMinutes: 60     // matches the System Pulse's STALE tier
@@ -2487,8 +2492,8 @@ function _setSystemPulseBannerFormulas(sheet) {
   // ⚠ IFERROR is not optional. If the endpoint dies at 3am the header degrades to the
   //   text "HQ" chip — never a broken-image icon, never a dead header.
   sheet.getRange(Schema.cellMasthead).setFormula(
-    '=IFERROR(IMAGE("' + MASTHEAD.baseUrl + '"&' + SD + 'A6&"-' + MASTHEAD.version +
-    '.' + MASTHEAD.ext + '",4,' + MASTHEAD.imgH + ',' + MASTHEAD.imgW + '),"HQ")'
+    '=IFERROR(IMAGE("' + MASTHEAD.baseUrl + '"&' + SD + 'A6&"-h"&TEXT(HOUR(NOW()),"00")&"-' +
+    MASTHEAD.version + '.' + MASTHEAD.ext + '",4,' + MASTHEAD.imgH + ',' + MASTHEAD.imgW + '),"HQ")'
   );
 
   // ---- D1 — THE HEADLINE -------------------------------------------------------------
