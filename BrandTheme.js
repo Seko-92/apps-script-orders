@@ -51,6 +51,13 @@ var BRAND = {
  *
  * Faces are drawn by design-lab/shoot-masthead.js and scp'd to /opt/hq-app/mast/.
  *
+ * ⚠⚠ SETTLED 2026-08-30 BY TEST, NOT ASSERTION: GOOGLE SHEETS DOES NOT ANIMATE GIFs IN
+ *    =IMAGE(). It renders the first frame as a still. So the ceiling is ~1 frame per
+ *    MINUTE (formula recalc) and there is no motion to be had in a cell — which is
+ *    exactly why this project's standing ruling puts smooth motion on the Floor Board.
+ *    The faces are therefore PNG stills, picked live by formula. That is still the whole
+ *    feature: the masthead changes with the floor, it just does not move while it waits.
+ *
  * ⚠ VERSION THE FILENAME. Sheets caches images per-URL, so re-drawing the art at the
  *   same path can leave the old frame showing indefinitely. Bump `version` instead.
  *
@@ -66,6 +73,7 @@ var BRAND = {
 var MASTHEAD = {
   baseUrl:      "https://hq.yassinqurabi.com/mast/",
   version:      "v1",
+  ext:          "png",  // ⚠ NOT gif — Sheets shows only a GIF's first frame (see above)
   imgH:         44,    // px — mode-4 explicit sizing, so nothing letterboxes
   imgW:         280,   // px — fits A1:C1 (287px) with breathing room
   rowHeight:    52,    // 42 is too cramped for two lines — proven in the render
@@ -2413,7 +2421,7 @@ function _setSystemPulseBannerFormulas(sheet) {
   //   text "HQ" chip — never a broken-image icon, never a dead header.
   sheet.getRange(Schema.cellMasthead).setFormula(
     '=IFERROR(IMAGE("' + MASTHEAD.baseUrl + '"&' + SD + 'A6&"-' + MASTHEAD.version +
-    '.gif",4,' + MASTHEAD.imgH + ',' + MASTHEAD.imgW + '),"HQ")'
+    '.' + MASTHEAD.ext + '",4,' + MASTHEAD.imgH + ',' + MASTHEAD.imgW + '),"HQ")'
   );
 
   // ---- D1 — THE HEADLINE -------------------------------------------------------------
