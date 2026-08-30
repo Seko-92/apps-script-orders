@@ -2327,8 +2327,13 @@ function _findBoundaryInSheet(sheet) {
  * headline so the two can never render the same age differently.
  */
 function _fmtMinsExpr(ref) {
-  return 'IF(' + ref + '<60,ROUND(' + ref + ')&"m",' +
-         'INT(' + ref + '/60)&"h "&ROUND(MOD(' + ref + ',60))&"m")';
+  // ⚠ ROUND THE TOTAL FIRST, THEN DECOMPOSE. Rounding the remainder independently
+  //    produces "5h 60m" (INT(359.6/60)=5, ROUND(MOD(359.6,60))=60) — seen live on the
+  //    banner within minutes of install. Rounding first also promotes 59.6 to "1h 0m"
+  //    rather than a bare "60m".
+  var r = 'ROUND(' + ref + ')';
+  return 'IF(' + r + '<60,' + r + '&"m",' +
+         'INT(' + r + '/60)&"h "&MOD(' + r + ',60)&"m")';
 }
 
 function _ensureSparkData(ss) {
@@ -2468,9 +2473,15 @@ function _setSystemPulseBannerFormulas(sheet) {
   );
 
   // ---- E1 — THE PULSE (cell deliberately UNMOVED) ------------------------------------
+  // ⚠ THE PULSE MUST AGREE WITH THE FACE. Shipped 2026-08-30 saying "🔴 STALE" while the
+  //    face beside it said CLOSED — the banner contradicting itself in the same row.
+  //    Both now read the SAME A13, so off-hours is answered once and rendered twice.
+  //    ⚪ joins the 🟢🟡🔴 traffic light as the "not applicable" tier; it still carries
+  //    its own colour, which is the whole reason these are emoji and not glyphs.
   sheet.getRange(Schema.cellSyncTime).setFormula(
     '=IF(' + SD + 'A4<0,"⏱ OFFLINE · no activity logged",' +
-    '"⏱ "&IF(' + SD + 'A4<15,"🟢 ALIVE",IF(' + SD + 'A4<60,"🟡 IDLE","🔴 STALE"))&' +
+    '"⏱ "&IF(' + SD + 'A13,"⚪ RESTING",' +
+    'IF(' + SD + 'A4<15,"🟢 ALIVE",IF(' + SD + 'A4<60,"🟡 IDLE","🔴 STALE")))&' +
     '" · "&TEXT(' + SD + 'A3,"h:mm AM/PM")&" · "&' + SD + 'A12&" ago")'
   );
 
