@@ -227,6 +227,15 @@ function _writeZohoStockRows(items) {
  * Returns { ok, message, handMessage, prepMessage } for the sidebar.
  */
 function recomputeHandFromZohoStock() {
+  // ⚠ WRITES A PROTECTED SHEET — writes the HAND column. google.script.run runs as the INVOKING
+  //   USER, so under the All Orders lock a staff call is refused. Come back in
+  //   through /exec, where doPost executes as the OWNER. See OwnerBridge.js.
+  //
+  // ⚠ Guarded HERE, at the sidebar entry point, and NOT on the shared
+  //   implementation beneath it — that one is also reached from doPost and from
+  //   triggers, which already run as the owner.
+  if (!_obIsOwner()) return _asOwner('recomputeHandFromZohoStock', []);
+
   var handMsg = "", prepMsg = "";
   // Same one-read-for-both as the scheduled path — see the note in doPost's
   // writeZohoStock branch.

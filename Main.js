@@ -31,15 +31,43 @@ function onOpen() {
     .addItem('Open Floor Board', 'openFloorBoard')
     .addToUi();
   
-  // 3. Run your existing background logic
-  updateOrderStatsInSheet();
-  toggleLiveUpdate('ON');  // Auto-enable live sync
-  setupHandConditionalFormatting();  // Ensure HAND highlight rule is active
-  // SKU duplicate highlighting: manual only (use sidebar button to avoid visual clutter)
-  setupDuplicateSalesOrderHighlighting(); // Ensure duplicate Sales Order highlight rules are active
+  // ⭐⭐ 3. THE SIDEBAR OPENS BEFORE ANY BACKGROUND WORK, AND THAT ORDER IS THE FIX.
+  //
+  // ⚠⚠ 2026-08-30: with All Orders locked, an EMPLOYEE opening the sheet got no sidebar at
+  //   all. onOpen runs as the USER who opened the file, step 4 below writes borders and
+  //   number formats to the protected sheet, that throw killed the rest of the function —
+  //   and showSidebar() used to sit after it. One refused cosmetic refresh took away the
+  //   whole control panel.
+  //
+  //   Same shape as the 2026-05-01 bug where an unprotected handler in onEditInstallable
+  //   killed every handler after it. The ruling that came out of that applies here too:
+  //   NOTHING A USER DEPENDS ON MAY SIT DOWNSTREAM OF SOMETHING THAT CAN FAIL.
+  try {
+    showSidebar();
+  } catch (err) {
+    console.log("onOpen.showSidebar: " + err);
+  }
 
-  // 4. AUTO-LOAD the Control Panel on startup
-  showSidebar(); 
+  // 4. Background maintenance — every step isolated, and none of it load-bearing.
+  //
+  // ⚠ OWNER ONLY, deliberately. These WRITE to All Orders, which is protected, so for an
+  //   employee they would either throw or take a pointless /exec round trip on every single
+  //   sheet open. They are only keep-fresh passes: doPost re-runs the duplicate painter on
+  //   every insert (OrderService.js), and the HAND rule is idempotent. Skipping them for
+  //   staff costs nothing and removes a whole class of open-the-sheet failure.
+  var maintainer = true;
+  try { maintainer = (typeof _obIsOwner !== "function") || _obIsOwner(); } catch (e) {}
+
+  try { updateOrderStatsInSheet(); } catch (err) { console.log("onOpen.stats: " + err); }
+  try { toggleLiveUpdate('ON'); }   catch (err) { console.log("onOpen.liveSync: " + err); }
+
+  if (maintainer) {
+    try { setupHandConditionalFormatting(); }
+    catch (err) { console.log("onOpen.handCF: " + err); }
+    // SKU duplicate highlighting: manual only (use sidebar button to avoid visual clutter)
+    try { setupDuplicateSalesOrderHighlighting(); }
+    catch (err) { console.log("onOpen.dupSO: " + err); }
+  }
 }
 
 /**

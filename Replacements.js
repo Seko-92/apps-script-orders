@@ -646,6 +646,15 @@ function previewReplacementFromSidebar(kind, originalOrder, sku, qty, note) {
  * Sidebar commit.
  */
 function addReplacementFromSidebar(kind, originalOrder, sku, qty, note) {
+  // ⚠ WRITES A PROTECTED SHEET — inserts rows and writes SALES ORDER. google.script.run runs as the INVOKING
+  //   USER, so under the All Orders lock a staff call is refused. Come back in
+  //   through /exec, where doPost executes as the OWNER. See OwnerBridge.js.
+  //
+  // ⚠ Guarded HERE, at the sidebar entry point, and NOT on the shared
+  //   implementation beneath it — that one is also reached from doPost and from
+  //   triggers, which already run as the owner.
+  if (!_obIsOwner()) return _asOwner('addReplacementFromSidebar', [kind, originalOrder, sku, qty, note]);
+
   try {
     return addReplacementLine(kind, originalOrder, sku, qty, note, "sidebar");
   } catch (e) {

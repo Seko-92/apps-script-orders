@@ -72,7 +72,8 @@ var OWNER_BRIDGE = {
     "highlightAllDuplicates", "clearAllDuplicateHighlights",
     "setupHandConditionalFormatting",
     "commitKitFromModal", "applyZohoPullSelection",
-    "markPreparingByValues"
+    "markPreparingByValues",
+    "addReplacementFromSidebar", "recomputeHandFromZohoStock"
   ],
 
   ownerEmailKey: "OWNER_EMAIL",   // Secrets.js constant; Script Property overrides it
@@ -198,7 +199,9 @@ function _obRunAsOwner(fnName, args) {
     setupHandConditionalFormatting:function () { return setupHandConditionalFormatting(); },
     commitKitFromModal:            function () { return commitKitFromModal(a[0], a[1], a[2], a[3], a[4]); },
     applyZohoPullSelection:        function () { return applyZohoPullSelection(a[0], a[1], a[2]); },
-    markPreparingByValues:         function () { return markPreparingByValues(a[0]); }
+    markPreparingByValues:         function () { return markPreparingByValues(a[0]); },
+    addReplacementFromSidebar:     function () { return addReplacementFromSidebar(a[0], a[1], a[2], a[3], a[4]); },
+    recomputeHandFromZohoStock:    function () { return recomputeHandFromZohoStock(); }
   };
 
   var fn = map[fnName];
@@ -259,6 +262,28 @@ function diagnoseOwnerBridge() {
   var out = L.join("\n");
   console.log(out);
   return out;
+}
+
+
+/**
+ * Refuse an OWNER-ONLY action for anybody else, in words rather than a stack trace.
+ *
+ * ⚠⚠ THE LOCK CONTROLS MUST NEVER BE ALLOWLISTED IN OWNER_BRIDGE.actionNames. The bridge
+ *   exists so staff WRITES run as the owner — pointing it at unprotectAllOrdersSheet would
+ *   let any staff member remove the protection, which makes the lock self-defeating. The
+ *   allowlist holds the 16 sheet writers and nothing else; keep it that way.
+ *
+ * ⚠ And a sidebar button must not merely fail. A sheet editor CAN create a protection, so
+ *   staff clicking "Lock" would quietly make one they own — a worse state than refusing.
+ *
+ * @returns {string|null} a refusal to return to the caller, or null to proceed
+ */
+function _obRequireOwner(what) {
+  if (_obIsOwner()) return null;
+  return "🔒 " + what + " is owner-only.\n\n" +
+         "This control changes who may edit the sheet, so it deliberately does NOT go " +
+         "through the owner bridge — otherwise anyone could switch the protection off. " +
+         "Ask Yassin to run it.";
 }
 
 
@@ -334,6 +359,9 @@ function verifyOwnerBridge() {
  * Rollback at any point: unprotectAllOrdersSheet().
  */
 function installAllOrdersLock() {
+  var denied = _obRequireOwner("Locking All Orders");
+  if (denied) { console.log(denied); return denied; }
+
   var L = ["══ INSTALL THE ALL ORDERS LOCK ══", ""];
 
   // ── gate 1 · the bridge must actually work ──────────────────────────────────────────
@@ -395,18 +423,26 @@ function installAllOrdersLock() {
  * ⚠ EDIT THE VALUE BELOW FIRST. Use the account email from n8n's Google Sheets credential,
  *   or the literal "none" if you have confirmed nothing outside Apps Script writes to All
  *   Orders. Getting this wrong stops the ~1 AM shipped-row sweep, silently.
+ *
+ * ⚠⚠ THIS IS THE ONLY DEFINITION. A second one lived in BrandTheme.js until 2026-08-30 —
+ *   Apps Script concatenates root files into ONE global scope in an unspecified order, so
+ *   which body ran was undefined, and someone editing VALUE in one copy could have had the
+ *   other execute. Run the duplicate scan before adding any top-level name:
+ *   design-lab/test-global-collisions.js
  */
 function setN8nSheetsAccountNow() {
   var VALUE = "";   // ← put the n8n Sheets account email here, or "none"
 
   if (!VALUE) {
     var msg = "❌ Edit VALUE inside setN8nSheetsAccountNow() first — the n8n Sheets " +
-              "account email, or the literal 'none'.";
+              "account email, or the literal '" + ALL_ORDERS_LOCK.noneSentinel + "'.";
     console.log(msg); return msg;
   }
-  PropertiesService.getScriptProperties()
-    .setProperty(ALL_ORDERS_LOCK.n8nAccountKey, String(VALUE).trim());
-  var out = "✅ " + ALL_ORDERS_LOCK.n8nAccountKey + " = " + VALUE +
-            "\n   Now run installAllOrdersLock().";
+
+  // ⚠ Delegates to the ONE writer in BrandTheme.js rather than setting the property here,
+  //   so the validation that protects the nightly sweep cannot drift between two entry
+  //   points — which is exactly how the duplicate above went unnoticed.
+  var out = setN8nSheetsAccount(VALUE);
+  if (out.indexOf("✅") === 0) out += "\n   Now run installAllOrdersLock().";
   console.log(out); return out;
 }

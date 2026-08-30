@@ -1844,19 +1844,23 @@ body.dark-theme .ol-event-sku { background: rgba(255, 217, 102, 0.08); color: #f
 /* ── MISSING / REPLACEMENT LINE ─────────────────────────────────────────── */
 .ml-seg { display: flex; gap: 6px; margin-bottom: 8px; }
 .ml-seg button {
+  /* ⚠ margin-top:0 is LOAD-BEARING. The generic `button` rule sets margin-top:5px and only
+     `button:first-child` escapes it, so in a flex row the SECOND segment was pushed down 5px
+     and — under the default align-items:stretch — rendered 5px shorter. Measured 32 vs 27. */
+  margin-top: 0;
   flex: 1 1 0; padding: 7px 6px; border-radius: 6px; cursor: pointer;
-  background: rgba(0,0,0,0.04); color: var(--text-dim);
+  background: rgba(0,0,0,0.04); color: var(--text-secondary);
   border: 1px solid rgba(0,0,0,0.12);
   font-family: 'Oswald', sans-serif; font-size: var(--fs-xs);
   letter-spacing: 0.08em; text-transform: uppercase;
 }
-.ml-seg button.on { background: var(--brand-yellow); color: #1d1d1b; border-color: var(--brand-yellow); }
+.ml-seg button.on { background: var(--hq-yellow); color: #1d1d1b; border-color: var(--hq-yellow); }
 .ml-in {
   width: 100%; box-sizing: border-box; margin-bottom: 6px;
   padding: 8px 9px; border-radius: 6px; border: 1px solid rgba(0,0,0,0.15);
   font-family: 'Roboto Mono', monospace; font-size: var(--fs-sm); outline: none;
 }
-.ml-in:focus { border-color: var(--brand-yellow); }
+.ml-in:focus { border-color: var(--hq-yellow); }
 .ml-row { display: flex; gap: 6px; }
 .ml-row .ml-in { flex: 1 1 auto; }
 .ml-row .ml-qty { flex: 0 0 66px; text-align: center; }
@@ -1868,7 +1872,7 @@ body.dark-theme .ol-event-sku { background: rgba(255, 217, 102, 0.08); color: #f
 .ml-result.shown { display: block; }
 .ml-result.err  { background: rgba(255,107,107,0.12); color: #a32020; }
 .ml-result.ok   { background: rgba(76,175,80,0.12);   color: #1b5e20; }
-.ml-result.info { background: rgba(0,0,0,0.05);       color: var(--text-dim); }
+.ml-result.info { background: rgba(0,0,0,0.05);       color: var(--text-secondary); }
 .ml-result b { font-family: 'Roboto Mono', monospace; }
 .zp-search {
   display: flex;
@@ -1877,8 +1881,12 @@ body.dark-theme .ol-event-sku { background: rgba(255, 217, 102, 0.08); color: #f
   flex-wrap: wrap;
 }
 .zp-search input {
-  flex: 1 1 110px;
-  min-width: 110px;
+  /* ⚠ A FULL LINE ON PURPOSE. At 310px the input's 110px minimum plus both buttons overflow,
+     so the row wrapped and left PULL orphaned on its own line at half width, beneath a
+     truncated input. Giving the input the line and letting the two buttons share the next
+     one is the same shape the missing/replacement card already uses. */
+  flex: 1 1 100%;
+  min-width: 0;
   padding: 7px 9px;
   border: 1px solid var(--border);
   border-radius: 4px;
@@ -1896,7 +1904,8 @@ body.dark-theme .ol-event-sku { background: rgba(255, 217, 102, 0.08); color: #f
 .zp-search .zp-preview-btn,
 .zp-search .zp-pull-btn {
   width: auto;
-  flex: 0 0 auto;
+  flex: 1 1 0;
+  margin-top: 0 !important;   /* .btn-secondary's !important would offset Preview by 5px */
   padding: 7px 10px;
   font-family: 'Oswald', sans-serif;
   font-weight: 700;
@@ -2425,6 +2434,20 @@ body.dark-theme .card-inline-btn { background: var(--bg-secondary); border-color
   transition: max-height 0.4s ease, opacity 0.3s ease, padding 0.3s ease;
   overflow: hidden;
 }
+/* ⚠⚠ THE 800px CAP ABOVE IS A CAP, AND `overflow:hidden` MAKES EXCEEDING IT SILENT.
+   Sheet Protection carries THREE concerns — warning-only structure protection, the
+   All Orders lock, and the identity rules — and crossed the cap the moment the lock
+   controls shipped (2026-08-30): measured 885px against 799px visible, so the bottom
+   86px, the identity buttons, were unreachable. Nothing said so. The elements were in
+   the DOM, so every markup assertion passed; only a RENDER showed it.
+
+   ⚠ Scoped, NOT a global raise. `max-height` is animated, so a bigger global cap makes
+   every OTHER card's collapse appear to stall while the invisible box shrinks to meet
+   its content. One card's problem stays one card's override.
+
+   ⚠ It is a number, so it can rot. check-sidebar asserts NO expanded card body is
+   clipped — that assertion is what makes this safe to leave, not the number. */
+.card[data-id="sheet-protect"] .card-body { max-height: 1400px; }
 
 .card.collapsed .card-body {
   max-height: 0;
@@ -2718,7 +2741,12 @@ body.dark-theme .btn-info:hover { color: var(--hq-gold); background: rgba(255, 2
 }
 
 .btn-group { display: flex; gap: 5px; margin-top: 6px; }
-.btn-group button { margin-top: 0; flex: 1; }
+/* ⚠⚠ !important HERE ONLY BECAUSE .btn-secondary ALREADY USES IT (margin-top:5px
+   !important, ~30 lines up). Without matching it, any .btn-group mixing a secondary with a
+   primary/info/danger renders 5px out of line and 5px shorter — measured on the
+   missing/replacement card, 30px against 35px. Groups whose buttons share one class looked
+   fine only because they were wrong together. */
+.btn-group button { margin-top: 0 !important; flex: 1; }
 .btn-group:first-child { margin-top: 0; }
 
 /* RANGE CONTROL */
@@ -4173,52 +4201,118 @@ body.dark-theme .footer-version { border-color: #2c2c2c; }
        answered its question is only a card taking up room. Git has it. -->
 
   <div class="card collapsed" data-id="sheet-protect" draggable="true">
-    <div class="card-header" onclick="toggleCollapse(this)">
+    <div class="card-header" onclick="toggleCollapse(this); lockPanelLoad()">
       <div class="drag-handle" title="Drag to reorder">☰</div>
       <div class="card-title"><div class="card-icon">🛡️</div><h3>Sheet Protection</h3></div>
       <div class="card-toggle">▼</div>
     </div>
     <div class="card-body">
-      <button class="btn-primary" onclick="run('protectSheetStructure')">Protect Headers</button>
-      <button class="btn-info" onclick="run('setupEbayLogo')">Restore eBay Logo</button>
-      <button class="btn-danger" onclick="run('unprotectSheetStructure')">Remove Protection</button>
-      <p style="font-size:11px;color:#888;margin-top:8px;">Adds <em>warning-only</em> protection on rows 1–3 (banner + eBay headers) and the DIRECT divider + DIRECT headers. Edits still possible after a confirm click. Re-run to refresh after the boundary moves.</p>
 
-      <!-- ── THE ALL-ORDERS LOCK (2026-08-29). A different thing from the buttons
-           above: those WARN, this one BLOCKS. Same card because it is the same
-           family of concern, visually separated because confusing "a dialog you
-           click through" with "the cell refuses" is exactly the misunderstanding
-           worth preventing. -->
-      <!-- ── ROW IDENTITY (2026-08-29) ─────────────────────────────────────────
-           ⚠⚠ THERE IS DELIBERATELY NO "LOCK" BUTTON HERE. Hard protection was
-           built, installed and then removed: google.script.run runs as the
-           INVOKING USER, so locking the sheet blocks every staff sidebar action
-           that writes All Orders — kit expansion, Zoho pull, sort, the lot.
-           Sheets protection checks WHO, never WHERE FROM, and the only way round
-           it is a Web App round trip (rejected: latency across seven workflows).
-           protectAllOrdersSheet() still exists in BrandTheme.js for reference and
-           is reachable from the editor, but it must NOT be a one-click button
-           next to buttons the floor uses. -->
-      <div style="margin-top:12px;padding-top:10px;border-top:1px solid rgba(0,0,0,0.1);">
-        <button class="btn-primary" onclick="run('warnOnIdentityEdits')">🛡 Warn on identity edits</button>
-        <button class="btn-secondary" onclick="run('checkIdentityNow')">👁 Check identity now</button>
-        <button class="btn-info" onclick="run('diagnoseIdentityFlags')">Explain the flags</button>
-        <button class="btn-info" onclick="run('clearIdentityFlags')">Clear identity flags</button>
-        <button class="btn-danger" onclick="run('unwarnIdentityEdits')">↺ Remove warning</button>
-        <p style="font-size:11px;color:#888;margin-top:8px;">
-          A <em>confirm</em> dialog on <strong>SKU</strong>, <strong>QTY</strong> and
-          <strong>SALES&nbsp;ORDER</strong> before a hand edit. <strong>Whole columns</strong>, so
-          rows added or deleted later are covered automatically. Script writes — the sidebar,
-          n8n, Telegram — pass straight through, because there is no human to warn.
-          <br><br>
-          Alongside it, every live row is checked against the <strong>Activity Log</strong>:
-          an order&nbsp;+&nbsp;SKU pair that was never received is <strong>messaged to you
-          once</strong>. It is <strong>read-only</strong> — it never marks, paints or changes
-          anything on the sheet, so there is nothing to clear and nothing to go stale.
-          <em>Clear identity flags</em> is a one-time cleanup for marks left by earlier
-          versions.
-        </p>
+      <!-- ══ THE ALL-ORDERS LOCK — LEADS THE CARD, because it is the live concern ══
+           This card carries three different things: a lock that BLOCKS, identity checks
+           that WARN, and warning-only structure protection. They used to sit in that
+           order — oldest first — which put the thing being actively installed at the
+           bottom of 1135px of card. The two older groups are disclosures now.
+
+           ⚠⚠ THE 2026-08-29 RULING SAID THERE MUST BE NO LOCK BUTTON HERE, and its whole
+           reason was that locking blocked every staff sidebar write — google.script.run
+           runs as the INVOKING USER, and Sheets protection checks WHO, never WHERE FROM.
+           That premise died on 2026-08-30: OwnerBridge.js routes staff writes back in
+           through /exec, where doPost executes as the OWNER. The buttons exist now because
+           the reason they didn't is gone.
+
+           ⚠⚠ BUT THE LOCK CONTROLS THEMSELVES ARE OWNER-ONLY AND ARE **NOT** IN THE
+           BRIDGE'S ALLOWLIST. The bridge exists so staff WRITES run as the owner; pointing
+           it at unprotectAllOrdersSheet would let anyone switch the protection off, which
+           makes the lock self-defeating. Staff clicking these get a sentence, not a stack
+           trace — and not a protection they accidentally own, which is what an ungated
+           protectAllOrdersSheet would have created. -->
+
+      <!-- ⭐ STEP 1 — THE n8n ACCOUNT, WHICH USED TO LIVE IN THE EDITOR.
+           installAllOrdersLock() refuses without it, and until 2026-08-30 the only way to
+           set it was opening the Apps Script editor, editing `var VALUE` inside
+           setN8nSheetsAccountNow() and running it. That single value forced the ENTIRE
+           lock sequence out of the sidebar. It is a field now, so account / verify / lock /
+           status / unlock are one surface.
+
+           ⚠ OWNER-ONLY ON THE SERVER, like every control in this block, and deliberately
+           NOT bridged. The value becomes an EDITOR EXCEPTION on a protected sheet — staff
+           setting it would be staff granting the edit rights the lock exists to withhold.
+
+           ⚠ The field is only a door. setN8nSheetsAccount does the gating AND the
+           validation; it takes an email or the literal `none` and refuses anything else,
+           because a wrong value here stops the ~1 AM shipped-row sweep. -->
+      <input type="text" id="lockAcct" class="ml-in"
+             placeholder="n8n Sheets account — email, or none"
+             autocomplete="off" spellcheck="false"
+             onkeydown="if(event.key==='Enter')saveN8nAccountNow()" />
+      <div class="btn-group" style="margin-bottom:6px;">
+        <button class="btn-secondary" onclick="saveN8nAccountNow()">✔ Save account</button>
       </div>
+      <div class="ml-result" id="lockAcctResult"></div>
+
+      <button class="btn-secondary" onclick="run('verifyOwnerBridge')">🔗 Verify owner bridge</button>
+      <button class="btn-primary" onclick="lockAllOrdersNow()">🛡 Lock All Orders</button>
+      <button class="btn-info" onclick="run('describeAllOrdersLock')">Lock status</button>
+      <button class="btn-danger" onclick="unlockAllOrdersNow()">↺ Unlock</button>
+      <p style="font-size:11px;color:#888;margin-top:8px;">
+        A <strong>real wall</strong>, not a dialog: the cell refuses. <strong>NOTE</strong>,
+        <strong>STATUS</strong> and <strong>LEFT</strong> stay open, and so do both Pick&nbsp;ID
+        dropdowns. Sidebar actions keep working for staff because writes are routed through
+        the <em>owner bridge</em>.
+        <br><br>
+        <strong>In order:</strong> save the n8n account → verify the bridge → lock.
+        The installer refuses if either of the first two is missing, and each refusal
+        names the consequence rather than the rule.
+        <br><br>
+        ⚠ It cannot restrict <strong>you</strong> — Sheets silently ignores the owner — so the
+        identity checks below stay on as the backstop for your own slips.
+      </p>
+
+      <!-- ── ROW IDENTITY (2026-08-29) — a disclosure, because these are one-time or
+           occasional: the warning is switched on once, and Clear identity flags is a
+           single cleanup for marks left by the painting versions. -->
+      <details class="card-more">
+        <summary>Row identity checks</summary>
+        <div class="card-more-content">
+          <button class="btn-primary" onclick="run('warnOnIdentityEdits')">🛡 Warn on identity edits</button>
+          <button class="btn-secondary" onclick="run('checkIdentityNow')">👁 Check identity now</button>
+          <button class="btn-info" onclick="run('diagnoseIdentityFlags')">Explain the flags</button>
+          <button class="btn-info" onclick="run('clearIdentityFlags')">Clear identity flags</button>
+          <button class="btn-danger" onclick="run('unwarnIdentityEdits')">↺ Remove warning</button>
+          <p style="font-size:11px;color:#888;margin-top:8px;">
+            A <em>confirm</em> dialog on <strong>SKU</strong>, <strong>QTY</strong> and
+            <strong>SALES&nbsp;ORDER</strong> before a hand edit. <strong>Whole columns</strong>, so
+            rows added or deleted later are covered automatically. Script writes — the sidebar,
+            n8n, Telegram — pass straight through, because there is no human to warn.
+            <br><br>
+            Alongside it, every live row is checked against the <strong>Activity Log</strong>:
+            an order&nbsp;+&nbsp;SKU pair that was never received is <strong>messaged to you
+            once</strong>. It is <strong>read-only</strong> — it never marks, paints or changes
+            anything on the sheet, so there is nothing to clear and nothing to go stale.
+            <em>Clear identity flags</em> is a one-time cleanup for marks left by earlier
+            versions.
+          </p>
+        </div>
+      </details>
+
+      <!-- ── HEADERS & STRUCTURE — the ORIGINAL feature of this card, and the one that
+           has needed touching least. Warning-only: a dialog you click through, not a wall.
+           Kept here rather than deleted because it still covers rows 1-3 and the DIRECT
+           divider, which the All Orders lock deliberately does not. -->
+      <details class="card-more">
+        <summary>Headers &amp; structure — warning only</summary>
+        <div class="card-more-content">
+          <button class="btn-primary" onclick="run('protectSheetStructure')">Protect Headers</button>
+          <button class="btn-info" onclick="run('setupEbayLogo')">Restore eBay Logo</button>
+          <button class="btn-danger" onclick="run('unprotectSheetStructure')">Remove Protection</button>
+          <p style="font-size:11px;color:#888;margin-top:8px;">
+            Adds <em>warning-only</em> protection on rows 1–3 (banner + eBay headers) and the
+            DIRECT divider + DIRECT headers — edits are still possible after a confirm click.
+            Re-run to refresh after the boundary moves.
+          </p>
+        </div>
+      </details>
     </div>
   </div>
 
@@ -7994,6 +8088,103 @@ function previewStragglersNow() {
   _swCall('swPreviewBtn', '👁 Preview (no send)', '⏳ Checking…',
           'Checking for stragglers…', '✓ Preview ready (nothing sent)',
           function (r) { r.previewStragglerWatchdog(); });
+}
+
+/** Paint the account field's feedback. Reuses .ml-result — no new CSS. */
+function _lockSay(kind, html) {
+  var box = document.getElementById('lockAcctResult');
+  if (!box) return;
+  box.className = 'ml-result shown ' + kind;
+  box.innerHTML = html;
+}
+
+/**
+ * ⭐ Read the n8n-account state when the Sheet Protection card is OPENED.
+ *
+ * ⚠ Lazily, never on the sidebar's 30s tick. This is an admin card the owner opens rarely,
+ *   and the panel's standing rule is that a poll must not carry work only one person needs
+ *   — the same reasoning that keeps the eight-sheet alerts read off the board's tick.
+ *
+ * ⚠ It reads a SHAPE, not a sentence. getN8nSheetsAccount() returns prose for the
+ *   execution log; parsing that here would break the first time the wording changed.
+ */
+function lockPanelLoad() {
+  var card = document.querySelector('.card[data-id="sheet-protect"]');
+  if (!card || card.classList.contains('collapsed')) return;   // collapsing must not fetch
+
+  google.script.run
+    .withSuccessHandler(function (st) {
+      if (!st || !st.ok) {
+        _lockSay('info', 'Owner-only. Sign in as the sheet owner to configure the lock.');
+        return;
+      }
+      var input = document.getElementById('lockAcct');
+      if (input && !input.value) input.value = st.value || '';
+
+      if (!st.isSet) {
+        _lockSay('err', '<b>Not set</b> — the lock will refuse to install. Enter the account ' +
+                        "n8n's Google Sheets credential is OAuth'd as, or <b>none</b>.");
+      } else if (st.isNone) {
+        _lockSay('ok', 'Set to <b>none</b> — asserting nothing outside Apps Script writes ' +
+                       'All Orders, so no exception is needed.');
+      } else {
+        _lockSay('ok', 'Set to <b>' + _wdEsc(st.value) + '</b> — it keeps its editing ' +
+                       'exception under the lock, so the ~1 AM sweep survives.');
+      }
+    })
+    .withFailureHandler(function (e) {
+      _lockSay('err', 'Could not read it: ' + _wdEsc(e.message));
+    })
+    .getN8nSheetsAccountState();
+}
+
+/**
+ * Save the n8n Sheets account.
+ *
+ * ⚠ THE SERVER IS THE GATE, NOT THIS. setN8nSheetsAccount is owner-only and validates the
+ *   shape — an email or the literal `none`, nothing else, because a wrong value here is the
+ *   one silent failure in the lock's design. The blank check below only spares a round trip.
+ */
+function saveN8nAccountNow() {
+  var input = document.getElementById('lockAcct');
+  var v = input ? String(input.value || '').trim() : '';
+  if (!v) {
+    _lockSay('err', "Enter the n8n Sheets account email, or <b>none</b>.");
+    return;
+  }
+  _lockSay('info', 'Saving…');
+  google.script.run
+    .withSuccessHandler(function (msg) {
+      var txt = String(msg || '');
+      var ok  = txt.indexOf('\u2705') === 0;
+      _lockSay(ok ? 'ok' : 'err', _wdEsc(txt).replace(/\n/g, '<br>'));
+      if (ok) lockPanelLoad();
+    })
+    .withFailureHandler(function (e) {
+      _lockSay('err', 'Could not save: ' + _wdEsc(e.message));
+    })
+    .setN8nSheetsAccount(v);
+}
+
+/**
+ * ⚠ The lock changes who may edit the sheet, so it is deliberately NOT routed through the
+ *   owner bridge — otherwise any staff member could switch it off. The server refuses for
+ *   anyone but the owner; this confirm is only to stop a mis-tap.
+ */
+function lockAllOrdersNow() {
+  if (!confirm('Lock All Orders?\n\n' +
+      'SKU, QTY, LOCATION and SALES ORDER become read-only for staff.\n' +
+      'NOTE, STATUS and LEFT stay editable, and both Pick ID dropdowns keep working.\n\n' +
+      'Sidebar actions keep working through the owner bridge — the installer refuses ' +
+      'unless that bridge answers and the n8n account is set.')) return;
+  run('installAllOrdersLock');
+}
+
+function unlockAllOrdersNow() {
+  if (!confirm('Remove the All Orders lock?\n\n' +
+      'Staff will be able to hand-edit SKU, QTY, LOCATION and SALES ORDER again — ' +
+      'which is the edit that cost a picked and counted row on 2026-08-28.')) return;
+  run('unprotectAllOrdersSheet');
 }
 
 function runWatchdogNow() {

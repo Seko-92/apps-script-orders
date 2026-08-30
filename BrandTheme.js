@@ -197,6 +197,15 @@ function setupBannerDateTime() {
  * Idempotent — overwrites whatever's currently in A2.
  */
 function setupEbayLogo() {
+  // ⚠ ADMIN, NOT WORKFLOW — owner-only, and deliberately NOT bridged. The owner
+  //   bridge exists so staff WRITES run as the owner; routing a SETUP function
+  //   through it would let anyone re-theme, re-protect or rewrite rules on a locked
+  //   sheet. Refusing in a sentence beats an unexplained permission error.
+  if (typeof _obRequireOwner === "function") {
+    var _denied = _obRequireOwner("Restoring the eBay logo");
+    if (_denied) return _denied;
+  }
+
   var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   var sheet = ss.getSheetByName(MAIN_SHEET_NAME);
   if (!sheet) return "❌ Main sheet not found.";
@@ -231,6 +240,15 @@ function setupEbayLogo() {
  * adding fresh ones (so it stays in sync if the boundary row moves).
  */
 function protectSheetStructure() {
+  // ⚠ ADMIN, NOT WORKFLOW — owner-only, and deliberately NOT bridged. The owner
+  //   bridge exists so staff WRITES run as the owner; routing a SETUP function
+  //   through it would let anyone re-theme, re-protect or rewrite rules on a locked
+  //   sheet. Refusing in a sentence beats an unexplained permission error.
+  if (typeof _obRequireOwner === "function") {
+    var _denied = _obRequireOwner("Protecting the sheet structure");
+    if (_denied) return _denied;
+  }
+
   var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   var sheet = ss.getSheetByName(MAIN_SHEET_NAME);
   if (!sheet) return "❌ Main sheet not found.";
@@ -302,6 +320,15 @@ function protectSheetStructure() {
  * accidental-edit guards entirely.
  */
 function unprotectSheetStructure() {
+  // ⚠ ADMIN, NOT WORKFLOW — owner-only, and deliberately NOT bridged. The owner
+  //   bridge exists so staff WRITES run as the owner; routing a SETUP function
+  //   through it would let anyone re-theme, re-protect or rewrite rules on a locked
+  //   sheet. Refusing in a sentence beats an unexplained permission error.
+  if (typeof _obRequireOwner === "function") {
+    var _denied = _obRequireOwner("Removing structure protection");
+    if (_denied) return _denied;
+  }
+
   var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   var sheet = ss.getSheetByName(MAIN_SHEET_NAME);
   if (!sheet) return "❌ Main sheet not found.";
@@ -425,6 +452,14 @@ function describeAllOrdersLock() {
  *   and protectSheetStructure()'s warning-only protection still covers those rows.
  */
 function protectAllOrdersSheet() {
+  // ⚠ Owner-only, and deliberately NOT reachable through the owner bridge — see
+  //   _obRequireOwner. A control that decides who may edit must not be runnable by the
+  //   people it constrains.
+  if (typeof _obRequireOwner === "function") {
+    var denied = _obRequireOwner("Locking All Orders");
+    if (denied) return denied;
+  }
+
   var props = PropertiesService.getScriptProperties();
   var acct = String(props.getProperty(ALL_ORDERS_LOCK.n8nAccountKey) || "").trim();
 
@@ -624,6 +659,11 @@ function unwarnIdentityEdits() {
  * whole thing safe to try. Leaves HQ-STRUCTURE warning-only protections alone.
  */
 function unprotectAllOrdersSheet() {
+  if (typeof _obRequireOwner === "function") {
+    var denied = _obRequireOwner("Unlocking All Orders");
+    if (denied) return denied;
+  }
+
   var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   var sheet = ss.getSheetByName(MAIN_SHEET_NAME);
   if (!sheet) return "❌ Main sheet not found.";
@@ -640,33 +680,77 @@ function unprotectAllOrdersSheet() {
 
 /**
  * One-shot setter so the account can be configured without touching code.
- * ⚠ Zero-arg wrapper below, because the editor Run button cannot pass arguments.
+ *
+ * ⚠ THE ZERO-ARG WRAPPER LIVES IN OwnerBridge.js (setN8nSheetsAccountNow), beside the
+ *   rollout it feeds. It was DUPLICATED here until 2026-08-30 — two top-level functions
+ *   of the same name in Apps Script's single global scope, where file concatenation order
+ *   is unspecified, so which body ran was undefined and editing one could leave the other
+ *   executing. This stays the single WRITER; the wrapper delegates to it.
  */
 function setN8nSheetsAccount(email) {
+  // ⚠ ADMIN, NOT WORKFLOW — owner-only, like every other lock control. This value becomes
+  //   an EDITOR EXCEPTION on a protected sheet, so letting staff set it would hand them a
+  //   way to grant edit rights the lock exists to withhold. Deliberately NOT bridged.
+  if (typeof _obRequireOwner === "function") {
+    var _denied = _obRequireOwner("Setting the n8n Sheets account");
+    if (_denied) return _denied;
+  }
+
   var v = String(email || "").trim();
-  if (!v) return "❌ Pass the account email, or the literal 'none'.";
+  if (!v) return "❌ Pass the account email, or the literal '" +
+                 ALL_ORDERS_LOCK.noneSentinel + "'.";
+
+  // ⚠⚠ THE "✅" HAS TO MEAN SOMETHING. The only values this property may ever hold are an
+  //   email address (handed straight to prot.addEditor) or the literal sentinel. Anything
+  //   else is GUARANTEED to fail later, inside protectAllOrdersSheet, where the error reads
+  //   as a lock fault rather than a typo — and an unedited placeholder would be stored
+  //   under a green checkmark, which is the "reassuring label on a dangerous state" this
+  //   codebase already rules is a bug. Reject it here, where the message can name the fix.
+  var isNone  = v.toLowerCase() === ALL_ORDERS_LOCK.noneSentinel;
+  var isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
+  if (!isNone && !isEmail) {
+    return "❌ '" + v + "' is neither an email address nor the literal '" +
+           ALL_ORDERS_LOCK.noneSentinel + "'.\n\n" +
+           "   Use the account email from n8n's Google Sheets credential, or '" +
+           ALL_ORDERS_LOCK.noneSentinel + "' if you have\n" +
+           "   CONFIRMED in the live n8n UI that nothing outside Apps Script writes to\n" +
+           "   All Orders. Storing anything else stops the ~1 AM shipped-row sweep.";
+  }
+
   PropertiesService.getScriptProperties().setProperty(ALL_ORDERS_LOCK.n8nAccountKey, v);
   return "✅ " + ALL_ORDERS_LOCK.n8nAccountKey + " = " + v;
 }
 
 
 /**
- * Zero-arg wrapper — the editor Run button cannot pass arguments, so without this
- * the property could only be set by editing code or through the raw Script
- * Properties UI. Same shape as setMyPricePushPassphraseNow.
+ * The n8n-account state, shaped for the sidebar's Sheet Protection card.
  *
- * ⚠ EDIT THE VALUE ON THE LINE BELOW, then Run. Output goes to the EXECUTION LOG;
- *   the Run button does not display return values.
+ * ⭐ WHY THIS EXISTS: until 2026-08-30 this one value was the ONLY step of the lock
+ *   sequence that could not be done from the sidebar — it meant opening the editor,
+ *   editing `var VALUE` in code, and running it. installAllOrdersLock() refuses without
+ *   it, so that single gap forced the whole sequence into the editor.
  *
- * Which value:
- *   • the email n8n's Google Sheets credential is OAuth'd as
- *   • or the literal 'none' if that account IS the sheet owner — protection never
- *     restricts the owner, so E5 keeps working and no exception is needed.
+ * ⚠ Returns a SHAPE, never a formatted sentence. getN8nSheetsAccount below returns prose
+ *   for the execution log; a client that had to parse that string would break the first
+ *   time the wording changed.
  */
-function setN8nSheetsAccountNow() {
-  var out = setN8nSheetsAccount("PUT-THE-ACCOUNT-EMAIL-OR-none-HERE");
-  console.log(out);
-  return out;
+function getN8nSheetsAccountState() {
+  if (typeof _obRequireOwner === "function" && _obRequireOwner("x")) {
+    return { ok: false, owner: false, isSet: false, value: "" };
+  }
+  var v = "";
+  try {
+    v = String(PropertiesService.getScriptProperties()
+          .getProperty(ALL_ORDERS_LOCK.n8nAccountKey) || "").trim();
+  } catch (e) {}
+  return {
+    ok: true,
+    owner: true,
+    isSet: !!v,
+    isNone: v.toLowerCase() === ALL_ORDERS_LOCK.noneSentinel,
+    value: v,
+    key: ALL_ORDERS_LOCK.n8nAccountKey
+  };
 }
 
 
@@ -1322,6 +1406,15 @@ function _applyColumnLevelDataFormats(sheet) {
  * via _applyAllConditionalFormatting() so the theme owns its full CF set.
  */
 function setupBuyerNoteHighlighting() {
+  // ⚠ ADMIN, NOT WORKFLOW — owner-only, and deliberately NOT bridged. The owner
+  //   bridge exists so staff WRITES run as the owner; routing a SETUP function
+  //   through it would let anyone re-theme, re-protect or rewrite rules on a locked
+  //   sheet. Refusing in a sentence beats an unexplained permission error.
+  if (typeof _obRequireOwner === "function") {
+    var _denied = _obRequireOwner("Applying the buyer-note highlight");
+    if (_denied) return _denied;
+  }
+
   var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   var sheet = ss.getSheetByName(MAIN_SHEET_NAME);
   if (!sheet) return "❌ Main sheet not found";
@@ -1373,6 +1466,15 @@ function setupBuyerNoteHighlighting() {
  * Idempotent — re-run safely.
  */
 function setupKitRowHighlighting() {
+  // ⚠ ADMIN, NOT WORKFLOW — owner-only, and deliberately NOT bridged. The owner
+  //   bridge exists so staff WRITES run as the owner; routing a SETUP function
+  //   through it would let anyone re-theme, re-protect or rewrite rules on a locked
+  //   sheet. Refusing in a sentence beats an unexplained permission error.
+  if (typeof _obRequireOwner === "function") {
+    var _denied = _obRequireOwner("Applying the kit-SKU highlight");
+    if (_denied) return _denied;
+  }
+
   var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   var sheet = ss.getSheetByName(MAIN_SHEET_NAME);
   if (!sheet) return "❌ Main sheet not found";
@@ -2008,6 +2110,15 @@ function _buildIdentityRules(sheet) {
  * Mirrors setupHoldHighlighting — same idempotent strip-then-add shape.
  */
 function setupIdentityHighlighting() {
+  // ⚠ ADMIN, NOT WORKFLOW — owner-only, and deliberately NOT bridged. The owner
+  //   bridge exists so staff WRITES run as the owner; routing a SETUP function
+  //   through it would let anyone re-theme, re-protect or rewrite rules on a locked
+  //   sheet. Refusing in a sentence beats an unexplained permission error.
+  if (typeof _obRequireOwner === "function") {
+    var _denied = _obRequireOwner("Installing the identity rules");
+    if (_denied) return _denied;
+  }
+
   var sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(MAIN_SHEET_NAME);
   if (!sheet) return "❌ No " + MAIN_SHEET_NAME + " sheet.";
 
