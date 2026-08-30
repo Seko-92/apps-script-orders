@@ -89,7 +89,12 @@ var BRAND = {
  */
 var MASTHEAD = {
   baseUrl:      "https://hq.yassinqurabi.com/mast/",
-  version:      "v2",  // v2 = the hour-lit set (6 states x 24 Houston hours)
+  // ⚠⚠ BUMP THIS ON EVERY RE-RENDER. Sheets caches =IMAGE() per URL, so re-drawing the
+  //    art at the SAME path leaves the OLD frame on screen indefinitely — which is exactly
+  //    what happened on 2026-08-30: the sky kept showing a broken-logo build long after
+  //    the file was replaced, and it read as "the images are broken" when they were fine.
+  //    This rule was written in the docblock above and then violated by its author.
+  version:      "v3",  // hour-lit set, corrected 05:00-21:00 light curve
   ext:          "png",  // ⚠ NOT gif — Sheets shows only a GIF's first frame (see above)
   imgH:         44,    // px — mode-4 explicit sizing, so nothing letterboxes
   imgW:         280,   // px — fits A1:C1 (287px) with breathing room
@@ -109,7 +114,11 @@ var MASTHEAD = {
   //   one =IMAGE(), and a separate logo cell would mean splitting the A2:E2 merge and
   //   moving Schema.cellEmployeeId. Re-render with LOGO=0 to retire it; that is a brand
   //   decision, not a design one.
-  sky:          true,
+  // ⚠ OFF. The sky was beautiful and it cost the eBay table its NAME. The sheet is two
+  //   stacked tables and row 2 is the eBay one's label, the counterpart to the gold
+  //   "▌ DIRECT" divider — that cell was never empty space. Row 1 carries the creative
+  //   load; row 2 carries an identity, and identity wins.
+  sky:          false,
   skyCell:      "A2",
   skyH:         65,
   skyW:         826,    // 42 is too cramped for two lines — proven in the render
@@ -2619,6 +2628,11 @@ function setupMasthead(sheetName) {
   //     reading as two objects.
   if (MASTHEAD.sky) {
     sheet.getRange('A2:E2').setBackground(BRAND.ink);
+  } else {
+    // Put row 2 back exactly as it was: cream ground + the eBay logo that NAMES the
+    // table. setupEbayLogo owns that formula, so it is called rather than duplicated.
+    sheet.getRange('A2:E2').setBackground(BRAND.paperWarm);
+    try { setupEbayLogo(); } catch (e) { console.log('setupMasthead.ebayLogo: ' + e); }
   }
 
   // 5 — the inputs, then the formulas that read them.
