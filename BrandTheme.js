@@ -99,7 +99,20 @@ var MASTHEAD = {
   //    one thing that reads correctly at ~1 frame per minute, because a day changes
   //    slowly anyway. Cold before dawn, amber as the floor opens, clean at noon, an ember
   //    horizon at 5pm, quiet by midnight. The Floor Board's night dial, on the sheet.
-  rowHeight:    52,    // 42 is too cramped for two lines — proven in the render
+  rowHeight:    52,
+  // ---- ROW 2: THE DAY -----------------------------------------------------------------
+  // ⭐ 826x65px of cream sat under the lit face doing nothing but holding a small logo —
+  //    the biggest dead space in the banner, and the reason rows 1-2 read as two objects
+  //    instead of one. It is now a SKY: the sun walks 6a->6p, the moon walks 6p->6a, stars
+  //    at night, and a quiet 9-5 marker along the horizon.
+  // ⚠ The eBay logo is COMPOSITED INTO the art, not layered over it — A2 can hold exactly
+  //   one =IMAGE(), and a separate logo cell would mean splitting the A2:E2 merge and
+  //   moving Schema.cellEmployeeId. Re-render with LOGO=0 to retire it; that is a brand
+  //   decision, not a design one.
+  sky:          true,
+  skyCell:      "A2",
+  skyH:         65,
+  skyW:         826,    // 42 is too cramped for two lines — proven in the render
   lateMinutes:  180,   // matches the Floor Board's own 3h redline
   staleMinutes: 60     // matches the System Pulse's STALE tier
 };
@@ -2522,7 +2535,22 @@ function _setSystemPulseBannerFormulas(sheet) {
     '" · "&TEXT(' + SD + 'A3,"h:mm AM/PM")&" · "&' + SD + 'A12&" ago")'
   );
 
-  // ---- F1:H1 — THE DAY ---------------------------------------------------------------
+  // ---- A2:E2 — THE SKY ---------------------------------------------------------------
+  // Same hour, same light curve as the face, so the two halves of the banner can never
+  // disagree about what time it is.
+  if (MASTHEAD.sky) {
+    sheet.getRange(MASTHEAD.skyCell).setFormula(
+      '=IFERROR(IMAGE("' + MASTHEAD.baseUrl + 'sky-h"&TEXT(HOUR(NOW()),"00")&"-' +
+      MASTHEAD.version + '.' + MASTHEAD.ext + '",4,' + MASTHEAD.skyH + ',' +
+      MASTHEAD.skyW + '),"")'
+    );
+  }
+
+  // ---- F1:H1 — THE DAY CURVE ---------------------------------------------------------
+  // ⚠ The curve is NOT lit by the hour, deliberately. It is the one element in the banner
+  //   carrying DATA, and brand yellow means "action" everywhere else in this system.
+  //   Colouring it by time of day would spend a meaning-bearing colour on decoration. It
+  //   has exactly two states — working (yellow) and resting (cool) — and that is enough.
   // ⭐ __SparkData!A1:X1 has held 24 live hourly counts since May, built for a heatmap
   //    that was pivoted away from — nothing has read them since. Future hours are
   //    genuinely 0, so the curve GROWS RIGHTWARD through the day on its own; no dimming
@@ -2586,13 +2614,20 @@ function setupMasthead(sheetName) {
     .setFontSize(10).setFontWeight('normal')
     .setHorizontalAlignment('left').setWrap(false);
 
-  // 4 — the inputs, then the formulas that read them.
+  // 4 — ⚠ row 2's ground goes INK. _styleBannerRow2 paints the logo zone paperWarm
+  //     (cream), which would leave a bright halo around a dark sky and keep the banner
+  //     reading as two objects.
+  if (MASTHEAD.sky) {
+    sheet.getRange('A2:E2').setBackground(BRAND.ink);
+  }
+
+  // 5 — the inputs, then the formulas that read them.
   _ensureSparkData(ss);
   _setSystemPulseBannerFormulas(sheet);
 
   sheet.setRowHeight(1, MASTHEAD.rowHeight);
 
-  // 5 — ⚠ stale data validations on I2:J2, left behind when the 2026-05-19 compaction
+  // 6 — ⚠ stale data validations on I2:J2, left behind when the 2026-05-19 compaction
   //     moved the Adjustment picker to H2. Invisible while I+J are hidden; two phantom
   //     pickers the moment anyone unhides them.
   var phantom = false;
