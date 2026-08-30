@@ -2785,3 +2785,70 @@ function removeMastheadAnimated() {
   SpreadsheetApp.flush();
   return gone ? "✅ Removed " + gone + " floating masthead image(s)." : "Nothing to remove.";
 }
+
+/**
+ * diagnoseMasthead — why is the banner showing the "HQ" text chip instead of the face?
+ *
+ * ⚠ A MISSING FACE ANSWERS 200 WITH THE BOARD'S HTML, not 404 (Caddy try_files). IMAGE()
+ *   cannot decode that, so it errors and IFERROR falls back — silently, behind a success
+ *   status. Same "success status, failure content" shape as Zoho's 200-with-an-error-body.
+ *   This builds the URL exactly as the formula does and FETCHES it, so the answer is
+ *   measured rather than reasoned about.
+ *
+ * ⚠ Zero-arg on purpose: the editor Run button cannot pass arguments (walked into three
+ *   times in this project). Output goes to the EXECUTION LOG.
+ */
+function diagnoseMasthead() {
+  var ss    = SpreadsheetApp.openById(SPREADSHEET_ID);
+  var sheet = ss.getSheetByName(MAIN_SHEET_NAME);
+  var sd    = ss.getSheetByName('__SparkData');
+  var L = [];
+  var say = function (s) { L.push(s); console.log(s); };
+
+  say('=== MASTHEAD DIAGNOSIS ===');
+  if (!sd) { say('✗ __SparkData is MISSING — run setupMasthead() first.'); return L.join('\n'); }
+
+  var state = String(sd.getRange('A6').getValue() || '');
+  var off   = sd.getRange('A13').getValue();
+  var hour  = Number(Utilities.formatDate(new Date(), ss.getSpreadsheetTimeZone(), 'H'));
+  var hh    = (hour < 10 ? '0' : '') + hour;
+  say('state (__SparkData!A6) : "' + state + '"' + (state ? '' : '   ✗ EMPTY — the URL will 404'));
+  say('off-hours (A13)        : ' + off);
+  say('sheet timezone         : ' + ss.getSpreadsheetTimeZone() + '  → hour ' + hh);
+
+  say('\n--- the formulas actually IN the cells ---');
+  say('A1: ' + sheet.getRange(Schema.cellMasthead).getFormula());
+  say('A2: ' + sheet.getRange(MASTHEAD.skyCell).getFormula());
+  say('D1: ' + sheet.getRange(Schema.cellStats).getFormula());
+
+  say('\n--- what the cells RENDER ---');
+  say('A1 shows: "' + sheet.getRange(Schema.cellMasthead).getDisplayValue() + '"' +
+      '   (the "HQ" chip means IMAGE() errored and IFERROR caught it)');
+
+  say('\n--- can the URLs actually be fetched? ---');
+  [['face', MASTHEAD.baseUrl + state + '-h' + hh + '-' + MASTHEAD.version + '.' + MASTHEAD.ext],
+   ['sky',  MASTHEAD.baseUrl + 'sky-h' + hh + '-' + MASTHEAD.version + '.' + MASTHEAD.ext]
+  ].forEach(function (pair) {
+    var url = pair[1];
+    try {
+      var r  = UrlFetchApp.fetch(url, { muteHttpExceptions: true, followRedirects: true });
+      var ct = String(r.getHeaders()['Content-Type'] || r.getHeaders()['content-type'] || '?');
+      var n  = r.getContent().length;
+      var ok = r.getResponseCode() === 200 && ct.indexOf('image/') === 0;
+      say((ok ? '✓ ' : '✗ ') + pair[0] + '  ' + r.getResponseCode() + '  ' + ct + '  ' + n + ' bytes');
+      say('   ' + url);
+      if (!ok && ct.indexOf('html') > -1) {
+        say('   ⚠ HTML, not an image — this URL does not exist and Caddy served the board.');
+      }
+    } catch (e) {
+      say('✗ ' + pair[0] + ' fetch threw: ' + e);
+      say('   ' + url);
+    }
+  });
+  say('\n⚠ If BOTH fetch fine here but the cells still show the fallback, the URL is right and');
+  say('  the problem is Sheets refusing to render it — paste this into any empty cell to');
+  say('  isolate that (a literal URL, no formula):');
+  say('  =IMAGE("' + MASTHEAD.baseUrl + state + '-h' + hh + '-' + MASTHEAD.version +
+      '.' + MASTHEAD.ext + '",4,' + MASTHEAD.imgH + ',' + MASTHEAD.imgW + ')');
+  return L.join('\n');
+}
