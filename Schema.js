@@ -184,7 +184,22 @@ var Schema = {
   //
   // To revert to default layout: change these three constants back to G1/G2/I2,
   // restore the original merges (G1:J1, G2:H2, I2:J2, A2:F2), and unhide cols I+J.
-  cellStats:        "F1",   // order-count + TODAY summary (F1:H1 merge anchor)
+  // ⚠⚠ cellSyncTime ("E1") MUST NOT MOVE. ActivityLog.js regex-parses "h:mm AM/PM"
+  // out of that cell into cockpit.lastSyncMinutes, which drives the Floor Board's
+  // heartbeat dot, the sidebar System Pulse, /status and the published tick.
+  // getDashboardSnapshot IS reachable from doPost, so relocating E1 needs a New
+  // Version AND breaks the heartbeat in the window either side of the cut.
+  //
+  // MASTHEAD LAYOUT (2026-08-30). Row 1 is four zones, bounded by the data table's
+  // own column edges — the widths are shared with the table below and cannot move:
+  //
+  //   A1:C1 (287px)  the state face, one =IMAGE() picked by __SparkData!A6
+  //   D1    (233px)  the live headline — cellStats, moved here from F1
+  //   E1    (306px)  the pulse — UNMOVED, still carries "h:mm AM/PM"
+  //   F1:H1 (344px)  SPARKLINE of today, from __SparkData!A1:X1
+  cellMasthead:     "A1",   // state face (A1:C1 merge anchor)
+  cellStats:        "D1",   // live headline (was F1 until 2026-08-30)
+  cellDayCurve:     "F1",   // SPARKLINE of today (F1:H1 merge anchor)
   cellEmployeeId:   "F2",   // Pick ID for Shipping (F2:G2 merge anchor)
   cellAdjustmentId: "H2"    // Pick ID for Adjustment (single cell, no merge)
 };

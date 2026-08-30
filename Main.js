@@ -15,7 +15,7 @@ function onOpen() {
   const ui = SpreadsheetApp.getUi();
 
   // 1. Create the Control Panel Menu
-  ui.createMenu('⚙️ Control Panel')
+  ui.createMenu('▦ CONTROL PANEL')
     .addItem('Open Control Panel', 'showSidebar')
     .addToUi();
 
@@ -27,7 +27,7 @@ function onOpen() {
 
   // 2b. Floor Board — the warehouse monitor. Opens in-sheet for a quick look;
   //     the always-on version is the doGet web-app URL (open in a tablet tab).
-  ui.createMenu('📺 Floor Board')
+  ui.createMenu('▤ FLOOR BOARD')
     .addItem('Open Floor Board', 'openFloorBoard')
     .addToUi();
   

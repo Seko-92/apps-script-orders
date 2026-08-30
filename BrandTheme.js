@@ -40,6 +40,39 @@ var BRAND = {
   dataLast: 1000
 };
 
+/**
+ * MASTHEAD — row 1's state face (2026-08-30).
+ *
+ * The face is a pre-rendered GIF per state, picked live by formula. Pre-rendering
+ * rather than rendering on demand is what removes the only unsolved piece: there is
+ * no PNG renderer on the VPS, and =IMAGE() will not take SVG. Caddy already serves
+ * /opt/hq-app via try_files, so this needs no /api route and NO Caddyfile edit —
+ * the blast radius that killed the YouTube search box (2026-08-21).
+ *
+ * Faces are drawn by design-lab/shoot-masthead.js and scp'd to /opt/hq-app/mast/.
+ *
+ * ⚠ VERSION THE FILENAME. Sheets caches images per-URL, so re-drawing the art at the
+ *   same path can leave the old frame showing indefinitely. Bump `version` instead.
+ *
+ * ⚠⚠ A MISSING FACE ANSWERS 200, NOT 404 — Caddy's try_files serves the Floor Board's
+ *    HTML (303KB, text/html) for any unmatched path under /mast/. IMAGE() cannot decode
+ *    that, so the formula errors and IFERROR falls back to the text "HQ" chip: safe, and
+ *    visible. But it is the same "success status, failure content" shape as Zoho's
+ *    200-with-an-error-body and the /exec error page n8n banked as success for weeks.
+ *    The practical consequence: bumping `version` here WITHOUT scp-ing the new files
+ *    turns every face into the text chip at once. Ship the art first — and
+ *    design-lab/ship-masthead.sh byte-verifies against what the server actually serves.
+ */
+var MASTHEAD = {
+  baseUrl:      "https://hq.yassinqurabi.com/mast/",
+  version:      "v1",
+  imgH:         44,    // px — mode-4 explicit sizing, so nothing letterboxes
+  imgW:         280,   // px — fits A1:C1 (287px) with breathing room
+  rowHeight:    52,    // 42 is too cramped for two lines — proven in the render
+  lateMinutes:  180,   // matches the Floor Board's own 3h redline
+  staleMinutes: 60     // matches the System Pulse's STALE tier
+};
+
 // =======================================================================================
 // MAIN ENTRY POINTS
 // =======================================================================================
@@ -2281,6 +2314,15 @@ function _findBoundaryInSheet(sheet) {
  * Sheet is hidden by default (try/catch — already-hidden throws).
  * Idempotent — safe to re-run; formulas are rewritten on every call.
  */
+/**
+ * Minutes -> "8m" / "2h 14m", as a formula FRAGMENT. Shared by the pulse and the
+ * headline so the two can never render the same age differently.
+ */
+function _fmtMinsExpr(ref) {
+  return 'IF(' + ref + '<60,ROUND(' + ref + ')&"m",' +
+         'INT(' + ref + '/60)&"h "&ROUND(MOD(' + ref + ',60))&"m")';
+}
+
 function _ensureSparkData(ss) {
   var name = '__SparkData';
   var sheet = ss.getSheetByName(name);
@@ -2303,77 +2345,172 @@ function _ensureSparkData(ss) {
   sheet.getRange('A3').setFormula("=IFERROR(MAX('Activity Log'!A:A),0)");
   sheet.getRange('A4').setFormula("=IF(A3>0,(NOW()-A3)*1440,-1)");
 
+  // ---- MASTHEAD verdict + its inputs (2026-08-30) ------------------------------------
+  // ⭐ ONE verdict, computed once in A6, read by BOTH the face image and the headline.
+  //    Nothing downstream may re-derive it — a verdict and a formula that disagree is
+  //    the whole drift class the identity guard was bitten by (_igVerdict, 2026-08-30).
+  //
+  // ⚠ Every read of __Published is IFERROR-wrapped and falls back to 0. That cell can
+  //    be empty, stale or trimmed, and a masthead that errors is worse than one saying
+  //    "clear". Trim order in Published.js is sidebar -> timeline -> openOrders, so the
+  //    cockpit SCALARS read here are effectively never trimmed.
+  var PUB = "'__Published'!A1";
+  var pubNum = function (key) {
+    return '=IFERROR(VALUE(REGEXEXTRACT(' + PUB + ',' + '"""' + key + '"":(\\d+)")),0)';
+  };
+  sheet.getRange('A7').setFormula(pubNum('oldestPendingMinutes'));
+  sheet.getRange('A9').setFormula(pubNum('receivedToday'));
+  sheet.getRange('A10').setFormula(pubNum('shippedToday'));
+
+  // The queue is read straight off the sheet — local, instant, and it keeps working
+  // when the publish cycle does not.
+  var qCol = "'" + MAIN_SHEET_NAME + "'!F" + Schema.dataStartRow + ":F";
+  sheet.getRange('A8').setFormula(
+    '=IFERROR(COUNTIF(' + qCol + ',"PENDING")+COUNTIF(' + qCol + ',"PREPARING"),0)'
+  );
+
+  sheet.getRange('A11').setFormula('=' + _fmtMinsExpr('A7'));
+  sheet.getRange('A12').setFormula('=' + _fmtMinsExpr('A4'));
+
+  // ⚠ A4 is -1 when the Activity Log is unreadable. That is a DEAD pipeline, not a
+  //    healthy one — it must land on "stale", never fall through to "clear".
+  sheet.getRange('A6').setFormula(
+    '=IF(A7>' + MASTHEAD.lateMinutes + ',"late",' +
+     'IF(OR(A4<0,A4>' + MASTHEAD.staleMinutes + '),"stale",' +
+     'IF(A8>0,"busy","clear")))'
+  );
+
   return sheet;
 }
 
 /**
- * Writes the live-cockpit formulas into banner row 1:
- *   B1:D1 → live date+time (NOW formula, already set by _ensureDateFormula)
- *   E1:F1 → SYSTEM PULSE: sync time + 🟢/🟡/🔴 ALIVE/IDLE/STALE + freshness
- *   G1:J1 → live status counts + TODAY total
+ * Writes the four masthead formulas into banner row 1 (2026-08-30).
  *
- * IMPORTANT: This OVERWRITES whatever was in E1 and G1. That's intentional —
- * the old updateLastSyncTimestamp() and updateOrderStatsInSheet() functions
- * were converted to no-ops on this date (2026-05-17) precisely so they don't
+ *   A1:C1  the state face  — one =IMAGE(), chosen by the verdict in __SparkData!A6
+ *   D1     the headline    — branches on the SAME verdict, so the two cannot disagree
+ *   E1     the pulse       — UNMOVED, still carrying "h:mm AM/PM"
+ *   F1:H1  the day         — SPARKLINE over __SparkData!A1:X1
+ *
+ * ⚠⚠ E1 MUST KEEP a "h:mm AM/PM" substring. ActivityLog.js regex-parses it into
+ *    cockpit.lastSyncMinutes, which drives the Floor Board heartbeat, the sidebar
+ *    System Pulse, /status and the published tick. There is a Node assertion on this.
+ *
+ * ⚠ E1 KEEPS ITS EMOJI LAMP, deliberately. A cell has ONE font colour, so 🟢/🟡/🔴 is
+ *   the only way it can carry the tier's own colour — the same reason the stats bullets
+ *   survived the 2026-08-30 emoji audit. A CF rule would also be at the mercy of
+ *   _applyAllConditionalFormatting's strip-and-rebuild, which is exactly what silently
+ *   deleted the identity rules for an hour.
+ *
+ * IMPORTANT: this OVERWRITES A1, D1, E1 and F1. Intentional — updateLastSyncTimestamp()
+ * and updateOrderStatsInSheet() became no-ops on 2026-05-17 precisely so they cannot
  * clobber these formulas after every n8n sync.
  */
 function _setSystemPulseBannerFormulas(sheet) {
-  // E1 — System Pulse. Color-codes by minutes-since-last-Activity-Log-event.
-  //   <15min  → 🟢 ALIVE (system humming)
-  //   15-60m  → 🟡 IDLE  (slowing but OK)
-  //   >60m    → 🔴 STALE (needs attention)
-  //   no data → 🔴 OFFLINE (Activity Log missing or empty)
-  sheet.getRange('E1').setFormula(
-    "=IF('__SparkData'!A4<0,\"⏱ Last sync · — · 🔴 OFFLINE\"," +
-    "\"⏱ Last sync · \"&TEXT('__SparkData'!A3,\"h:mm AM/PM\")&\"   \"&" +
-    "IF('__SparkData'!A4<15,\"🟢 ALIVE\"," +
-    "IF('__SparkData'!A4<60,\"🟡 IDLE\",\"🔴 STALE\"))&" +
-    "\"  \"&ROUND('__SparkData'!A4)&\"m ago\")"
+  var SD = "'__SparkData'!";
+
+  // ---- A1:C1 — THE FACE --------------------------------------------------------------
+  // ⚠ IFERROR is not optional. If the endpoint dies at 3am the header degrades to the
+  //   text "HQ" chip — never a broken-image icon, never a dead header.
+  sheet.getRange(Schema.cellMasthead).setFormula(
+    '=IFERROR(IMAGE("' + MASTHEAD.baseUrl + '"&' + SD + 'A6&"-' + MASTHEAD.version +
+    '.gif",4,' + MASTHEAD.imgH + ',' + MASTHEAD.imgW + '),"HQ")'
   );
 
-  // Stats banner — live status counts + TODAY total. Emoji bullets render their
-  // own colors regardless of cell font color. ◢ glyph as a "drill-into" hint.
-  // Anchor cell is Schema.cellStats (default G1; F1 since the 2026-05-19
-  // layout compaction that hid cols I + J).
-  //
-  // CRITICAL: COUNTIF range MUST start at Schema.dataStartRow (typically F4),
-  // not F:F. When Schema.cellStats was at G1 the old F:F range was fine, but
-  // since the layout compaction moved cellStats into F1, a F:F range now
-  // INCLUDES the formula cell itself — Sheets refuses with #REF! "Circular
-  // dependency detected." Starting at F4 skips the entire banner zone (rows
-  // 1-3) and only counts real data rows.
-  // Live status counts + a "work-shape" bar — a zero-cost, trigger-free
-  // creative touch. It is NOT volatile (no NOW()), so it recalcs ONLY when
-  // column F changes — i.e. when the real floor moves (order lands, status
-  // flips). That event-driven recalc IS the animation: no time trigger, no
-  // Apps Script quota, negligible perf (a handful of COUNTIFs over one column).
-  //
-  // The bar is a plain ASCII load meter — REPT("|", ...) inside [ ] — capped at
-  // 12, so it can't trip a Sheets "Formula parse error" and never mangles on
-  // paste. Its length = the active queue (PENDING+PREPARING); it grows when
-  // busy and collapses to "[clear]" when the floor empties. It gauges the
-  // PERSISTENT queue on purpose: SHIPPED eBay rows get deleted off the sheet,
-  // so a SHIPPED-based bar would read near-empty and mislead.
-  //
-  // DO NOT reintroduce LET() here — it threw "Formula parse error" on the live
-  // sheet (2026-06-05). Plain & concatenation is universally supported. The
-  // "◢ N today" tail was dropped so F1 fits one line at fixed row height (the
-  // merged F1 cell also needs Format → Wrapping → Clip so it never expands).
-  //
-  // CRITICAL: range MUST start at Schema.dataStartRow (F4), not F:F — F:F
-  // would include the formula cell (F1 since the 2026-05-19 compaction) and
-  // throw #REF! circular dependency. F4 also skips the banner rows; COUNTIF
-  // matches exact status words so the divider/header rows in between are inert.
-  var dataRange = 'F' + Schema.dataStartRow + ':F';        // e.g. "F4:F"
+  // ---- D1 — THE HEADLINE -------------------------------------------------------------
+  // Branches on the same A6 verdict the face uses, so the picture and the words always
+  // agree by construction. Two lines via CHAR(10); the cell is set to WRAP.
   sheet.getRange(Schema.cellStats).setFormula(
-    '="🔴 "&COUNTIF(' + dataRange + ',"PENDING")&' +
-    '"  🟡 "&COUNTIF(' + dataRange + ',"PREPARING")&' +
-    '"  🟢 "&COUNTIF(' + dataRange + ',"SHIPPED")&' +
-    '"  ⚫ "&COUNTIF(' + dataRange + ',"CANCELED")&' +
-    '"   "&IF(COUNTIF(' + dataRange + ',"PENDING")+COUNTIF(' + dataRange + ',"PREPARING")=0,' +
-    '"[clear]",' +
-    '"["&REPT("|",MIN(12,COUNTIF(' + dataRange + ',"PENDING")+COUNTIF(' + dataRange + ',"PREPARING")))&"]")'
+    '=IF(' + SD + 'A6="late","OLDEST "&' + SD + 'A11&CHAR(10)&' + SD + 'A8&" still waiting",' +
+    'IF(' + SD + 'A6="stale","LAST SEEN "&' + SD + 'A12&CHAR(10)&"nothing has landed",' +
+    'IF(' + SD + 'A6="busy",' + SD + 'A8&" TO GRAB"&CHAR(10)&' + SD + 'A9&" in · "&' +
+    SD + 'A10&" out",' +
+    SD + 'A9&" in · "&' + SD + 'A10&" out"&CHAR(10)&"nothing waiting")))'
   );
+
+  // ---- E1 — THE PULSE (cell deliberately UNMOVED) ------------------------------------
+  sheet.getRange(Schema.cellSyncTime).setFormula(
+    '=IF(' + SD + 'A4<0,"⏱ OFFLINE · no activity logged",' +
+    '"⏱ "&IF(' + SD + 'A4<15,"🟢 ALIVE",IF(' + SD + 'A4<60,"🟡 IDLE","🔴 STALE"))&' +
+    '" · "&TEXT(' + SD + 'A3,"h:mm AM/PM")&" · "&' + SD + 'A12&" ago")'
+  );
+
+  // ---- F1:H1 — THE DAY ---------------------------------------------------------------
+  // ⭐ __SparkData!A1:X1 has held 24 live hourly counts since May, built for a heatmap
+  //    that was pivoted away from — nothing has read them since. Future hours are
+  //    genuinely 0, so the curve GROWS RIGHTWARD through the day on its own; no dimming
+  //    trick is needed.
+  // ⭐ SPARKLINE also sidesteps the block-character approach's divide-by-MAX, so a quiet
+  //    morning cannot produce a #DIV/0.
+  sheet.getRange(Schema.cellDayCurve).setFormula(
+    '=IFERROR(SPARKLINE(' + SD + 'A1:X1,{"charttype","column";"color","' + BRAND.yellow +
+    '";"empty","zero"}),"")'
+  );
+}
+
+/**
+ * setupMasthead — the one-shot installer for row 1. Editor-run, zero args.
+ *
+ * ⚠ Row 1's merges were made BY HAND in the Sheets UI during the 2026-05-19 compaction,
+ *   not by code — applyBrandTheme has only ever merged row 2. So this breaks whatever
+ *   shape is there before building ours, using the same try/catch-per-range pattern as
+ *   relocateAdjustmentBadge.
+ *
+ * Deliberately NARROW. A full applyBrandTheme() repaints the whole sheet and would need
+ * its own verification pass; this touches row 1, __SparkData, and two stale validations.
+ */
+function setupMasthead(sheetName) {
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  var sheet = ss.getSheetByName(sheetName || MAIN_SHEET_NAME);
+  if (!sheet) return "❌ Sheet not found: " + (sheetName || MAIN_SHEET_NAME);
+
+  // 1 — clear every row-1 merge shape this layout has ever worn, then build ours.
+  ['A1:C1', 'A1:D1', 'A1:H1', 'B1:D1', 'B1:E1', 'D1:E1', 'F1:H1', 'G1:J1']
+    .forEach(function (r) {
+      try { sheet.getRange(r).breakApart(); } catch (e) { /* not merged — fine */ }
+    });
+  sheet.getRange('A1:C1').merge();
+  sheet.getRange('F1:H1').merge();
+
+  // 2 — the ground. Row 1 is ink end to end; each face's own art carries the colour.
+  sheet.getRange(1, 1, 1, Schema.dataWidth)
+    .setBackground(BRAND.ink)
+    .setFontColor('#ffffff')
+    .setFontFamily(BRAND.fontDisplay)
+    .setVerticalAlignment('middle');
+
+  // 3 — the zones. WRAP on D1 so CHAR(10) renders as two lines.
+  //     ⚠ setRowHeight comes AFTER, so the explicit height wins over auto-fit — the
+  //       2026-06-05 "an embedded newline expands the row" lesson.
+  sheet.getRange(Schema.cellMasthead)
+    .setFontColor(BRAND.yellow).setFontSize(16).setFontWeight('bold')
+    .setHorizontalAlignment('left');                      // styles the "HQ" fallback only
+  sheet.getRange(Schema.cellStats)
+    .setFontSize(10).setFontWeight('normal')
+    .setHorizontalAlignment('left').setWrap(true);
+  sheet.getRange(Schema.cellSyncTime)
+    .setFontSize(10).setFontWeight('normal')
+    .setHorizontalAlignment('left').setWrap(false);
+
+  // 4 — the inputs, then the formulas that read them.
+  _ensureSparkData(ss);
+  _setSystemPulseBannerFormulas(sheet);
+
+  sheet.setRowHeight(1, MASTHEAD.rowHeight);
+
+  // 5 — ⚠ stale data validations on I2:J2, left behind when the 2026-05-19 compaction
+  //     moved the Adjustment picker to H2. Invisible while I+J are hidden; two phantom
+  //     pickers the moment anyone unhides them.
+  var phantom = false;
+  try {
+    if (sheet.getRange('I2').getDataValidation() || sheet.getRange('J2').getDataValidation()) {
+      phantom = true;
+      sheet.getRange('I2:J2').setDataValidation(null);
+    }
+  } catch (e) { /* best effort — never block the masthead on a cleanup */ }
+
+  SpreadsheetApp.flush();
+  return "✅ Masthead installed · row 1 = " + MASTHEAD.rowHeight + "px · faces " +
+         MASTHEAD.version + (phantom ? " · cleared phantom I2:J2 pickers" : "");
 }
 
 /**
