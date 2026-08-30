@@ -1874,6 +1874,17 @@ body.dark-theme .ol-event-sku { background: rgba(255, 217, 102, 0.08); color: #f
 .ml-result.ok   { background: rgba(76,175,80,0.12);   color: #1b5e20; }
 .ml-result.info { background: rgba(0,0,0,0.05);       color: var(--text-secondary); }
 .ml-result b { font-family: 'Roboto Mono', monospace; }
+/* ⚠ THE LOCK'S OUTPUT IS A CHECKLIST, NOT A SENTENCE. installAllOrdersLock returns ~20
+   lines — the gate results plus the staff-test instructions — and run() paints into the
+   status bar and CLEARS IT AFTER 3 SECONDS, so the one output worth reading was the one
+   that vanished. It lands here instead: monospace so the ✓/❌ column lines up, capped and
+   scrollable so a long report cannot push the card past its own max-height. */
+#lockAcctResult.report {
+  font-family: 'Roboto Mono', monospace;
+  font-size: 10px; line-height: 1.45;
+  max-height: 260px; overflow-y: auto;
+  white-space: pre-wrap; word-break: break-word;
+}
 .zp-search {
   display: flex;
   gap: 5px;
@@ -4251,9 +4262,9 @@ body.dark-theme .footer-version { border-color: #2c2c2c; }
       </div>
       <div class="ml-result" id="lockAcctResult"></div>
 
-      <button class="btn-secondary" onclick="run('verifyOwnerBridge')">🔗 Verify owner bridge</button>
+      <button class="btn-secondary" onclick="_lockRun('verifyOwnerBridge','Verifying the bridge')">🔗 Verify owner bridge</button>
       <button class="btn-primary" onclick="lockAllOrdersNow()">🛡 Lock All Orders</button>
-      <button class="btn-info" onclick="run('describeAllOrdersLock')">Lock status</button>
+      <button class="btn-info" onclick="_lockRun('describeAllOrdersLock','Reading lock status')">Lock status</button>
       <button class="btn-danger" onclick="unlockAllOrdersNow()">↺ Unlock</button>
       <p style="font-size:11px;color:#888;margin-top:8px;">
         A <strong>real wall</strong>, not a dialog: the cell refuses. <strong>NOTE</strong>,
@@ -8094,7 +8105,11 @@ function previewStragglersNow() {
 function _lockSay(kind, html) {
   var box = document.getElementById('lockAcctResult');
   if (!box) return;
-  box.className = 'ml-result shown ' + kind;
+  // ⚠ PRESERVE `report`. Assigning className outright wiped the class _lockRun had just
+  //   added, so the scroll cap silently never applied and a 20-line checklist grew the box
+  //   to 391px — pushing the card toward its own max-height.
+  var report = box.classList.contains('report') ? ' report' : '';
+  box.className = 'ml-result shown ' + kind + report;
   box.innerHTML = html;
 }
 
@@ -8146,6 +8161,8 @@ function lockPanelLoad() {
  *   one silent failure in the lock's design. The blank check below only spares a round trip.
  */
 function saveN8nAccountNow() {
+  var box = document.getElementById('lockAcctResult');
+  if (box) box.classList.remove('report');
   var input = document.getElementById('lockAcct');
   var v = input ? String(input.value || '').trim() : '';
   if (!v) {
@@ -8167,6 +8184,35 @@ function saveN8nAccountNow() {
 }
 
 /**
+ * Run a lock action and show its FULL report in the card.
+ *
+ * ⚠ Not run(): that paints the status bar and wipes it after 3s. These functions return a
+ *   gate-by-gate checklist — the bridge probe, the n8n account, then the staff test that
+ *   must NOT be done in an incognito window — and it is the whole point of running them.
+ */
+function _lockRun(fn, label) {
+  var box = document.getElementById('lockAcctResult');
+  if (box) box.classList.add('report');
+  _lockSay('info', label + '…');
+  google.script.run
+    .withSuccessHandler(function (msg) {
+      var txt = String(msg || '(no output)');
+      // ⚠ The verdict is in the BODY, never in the fact that it returned. These refuse by
+      //   returning a sentence, so a refusal arrives through the SUCCESS handler.
+      //
+      // ⚠⚠ AND ⚠⚠ IS NOT A FAILURE MARKER. A SUCCESSFUL install ends with "⚠⚠ NOT in an
+      //   incognito window" — the staff-test warning that is the most important line in the
+      //   report. Matching on it painted every good install red. The real failure vocabulary
+      //   is ❌, REFUSED and FAILED; the healthy paths of all three functions use none.
+      var bad = /❌/.test(txt) || /\bFAILED\b/.test(txt) || /\bREFUSED\b/.test(txt);
+      _lockSay(bad ? 'err' : 'ok', _wdEsc(txt).replace(/\n/g, '<br>'));
+    })
+    .withFailureHandler(function (e) {
+      _lockSay('err', 'Could not run ' + fn + ': ' + _wdEsc(e.message));
+    })[fn]();
+}
+
+/**
  * ⚠ The lock changes who may edit the sheet, so it is deliberately NOT routed through the
  *   owner bridge — otherwise any staff member could switch it off. The server refuses for
  *   anyone but the owner; this confirm is only to stop a mis-tap.
@@ -8177,14 +8223,14 @@ function lockAllOrdersNow() {
       'NOTE, STATUS and LEFT stay editable, and both Pick ID dropdowns keep working.\n\n' +
       'Sidebar actions keep working through the owner bridge — the installer refuses ' +
       'unless that bridge answers and the n8n account is set.')) return;
-  run('installAllOrdersLock');
+  _lockRun('installAllOrdersLock', 'Installing the lock');
 }
 
 function unlockAllOrdersNow() {
   if (!confirm('Remove the All Orders lock?\n\n' +
       'Staff will be able to hand-edit SKU, QTY, LOCATION and SALES ORDER again — ' +
       'which is the edit that cost a picked and counted row on 2026-08-28.')) return;
-  run('unprotectAllOrdersSheet');
+  _lockRun('unprotectAllOrdersSheet', 'Removing the lock');
 }
 
 function runWatchdogNow() {
