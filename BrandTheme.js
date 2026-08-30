@@ -51,12 +51,29 @@ var BRAND = {
  *
  * Faces are drawn by design-lab/shoot-masthead.js and scp'd to /opt/hq-app/mast/.
  *
- * ⚠⚠ SETTLED 2026-08-30 BY TEST, NOT ASSERTION: GOOGLE SHEETS DOES NOT ANIMATE GIFs IN
- *    =IMAGE(). It renders the first frame as a still. So the ceiling is ~1 frame per
- *    MINUTE (formula recalc) and there is no motion to be had in a cell — which is
- *    exactly why this project's standing ruling puts smooth motion on the Floor Board.
- *    The faces are therefore PNG stills, picked live by formula. That is still the whole
- *    feature: the masthead changes with the floor, it just does not move while it waits.
+ * ⚠⚠ THE ANIMATION QUESTION, SETTLED 2026-08-30 BY TWO PROBES. Read this before
+ *    re-proposing an animated banner — it took two tests and one wrong conclusion.
+ *
+ *    1 · =IMAGE() DOES NOT ANIMATE. It renders an animated GIF's first frame and never
+ *        advances it. Proven with a known-good GIF.
+ *
+ *    2 · insertImage() DOES ANIMATE. A floating OverGridImage plays the GIF properly.
+ *        These are two different code paths and the first proves NOTHING about the
+ *        second — I concluded "a Sheet cannot animate" from (1) alone, and the user was
+ *        right to push back. @ Note the asymmetry it implies: a Blob throws "blob format
+ *        is unsupported", but a public URL or data URL works.
+ *
+ *    3 · ⚠⚠ BUT A FLOATING IMAGE SCROLLS WITH THE GRID. It is anchored to a CELL, not to
+ *        the viewport, so it does NOT stay on the frozen banner — scroll one page and
+ *        the masthead slides away. That is what rules it out HERE, not the animation.
+ *
+ *    NET: motion is possible in a Sheet, but not in a PINNED position. Row 1 is frozen,
+ *    so the banner can only use =IMAGE() — pinned, formula-driven, and still. The faces
+ *    are PNG for that reason. The ruling that puts smooth motion on the Floor Board
+ *    survives, but for a sharper reason than "cells cannot animate".
+ *
+ *    ⭐ The animated GIFs are still on the VPS beside the PNGs, so any future surface
+ *      where scrolling does not matter can use them with no rework.
  *
  * ⚠ VERSION THE FILENAME. Sheets caches images per-URL, so re-drawing the art at the
  *   same path can leave the old frame showing indefinitely. Bump `version` instead.
@@ -2613,4 +2630,118 @@ function _applyTestSheetBanding(sheet, boundary) {
               .setFirstRowColor(BRAND.paper)
               .setSecondRowColor(BRAND.paperWarm);
   }
+}
+
+/**
+ * ⏭ PROBE — does an animated GIF actually MOVE when floated OVER cells?
+ *
+ * ⚠⚠ THIS IS A DIFFERENT MECHANISM FROM =IMAGE(), AND THAT DISTINCTION IS THE WHOLE
+ *    POINT. =IMAGE() renders INSIDE a cell and is proven static (tested 2026-08-30 with
+ *    a known-good animated GIF — it sat motionless). insertImage() creates a floating
+ *    OverGridImage that ignores the grid entirely. They are separate code paths and the
+ *    first proves nothing about the second, which is what I wrongly assumed.
+ *
+ * Deliberately the SAME GIF used for the =IMAGE() test, so this is a clean A/B on the
+ * mechanism rather than on the file.
+ *
+ * ⚠ Safe by construction: an OverGridImage is a floating object. It writes to NO cell,
+ *   changes no value, no format, no validation. removeProbeAnimatedGif() deletes it.
+ *   Anchored at column 12 (L) — past dataWidth, so it floats over empty space.
+ */
+var GIF_PROBE = {
+  url: "https://upload.wikimedia.org/wikipedia/commons/2/2c/Rotating_earth_%28large%29.gif"
+};
+
+// ⚠ The anchor is RESOLVED, not hardcoded. The first cut anchored at column 12 and threw
+//   "Those columns are out of bounds" — All Orders is exactly Schema.dataWidth (10)
+//   columns wide, so there is no column L to float over. Park it below the data instead,
+//   clamped to whatever the sheet actually is.
+function _gifProbeAnchor(sheet) {
+  var row = Math.min(sheet.getMaxRows(), Math.max(1, sheet.getLastRow() + 3));
+  return { row: row, column: 2 };               // B, a few rows under the last data row
+}
+
+function probeAnimatedGif() {
+  var sheet = SpreadsheetApp.getActiveSheet();
+  removeProbeAnimatedGif();                     // idempotent — never stack probes
+  var at = _gifProbeAnchor(sheet);
+  sheet.insertImage(GIF_PROBE.url, at.column, at.row);
+  SpreadsheetApp.flush();
+  return "✅ Floated an animated GIF over " +
+         sheet.getRange(at.row, at.column).getA1Notation() +
+         "  (sheet is " + sheet.getMaxRows() + " rows x " + sheet.getMaxColumns() + " cols)\n" +
+         "   Scroll DOWN — it is parked just below the last data row.\n\n" +
+         "WATCH IT for ~5 seconds:\n" +
+         "  · the globe SPINS  → insertImage animates, and the masthead can move\n" +
+         "  · it sits still    → the platform genuinely cannot, on either path\n\n" +
+         "Then run removeProbeAnimatedGif() to clear it.";
+}
+
+function removeProbeAnimatedGif() {
+  var sheet = SpreadsheetApp.getActiveSheet();
+  var gone = 0;
+  // ⚠ Match on the ANCHOR, never remove all images — setupBrandLogo() also uses
+  //   insertImage, and a blanket getImages().remove() would take the HQ mark with it.
+  sheet.getImages().forEach(function (img) {
+    try {
+      var a = img.getAnchorCell();
+      if (a.getColumn() === 2 && a.getRow() > 3) {   // below the banner, in col B
+        img.remove(); gone++;
+      }
+    } catch (e) { /* an image with no readable anchor is not ours */ }
+  });
+  SpreadsheetApp.flush();
+  return gone ? "✅ Removed " + gone + " probe image(s)." : "Nothing to remove.";
+}
+
+/**
+ * ⏭ PROBE 2 — float the REAL animated face over the masthead, and find out whether it
+ *             stays PINNED when you scroll.
+ *
+ * ⭐ Probe 1 settled the big question: insertImage() DOES animate a GIF (the globe spun),
+ *    even though =IMAGE() renders a dead first frame. Two different code paths, and the
+ *    first proved nothing about the second — which is exactly what I got wrong.
+ *
+ * ⚠⚠ THIS IS THE REMAINING UNKNOWN, AND IT DECIDES THE DESIGN. An OverGridImage floats on
+ *    the GRID, not on the viewport. Row 1 is inside the FROZEN pane (frozen rows = 3). If
+ *    a floating image scrolls away with the content, an animated masthead is useless the
+ *    moment anyone scrolls — which is always. Nothing in the docs settles it; scrolling
+ *    does.
+ *
+ * ⚠ Non-destructive: an OverGridImage writes to no cell. A1's =IMAGE() formula stays
+ *   underneath as the fallback and is untouched.
+ */
+var MAST_ANIM = { state: 'clear', width: 280, height: 44 };
+
+function probeMastheadAnimated(state) {
+  var sheet = SpreadsheetApp.getActiveSheet();
+  removeMastheadAnimated();
+  var url = MASTHEAD.baseUrl + (state || MAST_ANIM.state) + '-' + MASTHEAD.version + '.gif';
+  var img = sheet.insertImage(url, 1, 1);       // anchored at A1 — inside the frozen pane
+  img.setWidth(MAST_ANIM.width).setHeight(MAST_ANIM.height);
+  SpreadsheetApp.flush();
+  return "✅ Floated the ANIMATED face over A1.\n" +
+         "   " + url + "\n\n" +
+         "TWO THINGS TO CHECK:\n" +
+         "  1 · does it move?      (the shine should sweep across every ~3s)\n" +
+         "  2 · SCROLL DOWN a page — does it STAY on the frozen banner, or scroll off?\n\n" +
+         "      stays  → an animated masthead is real, and this becomes the mechanism\n" +
+         "      scrolls off → floating images cannot carry the banner; motion has to\n" +
+         "                    live somewhere that is not row 1\n\n" +
+         "Then run removeMastheadAnimated().";
+}
+
+function removeMastheadAnimated() {
+  var sheet = SpreadsheetApp.getActiveSheet();
+  var gone = 0;
+  // ⚠ Match the ANCHOR, never sweep getImages() — setupBrandLogo() also floats an image
+  //   and a blanket remove would take the HQ mark with it.
+  sheet.getImages().forEach(function (img) {
+    try {
+      var a = img.getAnchorCell();
+      if (a.getRow() === 1 && a.getColumn() === 1) { img.remove(); gone++; }
+    } catch (e) { /* no readable anchor — not ours */ }
+  });
+  SpreadsheetApp.flush();
+  return gone ? "✅ Removed " + gone + " floating masthead image(s)." : "Nothing to remove.";
 }
