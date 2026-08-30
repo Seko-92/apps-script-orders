@@ -76,6 +76,7 @@ var MASTHEAD = {
   ext:          "png",  // ⚠ NOT gif — Sheets shows only a GIF's first frame (see above)
   imgH:         44,    // px — mode-4 explicit sizing, so nothing letterboxes
   imgW:         280,   // px — fits A1:C1 (287px) with breathing room
+  restAccent:   "#7e8894",  // the cool tone the rest face wears — shared with its curve
   rowHeight:    52,    // 42 is too cramped for two lines — proven in the render
   lateMinutes:  180,   // matches the Floor Board's own 3h redline
   staleMinutes: 60     // matches the System Pulse's STALE tier
@@ -2354,6 +2355,20 @@ function _ensureSparkData(ss) {
   }
   sheet.getRange(1, 1, 1, 24).setFormulas([countFormulas]);
 
+  // Row 2: YESTERDAY, same shape, read only by the RESTING face. At 4am "today" is four
+  // hours old and empty, so a live curve renders as a blank third of the banner. The
+  // resting masthead wears the day it just did instead — the Floor Board's own resting
+  // panel idea ("the clock ends the day wearing the day it just did"), finally on the
+  // sheet. Same COUNTIFS shape, one day back; costs nothing until off-hours.
+  var yesterdayFormulas = [];
+  for (var y = 0; y < 24; y++) {
+    yesterdayFormulas.push(
+      "=IFERROR(COUNTIFS('Activity Log'!A:A,\">=\"&TODAY()-1+" + y + "/24," +
+      "'Activity Log'!A:A,\"<\"&TODAY()-1+" + (y + 1) + "/24),0)"
+    );
+  }
+  sheet.getRange(2, 1, 1, 24).setFormulas([yesterdayFormulas]);
+
   // System Pulse helpers (A3 timestamp, A4 minutes-since)
   sheet.getRange('A3').setFormula("=IFERROR(MAX('Activity Log'!A:A),0)");
   sheet.getRange('A4').setFormula("=IF(A3>0,(NOW()-A3)*1440,-1)");
@@ -2492,9 +2507,16 @@ function _setSystemPulseBannerFormulas(sheet) {
   //    trick is needed.
   // ⭐ SPARKLINE also sidesteps the block-character approach's divide-by-MAX, so a quiet
   //    morning cannot produce a #DIV/0.
+  // ⚠ Off-hours it shows YESTERDAY (row 2) in the rest tone, not today's empty row —
+  //    and the whole banner goes cool together rather than the face resting beside a
+  //    live-yellow chart.
+  var spark = function (range, colour) {
+    return 'SPARKLINE(' + SD + range + ',{"charttype","column";"color","' + colour +
+           '";"empty","zero"})';
+  };
   sheet.getRange(Schema.cellDayCurve).setFormula(
-    '=IFERROR(SPARKLINE(' + SD + 'A1:X1,{"charttype","column";"color","' + BRAND.yellow +
-    '";"empty","zero"}),"")'
+    '=IFERROR(IF(' + SD + 'A13,' + spark('A2:X2', MASTHEAD.restAccent) + ',' +
+    spark('A1:X1', BRAND.yellow) + '),"")'
   );
 }
 
