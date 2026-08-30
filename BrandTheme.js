@@ -2380,12 +2380,42 @@ function _ensureSparkData(ss) {
   sheet.getRange('A11').setFormula('=' + _fmtMinsExpr('A7'));
   sheet.getRange('A12').setFormula('=' + _fmtMinsExpr('A4'));
 
+  // ---- off-hours ---------------------------------------------------------------------
+  // ⭐⚠ THE SHEET NEVER KNEW ABOUT OFF-HOURS, AND THAT MADE THE MASTHEAD LIE. The Floor
+  //     Board has isOffHours() and the sidebar has _isOffHoursHouston(); row 1 had
+  //     neither, so a quiet Saturday night read as a dead pipeline in the loudest place
+  //     on the screen. A false alarm on the loudest surface is how alarms stop being
+  //     believed — this project's own ruling, applied to itself.
+  //
+  // Matches the BOARD's definition, which is the fuller of the two: weekends off all
+  // day, otherwise 9-17. (⚠ The sidebar's copy omits weekends — a real drift between
+  //  those two that predates this and is not fixed here.)
+  // The spreadsheet timezone is America/Chicago, so NOW() is already Houston time.
+  var base = 'TODAY()+IF(HOUR(NOW())<9,0,1)';
+  sheet.getRange('A13').setFormula(
+    '=OR(WEEKDAY(NOW())=1,WEEKDAY(NOW())=7,HOUR(NOW())<9,HOUR(NOW())>=17)'
+  );
+  // Minutes until the next working 9am. ⚠ No LET() — it threw "Formula parse error" on
+  // this sheet (2026-06-05), so the base expression is repeated rather than bound.
+  sheet.getRange('A14').setFormula(
+    '=MAX(0,((' + base +
+      '+IF(WEEKDAY(' + base + ')=7,2,IF(WEEKDAY(' + base + ')=1,1,0))' +
+      '+9/24)-NOW())*1440)'
+  );
+  sheet.getRange('A15').setFormula('=' + _fmtMinsExpr('A14'));
+
   // ⚠ A4 is -1 when the Activity Log is unreadable. That is a DEAD pipeline, not a
   //    healthy one — it must land on "stale", never fall through to "clear".
+  //
+  // ⚠ REST OUTRANKS EVERYTHING, including "late". The asymmetry decides it: a false
+  //    alarm at 3am costs the credibility of the one surface that has to stay believed,
+  //    while a missed one costs nothing because nobody can act until 9. The facts are
+  //    not lost — the headline still carries what is waiting.
   sheet.getRange('A6').setFormula(
-    '=IF(A7>' + MASTHEAD.lateMinutes + ',"late",' +
+    '=IF(A13,"rest",' +
+     'IF(A7>' + MASTHEAD.lateMinutes + ',"late",' +
      'IF(OR(A4<0,A4>' + MASTHEAD.staleMinutes + '),"stale",' +
-     'IF(A8>0,"busy","clear")))'
+     'IF(A8>0,"busy","clear"))))'
   );
 
   return sheet;
@@ -2428,11 +2458,13 @@ function _setSystemPulseBannerFormulas(sheet) {
   // Branches on the same A6 verdict the face uses, so the picture and the words always
   // agree by construction. Two lines via CHAR(10); the cell is set to WRAP.
   sheet.getRange(Schema.cellStats).setFormula(
-    '=IF(' + SD + 'A6="late","OLDEST "&' + SD + 'A11&CHAR(10)&' + SD + 'A8&" still waiting",' +
+    '=IF(' + SD + 'A6="rest",IF(' + SD + 'A8>0,' + SD + 'A8&" waiting","all clear")&' +
+    'CHAR(10)&"opens in "&' + SD + 'A15,' +
+    'IF(' + SD + 'A6="late","OLDEST "&' + SD + 'A11&CHAR(10)&' + SD + 'A8&" still waiting",' +
     'IF(' + SD + 'A6="stale","LAST SEEN "&' + SD + 'A12&CHAR(10)&"nothing has landed",' +
     'IF(' + SD + 'A6="busy",' + SD + 'A8&" TO GRAB"&CHAR(10)&' + SD + 'A9&" in · "&' +
     SD + 'A10&" out",' +
-    SD + 'A9&" in · "&' + SD + 'A10&" out"&CHAR(10)&"nothing waiting")))'
+    SD + 'A9&" in · "&' + SD + 'A10&" out"&CHAR(10)&"nothing waiting"))))'
   );
 
   // ---- E1 — THE PULSE (cell deliberately UNMOVED) ------------------------------------
