@@ -296,14 +296,26 @@ function setupEbayLogo() {
   var sheet = ss.getSheetByName(MAIN_SHEET_NAME);
   if (!sheet) return "❌ Main sheet not found.";
 
-  // Wikimedia mirror of eBay's official logo. PNG renders crisp inside Sheets'
-  // IMAGE formula on any zoom level. The "1200px" variant balances quality
-  // with load time — the cell renders ~120px wide, so anything larger is
-  // overkill.
-  var logoUrl = "https://upload.wikimedia.org/wikipedia/commons/thumb/1/1b/EBay_logo.svg/1200px-EBay_logo.svg.png";
+  // ⚠⚠ SELF-HOSTED SINCE 2026-08-30, AND THAT IS THE POINT. This pointed at
+  //    Wikimedia's "1200px-EBay_logo.svg.png" thumbnail for months. Wikimedia now
+  //    ALLOWLISTS thumbnail sizes and that one 400s with "Use thumbnail sizes listed
+  //    on w.wiki/GHai" — 500 and 1280 still work, 320/640/800/1024/1200 do not.
+  //
+  //    ⚠ It failed SILENTLY for an unknown length of time because Sheets had the image
+  //      CACHED: the cell kept showing a logo whose URL had already died, and only went
+  //      blank once something rewrote A2 and busted the cache. A dependency can rot
+  //      long before you find out.
+  //
+  //    The logo is ours now, served from the same VPS directory as the masthead faces
+  //    (Caddy already serves /opt/hq-app via try_files — no route, no Caddyfile edit).
+  //    An upstream policy change can no longer take the eBay table's LABEL off the sheet.
+  var logoUrl = MASTHEAD.baseUrl + "ebay-v1.png";
 
-  sheet.getRange("A2").setFormula('=IMAGE("' + logoUrl + '", 4, 32, 120)');
-  return "✅ eBay logo restored to A2.";
+  // ⚠ 500x201 source = 2.49:1. The old call passed (32, 120) = 3.75:1, so the logo had
+  //   been horizontally STRETCHED all along. 40x100 is the true aspect and still fits
+  //   row 2's 65px comfortably.
+  sheet.getRange("A2").setFormula('=IFERROR(IMAGE("' + logoUrl + '", 4, 40, 100),"eBay")');
+  return "✅ eBay logo restored to A2 — self-hosted, true aspect.";
 }
 
 
