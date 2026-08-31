@@ -35,8 +35,17 @@ function preparePrintSheet(opts) {
   var pickIdRaw  = sheet.getRange(pickIdCell).getValue();
   var pickIdRawStr = String(pickIdRaw || "").trim();
   if (!pickIdRawStr || !/^Shipping\s*-\s*/i.test(pickIdRawStr)) {
-    var guardMsg = "❌ Pick a real Pick ID for Shipping (cell " + pickIdCell +
-                   ") — the dropdown header doesn't count.";
+    // ⚠⚠ POINT AT A DOOR, NOT AT A CELL. Since 2026-08-31 the pick-ID cells live in
+    //    the HIDDEN columns, so "set cell I2" is an instruction nobody can follow —
+    //    a refusal that names an invisible cell is a dead end, which is the exact
+    //    mistake boardAdjustStock made until 2026-08-14 ("go fix something on a
+    //    screen you are not standing at"). The refusal is never the problem; the
+    //    absence of a door is.
+    var guardMsg = "❌ No picker set — printing needs one, because every pick, count " +
+                   "and adjustment for the shift is stamped with it.\n\n" +
+                   "Tap the PICKER bar at the top of this panel and choose a name, " +
+                   "then print again.\n\n" +
+                   "(On the tablet, use the picker chip in the Floor Board's footer.)";
     // The board needs a structured refusal it can render; the sidebar has
     // always expected a plain string. The GUARD ITSELF is unchanged — it is
     // the accountability chokepoint, and printing from a tablet must not be a

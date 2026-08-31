@@ -2878,6 +2878,59 @@ input[type="range"]::-moz-range-thumb:active { cursor: grabbing; transform: scal
 /* ═══════════════════════════════════════════════════════════════════════════════
    COMMAND PALETTE
    ═══════════════════════════════════════════════════════════════════════════════ */
+/* ════════════════════════════════════════════════════════════════════════
+   PICKER PICKER (2026-08-31) — the desk-side door to the shift's Pick ID.
+   The pick-ID cells moved into the hidden columns, so the dropdown that used to
+   sit in the banner is gone. The board has its own drawer; this is the sidebar's,
+   and without it PRINTING cannot be unblocked from a desk at all.
+   Modelled on #palette so the panel has one overlay grammar, not two.
+   ════════════════════════════════════════════════════════════════════════ */
+#pickerPick {
+  position: fixed; inset: 0; z-index: 950; display: none;
+  align-items: flex-start; justify-content: center;
+  padding: 46px 12px 12px;
+  background: rgba(15,15,14,0.72);
+  backdrop-filter: blur(2px);
+}
+#pickerPick.active { display: flex; animation: fadeIn 0.18s ease; }
+.pk-box {
+  width: 100%; max-width: 290px; background: #201f1c;
+  border: 1px solid rgba(255,217,102,0.28); border-radius: 8px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.55); overflow: hidden;
+}
+.pk-head {
+  display: flex; align-items: center; gap: 8px;
+  padding: 9px 11px; background: #1a1a18;
+  border-bottom: 1px solid rgba(255,255,255,0.07);
+}
+.pk-head .t {
+  font-family: 'Oswald', sans-serif; font-size: 11px; font-weight: 600;
+  letter-spacing: .09em; text-transform: uppercase; color: #ffd966; flex: 1;
+}
+.pk-head .x {
+  font-size: 15px; line-height: 1; color: #8a8a85; cursor: pointer; padding: 0 3px;
+}
+.pk-head .x:hover { color: #ffd966; }
+.pk-body { max-height: 258px; overflow-y: auto; }
+.pk-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 12px; cursor: pointer; color: #e6e6e2;
+  font-size: 12.5px; border-bottom: 1px solid rgba(255,255,255,0.045);
+}
+.pk-row:last-child { border-bottom: 0; }
+.pk-row:hover { background: rgba(255,217,102,0.11); color: #ffd966; }
+.pk-row.on { background: rgba(255,217,102,0.16); color: #ffd966; font-weight: 600; }
+.pk-row .tick { width: 12px; flex: none; opacity: 0; }
+.pk-row.on .tick { opacity: 1; }
+.pk-empty { padding: 16px 12px; color: #9a9a92; font-size: 11.5px; line-height: 1.55; }
+.pk-foot {
+  padding: 8px 11px; background: #1a1a18; color: #8a8a85;
+  font-size: 10px; line-height: 1.5; border-top: 1px solid rgba(255,255,255,0.07);
+}
+/* the banner is a control now, so it has to look like one */
+.picker-banner { cursor: pointer; }
+.picker-banner:hover { filter: brightness(1.14); }
+
 #palette {
   position: fixed;
   inset: 0;
@@ -3816,7 +3869,7 @@ body.dark-theme .footer-version { border-color: #2c2c2c; }
 </div>
 
 <!-- PICKER BANNER — refreshed on load + every 30s tick (refreshPicker()) -->
-<div class="picker-banner picker-unset" id="pickerBanner">
+<div class="picker-banner picker-unset" id="pickerBanner" onclick="openPickerPick()" title="Set the Pick ID for this shift">
   <!-- ⚠ A DRAWN MARK, replacing the bust-in-silhouette emoji that used to sit
        here. The glyph is deliberately NOT written in this comment: the deploy
        ritual greps the SERVED file for it, and a mention in a comment is a
@@ -4828,6 +4881,17 @@ body.dark-theme .footer-version { border-color: #2c2c2c; }
   <span class="footer-version">v3.6</span>
 </div>
 
+<div id="pickerPick">
+  <div class="pk-box">
+    <div class="pk-head">
+      <span class="t">Who is picking?</span>
+      <span class="x" onclick="closePickerPick()">&times;</span>
+    </div>
+    <div class="pk-body" id="pkBody"></div>
+    <div class="pk-foot">Stamped on every pick, count and adjustment for the shift.</div>
+  </div>
+</div>
+
 <div id="palette">
   <div class="palette-box">
     <div class="palette-header">
@@ -5728,7 +5792,7 @@ function _sidebarPaint(cockpit, lastSync, api, alerts, picker, full) {
   _paintLastSync(lastSync);
   _paintApiMetrics(api);
   _paintAlerts(alerts, full);
-  _paintPicker(picker);
+  _paintPicker(picker, full && full.pickers);
   // The resting panel reads the same tick — it never calls the server itself.
   try { _rpNoteTick(cockpit, alerts, full); } catch (e) {}
   dismissBootSplash();     // panel is populated — drop the splash
@@ -5808,11 +5872,46 @@ function refreshPicker() {
 
 /* Paint helper extracted from refreshPicker so the consolidated tick can
    route pre-fetched data here. */
-function _paintPicker(picker) {
+/* ⚠ THE RAW OPTION vs THE CLEANED NAME — three traps, all already solved on the
+   board, so they are PORTED rather than re-derived (FloorBoard.html:5185).
+   tick.picker is _currentPicker's CLEANED form ("YAwiss · 1"); tick.pickers[i] is
+   the dropdown's RAW option ("Shipping - YAwiss 1"). Label from the raw, SEND the
+   raw verbatim (the server matches with a strict indexOf against the option list),
+   and compare on a normalised key — never ===, which could never match and is why
+   the board's override once always rode to its timeout. */
+function _pickerKey(s) {
+  return String(s || '').toLowerCase()
+    .replace(/^\s*shipping\s*[-:·]\s*/, '')
+    .replace(/[^a-z0-9]+/g, '');
+}
+function _pickerLabel(raw) {
+  return String(raw || '').replace(/\n/g, ' · ').replace(/^\s*shipping\s*-\s*/i, '');
+}
+
+/* ⚠⚠ AN OPTIMISTIC OVERRIDE, AND IT IS NOT OPTIONAL. This banner reads from two
+   tiers and BOTH lag: the published cell takes ~1 min to republish, and the
+   fallback tier is cached 300s with a comment saying it is deliberately NOT busted
+   on writes. Without this the banner would flip to the new name, snap back to "No
+   picker set", then flip again — on the one control whose entire job is to be
+   believed. Retire on EVIDENCE, expire on a timer: the same rule every override on
+   the Floor Board follows. */
+var PICKER_OVERRIDE_MS = 300000;   // 5 min — matches the board's
+var _pkOverride = null;            // { name, until }
+var _pkList = [];                  // last known option list, from the tick
+
+function _paintPicker(picker, pickers) {
   var banner = document.getElementById('pickerBanner');
   var valueEl = document.getElementById('pickerValue');
   if (!banner || !valueEl) return;
+  if (pickers && pickers.length) _pkList = pickers;
+
   var name = String(picker || '').trim();
+  if (_pkOverride) {
+    if (Date.now() > _pkOverride.until) _pkOverride = null;                 // backstop
+    else if (_pickerKey(name) === _pickerKey(_pkOverride.name)) _pkOverride = null;  // agreed
+    else name = _pickerLabel(_pkOverride.name);
+  }
+
   if (name) {
     banner.classList.remove('picker-unset');
     banner.classList.add('picker-set');
@@ -5820,9 +5919,118 @@ function _paintPicker(picker) {
   } else {
     banner.classList.remove('picker-set');
     banner.classList.add('picker-unset');
-    valueEl.textContent = 'No picker set — required before printing';
+    valueEl.textContent = 'No picker set — tap to choose';
   }
 }
+
+/* ── the picker door ───────────────────────────────────────────────────────────
+   ⚠⚠ WHY THIS HAD TO EXIST AT ALL. The pick-ID cells moved into the hidden columns
+      on 2026-08-31 so row 2 could carry the eBay table's nameplate. That removed the
+      only desk-side way to set the shift's picker — and preparePrintSheet REFUSES
+      without one. The Floor Board has its own drawer, so the floor kept working;
+      printing from a desk did not. This is that door. */
+function openPickerPick() {
+  var ov = document.getElementById('pickerPick');
+  var body = document.getElementById('pkBody');
+  if (!ov || !body) return;
+
+  var current = _pkOverride ? _pkOverride.name : '';
+  var live = (document.getElementById('pickerValue') || {}).textContent || '';
+
+  if (!_pkList.length) {
+    // ⚠ SAY WHICH FAILURE THIS IS. An empty list is either "the tick has not landed
+    //   yet" or "the dropdown genuinely has no valid options" — and they need
+    //   opposite responses. Silence would make them look identical.
+    body.innerHTML = '<div class="pk-empty">No picker list yet.<br><br>' +
+      'The panel fetches it on its 30-second tick — wait a moment and reopen. If it ' +
+      'stays empty, the Pick ID dropdown has no options matching ' +
+      '<b>Shipping&nbsp;-&nbsp;Name&nbsp;Id</b>.</div>';
+  } else {
+    var html = '';
+    for (var i = 0; i < _pkList.length; i++) {
+      var raw = String(_pkList[i]);
+      var on  = (current && _pickerKey(current) === _pickerKey(raw)) ||
+                (!current && live && _pickerKey(live) === _pickerKey(raw));
+      html += '<div class="pk-row' + (on ? ' on' : '') + '" data-raw="' +
+              _escAttr(raw) + '"><span class="tick">✓</span>' +
+              _esc(_pickerLabel(raw)) + '</div>';
+    }
+    body.innerHTML = html;
+  }
+
+  /* ⚠⚠ ASSIGNMENT, NOT addEventListener. This body survives innerHTML swaps, so a
+        listener ADDED per open would STACK — four opens then one tap fired four
+        writes on the board in 2026-08-13. Assignment can only ever hold one. */
+  body.onclick = function (e) {
+    var row = e.target.closest ? e.target.closest('.pk-row') : null;
+    if (!row) return;
+    choosePicker(row.getAttribute('data-raw'));
+  };
+
+  ov.classList.add('active');
+}
+
+function closePickerPick() {
+  var ov = document.getElementById('pickerPick');
+  if (ov) ov.classList.remove('active');
+}
+
+function choosePicker(raw) {
+  if (!raw) return;
+  closePickerPick();
+
+  /* Hold the choice locally so the banner does not flip, snap back, then flip
+     again while the two cached tiers catch up. Retire on evidence (the next tick
+     agreeing), expire on the timer only if a reply never lands. */
+  _pkOverride = { name: raw, until: Date.now() + PICKER_OVERRIDE_MS };
+  _paintPicker('', null);
+  status.className = 'running';
+  status.textContent = 'Setting picker to ' + _pickerLabel(raw) + '…';
+
+  if (typeof google === 'undefined' || !google.script) return;
+  google.script.run
+    .withSuccessHandler(function (res) {
+      if (res && res.ok) {
+        status.className = 'success';
+        status.textContent = 'Picker set — ' + _pickerLabel(res.picker);
+        try { playSound('syncDone'); } catch (e) {}
+        updateLastActivity();
+        // the sheet is the truth; ask it rather than trusting the optimistic value
+        setTimeout(refreshPicker, 1200);
+        setTimeout(function () {
+          if (status.className === 'success') {
+            status.className = '';
+            status.textContent = statusMessages[Math.floor(Math.random() * statusMessages.length)];
+          }
+        }, 3000);
+      } else {
+        // ⚠ A REFUSAL RETIRES THE OVERRIDE IMMEDIATELY. Letting the 5-minute TTL keep
+        //   showing a name the server rejected would be the banner lying for five
+        //   minutes about the one fact it exists to state.
+        _pkOverride = null;
+        refreshPicker();
+        status.className = 'error';
+        status.textContent = (res && res.message) || 'Could not set the picker.';
+        try { playSound('error'); } catch (e) {}
+      }
+    })
+    .withFailureHandler(function () {
+      // ⚠ A transport failure is "I do not know", so it must NOT leave an optimistic
+      //   name standing. Clear it and re-ask, exactly like the board's write path.
+      _pkOverride = null;
+      refreshPicker();
+      status.className = 'error';
+      status.textContent = 'Could not reach the sheet — the picker was NOT set.';
+      try { playSound('error'); } catch (e) {}
+    })
+    .setSidebarPicker(raw);
+}
+
+function _esc(t) {
+  return String(t == null ? '' : t)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+function _escAttr(t) { return _esc(t).replace(/"/g,'&quot;'); }
 
 /**
  * Fetches eBay API quota usage from the "API Usage" sheet (populated by your

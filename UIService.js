@@ -423,7 +423,7 @@ function getSidebarTick(force) {
     } catch (e) { /* no mutex available — rebuild rather than serve nothing */ }
   }
 
-  var result = { cockpit: null, lastSync: '', api: null, alerts: null, picker: '', rest: null };
+  var result = { cockpit: null, lastSync: '', api: null, alerts: null, picker: '', pickers: [], rest: null };
   try { result.cockpit  = getDashboardSnapshot(); } catch (e) { console.error('getSidebarTick.cockpit: '  + e); }
   try { result.lastSync = getLastSyncFromSheet(); } catch (e) { console.error('getSidebarTick.lastSync: ' + e); }
   // ⭐ THE SLOW HALF RUNS ON ITS OWN, SLOWER CLOCK (2026-08-18).
@@ -434,6 +434,16 @@ function getSidebarTick(force) {
   // exactly the graceful path — the panel draws fewer rows, never a broken one.
   result.rest   = slow.rest || null;
   try { result.picker   = getCurrentPicker();     } catch (e) { console.error('getSidebarTick.picker: '   + e); }
+  // ⭐ THE OPTION LIST, IN THE FAST HALF. The pick-ID cells are HIDDEN since 2026-08-31,
+  //    so the sidebar's picker control is the desk-side door and it needs the list.
+  // ⚠ NOT in _sidebarSlowParts, and that is a correctness call rather than a
+  //   micro-optimisation. The slow half is cached 900s AND republished into
+  //   _pubSidebarExtras — so a picker added to the dropdown would take a quarter of an
+  //   hour to appear in the control that exists to select them. The cost here is one
+  //   getValue plus one getDataValidation on a cell result.picker already touched,
+  //   against the eight sheet opens the slow half makes.
+  try { result.pickers  = (getBoardPickers() || {}).pickers || []; }
+  catch (e) { console.error('getSidebarTick.pickers: ' + e); }
 
   if (cache) {
     try {

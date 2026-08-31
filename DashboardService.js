@@ -1092,7 +1092,22 @@ function getBoardPickers() {
  *
  * @returns {{ok:boolean, picker:string, message:string}}
  */
-function setBoardPicker(value) {
+/**
+ * ONE BODY, TWO DOORS. The board and the sidebar both set the shift's picker, and this
+ * is the only place that writes it.
+ *
+ * ⚠⚠ NOT A BARE REUSE, AND NOT A COPY. It takes `source` because SOURCE is the only
+ *    thing that distinguishes a tablet action from a desk one in the Activity Log, and
+ *    that distinction is the whole point of logging it. But it is not duplicated either:
+ *    THE ALLOW-LIST IS THE SECURITY BOUNDARY — the public board URL can call
+ *    boardSetPicker, so "only a value the dropdown itself offers" is what stops it
+ *    becoming a free-text write into an attributed field. A second copy of that check is
+ *    how a fix lands in one place and not the other.
+ *
+ * @param {string} value  must be a member of the dropdown's own option list
+ * @param {string} source Activity Log SOURCE — "board" or "sidebar"
+ */
+function _setPickerAllowlisted(value, source) {
   var want = String(value || "").trim();
   if (!want) return { ok: false, picker: "", message: "No picker given." };
 
@@ -1104,10 +1119,15 @@ function setBoardPicker(value) {
     }
 
     var sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(MAIN_SHEET_NAME);
+    // ⚠ The address is runtime state during the 2026-08-31 grace period — see
+    //   Schema.pickIdA1. The cells are HIDDEN now, so this write is the only way the
+    //   picker gets set from the sidebar at all.
     sheet.getRange(Schema.pickIdA1()).setValue(want);
 
     try {
-      logActivity("NOTE", "", "", 0, "board", "picker set to " + want);
+      // "sidebar" is already in ACTIVITY_LOG.warehouseSources, so the picker
+      // auto-captures on the entry — no extra plumbing needed.
+      logActivity("NOTE", "", "", 0, source || "board", "picker set to " + want);
     } catch (e) { /* best-effort */ }
 
     // ⚠ THE PICKER IS PART OF THE TICK, so setting it IS a change to the tick
@@ -1124,7 +1144,31 @@ function setBoardPicker(value) {
 
     return { ok: true, picker: want, message: "" };
   } catch (err) {
-    try { console.log("setBoardPicker: " + err); } catch (_) {}
+    try { console.log("_setPickerAllowlisted(" + source + "): " + err); } catch (_) {}
     return { ok: false, picker: "", message: String(err.message || err) };
   }
+}
+
+/** The Floor Board's door. A doPost action — reachable from the public board URL. */
+function setBoardPicker(value) {
+  return _setPickerAllowlisted(value, "board");
+}
+
+/**
+ * The sidebar's door. Runs as the INVOKING USER through google.script.run, unlike
+ * setBoardPicker which arrives via doPost and therefore runs as the owner.
+ *
+ * ⚠⚠ THAT DIFFERENCE IS WHY THE LOCK MATTERS HERE AND NOT THERE. Sheets protection
+ *    checks WHO, never WHERE FROM, so this write needs the pick-ID cell to be inside
+ *    the lock's carve-out. A stale carve-out fails SILENTLY for staff while working
+ *    perfectly for the owner — re-run protectAllOrdersSheet() after any address change,
+ *    and verify it as a STAFF account.
+ *
+ * ⚠ Deliberately NOT bridged through OwnerBridge. _obRunAsOwner's dispatch map lives
+ *   inside doPost on the pinned /exec, so a name added at HEAD returns "Not an
+ *   allowlisted owner action" for every staff tap while working for the owner — a
+ *   failure invisible to whoever tests it.
+ */
+function setSidebarPicker(value) {
+  return _setPickerAllowlisted(value, "sidebar");
 }
