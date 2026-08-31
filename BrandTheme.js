@@ -1004,101 +1004,27 @@ function repairBrandTheme() {
 }
 
 /**
- * Relocates the Pick ID for Adjustment dropdown between its two supported
- * layouts. Shipped 2026-05-19 to support hiding cols I + J as part of the
- * SHIPPING + SHIP COST soft-delete (Schema.cellAdjustmentId moved from I2 → E2).
+ * ⚰ relocateAdjustmentBadge — DELETED 2026-08-31. Do not resurrect.
  *
- *   target === "E2" — hidden-cols layout (cols I + J hidden on sheet)
- *                     Merges: A2:D2 (logo) + E2:F2 (Adjustment) + G2:H2 (Shipping)
+ * Shipped 2026-05-19 to move the Pick ID for Adjustment dropdown between an
+ * "E2" and an "I2" layout. It had ZERO callers for its entire life (verified by
+ * grep across every .js and .html before deleting) and was always editor-run.
  *
- *   target === "I2" — default layout (cols I + J visible on sheet)
- *                     Merges: A2:F2 (logo) + G2:H2 (Shipping) + I2:J2 (Adjustment)
+ * ⚠⚠ WHY IT HAD TO GO RATHER THAN JUST SIT THERE. It identified which cell held
+ *    the Adjustment picker by asking "does I2 have a validation?" — a question
+ *    that was unambiguous only while I2 was empty. The 2026-08-31 migration puts
+ *    the SHIPPING picker at I2. So the first person to run this afterwards would
+ *    have had it confidently identify the Shipping dropdown as the Adjustment
+ *    one and drag it to E2, taking its validation and value with it. Silent, and
+ *    it reads like success ("✅ relocated I2 → E2").
  *
- * Operation is fully symmetric — call with the OTHER target to revert.
- * Preserves the validation rule + currently-selected value through the move.
- * Idempotent — re-running with the same target returns "already in place" and
- * makes no changes.
+ *    That is the same shape as every other trap in this file: a heuristic that
+ *    was correct about the layout it was written for, left standing after the
+ *    layout moved underneath it.
  *
- * IMPORTANT after running: update Schema.cellAdjustmentId to match the new
- * location ("E2" or "I2"), then clasp push. The function itself only moves
- * the sheet-side artifacts; the code's source of truth is Schema.
- *
- * @param {string} target - "E2" or "I2"
- * @returns {string} Status message
+ * Git history has the body if a future layout ever needs a mover — but write it
+ * against Schema.pickIdA1(), never against "which cell happens to be validated".
  */
-function relocateAdjustmentBadge(target) {
-  if (target !== "E2" && target !== "I2") {
-    return "❌ target must be 'E2' (hidden-cols layout) or 'I2' (default layout)";
-  }
-
-  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
-  var sheet = ss.getSheetByName(MAIN_SHEET_NAME);
-  if (!sheet) return "❌ Main sheet not found";
-
-  // Detect current source by checking which of I2/E2 has the validation.
-  // (Validations are cell-level; survive merge/unmerge operations.)
-  var source = null;
-  if (sheet.getRange('I2').getDataValidation()) source = 'I2';
-  else if (sheet.getRange('E2').getDataValidation()) source = 'E2';
-
-  if (!source) {
-    return "❌ No Pick ID for Adjustment validation found at I2 OR E2. " +
-           "Set up the dropdown first via Sheets UI (Data → Data validation), " +
-           "then re-run this function.";
-  }
-
-  if (source === target) {
-    return "✅ Pick ID for Adjustment already at " + target + " — no changes needed.";
-  }
-
-  // Capture source state before disturbing anything
-  var sourceRange = sheet.getRange(source);
-  var validation = sourceRange.getDataValidation();
-  var value = sourceRange.getValue();
-
-  // Break only the row-2 merges we're going to recreate. G2:H2 (Shipping) is
-  // never touched — its merge stays intact across both layouts.
-  if (target === "E2") {
-    try { sheet.getRange('A2:F2').breakApart(); } catch (e) { /* not merged — ignore */ }
-    try { sheet.getRange('I2:J2').breakApart(); } catch (e) { /* not merged — ignore */ }
-  } else {
-    try { sheet.getRange('A2:D2').breakApart(); } catch (e) { /* not merged — ignore */ }
-    try { sheet.getRange('E2:F2').breakApart(); } catch (e) { /* not merged — ignore */ }
-  }
-
-  // Clear the source cell's validation + value (before recreating merges)
-  sourceRange.setDataValidation(null).setValue('');
-
-  // Recreate the layout's merges
-  if (target === "E2") {
-    sheet.getRange('A2:D2').merge();
-    sheet.getRange('E2:F2').merge();
-  } else {
-    sheet.getRange('A2:F2').merge();
-    sheet.getRange('I2:J2').merge();
-  }
-
-  // Apply validation + value + brand styling to target
-  sheet.getRange(target)
-    .setDataValidation(validation)
-    .setValue(value)
-    .setBackground(BRAND.ink)
-    .setFontColor(BRAND.yellow)
-    .setFontFamily(BRAND.fontDisplay)
-    .setFontWeight('bold')
-    .setFontSize(11)
-    .setHorizontalAlignment('center')
-    .setVerticalAlignment('middle')
-    .setWrap(true);
-
-  // Re-paint the logo merge zone with the warm cream background
-  var logoMerge = (target === "E2") ? 'A2:D2' : 'A2:F2';
-  sheet.getRange(logoMerge).setBackground(BRAND.paperWarm);
-
-  return "✅ Pick ID for Adjustment relocated " + source + " → " + target +
-         ". Logo merge: " + logoMerge + ". Now update Schema.cellAdjustmentId " +
-         "to \"" + target + "\" if not already, then clasp push.";
-}
 
 /**
  * One-shot repair for the live banner formulas in E1 (System Pulse) and
@@ -1203,12 +1129,23 @@ function _styleBannerRow2(sheet) {
   //     → Schema.cellAdjustmentId === "H2", Schema.cellEmployeeId === "F2"
   //     Row 1 also compacted: F1:H1 = stats banner (Schema.cellStats === "F1")
   //
+  //   Nameplate layout (2026-08-31 — pickers moved into the hidden columns):
+  //     A2:F2 = eBay logo zone, G2:H2 = the EBAY nameplate, I2 = Shipping, J2 = Adjustment
+  //     → Schema.cellAdjustmentId === "J2", Schema.cellEmployeeId === "I2"
+  //
+  // ⚠ The 'J2' arm below is NOT decoration. Without it this chain falls through
+  //   to its A2:F2 default — which happens to be the right answer for the new
+  //   layout, and being right by luck is not the same as being right. The next
+  //   person to add a layout would inherit a branch that silently guesses.
+  //
   // This function only PAINTS — it does not create or break merges.
   var logoZone;
   if (Schema.cellAdjustmentId === 'E2') {
     logoZone = 'A2:D2';
   } else if (Schema.cellAdjustmentId === 'H2') {
     logoZone = 'A2:E2';
+  } else if (Schema.cellAdjustmentId === 'J2') {
+    logoZone = 'A2:F2';
   } else {
     logoZone = 'A2:F2';
   }
@@ -1232,24 +1169,45 @@ function _styleBannerRow2(sheet) {
 }
 
 /**
- * OPT-IN: rewrites the G2 (Shipping) and I2 (Adjustment) dropdowns as two-line
- * badge values. After running this:
- *   - The dropdown options become "SHIPPING\nYAwiss · 1" instead of "Shipping - YAwiss 1"
- *   - Each cell's currently-selected value is migrated to its new two-line equivalent
- *   - Validation still works — the new options are the only valid choices
+ * ⚠⚠ DISABLED 2026-08-31 — IT REFUSES. Read this before re-enabling it.
  *
- * Run this AFTER applyBrandTheme() succeeds. Safe to re-run; converts only what's
- * still in the old single-line format.
+ * OPT-IN: rewrites the Shipping and Adjustment dropdowns as two-line badge values
+ * ("SHIPPING\nYAwiss · 1" instead of "Shipping - YAwiss 1").
+ *
+ * ⚠⚠ THE TWO-LINE FORM BREAKS THREE REGEXES AT ONCE, PERMANENTLY, AND SILENTLY:
+ *
+ *   _currentPicker        ^Shipping\s*-\s*                 case-insensitive (ActivityLog.js)
+ *   getBoardPickers       ^Shipping\s*-\s*                 case-insensitive (DashboardService.js)
+ *   _extractPickIdData    ^(?:shipping|adjustments?)\s*[-:·]\s*
+ *
+ * (written without their delimiters on purpose — a literal \s*<slash>i inside a
+ *  block comment contains the sequence that ENDS the comment, and node --check
+ *  caught exactly that when this docblock was first written.)
+ *
+ * Every one of them wants a SEPARATOR after the label. In "SHIPPING\nYAwiss · 1"
+ * the `\s*` happily eats the newline and then the pattern demands `-` and finds
+ * `Y`. So all three fail together. The consequences are quiet and total:
+ * getCurrentPicker() returns "" forever, so every Activity Log row goes
+ * unattributed, the print gate refuses with a message about a cell nobody can
+ * see, and the Floor Board's picker list offers nobody while reporting ok:true.
+ *
+ * Nothing has ever called this function — it has been opt-in and caller-free for
+ * its whole life. It stays refused rather than deleted because its body is the
+ * only worked example of reading and rewriting a validation rule in place, which
+ * migratePickIdCells() was modelled on.
+ *
+ * If badges are ever genuinely wanted, the fix is NOT to re-enable this: it is to
+ * change the three regexes FIRST, in one commit, with a test pinning them
+ * together — the A-9/A-50 drift class this project has been bitten by three times.
  */
 function setupPickIdBadges() {
-  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
-  var sheet = ss.getSheetByName(MAIN_SHEET_NAME);
-  if (!sheet) return "❌ Main sheet not found";
-
-  var report = [];
-  report.push(_rewritePickIdValidation(sheet.getRange(Schema.cellEmployeeId),   'SHIPPING',   /^shipping\s*[-:·]\s*(.+)$/i));
-  report.push(_rewritePickIdValidation(sheet.getRange(Schema.cellAdjustmentId), 'ADJUSTMENT', /^adjustment(?:s)?\s*[-:·]\s*(.+)$/i));
-  return "Pick ID badge migration:\n" + report.join("\n");
+  return "❌ REFUSED — setupPickIdBadges is disabled (2026-08-31).\n\n" +
+         "It rewrites the Pick ID options into a two-line form that breaks the\n" +
+         "gate regex in _currentPicker, getBoardPickers AND _extractPickIdData at\n" +
+         "once. getCurrentPicker() would return \"\" permanently: unattributed\n" +
+         "Activity Log rows, a print gate that refuses, and a Floor Board picker\n" +
+         "list that offers nobody while reporting ok:true.\n\n" +
+         "Read the docblock above this function before re-enabling it.";
 }
 
 function _rewritePickIdValidation(range, label, parsePattern) {
@@ -1304,6 +1262,194 @@ function _rewritePickIdValidation(range, label, parsePattern) {
   }
 
   return "  • " + a1 + ": " + oldOptions.length + " option(s) migrated to two-line badges";
+}
+
+/**
+ * describePickIdCells — READ-ONLY. Zero args. Writes to the execution log.
+ *
+ * The Run button in the Apps Script editor does not display a return value, so this
+ * console.log()s everything AND returns it. Same shape as auditBoardStockAdjustments
+ * and diagnoseIdentityFlags, for the same reason.
+ *
+ * ⚠⚠ SAVE THIS OUTPUT BEFORE MIGRATING ANYTHING. The dropdown option lists exist
+ *    NOWHERE in this codebase — they were authored by hand in the Sheets UI, and
+ *    _rewritePickIdValidation only ever REWRITES a rule that already exists. The cell
+ *    is the only copy of its own options, so this log is the only backup that will
+ *    exist short of a Drive version-history restore.
+ *
+ * It answers three questions the 2026-08-31 migration depends on:
+ *
+ *   1 · Are the options SINGLE-line? A two-line form ("SHIPPING\nYAwiss · 1") defeats
+ *       the gate regex in _currentPicker, getBoardPickers AND _extractPickIdData at
+ *       once, so getCurrentPicker() returns "" permanently. That is a PRE-EXISTING
+ *       outage, not the migration's fault — but it must be fixed first, separately,
+ *       or the move gets blamed for it.
+ *
+ *   2 · Is the rule VALUE_IN_LIST and not VALUE_IN_RANGE? For a range-backed rule
+ *       getCriteriaValues()[0] returns a *Range*, so getBoardPickers' loop reads
+ *       undefined.length, never runs, and returns {ok:true, pickers:[]} — healthy
+ *       looking, and it offers nobody.
+ *
+ *   3 · Are the destinations genuinely empty? I2/J2 carrying any validation or value
+ *       means a half-finished migration, and writing over it would destroy evidence.
+ *
+ * Run describeAllOrdersLock() in the same sitting — its `editable:` line is the only
+ * thing that says whether the lock is installed and which cells it currently opens.
+ *
+ * @returns {string} the same report that was logged
+ */
+function describePickIdCells() {
+  var out = [];
+  var say = function (s) { out.push(s); };
+
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  var sheet = ss.getSheetByName(MAIN_SHEET_NAME);
+  if (!sheet) {
+    var miss = "❌ Main sheet not found: " + MAIN_SHEET_NAME;
+    console.log(miss);
+    return miss;
+  }
+
+  var RULE = '════════════════════════════════════════════════════════════════════';
+  var THIN = '────────────────────────────────────────────────────────────────────';
+
+  say(RULE);
+  say(' PICK ID CELLS · read-only · ' +
+      Utilities.formatDate(new Date(), 'America/Chicago', 'yyyy-MM-dd HH:mm') + ' Houston');
+  say(RULE);
+  say(' ⚠ SAVE THIS OUTPUT. The option lists exist nowhere in code.');
+  say('');
+
+  // Two-line detection is the gate, so it is tallied across BOTH cells.
+  var twoLineTotal = 0;
+  var rangeBacked  = 0;
+
+  var describe = function (label, a1, gateRe) {
+    say(THIN);
+    say(' ' + label + ' · ' + a1);
+    say(THIN);
+    if (!a1) { say('  ✗ address is undefined in Schema'); return; }
+
+    var cell = sheet.getRange(a1);
+    var col  = cell.getColumn();
+
+    // JSON.stringify is deliberate — it is what makes an embedded \n VISIBLE.
+    var raw = cell.getValue();
+    say('  value          : ' + JSON.stringify(String(raw)));
+    say('  gate regex     : ' + (gateRe.test(String(raw)) ? '✓ PASSES' : '✗ FAILS') +
+        '   (' + String(gateRe) + ')');
+
+    var merges = cell.getMergedRanges();
+    say('  merge          : ' + (merges.length ? merges[0].getA1Notation() : 'none'));
+    say('  column hidden  : ' + (sheet.isColumnHiddenByUser(col) ? 'YES' : 'no') +
+        '   (col ' + col + ')');
+
+    var dv = cell.getDataValidation();
+    if (!dv) { say('  validation     : ✗ NONE'); return; }
+
+    say('  validation     : ' + dv.getCriteriaType());
+    say('    allowInvalid : ' + dv.getAllowInvalid());
+    say('    helpText     : ' + JSON.stringify(dv.getHelpText() || ''));
+
+    var cv = dv.getCriteriaValues() || [];
+    say('    showDropdown : ' + cv[1]);
+
+    // ⚠ VALUE_IN_RANGE returns a Range here, not an Array. Detect rather than assume.
+    if (!Array.isArray(cv[0])) {
+      rangeBacked++;
+      var where = 'unknown';
+      try { where = cv[0].getA1Notation(); } catch (e) {}
+      say('    options      : ✗ RANGE-BACKED (' + where + ') — NOT a literal list.');
+      say('                   getBoardPickers reads undefined.length on this and');
+      say('                   returns {ok:true, pickers:[]} — offers nobody.');
+      return;
+    }
+
+    var opts = cv[0];
+    say('    options (' + opts.length + ')  :');
+    for (var i = 0; i < opts.length; i++) {
+      var o = String(opts[i]);
+      var multi = o.indexOf('\n') !== -1;
+      if (multi) twoLineTotal++;
+      say('      [' + i + '] ' + JSON.stringify(o) + (multi ? '   ⚠ TWO-LINE' : ''));
+    }
+  };
+
+  describe('SHIPPING   · Schema.cellEmployeeId',   Schema.cellEmployeeId,
+           /^Shipping\s*-\s*/i);
+  say('');
+  describe('ADJUSTMENT · Schema.cellAdjustmentId', Schema.cellAdjustmentId,
+           /^adjustment(?:s)?\s*[-:·]\s*/i);
+
+  // ---- destinations -------------------------------------------------------------
+  say('');
+  say(THIN);
+  say(' DESTINATIONS (must be empty and unvalidated before migrating)');
+  say(THIN);
+  var destDirty = 0;
+  ['I2', 'J2'].forEach(function (a1) {
+    var c = sheet.getRange(a1);
+    var hasDv = !!c.getDataValidation();
+    var val   = String(c.getValue());
+    var mg    = c.getMergedRanges();
+    if (hasDv || val) destDirty++;
+    say('  ' + a1 + '  validation: ' + (hasDv ? '⚠ PRESENT' : 'none') +
+        '   value: ' + JSON.stringify(val) +
+        '   merge: ' + (mg.length ? mg[0].getA1Notation() : 'none') +
+        '   col hidden: ' + (sheet.isColumnHiddenByUser(c.getColumn()) ? 'YES' : 'no'));
+  });
+
+  // ---- the live verdict ---------------------------------------------------------
+  say('');
+  say(THIN);
+  say(' LIVE VERDICT');
+  say(THIN);
+  var picker = '';
+  try { picker = String(getCurrentPicker() || ''); }
+  catch (e) { picker = ''; say('  getCurrentPicker() THREW: ' + e); }
+  say('  getCurrentPicker() : ' + JSON.stringify(picker) +
+      (picker ? '' : '   ✗ EMPTY — every Activity Log row is unattributed'));
+
+  try {
+    var bp = getBoardPickers() || {};
+    var list = bp.pickers || [];
+    say('  getBoardPickers()  : ok=' + bp.ok +
+        '  current=' + JSON.stringify(String(bp.current || '')) +
+        '  pickers=' + list.length);
+    for (var k = 0; k < list.length; k++) say('      [' + k + '] ' + JSON.stringify(String(list[k])));
+    if (!list.length) say('      ✗ NO PICKERS OFFERED — the board drawer would be empty.');
+  } catch (e2) {
+    say('  getBoardPickers() THREW: ' + e2);
+  }
+
+  // ---- the gate -----------------------------------------------------------------
+  var pass = (twoLineTotal === 0) && !!picker && (rangeBacked === 0);
+  say('');
+  say(RULE);
+  say(' GATE');
+  say(RULE);
+  say('  two-line opts: ' + twoLineTotal);
+  say('  range-backed rules: ' + rangeBacked);
+  say('  getCurrentPicker(): ' + (picker ? 'non-empty' : 'EMPTY'));
+  say('  destinations dirty: ' + destDirty);
+  say('');
+  if (pass && destDirty === 0) {
+    say('  ✅ GATE PASSES — safe to proceed.');
+  } else if (pass) {
+    say('  ⚠ Gate passes on the SOURCES, but I2/J2 are not clean.');
+    say('    That is a half-finished migration. Do not write over it —');
+    say('    run rollbackPickIdCells() or clear them by hand first.');
+  } else {
+    say('  ❌ GATE FAILS — STOP. Fix this in its OWN commit before migrating,');
+    say('    or the move will be blamed for a pre-existing outage.');
+  }
+  say('');
+  say('  Next: run describeAllOrdersLock() and save its `editable:` line too.');
+  say(RULE);
+
+  var report = out.join('\n');
+  console.log(report);
+  return report;
 }
 
 function _styleHeaderRow(sheet, row) {
@@ -2596,11 +2742,16 @@ function _setSystemPulseBannerFormulas(sheet) {
  *
  * ⚠ Row 1's merges were made BY HAND in the Sheets UI during the 2026-05-19 compaction,
  *   not by code — applyBrandTheme has only ever merged row 2. So this breaks whatever
- *   shape is there before building ours, using the same try/catch-per-range pattern as
- *   relocateAdjustmentBadge.
+ *   shape is there before building ours, one try/catch per range so a range that is not
+ *   currently merged cannot abort the install.
  *
  * Deliberately NARROW. A full applyBrandTheme() repaints the whole sheet and would need
- * its own verification pass; this touches row 1, __SparkData, and two stale validations.
+ * its own verification pass; this touches row 1, __SparkData, and step 6's validation
+ * sweep.
+ *
+ * ⚠⚠ STEP 6 IS THE DANGEROUS PART — read its comment before editing it. It used to
+ *    hardcode a wipe of I2:J2, which the 2026-08-31 migration turns into the LIVE pick-ID
+ *    cells. It now protects the live addresses and sweeps the rest.
  */
 function setupMasthead(sheetName) {
   var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
@@ -2653,20 +2804,61 @@ function setupMasthead(sheetName) {
 
   sheet.setRowHeight(1, MASTHEAD.rowHeight);
 
-  // 6 — ⚠ stale data validations on I2:J2, left behind when the 2026-05-19 compaction
-  //     moved the Adjustment picker to H2. Invisible while I+J are hidden; two phantom
-  //     pickers the moment anyone unhides them.
-  var phantom = false;
+  // 6 — ⚠⚠ SWEEP STALE ROW-2 VALIDATIONS — AND NEVER THE LIVE PICK IDs.
+  //
+  //     The 2026-05-19 compaction left phantom dropdowns at I2:J2 when it moved the
+  //     Adjustment picker to H2. They are invisible while I+J are hidden and become
+  //     two extra pickers the moment anyone unhides those columns. Worth sweeping.
+  //
+  // ⚠⚠ THIS BLOCK USED TO HARDCODE `I2:J2`, AND THAT WAS A LOADED GUN. The 2026-08-31
+  //    migration moves the LIVE pickers to exactly those two cells, so the next run of
+  //    this installer would have destroyed both dropdowns — and the loss is
+  //    UNRECOVERABLE, because NOTHING IN THIS CODEBASE AUTHORS THAT OPTION LIST.
+  //    _rewritePickIdValidation only rewrites a rule that already exists; the lists were
+  //    made by hand in the Sheets UI, so the cell is the only copy of its own options.
+  //    The whole block sits in a try/catch and returned a success-shaped string, so it
+  //    would have read as a clean install for weeks.
+  //
+  //    The rule is now INVERTED: protect the live addresses, sweep whatever else in
+  //    row 2 carries a validation. Protecting rather than targeting means a future
+  //    layout change moves the pickers without ever re-arming this.
+  var phantoms = [];
   try {
-    if (sheet.getRange('I2').getDataValidation() || sheet.getRange('J2').getDataValidation()) {
-      phantom = true;
-      sheet.getRange('I2:J2').setDataValidation(null);
+    // ⚠ Protect the WHOLE MERGE each address sits in, not just the anchor. A rule
+    //   applied to F2:G2 lives on BOTH cells, so sweeping the non-anchor half would be
+    //   an invisible partial wipe. Same "merges[0] or the cell" shape the lock carve-out
+    //   uses at :619. The *Next constants may not exist yet — the guard tolerates that,
+    //   which is what keeps this correct DURING the migration, when both the old and the
+    //   new addresses are briefly live at once.
+    var keepCol = {};
+    [Schema.cellEmployeeId,     Schema.cellAdjustmentId,
+     Schema.cellEmployeeIdNext, Schema.cellAdjustmentIdNext].forEach(function (a1) {
+      if (!a1) return;
+      var r      = sheet.getRange(a1);
+      var merges = r.getMergedRanges();
+      var span   = merges.length ? merges[0] : r;
+      for (var i = 0; i < span.getNumColumns(); i++) keepCol[span.getColumn() + i] = true;
+    });
+
+    // One batched read of the row rather than a getDataValidation() per cell.
+    var rules = sheet.getRange(2, 1, 1, Schema.dataWidth).getDataValidations()[0];
+    for (var c = 0; c < rules.length; c++) {
+      if (!rules[c] || keepCol[c + 1]) continue;
+      var stale = sheet.getRange(2, c + 1);
+      stale.setDataValidation(null);
+      phantoms.push(stale.getA1Notation());
     }
-  } catch (e) { /* best effort — never block the masthead on a cleanup */ }
+  } catch (e) {
+    // Best effort — never block the masthead on a cleanup. But SAY SO: swallowing
+    // this silently is half of what made the old version dangerous.
+    console.log('setupMasthead.sweepRow2Validations: ' + e);
+  }
 
   SpreadsheetApp.flush();
   return "✅ Masthead installed · row 1 = " + MASTHEAD.rowHeight + "px · faces " +
-         MASTHEAD.version + (phantom ? " · cleared phantom I2:J2 pickers" : "");
+         MASTHEAD.version +
+         (phantoms.length ? " · swept stale row-2 validation(s): " + phantoms.join(', ')
+                          : "");
 }
 
 /**
