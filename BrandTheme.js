@@ -1884,6 +1884,40 @@ function migratePickIdCells(mode) {
  * The instant, no-deploy rollback is deleting the property ALONE. This function is only
  * needed to put the data back afterwards.
  */
+/**
+ * migratePickIdCellsAPPLY — the zero-arg door for the Run button.
+ *
+ * ⚠⚠ THE APPS SCRIPT RUN BUTTON CANNOT PASS ARGUMENTS. It calls the selected function
+ *    with none, so migratePickIdCells("APPLY") is simply not runnable from the editor
+ *    dropdown — it would execute as a dry run forever while looking like it applied.
+ *    This project has walked into that trap before (checkPublishedTickNow,
+ *    setMyPricePushPassphraseNow, importKitsNow, runSingleStockAdjustTest all exist for
+ *    the same reason), which is why every one-shot here gets a zero-arg wrapper.
+ *
+ * ⚠ NAMED IN CAPITALS ON PURPOSE. The Run dropdown lists functions alphabetically, so
+ *   this sits directly beneath migratePickIdCells — and the difference between the safe
+ *   one and the writing one has to be readable at a glance in that list, not inferred.
+ *
+ * @returns {string} the migration report
+ */
+function migratePickIdCellsAPPLY() {
+  return migratePickIdCells("APPLY");
+}
+
+/**
+ * rollbackPickIdCellsAPPLY — same, for the mirror.
+ *
+ * ⚠ The INSTANT rollback is not this function. It is deleting the PICK_ID_ADDR Script
+ *   Property: that alone sends every reader — including the pinned /exec, which cannot
+ *   be redeployed quickly — back to the banner cells on its next execution, with no
+ *   deploy at all. This only moves the data back afterwards.
+ *
+ * @returns {string} the rollback report
+ */
+function rollbackPickIdCellsAPPLY() {
+  return rollbackPickIdCells("APPLY");
+}
+
 function rollbackPickIdCells(mode) {
   if (typeof _obRequireOwner === "function") {
     var denied = _obRequireOwner("Rolling back the Pick ID cells");
