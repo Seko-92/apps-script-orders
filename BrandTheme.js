@@ -337,13 +337,32 @@ function setupEbayLogo() {
   //    The logo is ours now, served from the same VPS directory as the masthead faces
   //    (Caddy already serves /opt/hq-app via try_files — no route, no Caddyfile edit).
   //    An upstream policy change can no longer take the eBay table's LABEL off the sheet.
-  var logoUrl = MASTHEAD.baseUrl + "ebay-v1.png";
+  // ⭐ TWO ASSETS, CHOSEN BY THE LAYOUT — because a logo's GROUND has to match the cell
+  //    it sits in, and row 2's ground changes with the nameplate.
+  //
+  //    ebay-v1  transparent, sized for today's CREAM row 2 (65px tall)
+  //    ebay-v2  the plate colour baked in, with the ▌ bar drawn at its left edge in
+  //             #8a8f98 — so row 2 and the gold DIRECT divider rhyme on BOTH sides:
+  //             bar + name on the left, count on the right. Two nameplates, one grammar.
+  //
+  // ⚠ The bar has to live INSIDE the PNG. A cell cannot hold both an =IMAGE() and a
+  //   number-format prefix, which is how the divider draws its ▌ — so the only way to
+  //   give row 2 the same mark is to composite it into the art.
+  var plateMode = (Schema.pickIdA1() === Schema.cellEmployeeIdNext);
+  var logoUrl   = MASTHEAD.baseUrl + (plateMode ? "ebay-v2.png" : "ebay-v1.png");
 
-  // ⚠ 500x201 source = 2.49:1. The old call passed (32, 120) = 3.75:1, so the logo had
-  //   been horizontally STRETCHED all along. 40x100 is the true aspect and still fits
-  //   row 2's 65px comfortably.
-  sheet.getRange("A2").setFormula('=IFERROR(IMAGE("' + logoUrl + '", 4, 40, 100),"eBay")');
-  return "✅ eBay logo restored to A2 — self-hosted, true aspect.";
+  // ⚠ 500x201 source = 2.49:1. An older call passed (32, 120) = 3.75:1, so the logo had
+  //   been horizontally STRETCHED all along. Both sizes below hold their true aspect.
+  // ⚠ 40px was sized for row 2 at 65px. The nameplate row is 44px, so the plate asset
+  //   ships at 30px — 40 would leave 4px of margin and read as jammed.
+  var h = plateMode ? 30 : 40;
+  var w = plateMode ? 80 : 100;   // v2 carries the bar + a gap, so it is wider per unit height
+
+  sheet.getRange("A2").setFormula(
+    '=IFERROR(IMAGE("' + logoUrl + '", 4, ' + h + ', ' + w + '),"eBay")'
+  );
+  return "✅ eBay logo restored to A2 — self-hosted, true aspect, " +
+         (plateMode ? "plate ground + ▌ bar (nameplate layout)." : "transparent (cream layout).");
 }
 
 
