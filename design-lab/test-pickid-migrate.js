@@ -34,7 +34,19 @@ function makeSheet(cfg) {
     getDataValidation(){ return this.dv; },
     getMergedRanges(){ return this.merges; },
     setDataValidation(d){ this.writes.push('dv'); this.dv = d; return this; },
-    setValue(v){ this.writes.push('val'); this.val = v; return this; },
+    setValue(v){
+      // ⚠⚠ SHEETS REJECTS THIS, SO THE STUB MUST TOO. A stub cheaper than the real
+      //    thing tests nothing (the audio FakeCtx lesson) — and the entire failure
+      //    being guarded against is setValue THROWING against a strict rule.
+      if (this.dv && this.dv.getAllowInvalid() === false) {
+        const cv = this.dv.getCriteriaValues() || [];
+        if (Array.isArray(cv[0]) && cv[0].indexOf(v) === -1) {
+          throw new Error('The data you entered in cell ' + this.a1 +
+                          ' violates the data validation rules set on this cell.');
+        }
+      }
+      this.writes.push('val'); this.val = v; return this;
+    },
     clearContent(){ this.writes.push('clear'); this.val = ''; return this; },
     setBackground(){return this;}, setFontColor(){return this;}, setFontFamily(){return this;},
     setFontWeight(){return this;}, setFontSize(){return this;},
@@ -196,6 +208,43 @@ block(() => {
      /REFUSED/.test(r.rep) && /already/.test(r.rep), r.rep.slice(-200));
   const writes = Object.values(r.sheet._cells).reduce((n,x)=>n+x.writes.length,0);
   ok('F2 with zero writes', writes === 0, writes);
+});
+
+section('G · ⚠⚠ the LIVE case — a value that is not in its own option list');
+block(() => {
+  // exactly what the sheet holds: H2 = "Pick ID for Adjustment", list has it WITH a space
+  const c = clone(CLEAN);
+  ok('G0 the fixture is the real inconsistency, not an invention',
+     c.H2.value === 'Pick ID for Adjustment' && ADJ.indexOf('Pick ID for Adjustment') === -1);
+
+  const dry = run(clone(CLEAN), undefined);
+  ok('G1 the DRY RUN warns before anyone runs APPLY',
+     /is NOT in this list/.test(dry.rep), dry.rep.slice(-300));
+
+  const r = run(clone(CLEAN), 'APPLY');
+  ok('G2 ⚠⚠ APPLY does not throw — it completes', /MIGRATED/.test(r.rep), r.rep.slice(-260));
+  ok('G3 J2 gets the list\'s OWN placeholder, not the invalid value',
+     r.sheet._cells.J2.val === 'Pick ID for Adjustment ', r.sheet._cells.J2.val);
+  ok('G4 ...and SHIPPING still migrated normally',
+     r.sheet._cells.I2.val === 'Pick ID for Shipping', r.sheet._cells.I2.val);
+  ok('G5 both sources cleared', !r.sheet._cells.F2.dv && !r.sheet._cells.H2.dv);
+  ok('G6 the property still landed last', r.props.PICK_ID_ADDR === 'new');
+});
+
+section('H · ⚠ a REAL picker missing from its list is left BLANK, never guessed');
+block(() => {
+  const c = clone(CLEAN);
+  c.F2.value = 'Shipping - Ghost 999';        // a real name, absent from the options
+  const dry = run(clone(c), undefined);
+  ok('H1 the dry run flags it as a real picker, not a placeholder',
+     /REAL picker/.test(dry.rep), dry.rep.slice(-300));
+
+  const r = run(clone(c), 'APPLY');
+  ok('H2 it completes rather than throwing', /MIGRATED/.test(r.rep), r.rep.slice(-200));
+  ok('H3 ⚠ I2 is left BLANK — substituting someone would misattribute the day',
+     r.sheet._cells.I2.val === '', r.sheet._cells.I2.val);
+  ok('H4 and the validation still moved, so it can be re-picked',
+     !!r.sheet._cells.I2.dv && r.sheet._cells.I2.dv.getCriteriaValues()[0].length === 5);
 });
 
 console.log('\n' + (fail ? '✗ ' : '✅ ') + 'test-pickid-migrate: ' + pass + ' passed, ' + fail + ' failed');

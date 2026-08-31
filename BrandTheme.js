@@ -1731,11 +1731,30 @@ function migratePickIdCells(mode) {
                   'would THROW at 4am. Fix the option list first.');
     }
 
+    // ⚠⚠ CAN THE CURRENT VALUE EVEN BE COPIED? Found on the live sheet 2026-08-31:
+    //    H2 holds "Pick ID for Adjustment" while its own option [0] is
+    //    "Pick ID for Adjustment " (trailing space). The cell's value is NOT a member of
+    //    its own list. Writing it into a fresh allowInvalid:false rule would THROW —
+    //    after the FIRST cell had already migrated and cleared its source, leaving the
+    //    Shipping dropdown gone from the banner and not yet live at I2. A half-migration.
+    //
+    //    So the value is classified here, not discovered mid-write:
+    //      valid       copy it verbatim
+    //      placeholder it fails the gate regex, so it means "unset" — write the list's
+    //                  OWN placeholder instead. Same meaning, and it lands.
+    //      real picker a name that is not in its own list. Do NOT substitute; skip it
+    //                  and say so. Guessing at someone's identity is worse than blank.
+    var val = String(src.getValue());
+    var valueMode = 'valid';
+    if (val && opts.indexOf(val) === -1 && !allowInvalid) {
+      valueMode = p.gate.test(val) ? 'skip' : 'placeholder';
+    }
+
     captured.push({
       label: p.label, from: p.from, to: p.to,
       opts: opts, showDropdown: cv[1], allowInvalid: allowInvalid,
-      helpText: dv.getHelpText() || '', value: String(src.getValue()),
-      gateValid: gateValid, placeholder: placeholder
+      helpText: dv.getHelpText() || '', value: val,
+      gateValid: gateValid, placeholder: placeholder, valueMode: valueMode
     });
   });
 
@@ -1749,6 +1768,17 @@ function migratePickIdCells(mode) {
     say('   helpText     : ' + JSON.stringify(c.helpText));
     say('   4am reset    : would write ' + JSON.stringify(c.placeholder) + ' → ' +
         ((c.opts.indexOf(c.placeholder) !== -1 || c.allowInvalid) ? '✓ lands' : '❌ THROWS'));
+    if (c.valueMode === 'placeholder') {
+      say('   ⚠ the value    : ' + JSON.stringify(c.value) + ' is NOT in this list.');
+      say('                    It fails the gate regex, so it means "unset" — the list\'s');
+      say('                    own placeholder ' + JSON.stringify(c.placeholder) +
+          ' will be written instead.');
+      say('                    (Copying it verbatim would THROW against allowInvalid:false.)');
+    } else if (c.valueMode === 'skip') {
+      say('   ⚠⚠ the value   : ' + JSON.stringify(c.value) + ' is a REAL picker that is');
+      say('                    not in its own list. It will be LEFT BLANK rather than');
+      say('                    guessed at — set it again from the dropdown afterwards.');
+    }
   });
 
   say('');
@@ -1781,7 +1811,12 @@ function migratePickIdCells(mode) {
     if (c.helpText) b.setHelpText(c.helpText);
 
     dst.setDataValidation(b.build());
-    if (c.value) dst.setValue(c.value);
+    // ⚠ Write only what the rule will accept — see valueMode in the preflight.
+    var toWrite = (c.valueMode === 'placeholder') ? c.placeholder
+                : (c.valueMode === 'skip')        ? ''
+                : c.value;
+    if (toWrite) dst.setValue(toWrite);
+    c.wrote = toWrite;
     dst.setBackground(BRAND.ink).setFontColor(BRAND.yellow)
        .setFontFamily(BRAND.fontDisplay).setFontWeight('bold').setFontSize(11)
        .setHorizontalAlignment('center').setVerticalAlignment('middle').setWrap(true);
@@ -1800,7 +1835,7 @@ function migratePickIdCells(mode) {
       }
       if (back.getAllowInvalid() !== c.allowInvalid) bad.push('allowInvalid differs');
     }
-    if (String(dst.getValue()) !== c.value) bad.push('value differs');
+    if (String(dst.getValue()) !== String(c.wrote || '')) bad.push('value differs');
 
     if (bad.length) {
       say('');
