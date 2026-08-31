@@ -1,0 +1,63 @@
+<!doctype html><html><head><meta charset="utf-8">
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@300;400;500;700&family=Roboto+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{background:#555;padding:14px;font-family:'Roboto Mono',monospace}
+  .lbl{color:#ddd;font:11px/1.6 'Roboto Mono',monospace;margin:10px 0 4px}
+  /* one banner row at TRUE sheet widths: A1:C1 287 · D1 233 · E1 306 · F1:H1 344 */
+  .row{width:1170px;height:var(--h,52px);display:flex;background:#1a1a1a;
+       border-bottom:2px solid #ffd400;overflow:hidden}
+  .z{height:100%;display:flex;align-items:center;overflow:hidden;position:relative}
+  .z.mast{width:287px;flex:none;padding:0}
+  .z.head{width:233px;flex:none;padding:0 12px}
+  .z.puls{width:306px;flex:none;padding:0 12px;border-left:1px solid rgba(255,255,255,.09)}
+  .z.curv{width:344px;flex:none;padding:0 12px;border-left:1px solid rgba(255,255,255,.09)}
+  .mast img{display:block;height:44px;width:280px}
+  /* D1 — live text, one font size (a cell can hold only one) */
+  .head .t{font-family:'Oswald',sans-serif;font-weight:400;font-size:12px;letter-spacing:.05em;
+           color:#f0f0f0;line-height:1.35;white-space:pre-line}
+  /* E1 — the pulse. one cell, so ONE font colour: CF paints the whole cell by tier. */
+  .puls .t{font-family:'Oswald',sans-serif;font-weight:500;font-size:12.5px;letter-spacing:.09em}
+  .puls.ok  .t{color:#7ddc7d}
+  .puls.warn .t{color:#ffb020}
+  .puls.bad  .t{color:#ff5c5c}
+  /* F1:H1 — SPARKLINE(__SparkData!A1:X1) drawn as Sheets renders a column sparkline */
+  .curv .bars{display:flex;align-items:flex-end;gap:2px;height:26px;width:100%}
+  .curv .bars i{flex:1;background:#ffd400;min-height:1px;border-radius:.5px}
+  .curv .bars i.f{background:#3a3a32}
+  .cap{position:absolute;right:12px;bottom:3px;font:7.5px/1 'Roboto Mono',monospace;
+       color:#888;letter-spacing:.1em}
+</style></head><body>
+<div id="out"></div>
+<script>
+// today's real shape from the screenshot: quiet morning, busy midday, tapering evening
+const DAY=[0,0,0,0,0,0,1,3,6,9,14,18,22,19,15,11,7,5,3,1,0,0,0,0];
+const NOWH=22;
+const SCENES=[
+ {k:'clear',h:52,head:'109 in · 16 out\nCLOSES IN 2h 43m',pulse:['ok','● ALIVE · 9:57 PM · 8m ago']},
+ {k:'busy', h:52,head:'12 TO GRAB\n4 ebay · 8 direct',pulse:['ok','● ALIVE · 10:14 PM · 3m ago']},
+ {k:'late', h:52,head:'OLDEST 4h 12m\nSO-24853 · 6 lines',pulse:['ok','● ALIVE · 10:14 PM · 3m ago']},
+ {k:'stale',h:52,head:'LAST SEEN 2h 14m\nnothing has landed',pulse:['bad','● STALE · 8:03 PM · 2h 14m ago']},
+ {k:'held', h:52,head:'3 UNANSWERED\noldest 47m',pulse:['warn','● IDLE · 9:41 PM · 36m ago']},
+];
+const max=Math.max(...DAY,1);
+const bars=DAY.map((v,i)=>`<i style="height:${i>NOWH?0:Math.max(3,v/max*100)}%"></i>`).join('');
+const BEFORE=`
+ <div class="lbl">BEFORE — what row 1 says today (42px)</div>
+ <div class="row" style="--h:42px">
+   <div class="z" style="width:110px;flex:none;justify-content:center"><b style="font-family:Oswald;font-size:16px;color:#ffd400">HQ</b></div>
+   <div class="z" style="width:410px;flex:none;justify-content:center;font-family:Oswald;font-size:12px;color:#fff">Saturday, August 29, 2026 · 10:17 PM</div>
+   <div class="z" style="width:306px;flex:none;padding:0 12px;font-family:Oswald;font-size:12px;color:#fff">⏱ Last sync · 9:57 PM &nbsp;🟡 IDLE&nbsp; 20m ago</div>
+   <div class="z" style="width:344px;flex:none;padding:0 12px;font-family:Oswald;font-size:12px;color:#fff">🔴 0 &nbsp;🟡 0 &nbsp;🟢 16 &nbsp;⚫ 0 &nbsp;&nbsp;[clear]</div>
+ </div>
+ <div class="lbl" style="margin-top:22px;color:#ffd400">AFTER — five faces, same row, 52px</div>`;
+document.getElementById('out').innerHTML=BEFORE+SCENES.map(s=>`
+ <div class="lbl">${s.k.toUpperCase()} — row height ${s.h}px</div>
+ <div class="row" style="--h:${s.h}px">
+   <div class="z mast"><img src="renders/mast/${s.k}-v1.png"></div>
+   <div class="z head"><div class="t">${s.head}</div></div>
+   <div class="z puls ${s.pulse[0]}"><div class="t">${s.pulse[1]}</div></div>
+   <div class="z curv"><div class="bars">${bars}</div></div>
+ </div>`).join('');
+document.documentElement.setAttribute('data-ready','1');
+</script></body></html>

@@ -1,0 +1,132 @@
+<!doctype html><html><head><meta charset="utf-8">
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@300;400;500;700&display=swap" rel="stylesheet">
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html,body { width:287px; height:56px; overflow:hidden; background:#1a1a1a; }
+  .face {
+    position:relative; width:287px; height:56px; background:#1a1a1a;
+    display:flex; align-items:center; overflow:hidden;
+    font-family:'Oswald','Liberation Sans Narrow','DejaVu Sans Condensed',sans-serif;
+  }
+  /* left accent bar — the sidebar's card-accent motif */
+  .bar { position:absolute; left:0; top:0; bottom:0; width:3px; background:var(--accent);
+         opacity:var(--barOpacity); }
+  .mark { width:56px; flex:none; display:flex; flex-direction:column;
+          align-items:center; justify-content:center; gap:3px; }
+  .mark .hq { font-weight:700; font-size:17px; letter-spacing:.04em; color:var(--accent);
+              line-height:1; filter:brightness(var(--glow)); opacity:var(--markDim,1); }
+  .mark .rule { width:22px; height:2px; background:var(--accent); opacity:.85; }
+  .rulev { width:1px; height:30px; background:#ffffff; opacity:.13; flex:none; }
+  .body { padding-left:14px; display:flex; flex-direction:column; justify-content:center; gap:4px; }
+  .word { font-weight:500; font-size:17px; letter-spacing:.13em; color:var(--accent);
+          line-height:1; white-space:nowrap; filter:brightness(var(--glow)); }
+  .cap  { font-weight:300; font-size:8.5px; letter-spacing:.16em; color:#e8e8e8;
+          opacity:.42; line-height:1; white-space:nowrap; text-transform:uppercase; }
+  /* THE DAY LIGHT — a directional wash whose colour and strength follow the Houston
+     hour. This is the Floor Board's night dial and the sidebar's resting panel finally
+     reaching the sheet: the object does not move, it is LIT differently. At 1 frame per
+     minute a moving thing looks broken; light looks correct. */
+  .sky  { position:absolute; inset:0; pointer-events:none;
+          background:radial-gradient(120% 180% at 12% -40%, var(--skyC) 0%, transparent 62%);
+          opacity:var(--skyO); mix-blend-mode:screen; }
+  .horizon { position:absolute; left:0; right:0; bottom:0; height:2px; pointer-events:none;
+             background:linear-gradient(90deg, var(--skyC), transparent 70%);
+             opacity:var(--horizonO); }
+  /* ⭐ THE SEAM-KILLER. The face's own background is L.ground, which is HOUR-LIT, while
+     the cell behind it is a fixed #1a1a1a. At noon the art is rgb(31,29,24) — warmer and
+     lighter than the cell; at night rgb(17,16,12) — darker and warmer. So the image read
+     as a rectangle PASTED ON the band at every hour, in opposite directions, and that is
+     a large part of "it doesn't feel like one soul".
+     Fading the art's four edges to the cell colour means its boundary pixels EQUAL the
+     cell at every hour, and the rectangle stops existing. ⚠ #1a1a1a must stay equal to
+     BRAND.ink — if the band's colour ever changes, change this with it.
+     ⚠ The right fade is deliberately the widest: it is also what gives D1 breathing room
+       INSIDE the art, so D1 can stay left-aligned without crowding the face. */
+  /* ⚠ THREE EDGES, NOT FOUR — and the missing one is the point. The first cut faded
+       all four and measured beautifully (every corner within 1 unit of #1a1a1a) while
+       quietly burying the accent bar: brand yellow srgb(234,194,7) became srgb(36,35,25).
+       The bar is a 3px element at left:0, so a 12px left fade swallows it whole.
+       Column A is the SHEET'S OWN LEFT EDGE — there is no neighbouring cell on that side,
+       so there is no seam there to kill. The left fade was solving a problem that does
+       not exist and destroying a design element to do it. The seams that are real are
+       RIGHT (D1 continues the band) and BOTTOM (row 2 sits directly under). */
+  .vig { position:absolute; inset:0; pointer-events:none; background:
+           linear-gradient(to left,   #1a1a1a, transparent 28px),
+           linear-gradient(to bottom, #1a1a1a, transparent 7px),
+           linear-gradient(to top,    #1a1a1a, transparent 7px); }
+  /* the shine — a narrow diagonal gleam that sweeps across the whole face */
+  .shine { position:absolute; top:-20px; bottom:-20px; width:70px; left:var(--shineX);
+           background:linear-gradient(100deg, transparent, rgba(255,255,255,.10) 45%,
+                      rgba(255,255,255,.18) 50%, rgba(255,255,255,.10) 55%, transparent);
+           transform:skewX(-18deg); pointer-events:none; opacity:var(--shineOn); }
+</style></head><body>
+<div class="face" id="face">
+  <div class="bar"></div>
+  <div class="mark"><div class="hq">HQ</div><div class="rule"></div></div>
+  <div class="rulev"></div>
+  <div class="body"><div class="word" id="word"></div><div class="cap" id="cap"></div></div>
+  <div class="sky"></div>
+  <div class="horizon"></div>
+  <div class="shine"></div>
+  <div class="vig"></div>
+</div>
+<script src="light.js"></script>
+<script>
+const STATES = {
+  clear: { word:'ALL CAUGHT UP', cap:'nothing waiting',        accent:'#ffd400', mode:'shine' },
+  busy:  { word:'ON THE FLOOR',  cap:'orders being picked',    accent:'#ffd400', mode:'shine' },
+  late:  { word:'PAST THE LINE', cap:'something waited 3h+',   accent:'#ffb020', mode:'pulse' },
+  stale: { word:'SYNC STALE',    cap:'pipeline is quiet',      accent:'#ff8c42', mode:'pulse' },
+  // ⚠⚠ DELIBERATELY UNREACHABLE — the art exists, the verdict chain cannot produce it,
+  //    and that is the decision, not an oversight. __SparkData!A6 resolves
+  //    rest > late > stale > busy > clear and has no 'held' arm. Wiring one would mean a
+  //    THIRD copy of the hold rule (Holds.js:145 and FloorBoard.html already carry two,
+  //    with a drift test pinning them together) — and it would count ROWS, not orders, so
+  //    "N held" would lie on a multi-line order. A hold is already announced by a
+  //    full-screen board takeover, a siren, a CF rule on the row, the sidebar's Alerts
+  //    count and Telegram escalation; the masthead would be the sixth, telling the reader
+  //    what they already know. Revisit only if a hold is ever missed BY SOMEONE SITTING AT
+  //    THE SHEET. Kept rendered so the set stays complete if that day comes.
+  held:  { word:'HOLD',          cap:'nobody has acknowledged',accent:'#ff5c5c', mode:'pulse' },
+  // ⚠ The calm state the sheet never had. The Floor Board and the sidebar both know about
+  //   off-hours; row 1 did not, so a quiet night read as a dead pipeline. Deliberately
+  //   COOL, not brand yellow — this is the one face that must not shout.
+  rest:  { word:'CLOSED',        cap:'the floor is asleep',   accent:'#7e8894', mode:'still' }
+};
+
+window.render = function (state, t, hour) {
+  const s = STATES[state] || STATES.clear;
+  document.getElementById('word').textContent = s.word;
+  document.getElementById('cap').textContent  = s.cap;
+  const el = document.getElementById('face');
+  el.style.setProperty('--accent', s.accent);
+  const L = dayLight(typeof hour === 'number' ? hour : 12);
+  el.style.background = L.ground;
+  el.style.setProperty('--skyC', L.sky);
+  el.style.setProperty('--skyO', L.skyO);
+  el.style.setProperty('--horizonO', L.horiz);
+  // ⚠ the MARK never dims below 62% — identity does not fade with the light, only the
+  //   ground does. The word takes the state's accent; the ground takes the hour.
+  el.style.setProperty('--markDim', L.mark);
+  if (s.mode === 'still') {          // rest — nothing moves, nothing glows
+    el.style.setProperty('--shineOn', '0');
+    el.style.setProperty('--shineX', '-200px');
+    el.style.setProperty('--glow', '1');
+    el.style.setProperty('--barOpacity', '0.55');
+  } else if (s.mode === 'shine') {
+    const p = Math.min(1, t / 0.4);
+    el.style.setProperty('--shineX', (-90 + p * 400) + 'px');
+    el.style.setProperty('--shineOn', t < 0.4 ? '1' : '0');
+    el.style.setProperty('--glow', '1');
+    el.style.setProperty('--barOpacity', '0.9');
+  } else {
+    const b = 0.5 + 0.5 * Math.sin(t * Math.PI * 2);
+    el.style.setProperty('--shineOn', '0');
+    el.style.setProperty('--shineX', '-200px');
+    el.style.setProperty('--glow', (0.80 + 0.42 * b).toFixed(3));
+    el.style.setProperty('--barOpacity', (0.35 + 0.65 * b).toFixed(3));
+  }
+};
+window.render('clear', 0, 12);
+document.documentElement.setAttribute('data-ready', '1');
+</script></body></html>

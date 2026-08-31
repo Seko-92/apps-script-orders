@@ -1,0 +1,464 @@
+<title>Floor Board · Design Assessment</title>
+<style>
+  /* HQ Motor Service livery — committed single-theme (the board's own dark
+     world; its screenshots must sit seated, not float on white). Every color
+     painted explicitly so the page holds on any host ground. */
+  :root {
+    --ground:   #141412;
+    --surface:  #1c1c19;
+    --surface2: #22221e;
+    --rule:     rgba(255, 212, 0, 0.14);
+    --hairline: rgba(242, 240, 233, 0.10);
+    --text:     #f2f0e9;
+    --muted:    #a5a29a;
+    --faint:    #737069;
+    --accent:   #ffd400;
+    --broken:   #ff6b6b;
+    --struct:   #ffb84d;
+    --consist:  #7fb4c9;
+    --keep:     #7fc98e;
+    --disp: 'Oswald', 'Arial Narrow', 'Helvetica Neue', Arial, sans-serif;
+    --body: system-ui, 'Segoe UI', Roboto, sans-serif;
+    --mono: ui-monospace, 'Cascadia Code', 'Roboto Mono', Menlo, monospace;
+  }
+  html { background: var(--ground); }
+  body {
+    background: var(--ground); color: var(--text);
+    font-family: var(--body); font-size: 15px; line-height: 1.6;
+    margin: 0; padding: 0 20px 90px;
+  }
+  .wrap { max-width: 1040px; margin: 0 auto; }
+
+  /* ---- masthead ---- */
+  .mast { display: flex; align-items: center; gap: 14px; padding: 34px 0 18px;
+          border-bottom: 2px solid var(--accent); flex-wrap: wrap; }
+  .hq { background: var(--accent); color: #141412; font-family: var(--disp);
+        font-weight: 700; font-size: 21px; padding: 4px 11px; letter-spacing: 0.5px; }
+  .mast h1 { font-family: var(--disp); font-weight: 600; font-size: 26px;
+             letter-spacing: 0.06em; text-transform: uppercase; margin: 0; flex: 1;
+             text-wrap: balance; }
+  .mast .when { font-family: var(--mono); font-size: 12px; color: var(--muted); text-align: right; }
+
+  .method { font-size: 13px; color: var(--muted); padding: 12px 0 0; }
+  .method code { font-family: var(--mono); font-size: 12px; color: var(--text); }
+
+  /* ---- sections ---- */
+  section { margin-top: 52px; }
+  .eyebrow { font-family: var(--disp); font-size: 13px; letter-spacing: 0.22em;
+             text-transform: uppercase; color: var(--accent); margin: 0 0 6px; }
+  h2 { font-family: var(--disp); font-weight: 600; font-size: 24px; margin: 0 0 16px;
+       letter-spacing: 0.03em; text-transform: uppercase; text-wrap: balance; }
+  p  { max-width: 72ch; margin: 0 0 14px; }
+  .quiet { color: var(--muted); }
+  strong { color: var(--text); }
+  em { color: var(--accent); font-style: normal; }
+
+  /* ---- verdict ---- */
+  .verdict { background: var(--surface); border: 1px solid var(--rule);
+             border-left: 5px solid var(--accent); padding: 22px 26px; }
+  .verdict p { max-width: none; }
+  .verdict .lead { font-size: 17px; }
+
+  /* ---- gallery ---- */
+  .shots { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+           gap: 18px; }
+  figure { margin: 0; background: var(--surface); border: 1px solid var(--hairline); }
+  figure img { display: block; width: 100%; height: auto; }
+  figure.tall img { max-height: 560px; object-fit: cover; object-position: top; }
+  figcaption { font-size: 12.5px; color: var(--muted); padding: 10px 14px 12px; line-height: 1.5; }
+  figcaption b { color: var(--text); font-family: var(--disp); letter-spacing: 0.08em;
+                 text-transform: uppercase; font-weight: 600; display: block; margin-bottom: 2px; }
+  .span2 { grid-column: 1 / -1; }
+
+  /* ---- findings ---- */
+  .finding { background: var(--surface); border: 1px solid var(--hairline);
+             border-left: 5px solid var(--faint); padding: 20px 24px; margin-top: 18px; }
+  .finding.f-broken  { border-left-color: var(--broken); }
+  .finding.f-struct  { border-left-color: var(--struct); }
+  .finding.f-consist { border-left-color: var(--consist); }
+  .fhead { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; }
+  .fnum { font-family: var(--mono); font-size: 12px; color: var(--faint); }
+  .fhead h3 { font-family: var(--disp); font-weight: 600; font-size: 18px; margin: 0;
+              letter-spacing: 0.03em; }
+  .chip { font-family: var(--disp); font-size: 11px; letter-spacing: 0.14em;
+          text-transform: uppercase; padding: 2px 9px; border-radius: 3px; color: #141412; }
+  .chip.broken  { background: var(--broken); }
+  .chip.struct  { background: var(--struct); }
+  .chip.consist { background: var(--consist); }
+  .chip.polish  { background: #8a8a84; }
+  .finding img { display: block; width: 100%; height: auto; margin: 12px 0 4px;
+                 border: 1px solid var(--hairline); }
+  .finding .cap { font-size: 12px; color: var(--faint); font-family: var(--mono); margin: 4px 0 10px; }
+  .fix { font-size: 14px; color: var(--muted); border-top: 1px dashed var(--hairline);
+         padding-top: 10px; margin-top: 12px; max-width: none; }
+  .fix b { color: var(--keep); font-family: var(--disp); letter-spacing: 0.1em;
+           text-transform: uppercase; font-weight: 600; font-size: 12px; margin-right: 8px; }
+
+  /* ---- keep list ---- */
+  .keeps { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; }
+  .keep { background: var(--surface); border: 1px solid var(--hairline);
+          border-left: 4px solid var(--keep); padding: 14px 18px; font-size: 14px; }
+  .keep b { font-family: var(--disp); letter-spacing: 0.04em; display: block;
+            font-weight: 600; margin-bottom: 3px; }
+
+  /* ---- directions ---- */
+  .dir { background: var(--surface); border: 1px solid var(--hairline);
+         padding: 22px 26px; margin-top: 20px; }
+  .dir.rec { border-color: var(--accent); background: var(--surface2);
+             box-shadow: 0 0 0 1px var(--accent); }
+  .dir h3 { font-family: var(--disp); font-weight: 600; font-size: 20px; margin: 0 0 4px;
+            letter-spacing: 0.04em; text-transform: uppercase; }
+  .dir .tag { font-family: var(--disp); font-size: 11px; letter-spacing: 0.16em;
+              text-transform: uppercase; color: var(--accent); }
+  .dir .cost { font-family: var(--mono); font-size: 12px; color: var(--muted); margin: 2px 0 12px; }
+  pre.wire { font-family: var(--mono); font-size: 12.5px; line-height: 1.45;
+             background: #101010; color: #d8d5cc; border: 1px solid var(--hairline);
+             padding: 16px 18px; overflow-x: auto; margin: 14px 0; }
+  pre.wire i { color: var(--accent); font-style: normal; }
+
+  /* ---- rules table ---- */
+  .rules { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: 13.5px; }
+  th { font-family: var(--disp); font-size: 12px; letter-spacing: 0.14em; text-transform: uppercase;
+       color: var(--accent); text-align: left; padding: 8px 14px 8px 0;
+       border-bottom: 1px solid var(--rule); }
+  td { padding: 9px 14px 9px 0; border-bottom: 1px solid var(--hairline);
+       vertical-align: top; }
+  td:first-child { font-family: var(--disp); font-weight: 600; white-space: nowrap; letter-spacing: 0.03em; }
+  td code, li code, p code { font-family: var(--mono); font-size: 12.5px; color: var(--accent); }
+  .sw { display: inline-block; width: 11px; height: 11px; border-radius: 2px;
+        margin-right: 7px; vertical-align: -1px; border: 1px solid rgba(255,255,255,0.18); }
+
+  ol.next { max-width: 72ch; padding-left: 22px; }
+  ol.next li { margin-bottom: 10px; }
+  ol.next b { color: var(--accent); }
+
+  .foot { margin-top: 70px; padding-top: 16px; border-top: 1px solid var(--hairline);
+          font-family: var(--mono); font-size: 11.5px; color: var(--faint); }
+</style>
+
+<div class="wrap">
+
+  <div class="mast">
+    <span class="hq">HQ</span>
+    <h1>Floor Board — Design Assessment</h1>
+    <div class="when">2026-08-11 · board v2.1<br>rendered from the live file</div>
+  </div>
+  <p class="method">Method: the real <code>FloorBoard.html</code> (6,212 lines, read fresh) rendered in headless
+  Chromium against a mock shift built to exercise every feature — order bands, kit threads, shelf counts,
+  a deviance, a floor note, dual shelves, pack sizes, caps, paid shipping. Four viewports:
+  wall <code>1920×1080</code>, tablet landscape <code>1280×800</code> (touch), tablet portrait
+  <code>800×1280</code> (touch), phone <code>390×844</code>. Prayer/weather deliberately offline — blanks
+  there are mock artifacts, not findings. The render loop is now permanent: <code>design-lab/render.js</code>.</p>
+
+  <!-- ═══════════════ VERDICT ═══════════════ -->
+  <section>
+    <p class="eyebrow">The verdict</p>
+    <div class="verdict">
+      <p class="lead"><strong>The bones are right. The presentation is failing them — and your instinct
+      is correct on all three counts.</strong> "Hard to read" is a <em>chrome tax</em>: on the tablet, the
+      first pickable row starts 36% of the way down the screen, and in landscape the pick list — the
+      board's entire job — shows <em>half of one clipped row</em>. "Inconsistencies" are measurable:
+      <em>31 distinct font sizes</em> and <em>117 distinct color literals</em> in one stylesheet, with the
+      same screen position carrying four different meanings. "Style bugs" are real and reproducible:
+      colliding hero labels, numbers clipped off the phone's edge, three CSS variables that were never defined.</p>
+      <p style="margin-bottom:0;">None of this is fixed by nudging pixels. The board is four layouts sharing one
+      DNA, and the tool keeps inheriting the monitor's furniture. My recommendation at the end:
+      <strong>design the tablet as THE surface, fold kit progress into the order bands, tuck everything
+      ambient behind one drawer — and give the wall its own simple projection or retire it.</strong>
+      One decision is yours to make first.</p>
+    </div>
+  </section>
+
+  <!-- ═══════════════ GALLERY ═══════════════ -->
+  <section>
+    <p class="eyebrow">What the loop sees</p>
+    <h2>The board today, four ways</h2>
+    <div class="shots">
+      <figure class="span2"><img src="{{IMG:small-board-wall.png}}" alt="Wall render 1920×1080">
+        <figcaption><b>Wall · 1920×1080 · monitor layout</b>
+        The strongest of the four. But the whole DIRECT half of the floor is below the fold of a display
+        nobody scrolls — and every row carries a ✓ PICK button no one can press.</figcaption></figure>
+      <figure class="span2"><img src="{{IMG:small-board-tablet-landscape.png}}" alt="Tablet landscape render 1280×800">
+        <figcaption><b>Tablet landscape · 1280×800 · tool layout</b>
+        The broken one. Header + hero + paid strip + panel head + kit strip + tabs consume ~455px of an
+        800px screen; the pick list gets one half-clipped row. The same physical tablet, rotated, loses the tool.</figcaption></figure>
+      <figure class="tall"><img src="{{IMG:small-board-tablet-portrait.png}}" alt="Tablet portrait render 800×1280">
+        <figcaption><b>Tablet portrait · 800×1280 · the real tool</b>
+        Workable — big shelves, big buttons. But the first row lands at ~460px, the hero strip clips its own
+        label, and the kit strip narrates the other tab's work.</figcaption></figure>
+      <figure class="tall"><img src="{{IMG:small-board-tablet-portrait-direct.png}}" alt="Tablet portrait, Direct tab">
+        <figcaption><b>Portrait · DIRECT tab · the accordion</b>
+        The best-designed screen on the board. One box open, shut cards still naming their shelves,
+        kit spines separating two boxes in one order. This is the level the rest should meet.</figcaption></figure>
+      <figure class="tall span2" style="max-width:420px;"><img src="{{IMG:small-board-phone.png}}" alt="Phone render 390×844">
+        <figcaption><b>Phone · 390×844</b>
+        The units number runs off the right edge; the hero card holds ~80px of dead space.</figcaption></figure>
+    </div>
+  </section>
+
+  <!-- ═══════════════ FINDINGS ═══════════════ -->
+  <section>
+    <p class="eyebrow">Findings · ranked by harm</p>
+    <h2>What is actually wrong</h2>
+
+    <div class="finding f-broken">
+      <div class="fhead"><span class="fnum">F1</span><h3>Landscape starves the pick list to half a row</h3><span class="chip broken">Broken</span></div>
+      <img src="{{IMG:crop-landscape-starved.png}}" alt="Landscape: chrome stack then one clipped row">
+      <p class="cap">1280×800 · everything above the fold is chrome; the one visible row is cut mid-pixel</p>
+      <p>The stacked portrait flow is reused in landscape, so the vertical budget dies before the list begins,
+      and the feed panel then claims what's left. A picker who rotates the tablet — the most natural gesture
+      there is — gets a board that shows <strong>nothing to pick</strong>.</p>
+      <p class="fix"><b>Fix</b> Landscape must use the width: the pick list owns the left ~65% at full height;
+      everything ambient lives in a right rail or disappears. No stacked panels below 900px of height.</p>
+    </div>
+
+    <div class="finding f-struct">
+      <div class="fhead"><span class="fnum">F2</span><h3>The chrome tax — the job starts a third of the way down</h3><span class="chip struct">Structural</span></div>
+      <img src="{{IMG:crop-chrome-stack.png}}" alt="Panel title, kit strip, tabs — all before the first row">
+      <p class="cap">portrait · five bands of furniture between the clock and the first shelf</p>
+      <p>Header (two rows — the prayer chip owns a centered line of its own) → hero strip → paid strip →
+      panel title → kit strip → channel tabs. Six layers, ~460px, before shelf A-14 appears. Every layer is
+      individually defensible; together they bury the reason the board exists. For a non-technical picker,
+      the screen should answer <em>"where do I walk next?"</em> in the first glance, not the fourth.</p>
+      <p class="fix"><b>Fix</b> One top bar (brand · clock · to-grab count · paid badge · live dot). Tabs become
+      the panel header. Kit strip dissolves into the bands (F5). Paid shipping becomes a badge that opens detail
+      on tap rather than a permanent 78px strip.</p>
+    </div>
+
+    <div class="finding f-struct">
+      <div class="fhead"><span class="fnum">F3</span><h3>The wall shows half the floor, plus buttons nobody can press</h3><span class="chip struct">Structural</span></div>
+      <img src="{{IMG:crop-wall-pick.png}}" alt="Wall pick panel: eBay only, PICK buttons on a monitor">
+      <p class="cap">1920×1080 · eleven eBay lines fill the panel; DIRECT never appears; every row has a touch button</p>
+      <p>The monitor layout stacks both channels in one scroller — but a wall is never scrolled, so on any busy
+      day the DIRECT table simply does not exist on the wall. And the tool's ✓ PICK buttons render on a
+      display with no finger, taking the row's most prominent slot for a dead control.</p>
+      <p class="fix"><b>Fix</b> A monitor is a different projection, not a bigger tool: both channels side-by-side,
+      always visible, no buttons, bigger type. This is the fork in the Directions section.</p>
+    </div>
+
+    <div class="finding f-broken">
+      <div class="fhead"><span class="fnum">F4</span><h3>The hero strip cannot fit its own arithmetic</h3><span class="chip broken">Broken</span></div>
+      <img src="{{IMG:crop-hero-clip.png}}" alt="ORDERS TO GRAB label colliding with the number 19">
+      <p class="cap">portrait &amp; landscape · the label runs into its number; cell widths are content-blind</p>
+      <img src="{{IMG:crop-phone-overflow.png}}" alt="Phone: 43+ clipped off the right edge, dead space below">
+      <p class="cap">phone · "43+" exits the viewport; the card then holds ~80px of nothing</p>
+      <p>These are the "style bugs" you feel. The tool hero compresses five cards into one strip with fixed
+      proportions, so at real content sizes labels collide and numbers clip. On the phone the same strip
+      becomes a card with overflow on one side and dead space on the other.</p>
+      <p class="fix"><b>Fix</b> The tool needs numbers <em>chosen for the tool</em>, not the wall's five cards
+      squeezed. One number (to grab) in the top bar; the rest live in the Today drawer (F8).</p>
+    </div>
+
+    <div class="finding f-struct">
+      <div class="fhead"><span class="fnum">F5</span><h3>The kit strip sits in the wrong place and says things twice</h3><span class="chip struct">Structural</span></div>
+      <p>Three rows of the most premium space — above even the channel tabs — narrate DIRECT kits
+      <strong>while you are on the eBay tab</strong>, describing work that isn't on screen. Switch to DIRECT and
+      the strip <em>duplicates</em> what the bands already say: <code>KIT-217475 · left: A-51 · B-44</code> on the
+      strip, and <code>SO-24618 · A-51 · B-44 · D-7</code> on the shut card three rows below it.</p>
+      <p class="fix"><b>Fix</b> Completeness is a fact about an order → it belongs ON the order band:
+      <code>SO-24618 · 3 lines · KIT 2 of 5 · 6h 40m</code>. Spines stay on rows. The strip disappears, and
+      ~116px returns to the list.</p>
+    </div>
+
+    <div class="finding f-consist">
+      <div class="fhead"><span class="fnum">F6</span><h3>The left edge means four different things</h3><span class="chip consist">Consistency</span></div>
+      <p>On today's board the row's left edge can be: a <span class="sw" style="background:#63ffff"></span>kit
+      thread (cyan/violet spine) · a <span class="sw" style="background:#ffd400"></span>floor-note accent ·
+      a <span class="sw" style="background:#ff6b6b"></span>deviance tint · a red age accent on bands. Same
+      position, four vocabularies. A non-technical picker can never learn what "a colored edge" means, because
+      it doesn't mean anything — it means four things. This violates the board's own written rule:
+      <em>one meaning per color</em>.</p>
+      <p class="fix"><b>Fix</b> Reserve the spine for kit membership only. Notes get their 📌 line (already do);
+      deviance gets its red chip in the count lane (already has one — the row tint is the duplicate); age lives
+      on the band's right side as text.</p>
+    </div>
+
+    <div class="finding f-consist">
+      <div class="fhead"><span class="fnum">F7</span><h3>31 font sizes · 117 colors · zero system</h3><span class="chip consist">Consistency</span></div>
+      <p>Mechanical audit of the stylesheet: <strong>31 distinct <code>px</code> font sizes</strong>
+      (9, 9.5, 10, 10.5, 11, 11.5, 12, 12.5, 13 … 80) — ten of them below 12px on a tablet read at arm's
+      length — and <strong>30 hex + 87 rgba() color literals</strong>. The "same" gray is a dozen different
+      grays. There are also <strong>three separate <code>@media (max-width: 620px)</code> blocks</strong>
+      scattered through the cascade — the exact source-order trap that has already bitten this file twice.
+      This is why every change feels like it breaks something else: there is no system to stay inside.</p>
+      <p class="fix"><b>Fix</b> The rules table below — 5 type sizes, ~12 color tokens, one block per
+      breakpoint. Adopt it first, then every later fix inherits it.</p>
+    </div>
+
+    <div class="finding f-consist">
+      <div class="fhead"><span class="fnum">F8</span><h3>Rows change height; the scan rhythm breaks</h3><span class="chip consist">Consistency</span></div>
+      <img src="{{IMG:crop-dense-row.png}}" alt="A three-line row between one-line rows">
+      <p class="cap">portrait · a counted + noted row balloons to 3 lines between 1-line neighbours</p>
+      <p>A row with a count, a deviance and a floor note grows to triple height and shouts across the list —
+      even though the picker didn't select it. Scanning a list depends on rhythm; every tall row is a stutter.
+      The count lane's micro-copy (<code>on hand 4 → 2 left</code>, 11px gray) also sits below comfortable
+      reading size for the floor.</p>
+      <p class="fix"><b>Fix</b> Fixed two-lane row grid: lane one shelf/sku/qty/action, lane two (constant
+      height when present) count + note. Compress the count verdict to its chip.</p>
+    </div>
+
+    <div class="finding">
+      <div class="fhead"><span class="fnum">F9</span><h3>Undefined and dead CSS tokens</h3><span class="chip polish">Polish</span></div>
+      <p><code>--green-glow</code> and <code>--red-glow</code> are referenced and never defined (known), and the
+      audit found a third: <code>--rule-strong</code>. Properties using them silently fall back — borders and
+      glows that "should" be there simply aren't, which is exactly the "style bug" texture you're seeing.
+      <code>--brand-deep</code> and <code>--ink-soft</code> are defined and never used.</p>
+      <p class="fix"><b>Fix</b> Define or delete — 10 minutes, part of adopting the token table.</p>
+    </div>
+
+    <div class="finding">
+      <div class="fhead"><span class="fnum">F10</span><h3>The tool carries monitoring content it never shows</h3><span class="chip polish">Structural</span></div>
+      <p>Shipped/received live in the hero, again in the feed, again in the rest ledger. On the tablet the
+      feed is below the fold anyway — the tool pays the chrome (panel headers, counts) for content a picker
+      doesn't consult mid-walk. Ambient information is the <em>monitor's</em> job.</p>
+      <p class="fix"><b>Fix</b> One collapsed "Today" drawer at the bottom of the tool: tap it for
+      shipped / received / feed. The monitor keeps them permanently visible — that's the difference between
+      the two roles, made structural.</p>
+    </div>
+  </section>
+
+  <!-- ═══════════════ KEEP ═══════════════ -->
+  <section>
+    <p class="eyebrow">Credit where due</p>
+    <h2>What already works — keep these</h2>
+    <div class="keeps">
+      <div class="keep"><b>The DIRECT accordion</b> One box open at a time, shut cards that still name their
+        shelves, oldest auto-opened. The board's best screen — the target quality bar.</div>
+      <div class="keep"><b>Channel tabs = one job at a time</b> Pickers don't work both channels at once;
+        the tabs made that structural. Counts report floor truth, not the cap.</div>
+      <div class="keep"><b>Shelf-first rows</b> The location is the biggest thing on the row — correct, it's
+        the routing key. Dual shelves as two tokens; pack-size receding: both right.</div>
+      <div class="keep"><b>✓ Pick at 44px</b> The only write action is the only button, sized for a thumb.
+        PREP marks the exception, not the norm.</div>
+      <div class="keep"><b>Honest arithmetic</b> Bands count the whole order (can't show a fragment as whole);
+        "+N not shown" admits the cap; the count lane shows its working and names "spoken for".</div>
+      <div class="keep"><b>The beacon &amp; the accordion's memory rules</b> Names the aisle, clears on action,
+        never auto-collapses what a person opened, nothing persists on a shared tablet.</div>
+    </div>
+  </section>
+
+  <!-- ═══════════════ DIRECTIONS ═══════════════ -->
+  <section>
+    <p class="eyebrow">The fork</p>
+    <h2>Three directions — pick one</h2>
+    <p class="quiet">All three fix F1/F4/F9 (the outright breakage). They differ in how much structure moves,
+    and in what happens to the wall.</p>
+
+    <div class="dir">
+      <h3>A · Repair in place</h3>
+      <p class="cost">≈ 1–2 sessions · lowest risk · keeps today's structure</p>
+      <p>Fix the landscape budget, the hero collisions, the phone overflow, the undefined tokens; trim the
+      header to one row. The board looks like today, minus the bugs.</p>
+      <p class="quiet" style="margin-bottom:0;">Honest cost: the chrome tax, the duplicated kit strip, the
+      four-meaning left edge and the 31-size type zoo all remain. It polishes a crowded skeleton — you will
+      likely be back here in a month.</p>
+    </div>
+
+    <div class="dir rec">
+      <span class="tag">Recommended</span>
+      <h3>B · Tool-first restructure</h3>
+      <p class="cost">≈ 3–4 sessions incl. lab rounds · the design becomes simple because the structure is</p>
+      <p>Design the 800×1280 tablet as <strong>the</strong> surface. Everything a picker doesn't act on
+      mid-walk leaves the walking screen:</p>
+<pre class="wire">
+┌──────────────────────────────────────┐
+│ <i>HQ</i>  2:37 PM      <i>19 to grab</i>  ⚠2  ● │  ← ONE bar (~56px)
+├──────────────────────────────────────┤
+│    <i>eBay 13</i>    │      Direct 14      │  ← tabs ARE the panel header
+├──────────────────────────────────────┤
+│ A-14   194244   ×1          [✓ PICK] │
+│ ─ 08-15017-44806 · 5 lines · 1h35 ─  │  ← band (kit chip lives here too)
+│ A-31   167517   ×1          [✓ PICK] │
+│ B-12   155394   ×2          [✓ PICK] │
+│ C-44   168138   ×1             PREP  │
+│  …the list owns ~85% of the screen…  │
+├──────────────────────────────────────┤
+│ ▤ Today · 41 out · 57 in · feed   ⌃  │  ← ONE collapsed drawer
+└──────────────────────────────────────┘
+
+landscape = same list, two columns — the walk continues,
+nothing stacks:
+┌───────────────────┬──────────────────┐
+│ A-14 … [✓]        │ F-3 …  [✓]       │
+│ A-31 … [✓]        │ L-77 … [✓]       │
+│ B-12 … [✓]        │ B-30 … [✓]       │
+└───────────────────┴──────────────────┘
+</pre>
+      <p style="margin-bottom:0;">Kit progress becomes a chip on its order's band (F5). The beacon, drawers,
+      numpad, print — all unchanged. Built in the lab file with side-by-side variants, rendered here before
+      you ever see a deploy.</p>
+    </div>
+
+    <div class="dir">
+      <h3>C · Split the roles (the wall question)</h3>
+      <p class="cost">≈ +1 session on top of B · removes the 4-layout tax permanently</p>
+      <p>The monitor stops sharing the tool's DNA: <code>/?view=wall</code> renders both channels side-by-side,
+      no buttons, giant type, feed visible — a true projection. The tool then never has to compromise for the
+      wall again, which is the class of work that made the last two sessions a grind.</p>
+      <p class="quiet" style="margin-bottom:0;"><strong>The decision that's yours:</strong> is the
+      wall/desk-monitor role still load-bearing — is a screen actually mounted or watched that way today?
+      If yes → B + C. If the tablet is the only real surface → B alone, and we delete the monitor layout
+      entirely, which is even simpler.</p>
+    </div>
+  </section>
+
+  <!-- ═══════════════ RULES ═══════════════ -->
+  <section>
+    <p class="eyebrow">Write once, stop re-deriving</p>
+    <h2>The proposed design rules</h2>
+    <p class="quiet">Whichever direction you pick, these get written into the lab file first — every later
+    change inherits them instead of re-inventing them.</p>
+    <div class="rules">
+      <table>
+        <tr><th>Rule</th><th>Value</th><th>Why</th></tr>
+        <tr><td>Type scale</td>
+            <td><code>34 · 20 · 16 · 13 · 11</code> px, nothing else</td>
+            <td>hero number · shelf · row data · secondary · caps-labels. Replaces 31 sizes. Nothing below 11px, and 11px is labels only.</td></tr>
+        <tr><td>Color = meaning</td>
+            <td><span class="sw" style="background:#ffd400"></span>yellow = act now ·
+                <span class="sw" style="background:#7fc98e"></span>green = confirm/done ·
+                <span class="sw" style="background:#ff6b6b"></span>red = disagreement or past-deadline ·
+                <span class="sw" style="background:#ffb84d"></span>amber = money caution ·
+                <span class="sw" style="background:#63ffff"></span><span class="sw" style="background:#b163ff"></span>kit threads only</td>
+            <td>One meaning per color, no exceptions. The CVD-safe kit pair stays exactly as searched.</td></tr>
+        <tr><td>Position = meaning</td>
+            <td>left spine = kit membership · right column = the action · band = the box</td>
+            <td>Kills the four-meaning left edge (F6).</td></tr>
+        <tr><td>Spacing</td>
+            <td>8px scale: <code>8 / 16 / 24 / 32</code></td>
+            <td>Gaps group; ink doesn't. The accordion already proves it.</td></tr>
+        <tr><td>Row anatomy</td>
+            <td>one fixed grid, two lanes max</td>
+            <td>Constant rhythm; the exception fits the lane or becomes a chip (F8).</td></tr>
+        <tr><td>Tokens only</td>
+            <td>~12 color tokens, all in <code>:root</code>, zero literals in rules</td>
+            <td>117 literals today. An undefined var becomes impossible to miss (F9).</td></tr>
+        <tr><td>Cascade</td>
+            <td>one media block per breakpoint, last in the file</td>
+            <td>Three scattered 620px blocks today; this trap has bitten twice already.</td></tr>
+        <tr><td>Minimums</td>
+            <td>touch 44px · text 11px · one sticky element per column</td>
+            <td>The board's own hard-won rules, promoted from comments to law.</td></tr>
+      </table>
+    </div>
+  </section>
+
+  <!-- ═══════════════ NEXT ═══════════════ -->
+  <section>
+    <p class="eyebrow">Next steps</p>
+    <h2>How this proceeds</h2>
+    <ol class="next">
+      <li><b>You pick the direction</b> (A / B / B+C) and answer the wall question — one sentence is enough.</li>
+      <li><b>Wireframes first</b> — ASCII rounds like the split and the accordion, which were both decided in seconds. No CSS until the skeleton is signed.</li>
+      <li><b>Lab file, side-by-side variants</b> — 2–3 candidates rendered in one image through this loop; you look once and point.</li>
+      <li><b>Port to <code>FloorBoard.html</code></b>, re-render all four viewports, diff against the lab, then one <code>scp</code> + hard-reload on the devices.</li>
+    </ol>
+  </section>
+
+  <div class="foot">
+    HQ Motor Service · Floor Board design assessment · rendered 2026-08-11 via design-lab/render.js ·
+    mock shift data (prayer/weather offline by design) · findings F1–F10 verified against renders + stylesheet audit
+  </div>
+
+</div>

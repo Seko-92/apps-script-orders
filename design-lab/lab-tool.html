@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HQ · Floor Tool — LAB</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Roboto+Mono:wght@400;500;700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+/* ============================================================================
+   HQ FLOOR TOOL — DESIGN LAB · direction B (tool-first)
+   THE RULES (write once — every later change stays inside these):
+     type scale (tool): 24 · 20 · 16 · 13 · 11        — nothing else
+     color = meaning:  yellow act · green confirm · red disagree/late ·
+                       amber money · cyan+violet kit threads · gray ladder recedes
+     position = meaning: left spine = kit membership ONLY · right col = action ·
+                       band = the box
+     spacing: 8 / 16 / 24 / 32 · row height CONSTANT (64px) · touch min 44px
+   ============================================================================ */
+:root {
+  /* ground ladder */
+  --g0: #0e0e0d;                            /* page ground            */
+  --g1: #161614;                            /* panel                  */
+  --g2: #1d1d1a;                            /* card / band            */
+  --g3: #26261F;                            /* raised (chips)         */
+  --line: rgba(245,245,242,0.09);
+  --line-brand: rgba(255,212,0,0.22);
+  /* text ladder */
+  --t1: #f5f5f2;
+  --t2: rgba(245,245,242,0.64);
+  --t3: rgba(245,245,242,0.38);
+  /* meanings */
+  --act:    #ffd400;                        /* act now                */
+  --ok:     #4caf50;                        /* confirm / done         */
+  --alarm:  #ff6b6b;                        /* disagreement / late    */
+  --money:  #ffb84d;                        /* paid-shipping caution  */
+  --kit-a:  #63ffff;                        /* kit thread 1           */
+  --kit-b:  #b163ff;                        /* kit thread 2           */
+  /* type scale */
+  --fs-num: 24px;  --fs-shelf: 20px;  --fs-row: 16px;  --fs-sub: 13px;  --fs-lab: 11px;
+  --disp: 'Oswald', sans-serif;
+  --mono: 'Roboto Mono', monospace;
+  --body: 'Roboto', sans-serif;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; }
+body { background: var(--g0); color: var(--t1); font-family: var(--body);
+       overflow: hidden; }
+.app { height: 100dvh; display: flex; flex-direction: column; }
+
+/* ── TOP BAR — the only chrome ─────────────────────────────────────────── */
+.bar { display: flex; align-items: center; gap: 16px; padding: 0 16px;
+       height: 56px; flex: none; background: var(--g1);
+       border-bottom: 1px solid var(--line); }
+.bar-hq { background: var(--act); color: var(--g0); font-family: var(--disp);
+          font-weight: 700; font-size: 16px; padding: 2px 9px; letter-spacing: 0.04em; }
+.bar-clock { font-family: var(--mono); font-size: var(--fs-sub); color: var(--t2); }
+.bar-grab { margin-left: auto; display: flex; align-items: baseline; gap: 8px; }
+.bar-grab b { font-family: var(--disp); font-weight: 600; font-size: var(--fs-num);
+              color: var(--act); letter-spacing: 0.02em; }
+.bar-grab span { font-family: var(--disp); font-size: var(--fs-lab); letter-spacing: 0.14em;
+                 text-transform: uppercase; color: var(--t2); }
+.bar-paid { display: flex; align-items: center; gap: 6px; font-family: var(--disp);
+            font-size: var(--fs-sub); color: var(--money);
+            border: 1px solid rgba(255,184,77,0.45); padding: 4px 10px; border-radius: 4px; }
+.bar-live { width: 9px; height: 9px; border-radius: 50%; background: var(--ok);
+            box-shadow: 0 0 6px rgba(76,175,80,0.7); }
+
+/* ── TABS = the panel header ───────────────────────────────────────────── */
+.tabs { display: flex; flex: none; background: var(--g1); border-bottom: 1px solid var(--line); }
+.tab { flex: 1; height: 52px; display: flex; align-items: center; justify-content: center;
+       gap: 10px; background: none; border: none; border-bottom: 3px solid transparent;
+       font-family: var(--disp); font-size: var(--fs-row); letter-spacing: 0.1em;
+       text-transform: uppercase; color: var(--t3); cursor: pointer; }
+.tab b { font-size: var(--fs-row); font-weight: 600; }
+.tab.on { color: var(--t1); border-bottom-color: var(--act); }
+.tab.on b { color: var(--act); }
+
+/* ── LIST ──────────────────────────────────────────────────────────────── */
+.list-zone { flex: 1; min-height: 0; display: flex; }
+.col { flex: 1; min-width: 0; overflow-y: auto; padding-bottom: 8px; }
+.col + .col { border-left: 1px solid var(--line); }
+.col::-webkit-scrollbar { width: 0; }
+#colB { display: none; }
+
+/* order band — the box */
+.band { display: flex; align-items: center; gap: 12px; min-height: 40px;
+        padding: 4px 16px; background: var(--g2);
+        border-top: 1px solid var(--line); flex-wrap: wrap; }
+.band-id { font-family: var(--mono); font-weight: 700; font-size: var(--fs-sub); color: var(--t1); }
+.band-n  { font-family: var(--disp); font-size: var(--fs-lab); letter-spacing: 0.1em;
+           text-transform: uppercase; color: var(--t3); }
+.band-age { margin-left: auto; font-family: var(--mono); font-size: var(--fs-sub); color: var(--t3); }
+.band-age.late { color: var(--alarm); }
+.band .chev { color: var(--t3); font-size: 12px; width: 14px; }
+.band.shut { cursor: pointer; }
+.band .aisles { font-family: var(--mono); font-size: var(--fs-sub); color: var(--act); }
+.kitchip { display: inline-flex; align-items: center; gap: 6px; font-family: var(--mono);
+           font-size: var(--fs-lab); color: var(--t2); background: var(--g3);
+           border: 1px solid var(--line); border-radius: 3px; padding: 2px 8px; }
+.kitchip i { width: 8px; height: 8px; border-radius: 50%; }
+.kitchip.ka i { background: var(--kit-a); }
+.kitchip.kb i { background: var(--kit-b); }
+
+/* row — ONE anatomy, constant 64px */
+.row { display: grid; grid-template-columns: 104px 1fr 60px 108px;
+       grid-template-areas: "shelf main qty act";
+       align-items: center; height: 64px; padding: 0 16px 0 13px;
+       border-top: 1px solid var(--line); border-left: 3px solid transparent; }
+.row.kit-a { border-left-color: var(--kit-a); }
+.row.kit-b { border-left-color: var(--kit-b); }
+.shelf { grid-area: shelf; font-family: var(--mono); font-weight: 700;
+         font-size: var(--fs-shelf); color: var(--act); letter-spacing: 0.01em; }
+.shelf.gone { color: var(--t3); font-size: var(--fs-row); }
+.shelf small { font-size: var(--fs-sub); color: var(--t3); font-weight: 400; }
+.shelf.dual { font-size: 15px; white-space: nowrap; letter-spacing: 0; }
+.shelf.dual i { font-style: normal; color: var(--t3); padding: 0 1px; }
+.main { grid-area: main; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.sku { font-family: var(--mono); font-weight: 500; font-size: var(--fs-row); color: var(--t1); }
+.sku .kitflag { font-family: var(--disp); font-size: var(--fs-lab); color: var(--g0);
+                background: var(--kit-a); padding: 1px 6px; border-radius: 3px;
+                letter-spacing: 0.08em; margin-left: 8px; vertical-align: 2px; }
+.sub { font-family: var(--mono); font-size: var(--fs-sub); color: var(--t3);
+       white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; gap: 10px; align-items: center; }
+.sub .devi { color: var(--g0); background: var(--alarm); font-weight: 700;
+             padding: 0 7px; border-radius: 3px; }
+.sub .count-ok { color: var(--t3); }
+.sub .note { color: var(--act); }
+.qty { grid-area: qty; justify-self: center; font-family: var(--disp); font-weight: 600;
+       font-size: var(--fs-row); color: var(--t3); border: 1px solid transparent;
+       border-radius: 6px; padding: 2px 9px; }
+.qty.multi { color: var(--act); border-color: rgba(255,212,0,0.35); background: rgba(255,212,0,0.08); }
+.act { grid-area: act; justify-self: end; }
+.pick { height: 44px; min-width: 96px; border: 1px solid rgba(76,175,80,0.55);
+        background: rgba(76,175,80,0.10); color: var(--ok); border-radius: 8px;
+        font-family: var(--disp); font-weight: 600; font-size: var(--fs-row);
+        letter-spacing: 0.06em; cursor: pointer; }
+.prep { font-family: var(--disp); font-size: var(--fs-sub); letter-spacing: 0.16em;
+        color: var(--t3); text-transform: uppercase; padding-right: 12px; }
+
+/* section “+N” + beacon */
+.more { padding: 10px 16px; font-family: var(--mono); font-size: var(--fs-sub); color: var(--alarm); }
+.beacon { display: none; align-items: center; gap: 12px; padding: 0 16px; height: 48px;
+          flex: none; background: rgba(255,212,0,0.12); border-bottom: 1px solid var(--line-brand); }
+.beacon.show { display: flex; }
+.beacon b { font-family: var(--disp); letter-spacing: 0.2em; color: var(--act); }
+.beacon span { font-family: var(--mono); font-size: var(--fs-row); }
+
+/* ── FOOTER = Today drawer bar + actions ───────────────────────────────── */
+.foot { flex: none; height: 52px; display: flex; align-items: center; gap: 16px;
+        padding: 0 16px; background: var(--g1); border-top: 1px solid var(--line); }
+.today { display: flex; align-items: center; gap: 10px; font-family: var(--disp);
+         font-size: var(--fs-sub); letter-spacing: 0.08em; text-transform: uppercase;
+         color: var(--t2); cursor: pointer; }
+.today b { color: var(--t1); font-family: var(--mono); }
+.foot-r { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+.fbtn { font-family: var(--disp); font-size: var(--fs-sub); letter-spacing: 0.1em;
+        text-transform: uppercase; color: var(--t2); border: 1px solid var(--line);
+        background: none; padding: 8px 14px; border-radius: 5px; cursor: pointer; }
+.fbtn.primary { color: var(--g0); background: var(--act); border-color: var(--act); font-weight: 600; }
+.picker { font-family: var(--mono); font-size: var(--fs-sub); color: var(--t3); }
+
+/* ── LANDSCAPE — the walk continues, nothing stacks ────────────────────── */
+@media (orientation: landscape) {
+  .tabs { position: absolute; right: 12px; top: 0; height: 56px; border: none; width: 330px; }
+  .tab { height: 56px; }
+  .bar { padding-right: 360px; }
+  .app { position: relative; }
+  #colB { display: block; }
+}
+</style>
+</head>
+<body>
+<div class="app">
+
+  <div class="bar">
+    <span class="bar-hq">HQ</span>
+    <span class="bar-clock">2:37 PM · Tue Aug 11</span>
+    <span class="bar-grab"><b id="grabN">19</b><span>to grab</span></span>
+    <span class="bar-paid">⚠ 2 paid</span>
+    <span class="bar-live" title="live · sync 2m"></span>
+  </div>
+
+  <div class="tabs">
+    <button class="tab on" id="tabE" onclick="setTab('EBAY')">eBay <b>13</b></button>
+    <button class="tab" id="tabD" onclick="setTab('DIRECT')">Direct <b>14</b></button>
+  </div>
+
+  <div class="beacon" id="beacon"><b>NEW</b><span>eBay · A-42 · 195252</span></div>
+
+  <div class="list-zone">
+    <ul class="col" id="colA"></ul>
+    <ul class="col" id="colB"></ul>
+  </div>
+
+  <div class="foot">
+    <span class="today">▤ Today · <b>41</b> out · <b>57</b> in</span>
+    <span class="foot-r">
+      <span class="picker">Hatem 7788</span>
+      <button class="fbtn primary">Print</button>
+      <button class="fbtn">⋯</button>
+    </span>
+  </div>
+
+</div>
+
+<script>
+// frozen mock — the same shift the assessment used
+const ROWS = [
+ { ch:'EBAY', oid:'24-15021-77421', sku:'194244', qty:1, loc:'A-14', st:'PENDING', hand:9 },
+ { ch:'EBAY', oid:'08-15017-44806', sku:'167517', qty:1, loc:'A-31', st:'PENDING' },
+ { ch:'EBAY', oid:'08-15017-44806', sku:'155394', qty:2, loc:'B-12', st:'PENDING' },
+ { ch:'EBAY', oid:'08-15017-44806', sku:'168138', qty:1, loc:'C-44', st:'PREPARING' },
+ { ch:'EBAY', oid:'08-15017-44806', sku:'176701', qty:4, loc:'F-3',  st:'PENDING' },
+ { ch:'EBAY', oid:'08-15017-44806', sku:'190455', qty:1, loc:'L-77', st:'PENDING' },
+ { ch:'EBAY', oid:'24-15008-33107', sku:'165447', qty:2, loc:'B-30', st:'PENDING', hand:4, left:1, note:'call before shipping' },
+ { ch:'EBAY', oid:'24-15003-91882', sku:'176688', qty:8, loc:'C-18', st:'PENDING' },
+ { ch:'EBAY', oid:'24-15015-60233', sku:'183112', qty:1, loc:'G-35 * 2', st:'PENDING', hand:12 },
+ { ch:'EBAY', oid:'24-15019-08841', sku:'157023', qty:1, loc:'L-208/C-51', st:'PENDING' },
+ { ch:'EBAY', oid:'24-15004-11290', sku:'172764', qty:1, loc:'NOT FOUND', st:'PENDING' },
+ { ch:'DIRECT', oid:'SO-24612', sku:'162198', qty:4, loc:'A-9',  st:'PENDING',  kit:'160029', hand:6 },
+ { ch:'DIRECT', oid:'SO-24612', sku:'155457', qty:1, loc:'C-2',  st:'PENDING',  kit:'160029' },
+ { ch:'DIRECT', oid:'SO-24612', sku:'158652', qty:1, loc:'E-17', st:'PENDING',  kit:'158652' },
+ { ch:'DIRECT', oid:'SO-24612', sku:'167409', qty:2, loc:'E-37', st:'PENDING',  kit:'158652', hand:3 },
+ { ch:'DIRECT', oid:'SO-24612', sku:'167517', qty:2, loc:'B-12', st:'PREPARING', kit:'160029' },
+ { ch:'DIRECT', oid:'SO-24612', sku:'159579', qty:1, loc:'F-20', st:'PREPARING', kit:'158652' },
+ { ch:'DIRECT', oid:'SO-24618', sku:'171003', qty:1, loc:'A-51', st:'PENDING', kit:'217475' },
+ { ch:'DIRECT', oid:'SO-24618', sku:'168138', qty:1, loc:'B-44', st:'PENDING', kit:'217475' },
+ { ch:'DIRECT', oid:'SO-24618', sku:'196080', qty:2, loc:'D-7',  st:'PENDING' },
+ { ch:'DIRECT', oid:'SO-24631', sku:'183220', qty:2, loc:'A-22', st:'PENDING', hand:15 },
+ { ch:'DIRECT', oid:'SO-24631', sku:'190455', qty:1, loc:'C-30', st:'PENDING' },
+ { ch:'DIRECT', oid:'SO-24631', sku:'196530', qty:1, loc:'G-10', st:'PENDING' },
+ { ch:'DIRECT', oid:'SO-24620', sku:'217871', qty:1, loc:'K-55', st:'PENDING', isKit:true }
+];
+const KITS = {
+ 'SO-24612': [ { k:'160029', done:2, tot:6, cls:'ka' }, { k:'158652', done:1, tot:5, cls:'kb' } ],
+ 'SO-24618': [ { k:'217475', done:2, tot:5, cls:'ka' } ]
+};
+const AGE = { '24-15021-77421':'5h10m','08-15017-44806':'1h35m','24-15008-33107':'3h44m',
+ 'SO-24612':'2d','SO-24618':'6h40m','SO-24631':'2h10m','SO-24620':'1h05m' };
+const LATE = { '24-15021-77421':1,'24-15008-33107':1,'SO-24612':1,'SO-24618':1 };
+const OPEN = { 'SO-24612': true };            // the accordion — oldest seeded open
+const HIDDEN = { EBAY: 2, DIRECT: 0 };        // past the cap
+let tab = new URLSearchParams(location.search).get('tab') === 'direct' ? 'DIRECT' : 'EBAY';
+
+function kitCls(row) {
+  const ks = KITS[row.oid]; if (!ks || ks.length < 2 || !row.kit) return '';
+  const m = ks.find(x => x.k === row.kit); return m ? ' ' + (m.cls === 'ka' ? 'kit-a' : 'kit-b') : '';
+}
+function shelfHtml(loc) {
+  if (!loc || loc === 'NOT FOUND') return '<span class="shelf gone">—</span>';
+  if (loc.includes('/')) {
+    const toks = loc.split('/').map(s => s.trim());
+    return `<span class="shelf dual">${toks.join('<i>/</i>')}</span>`;
+  }
+  const pack = loc.match(/^(.*?)\s*(\*\s*\d+)$/);
+  if (pack) return `<span class="shelf">${pack[1]} <small>${pack[2]}</small></span>`;
+  return `<span class="shelf">${loc}</span>`;
+}
+function subHtml(r, grouped) {
+  const bits = [];
+  if (!grouped) bits.push(r.oid);
+  if (typeof r.hand === 'number' && r.hand <= 25 && r.st !== 'PREPARING') {
+    if (typeof r.left === 'number' && r.left !== Math.max(0, r.hand - r.qty))
+      bits.push(`<span class="devi">counted ${r.left} · ${r.left - Math.max(0, r.hand - r.qty)}</span>`);
+    else bits.push(`<span class="count-ok">hand ${r.hand} → ${Math.max(0, r.hand - r.qty)} · count?</span>`);
+  }
+  if (r.note) bits.push(`<span class="note">📌 ${r.note}</span>`);
+  return bits.join('<span style="color:var(--line)">·</span>');
+}
+function rowHtml(r, grouped) {
+  const act = r.st === 'PREPARING'
+    ? '<span class="prep">Prep</span>'
+    : '<button class="pick">✓ Pick</button>';
+  return `<li class="row${kitCls(r)}">
+    ${shelfHtml(r.loc)}
+    <span class="main">
+      <span class="sku">${r.sku}${r.isKit ? '<span class="kitflag">KIT</span>' : ''}</span>
+      <span class="sub">${subHtml(r, grouped)}</span>
+    </span>
+    <span class="qty${r.qty > 1 ? ' multi' : ''}">×${r.qty}</span>
+    <span class="act">${act}</span>
+  </li>`;
+}
+function bandHtml(oid, n, opts) {
+  let kits = (KITS[oid] || []).map(k =>
+    `<span class="kitchip ${k.cls}"><i></i>${k.k} · ${k.done}/${k.tot}</span>`).join('');
+  if (opts.hasKitRow) kits += '<span class="kitchip ka"><i></i>KIT · decide</span>';
+  const chev = opts.collapsible ? `<span class="chev">${opts.shut ? '▸' : '▾'}</span>` : '';
+  const aisles = opts.shut && opts.aisles.length
+    ? `<span class="aisles">${opts.aisles.join(' · ')}</span>` : '';
+  return `<li class="band${opts.shut ? ' shut' : ''}" onclick="${opts.collapsible ? `tog('${oid}')` : ''}">
+    ${chev}<span class="band-id">${oid}</span>
+    <span class="band-n">${n} line${n > 1 ? 's' : ''}</span>${kits}${aisles}
+    <span class="band-age${LATE[oid] ? ' late' : ''}">${AGE[oid] || ''}</span>
+  </li>`;
+}
+function tog(oid) { OPEN[oid] = !OPEN[oid]; paint(); }
+function setTab(t) { tab = t; document.getElementById('tabE').classList.toggle('on', t === 'EBAY');
+  document.getElementById('tabD').classList.toggle('on', t === 'DIRECT'); paint(); }
+
+function paint() {
+  const rows = ROWS.filter(r => r.ch === tab);
+  const items = [];
+  let prev = null;
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i];
+    if (r.oid !== prev) {
+      const run = rows.filter(x => x.oid === r.oid);
+      const direct = tab === 'DIRECT';
+      const shut = direct && !OPEN[r.oid];
+      if (direct || run.length > 1) {
+        items.push(bandHtml(r.oid, run.length, {
+          collapsible: direct, shut,
+          hasKitRow: run.some(x => x.isKit),
+          aisles: run.filter(x => x.st === 'PENDING' && x.loc !== 'NOT FOUND').map(x => x.loc)
+        }));
+      }
+      prev = r.oid;
+      if (shut) { i += run.length - 1; continue; }
+    }
+    const banded = tab === 'DIRECT' || rows.filter(x => x.oid === r.oid).length > 1;
+    items.push(rowHtml(r, banded));
+  }
+  if (HIDDEN[tab]) items.push(`<li class="more">+${HIDDEN[tab]} more open on the floor — past the cap</li>`);
+
+  const A = document.getElementById('colA'), B = document.getElementById('colB');
+  const twoCol = matchMedia('(orientation: landscape)').matches;
+  if (!twoCol) { A.innerHTML = items.join(''); B.innerHTML = ''; }
+  else {
+    const half = Math.ceil(items.length / 2);
+    A.innerHTML = items.slice(0, half).join('');
+    B.innerHTML = items.slice(half).join('');
+  }
+}
+if (new URLSearchParams(location.search).get('beacon') === '1')
+  document.getElementById('beacon').classList.add('show');
+setTab(tab);
+matchMedia('(orientation: landscape)').addEventListener('change', paint);
+</script>
+</body>
+</html>

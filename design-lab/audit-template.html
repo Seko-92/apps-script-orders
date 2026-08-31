@@ -1,0 +1,352 @@
+<title>Kit Composition Cleanup</title>
+<style>
+  /* HQ Motor Service working document. Palette inherited from the system's own
+     brand tokens (BrandTheme.js): brand yellow #ffd400, ink #1a1a1a, warm paper.
+     Yellow is spent ONLY on "this needs your hand" — the same discipline the
+     sheet and the print template follow. Slate carries "bundled / a fact to
+     weigh", matching the chips now rendering in the two expansion modals. */
+  :root {
+    --paper:#faf6ec; --surface:#fffdf7; --sunk:#f3eddd;
+    --ink:#1a1a1a; --ink-2:#4a4538; --muted:#7b7466;
+    --rule:#e4ddca; --rule-2:#d3c9ae;
+    --brand:#ffd400; --brand-ink:#6b5600; --brand-wash:#fff8d6;
+    --slate:#43606f; --slate-bg:#e7eef2; --slate-rule:#b4c7d0;
+    --keep:#1d5b22; --keep-bg:#e8f1e7;
+    --f-sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    --f-mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+  }
+  @media (prefers-color-scheme:dark){ :root:not([data-theme="light"]){
+    --paper:#15140e; --surface:#1e1d16; --sunk:#191811;
+    --ink:#f1ecdd; --ink-2:#c8c1ad; --muted:#8f8877;
+    --rule:#322f27; --rule-2:#443f33;
+    --brand:#ffd400; --brand-ink:#ffd94d; --brand-wash:#2c2610;
+    --slate:#a6bfcb; --slate-bg:#222d33; --slate-rule:#3c4d56;
+    --keep:#82c286; --keep-bg:#1a271b;
+  }}
+  :root[data-theme="dark"]{
+    --paper:#15140e; --surface:#1e1d16; --sunk:#191811;
+    --ink:#f1ecdd; --ink-2:#c8c1ad; --muted:#8f8877;
+    --rule:#322f27; --rule-2:#443f33;
+    --brand:#ffd400; --brand-ink:#ffd94d; --brand-wash:#2c2610;
+    --slate:#a6bfcb; --slate-bg:#222d33; --slate-rule:#3c4d56;
+    --keep:#82c286; --keep-bg:#1a271b;
+  }
+
+  *{box-sizing:border-box;}
+  body{
+    margin:0; background:var(--paper); color:var(--ink);
+    font-family:var(--f-sans); font-size:15px; line-height:1.55;
+    -webkit-font-smoothing:antialiased;
+  }
+  .page{max-width:1060px; margin:0 auto; padding:38px 22px 90px;}
+
+  /* ---------- masthead ---------- */
+  .mast{border-bottom:2px solid var(--ink); padding-bottom:16px; margin-bottom:8px;}
+  .eyebrow{
+    font-size:11px; font-weight:800; letter-spacing:.16em; text-transform:uppercase;
+    color:var(--muted); margin:0 0 8px;
+  }
+  h1{
+    margin:0; font-size:clamp(27px,4.4vw,40px); line-height:1.08; font-weight:800;
+    letter-spacing:-.018em; text-wrap:balance;
+  }
+  .standfirst{margin:12px 0 0; max-width:64ch; color:var(--ink-2); font-size:16px;}
+
+  /* ---------- status strip ---------- */
+  .strip{
+    display:flex; flex-wrap:wrap; gap:1px; margin:24px 0 40px;
+    background:var(--rule); border:1px solid var(--rule); border-radius:3px; overflow:hidden;
+  }
+  .stat{flex:1 1 150px; background:var(--surface); padding:12px 14px;}
+  .stat .n{
+    font-family:var(--f-mono); font-size:21px; font-weight:700;
+    font-variant-numeric:tabular-nums; letter-spacing:-.02em; display:block;
+  }
+  .stat .l{
+    font-size:10.5px; font-weight:700; letter-spacing:.1em; text-transform:uppercase;
+    color:var(--muted); display:block; margin-top:3px;
+  }
+  .stat.live .n{color:var(--keep);}
+  .stat.todo .n{color:var(--brand-ink);}
+
+  /* ---------- bands ---------- */
+  .band{margin:0 0 46px;}
+  .band-head{
+    display:flex; align-items:baseline; gap:12px; flex-wrap:wrap;
+    border-bottom:1px solid var(--rule-2); padding-bottom:9px; margin-bottom:20px;
+  }
+  .band-head h2{
+    margin:0; font-size:12px; font-weight:800; letter-spacing:.15em; text-transform:uppercase;
+  }
+  .band-head .sub{margin:0; color:var(--muted); font-size:13.5px;}
+  .band.now .band-head h2{color:var(--brand-ink);}
+  .band.decide .band-head h2{color:var(--slate);}
+  .band.ref .band-head h2{color:var(--muted);}
+
+  /* ---------- cards ---------- */
+  .card{
+    display:flex; gap:0; background:var(--surface);
+    border:1px solid var(--rule); border-left-width:4px; border-radius:3px;
+    margin-bottom:14px; transition:opacity .18s ease;
+  }
+  .card.act{border-left-color:var(--brand);}
+  .card.dec{border-left-color:var(--slate-rule);}
+  .card:has(.tick input:checked){opacity:.4;}
+  .card:has(.tick input:checked) .card-head .kit-name{text-decoration:line-through;}
+
+  .tick{display:flex; align-items:flex-start; padding:17px 0 0 14px; cursor:pointer; flex:none;}
+  .tick input{position:absolute; opacity:0; width:0; height:0;}
+  .tick span{
+    width:17px; height:17px; border:1.5px solid var(--rule-2); border-radius:3px;
+    display:block; background:var(--paper); position:relative;
+  }
+  .tick input:checked + span{background:var(--ink); border-color:var(--ink);}
+  .tick input:checked + span::after{
+    content:""; position:absolute; left:5px; top:1px; width:4px; height:9px;
+    border:solid var(--paper); border-width:0 2px 2px 0; transform:rotate(42deg);
+  }
+  .tick input:focus-visible + span{outline:2px solid var(--brand); outline-offset:2px;}
+
+  .card-body{padding:14px 16px 15px; flex:1; min-width:0;}
+  .card-head{display:flex; align-items:baseline; gap:10px; flex-wrap:wrap;}
+  .kit{
+    font-family:var(--f-mono); font-size:15px; font-weight:700;
+    font-variant-numeric:tabular-nums;
+  }
+  .kit-name{color:var(--ink-2); font-size:13.5px;}
+  .meta{
+    margin-left:auto; font-family:var(--f-mono); font-size:12px; color:var(--muted);
+    font-variant-numeric:tabular-nums;
+  }
+  .why{margin:9px 0 12px; font-size:13.5px; color:var(--ink-2); max-width:70ch;}
+  code{
+    font-family:var(--f-mono); font-size:12.5px;
+    background:var(--sunk); padding:1px 5px; border-radius:3px;
+  }
+
+  /* ---------- the before / after pair ---------- */
+  .diff{border:1px solid var(--rule); border-radius:3px; overflow:hidden;}
+  .diff-row{display:flex; align-items:stretch; gap:0; border-bottom:1px solid var(--rule);}
+  .diff-row:last-child{border-bottom:0;}
+  .diff-row .tag{
+    flex:none; width:88px; padding:8px 10px; font-size:10px; font-weight:800;
+    letter-spacing:.09em; text-transform:uppercase; color:var(--muted);
+    background:var(--sunk); border-right:1px solid var(--rule);
+    display:flex; align-items:center;
+  }
+  .diff-row code{
+    flex:1; background:transparent; border-radius:0; padding:8px 12px;
+    font-size:12.5px; line-height:1.5; overflow-x:auto; white-space:pre;
+  }
+  .diff-row.nxt{background:var(--brand-wash);}
+  .diff-row.nxt .tag{color:var(--brand-ink); background:transparent;}
+  code.pick{user-select:all; cursor:copy; font-weight:600;}
+  .evidence{margin:10px 0 0; font-size:12.5px; color:var(--muted);}
+  .evidence.warn{color:var(--brand-ink); font-weight:600;}
+
+  /* ---------- two-column kit lists ---------- */
+  .cols{display:grid; grid-template-columns:1fr 1fr; gap:0 22px; margin-top:12px;}
+  .col{min-width:0;}
+  .col-h{
+    margin:0 0 7px; font-size:10.5px; font-weight:800; letter-spacing:.09em;
+    text-transform:uppercase; padding-bottom:5px; border-bottom:1px solid var(--rule);
+  }
+  .col-h.adds{color:var(--slate);}
+  .col-h.omits{color:var(--keep);}
+  .kl{list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:6px;}
+  .kl li{display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 8px; font-size:12.5px;}
+  .kl .k{font-family:var(--f-mono); font-weight:700; font-variant-numeric:tabular-nums;}
+  .kl .n{color:var(--muted); flex:1 1 100%; font-size:11.5px; line-height:1.35;}
+  .kl .hg{
+    font-family:var(--f-mono); font-size:11.5px; color:var(--slate);
+    background:var(--slate-bg); border:1px solid var(--slate-rule);
+    padding:0 6px; border-radius:9px;
+  }
+  .kl .hg .same{font-family:var(--f-sans); font-size:10px; letter-spacing:.04em; font-weight:800;}
+
+  /* ---------- reference ---------- */
+  .tbl-wrap{overflow-x:auto; border:1px solid var(--rule); border-radius:3px; background:var(--surface);}
+  table{border-collapse:collapse; width:100%; min-width:640px; font-size:13.5px;}
+  th,td{text-align:left; padding:10px 14px; border-bottom:1px solid var(--rule); vertical-align:top;}
+  thead th{
+    font-size:10.5px; font-weight:800; letter-spacing:.1em; text-transform:uppercase;
+    color:var(--muted); background:var(--sunk); white-space:nowrap;
+  }
+  tbody tr:last-child td{border-bottom:0;}
+  td.num{font-family:var(--f-mono); font-variant-numeric:tabular-nums; font-weight:700; white-space:nowrap;}
+  .verdict{
+    display:inline-block; font-size:10.5px; font-weight:800; letter-spacing:.05em;
+    text-transform:uppercase; padding:1px 8px; border-radius:10px; white-space:nowrap;
+  }
+  .verdict.keep{color:var(--keep); background:var(--keep-bg); border:1px solid var(--keep);}
+  .verdict.drop{color:var(--slate); background:var(--slate-bg); border:1px solid var(--slate-rule);}
+  .verdict.hand{color:var(--brand-ink); background:var(--brand-wash); border:1px solid var(--brand);}
+
+  /* over-listed table */
+  .risk td.gap{font-family:var(--f-mono);font-weight:800;font-variant-numeric:tabular-nums;}
+  .sev{display:inline-block;font-size:10px;font-weight:800;letter-spacing:.05em;
+       text-transform:uppercase;padding:1px 7px;border-radius:10px;white-space:nowrap;}
+  .sev.crit{color:#8c1d18;background:#ffdad6;border:1px solid #d9534f;}
+  .sev.part{color:#6d4c00;background:#ffeab8;border:1px solid #d0a53c;}
+  :root:not([data-theme="light"]) .sev.crit,:root[data-theme="dark"] .sev.crit{color:#ffb4ab;background:#3a1210;border-color:#8c3a35;}
+  :root:not([data-theme="light"]) .sev.part,:root[data-theme="dark"] .sev.part{color:#ffd98a;background:#332708;border-color:#7a5f1c;}
+  @media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .sev.crit{color:#ffb4ab;background:#3a1210;border-color:#8c3a35;}
+    :root:not([data-theme="light"]) .sev.part{color:#ffd98a;background:#332708;border-color:#7a5f1c;}}
+  .short{font-family:var(--f-mono);font-size:11.5px;color:var(--muted);}
+  .risk tbody tr:hover{background:var(--sunk);}
+  .more{margin:10px 0 0;font-size:12.5px;color:var(--muted);}
+
+  .note{
+    margin-top:18px; padding:14px 16px; background:var(--surface);
+    border:1px solid var(--rule); border-left:4px solid var(--slate-rule);
+    border-radius:3px; font-size:13.5px; color:var(--ink-2); max-width:76ch;
+  }
+  .note b{color:var(--ink);}
+  .foot{
+    margin-top:56px; padding-top:16px; border-top:1px solid var(--rule);
+    font-size:12px; color:var(--muted);
+  }
+  @media (max-width:720px){
+    .cols{grid-template-columns:1fr; gap:16px;}
+    .diff-row{flex-direction:column;}
+    .diff-row .tag{width:auto; border-right:0; border-bottom:1px solid var(--rule);}
+    .meta{margin-left:0; flex:1 1 100%;}
+  }
+  @media (prefers-reduced-motion:reduce){*{transition:none !important;}}
+</style>
+
+<div class="page">
+
+  <header class="mast">
+    <p class="eyebrow">HQ Motor Service &middot; Kit Registry</p>
+    <h1>What's left to fix by hand in Zoho</h1>
+    <p class="standfirst">
+      The bundled-parts rule is live and already handles 97% of this on its own. These are
+      the cases it can't decide for you &mdash; because they need your knowledge of the parts,
+      not more code.
+    </p>
+  </header>
+
+  <div class="strip">
+    <div class="stat live"><span class="n">47</span><span class="l">parts auto-excluded</span></div>
+    <div class="stat live"><span class="n">$1,287</span><span class="l">phantom value removed</span></div>
+    <div class="stat live"><span class="n">2</span><span class="l">kits un-blocked</span></div>
+    <div class="stat todo"><span class="n">{{NFIX}}</span><span class="l">lines to fix now</span></div>
+    <div class="stat todo"><span class="n">{{NSET}}</span><span class="l">sets to decide</span></div>
+  </div>
+
+  <section class="band now">
+    <div class="band-head">
+      <h2>Do now</h2>
+      <p class="sub">{{NFIX}} sales descriptions missing a <code>+</code> annotation &mdash; each has a sibling kit proving the fix</p>
+    </div>
+    <!--FIXES-->
+  </section>
+
+  <section class="band decide">
+    <div class="band-head">
+      <h2>Decide when you can</h2>
+      <p class="sub">{{NSET}} gasket sets your catalog treats both ways &mdash; nothing is broken today, but the data disagrees with itself</p>
+    </div>
+    <div class="note" style="margin-bottom:20px;">
+      <b>The strongest clue:</b> in all 19 cases, the head gasket added on top carries the
+      <b>same MPN as the gasket set itself</b> &mdash; usually with a Metal or Composite variant note.
+      That reads as one gasket named twice rather than two parts, which matches what you said at the
+      start. It is a clue, not proof, so the call stays yours.
+      <br><br>
+      Whichever way each set goes, the <code>+</code> rule already decides pricing and picking
+      correctly today. Fixing Zoho makes the source agree with the answer &mdash; it does not change
+      the answer.
+    </div>
+    <!--SETS-->
+  </section>
+
+  <section class="band stock">
+    <div class="band-head">
+      <h2>Kits listed beyond what you can build</h2>
+      <p class="sub">59 MANUAL kits &mdash; <b>26 of them can't be built at all</b>, so the next sale fails</p>
+    </div>
+    <div class="note" style="margin-bottom:18px;">
+      A MANUAL kit has no box on a shelf &mdash; its listed quantity is a promise backed by
+      component stock, and nothing walks it down as parts sell. That's the check you were doing
+      by hand after every piston sale. <b>Kit Health now names it</b>
+      (<code>&#9888; CAN'T BUILD</code> / <code>&#9888; OVER-LISTED</code> plus an
+      <code>&#9888; AT RISK</code> count), and the hourly watchdog messages you once when a kit
+      newly crosses the line. This table is the backlog as it stands today.
+    </div>
+    <div class="tbl-wrap risk">
+      <table>
+        <thead><tr>
+          <th>Kit</th><th>Name</th><th class="num">Listed</th><th class="num">Can build</th>
+          <th class="num">At risk</th><th>Short on</th>
+        </tr></thead>
+        <tbody><!--RISKROWS--></tbody>
+      </table>
+    </div>
+    <p class="more"><!--RISKMORE--></p>
+  </section>
+
+  <section class="band ref">
+    <div class="band-head">
+      <h2>Reference</h2>
+      <p class="sub">The four conventions the catalog uses, and what the system now does with each</p>
+    </div>
+    <div class="tbl-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Purchase Info</th><th>Sales Info</th><th class="num">Kits</th>
+            <th>What happens now</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>carries a head-gasket SKU</td>
+            <td>parent says <code>+ Head Gasket</code></td>
+            <td class="num">{{A}}</td>
+            <td><span class="verdict drop">excluded</span> ships inside the parent &mdash; not priced, not picked</td>
+          </tr>
+          <tr>
+            <td>carries a head-gasket SKU</td>
+            <td>its own line, own MPN</td>
+            <td class="num">{{B}}</td>
+            <td><span class="verdict keep">kept</span> a genuinely separate part</td>
+          </tr>
+          <tr>
+            <td>no head-gasket SKU</td>
+            <td>parent says <code>+ Head Gasket</code></td>
+            <td class="num">{{C}}</td>
+            <td><span class="verdict keep">nothing to do</span> already clean</td>
+          </tr>
+          <tr>
+            <td>no head-gasket SKU</td>
+            <td>never mentions one</td>
+            <td class="num">{{D}}</td>
+            <td><span class="verdict keep">nothing to do</span></td>
+          </tr>
+          <tr>
+            <td>carries the SKU</td>
+            <td>mentions it nowhere</td>
+            <td class="num">5</td>
+            <td><span class="verdict hand">needs you</span> listed at the top of this page</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="note">
+      <b>The rule, in one line:</b> a part named only after a <code>+</code> on a Sales Info line
+      ships inside that parent, so it leaves the parts total, the buildable count and the pick list.
+      A part with its own line and its own MPN is real and stays.
+      <br><br>
+      Ties always resolve to <b>keep</b>. Wrongly dropping a part would under-price the kit
+      <em>and</em> stop the picker fetching it &mdash; the box ships incomplete. Wrongly keeping one
+      costs a wasted walk, caught at the bench.
+    </div>
+  </section>
+
+  <p class="foot">
+    Live on Apps&nbsp;Script @284 &middot; measured against the 223-kit registry and Item.csv of 19&nbsp;Aug&nbsp;2026.
+    Ticks on this page are just for keeping your place &mdash; they reset if you reload.
+  </p>
+
+</div>

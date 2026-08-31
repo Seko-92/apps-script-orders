@@ -1,0 +1,64 @@
+<!doctype html><html><head><meta charset="utf-8">
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@300;400;700&family=Roboto+Mono:wght@400&display=swap" rel="stylesheet">
+<style>
+ *{margin:0;padding:0;box-sizing:border-box}
+ html,body{width:826px;height:65px;overflow:hidden;background:#1a1a1a}
+ .sky{position:relative;width:826px;height:65px;overflow:hidden}
+ .grad{position:absolute;inset:0}
+ .orb{position:absolute;border-radius:50%}
+ .star{position:absolute;background:#fff;border-radius:50%}
+ .horiz{position:absolute;left:0;right:0;bottom:0;height:1px}
+ .win{position:absolute;bottom:0;height:2px}
+ .tick{position:absolute;bottom:4px;font:8px/1 'Roboto Mono',monospace;letter-spacing:.12em;
+       color:rgba(255,255,255,.28)}
+ /* ⚠ THE BAND IS THE TABLE'S NAME. The sheet is TWO stacked tables: the DIRECT one is
+    labelled by its gold "▌ DIRECT / HQ MS · DIRECT TABLE" divider. Row 2 is the eBay
+    table's counterpart and had been carrying that job with the eBay logo — removing it
+    left the top table, and its whole header row, belonging to nothing. Typography mirrors
+    the DIRECT band exactly, which is truer symmetry than a logo ever was. */
+ .band{position:absolute;left:0;right:0;top:50%;transform:translateY(-50%);z-index:3;
+       display:flex;align-items:center;justify-content:space-between;padding:0 22px}
+ .band .l{font-family:Oswald,sans-serif;font-weight:700;font-size:18px;letter-spacing:.10em;
+          color:#ffd400;text-shadow:0 1px 6px rgba(0,0,0,.75)}
+ .band .r{font-family:Oswald,sans-serif;font-weight:400;font-size:10px;letter-spacing:.18em;
+          color:rgba(255,255,255,.55);text-shadow:0 1px 5px rgba(0,0,0,.7)}
+</style></head><body>
+<div class="sky" id="sky"></div>
+<script src="light.js"></script>
+<script>
+
+function stars(n,seed){let s='';for(let i=0;i<n;i++){
+  const x=(Math.sin(seed+i*12.9)*.5+.5)*100, y=(Math.sin(seed+i*78.2)*.5+.5)*62,
+        r=(Math.sin(seed+i*3.1)*.5+.5)*1.1+.3;
+  s+=`<div class="star" style="left:${x}%;top:${y}%;width:${r}px;height:${r}px;opacity:${.22+r*.38}"></div>`;}
+  return s;}
+window.renderSky=function(h,withLogo){
+  const L=dayLight(h), night=L.sun<0.10;
+  // ⚠ TWO ARCS. Day maps 6a→6p across the width; night maps 6p→6a, so the moon travels
+  //   instead of parking against the right edge (a single clamped arc put every hour
+  //   after 18:00 in the same spot).
+  const f = night ? (((h+6)%24)/12) : ((h-6)/12);
+  const x = Math.max(3, Math.min(97, f*100));
+  const y = night ? (28 - Math.sin(f*Math.PI)*14) : (56 - Math.sin(f*Math.PI)*38);
+  const orbC = night?'#cfd6e6':(L.golden>0.45?'#ffb347':'#fff3c4');
+  const orbS = night?9:15;
+  document.getElementById('sky').innerHTML = `
+    <div class="grad" style="background:
+      linear-gradient(180deg, ${L.sky}${night?'22':'55'} 0%, transparent 62%),
+      radial-gradient(60% 130% at ${x}% 92%, ${L.sky}${night?'18':'66'} 0%, transparent 60%),
+      ${L.ground}"></div>
+    ${night?stars(26,h):''}
+    <div class="orb" style="left:${x}%;top:${y}%;width:${orbS}px;height:${orbS}px;
+         background:${orbC};box-shadow:0 0 ${night?10:26}px ${orbC}${night?'66':'99'}"></div>
+    <div class="horiz" style="background:linear-gradient(90deg,transparent,${L.sky},transparent);
+         opacity:${night?.25:.7}"></div>
+    ${night?'':`<div class="win" style="left:25%;right:8.4%;
+         background:linear-gradient(90deg,transparent,${L.sky}88,transparent);opacity:.55"></div>`}
+    <div class="tick" style="left:6px">${night?'6p':'6a'}</div>
+    <div class="tick" style="right:6px">${night?'6a':'6p'}</div>
+    ${night?'':'<div class="tick" style="left:25%">9</div><div class="tick" style="right:8.4%">5</div>'}
+    ${withLogo?'<div class="band"><div class="l">▌ EBAY</div><div class="r">HQ MS · EBAY TABLE</div></div>':''}`;
+};
+window.renderSky(12,true);
+document.documentElement.setAttribute('data-ready','1');
+</script></body></html>

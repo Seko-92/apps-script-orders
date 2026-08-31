@@ -1,0 +1,151 @@
+<title>Floor Board · Redesign — Round 1</title>
+<style>
+  :root {
+    --ground: #141412; --surface: #1c1c19; --rule: rgba(255,212,0,0.14);
+    --hairline: rgba(242,240,233,0.10); --text: #f2f0e9; --muted: #a5a29a;
+    --faint: #737069; --accent: #ffd400; --ok: #7fc98e;
+    --disp: 'Oswald', 'Arial Narrow', 'Helvetica Neue', Arial, sans-serif;
+    --body: system-ui, 'Segoe UI', Roboto, sans-serif;
+    --mono: ui-monospace, 'Cascadia Code', 'Roboto Mono', Menlo, monospace;
+  }
+  html { background: var(--ground); }
+  body { background: var(--ground); color: var(--text); font-family: var(--body);
+         font-size: 15px; line-height: 1.6; margin: 0; padding: 0 20px 90px; }
+  .wrap { max-width: 1080px; margin: 0 auto; }
+  .mast { display: flex; align-items: center; gap: 14px; padding: 34px 0 18px;
+          border-bottom: 2px solid var(--accent); flex-wrap: wrap; }
+  .hq { background: var(--accent); color: #141412; font-family: var(--disp);
+        font-weight: 700; font-size: 21px; padding: 4px 11px; }
+  .mast h1 { font-family: var(--disp); font-weight: 600; font-size: 26px;
+             letter-spacing: 0.06em; text-transform: uppercase; margin: 0; flex: 1; }
+  .mast .when { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+  section { margin-top: 50px; }
+  .eyebrow { font-family: var(--disp); font-size: 13px; letter-spacing: 0.22em;
+             text-transform: uppercase; color: var(--accent); margin: 0 0 6px; }
+  h2 { font-family: var(--disp); font-weight: 600; font-size: 24px; margin: 0 0 14px;
+       letter-spacing: 0.03em; text-transform: uppercase; }
+  p { max-width: 74ch; margin: 0 0 14px; }
+  .quiet { color: var(--muted); }
+  em { color: var(--accent); font-style: normal; }
+  figure { margin: 0; background: var(--surface); border: 1px solid var(--hairline); }
+  figure img { display: block; width: 100%; height: auto; }
+  figcaption { font-size: 12.5px; color: var(--muted); padding: 10px 14px 12px; line-height: 1.5; }
+  figcaption b { color: var(--text); font-family: var(--disp); letter-spacing: 0.08em;
+                 text-transform: uppercase; font-weight: 600; display: block; margin-bottom: 2px; }
+  .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; align-items: start; }
+  .pair .tag { font-family: var(--disp); font-size: 11px; letter-spacing: 0.16em;
+               text-transform: uppercase; padding: 3px 10px; display: inline-block; margin-bottom: 8px; }
+  .tag.before { background: #4a4a44; color: var(--text); }
+  .tag.after  { background: var(--accent); color: #141412; }
+  .solo { max-width: 860px; }
+  ul.notes { max-width: 74ch; padding-left: 22px; }
+  ul.notes li { margin-bottom: 9px; }
+  ul.notes b { color: var(--ok); }
+  .decision { background: var(--surface); border-left: 5px solid var(--accent);
+              border: 1px solid var(--rule); border-left-width: 5px; padding: 18px 24px; margin-top: 16px; }
+  .foot { margin-top: 70px; padding-top: 16px; border-top: 1px solid var(--hairline);
+          font-family: var(--mono); font-size: 11.5px; color: var(--faint); }
+  @media (max-width: 760px) { .pair { grid-template-columns: 1fr; } }
+</style>
+
+<div class="wrap">
+
+  <div class="mast">
+    <span class="hq">HQ</span>
+    <h1>Floor Board Redesign — Round 1</h1>
+    <div class="when">2026-08-11 · lab renders, frozen mock shift</div>
+  </div>
+
+  <section>
+    <p class="eyebrow">The split, realized</p>
+    <h2>Two pages, two jobs</h2>
+    <p><strong>The tool</strong> stays at <em>hq.yassinqurabi.com/</em> — the tablet's workstation, everything
+    a picker acts on and nothing else. <strong>The wall</strong> moves to <em>hq.yassinqurabi.com/wall</em> —
+    a read-only monitor center carrying every metric, safe to hang on any screen anywhere because it
+    contains zero write actions. Same data pipe, same brand, independent deploys, and the arcade
+    two-tab bug dies in the same pass (the board's arcade link stops opening a new tab).</p>
+  </section>
+
+  <section>
+    <p class="eyebrow">Before / after</p>
+    <h2>Tablet portrait — the chrome tax, repaid</h2>
+    <div class="pair">
+      <div><span class="tag before">Before</span>
+        <figure><img src="{{IMG:small-board-tablet-portrait.png}}" alt="Current board, portrait">
+        <figcaption><b>Current board</b> First pickable row at ~460px — six layers of furniture first.
+        Kit strip narrates the other tab. Hero strip clips its own label.</figcaption></figure></div>
+      <div><span class="tag after">Round 1</span>
+        <figure><img src="{{IMG:small-lab-tool-portrait-ebay.png}}" alt="Lab tool, portrait, eBay tab">
+        <figcaption><b>Lab tool</b> First row at ~115px. One bar, tabs as the header, the whole eBay side
+        on one screen. Count + deviance + note live inside a constant-height row.</figcaption></figure></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Tablet landscape — from half a row to eleven</h2>
+    <div class="pair">
+      <div><span class="tag before">Before</span>
+        <figure><img src="{{IMG:small-board-tablet-landscape.png}}" alt="Current board, landscape — broken">
+        <figcaption><b>Current board</b> The assessment's F1: one clipped row on a 1280×800 screen.</figcaption></figure></div>
+      <div><span class="tag after">Round 1</span>
+        <figure><img src="{{IMG:small-lab-tool-landscape.png}}" alt="Lab tool, landscape — two columns">
+        <figcaption><b>Lab tool</b> The same list in two columns — the walk continues sideways.
+        Eleven rows, the band, and the cap notice, all visible at once.</figcaption></figure></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>The Direct accordion — kept, and finished</h2>
+    <figure class="solo"><img src="{{IMG:small-lab-tool-portrait-direct.png}}" alt="Lab tool, Direct tab">
+      <figcaption><b>Lab tool · Direct tab</b> The kit strip is gone and nothing was lost: progress chips
+      (<span style="color:#63ffff">●</span> 160029 · 2/6 &nbsp;<span style="color:#b163ff">●</span> 158652 · 1/5)
+      now live ON the order band they belong to. Spines mark membership only where an order holds two boxes.
+      Shut cards still name their shelves; the unexpanded-kit order carries a KIT · decide chip even when shut.</figcaption></figure>
+  </section>
+
+  <section>
+    <h2>The wall — a monitor center, per your call</h2>
+    <figure><img src="{{IMG:small-lab-wall.png}}" alt="Lab wall, 1920×1080">
+      <figcaption><b>Lab wall · 1920×1080 · /wall</b> Every metric on the rail: to-grab with channel split,
+      oldest (redline count), units, shipped + pace, received + split, paid shipping, pipeline health
+      (prep · zoho to pull · sync age), and the live feed. Both channels permanently on screen — no scrolling,
+      no buttons, PREP rows recede. The rail is a stack of modules, so extending it later — a new metric,
+      a new panel — is adding one card, not redesigning a page.</figcaption></figure>
+  </section>
+
+  <section>
+    <p class="eyebrow">Inside the build</p>
+    <h2>Rules honored, details carried</h2>
+    <ul class="notes">
+      <li><b>Type scale</b> Tool: 24 · 20 · 16 · 13 · 11. Wall: 72 · 24 · 18 · 14 · 12. Nothing else — the
+        31-size zoo is gone by construction.</li>
+      <li><b>One meaning per position</b> Left spine = kit membership only. Deviance is a red chip in the
+        row's own lane; the floor note is the 📌 text; age lives on the band's right edge.</li>
+      <li><b>Constant row anatomy</b> Every row is one height (64px tool / 46px wall) — count, note and
+        deviance fit inside the second text line instead of ballooning the row.</li>
+      <li><b>Everything ambient behind one bar</b> ▤ Today · 41 out · 57 in — tap to open shipped/received/feed
+        on the tool. The wall shows them permanently; that difference IS the two roles.</li>
+      <li><b>Carried from the old board</b> 44px ✓ Pick · beacon slot (unchanged behavior) · pack-size
+        recedes (G-35 <i>* 2</i>) · dual shelves as two tokens · NOT FOUND dims · "+N past the cap" honesty
+        · CVD-safe kit pair untouched.</li>
+    </ul>
+  </section>
+
+  <section>
+    <p class="eyebrow">Your look</p>
+    <h2>What happens next</h2>
+    <div class="decision">
+      <p style="margin:0;">If round 1 reads right, next is the <strong>port</strong>: rebuild
+      <em>FloorBoard.html</em> onto this skeleton (all behavior kept — polling, optimistic picks, drawers,
+      numpad, print, radio, beacon), build <em>wall.html</em> as the new page, wire <em>/wall</em> in Caddy,
+      fix the arcade link, then re-render everything through the loop before a single deploy. Anything you
+      want moved, resized, or louder — say it in one line and it lands in round 2.</p>
+    </div>
+  </section>
+
+  <div class="foot">
+    HQ Motor Service · redesign round 1 · lab files design-lab/lab-tool.html + lab-wall.html ·
+    rendered via shoot-lab.js against the frozen mock shift · same data pipe as production (/api/board)
+  </div>
+
+</div>

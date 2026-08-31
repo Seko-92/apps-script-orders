@@ -1,0 +1,258 @@
+<title>Floor Board · Shipped</title>
+<style>
+  :root {
+    --ground: #141412; --surface: #1c1c19; --surface2: #22221e;
+    --rule: rgba(255,212,0,0.14); --hairline: rgba(242,240,233,0.10);
+    --text: #f2f0e9; --muted: #a5a29a; --faint: #737069;
+    --accent: #ffd400; --ok: #7fc98e; --warn: #ff8f8f;
+    --disp: 'Oswald', 'Arial Narrow', 'Helvetica Neue', Arial, sans-serif;
+    --body: system-ui, 'Segoe UI', Roboto, sans-serif;
+    --mono: ui-monospace, 'Cascadia Code', 'Roboto Mono', Menlo, monospace;
+  }
+  html { background: var(--ground); }
+  body { background: var(--ground); color: var(--text); font-family: var(--body);
+         font-size: 15px; line-height: 1.62; margin: 0; padding: 0 20px 90px; }
+  .wrap { max-width: 1060px; margin: 0 auto; }
+
+  .mast { display: flex; align-items: center; gap: 14px; padding: 36px 0 18px;
+          border-bottom: 2px solid var(--accent); flex-wrap: wrap; }
+  .hq { background: var(--accent); color: #141412; font-family: var(--disp);
+        font-weight: 700; font-size: 21px; padding: 4px 11px; }
+  .mast h1 { font-family: var(--disp); font-weight: 600; font-size: 27px;
+             letter-spacing: 0.06em; text-transform: uppercase; margin: 0; flex: 1;
+             text-wrap: balance; }
+  .mast .when { font-family: var(--mono); font-size: 12px; color: var(--muted); text-align: right; }
+
+  section { margin-top: 54px; }
+  .eyebrow { font-family: var(--disp); font-size: 13px; letter-spacing: 0.22em;
+             text-transform: uppercase; color: var(--accent); margin: 0 0 6px; }
+  h2 { font-family: var(--disp); font-weight: 600; font-size: 24px; margin: 0 0 16px;
+       letter-spacing: 0.03em; text-transform: uppercase; text-wrap: balance; }
+  h3 { font-family: var(--disp); font-weight: 600; font-size: 18px; margin: 0 0 8px;
+       letter-spacing: 0.03em; }
+  p { max-width: 74ch; margin: 0 0 14px; }
+  .quiet { color: var(--muted); }
+  em { color: var(--accent); font-style: normal; }
+  code { font-family: var(--mono); font-size: 13px; color: var(--accent); }
+
+  /* live banner */
+  .live { background: var(--surface); border: 1px solid var(--rule);
+          border-left: 5px solid var(--ok); padding: 20px 26px; }
+  .live p { max-width: none; }
+  .urls { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px,1fr));
+          gap: 14px; margin-top: 16px; }
+  .url { background: var(--surface2); border: 1px solid var(--hairline); padding: 14px 18px; }
+  .url b { font-family: var(--mono); font-size: 14px; color: var(--accent); display: block;
+           word-break: break-all; }
+  .url span { font-size: 13.5px; color: var(--muted); }
+
+  /* numbers */
+  .nums { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px,1fr)); gap: 14px; }
+  .num { background: var(--surface); border: 1px solid var(--hairline); padding: 16px 18px; min-width: 0; }
+  .num .k { font-family: var(--disp); font-size: 11px; letter-spacing: 0.18em;
+            text-transform: uppercase; color: var(--faint); }
+  .num .v { font-family: var(--disp); font-weight: 600; font-size: 26px; line-height: 1.2;
+            margin: 4px 0 2px; }
+  .num .v .was { color: var(--faint); font-size: 17px; font-weight: 400; }
+  .num .v .arrow { color: var(--accent); font-size: 15px; padding: 0 5px; }
+  .num .s { font-size: 12.5px; color: var(--muted); }
+
+  figure { margin: 0; background: var(--surface); border: 1px solid var(--hairline); }
+  figure img { display: block; width: 100%; height: auto; }
+  figcaption { font-size: 12.5px; color: var(--muted); padding: 10px 14px 12px; line-height: 1.5; }
+  figcaption b { color: var(--text); font-family: var(--disp); letter-spacing: 0.08em;
+                 text-transform: uppercase; font-weight: 600; display: block; margin-bottom: 2px; }
+  .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; align-items: start; }
+  .tag { font-family: var(--disp); font-size: 11px; letter-spacing: 0.16em;
+         text-transform: uppercase; padding: 3px 10px; display: inline-block; margin-bottom: 8px; }
+  .tag.b { background: #4a4a44; color: var(--text); }
+  .tag.a { background: var(--accent); color: #141412; }
+  .shots { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px,1fr)); gap: 18px; }
+  .span2 { grid-column: 1 / -1; }
+
+  .keep { background: var(--surface); border-left: 4px solid var(--ok);
+          border-top: 1px solid var(--hairline); border-right: 1px solid var(--hairline);
+          border-bottom: 1px solid var(--hairline); padding: 16px 20px; margin-top: 14px; }
+  .keep h3 { color: var(--ok); }
+
+  ul.pts { max-width: 74ch; padding-left: 20px; }
+  ul.pts li { margin-bottom: 9px; }
+  ul.pts b { color: var(--text); }
+
+  .caught { background: var(--surface); border: 1px solid var(--hairline);
+            border-left: 4px solid var(--warn); padding: 14px 20px; margin-top: 12px; }
+  .caught b { font-family: var(--disp); letter-spacing: 0.04em; }
+
+  .next { background: var(--surface2); border: 1px solid var(--rule); padding: 20px 26px; }
+  .next ol { max-width: 74ch; padding-left: 22px; margin: 0; }
+  .next li { margin-bottom: 10px; }
+  .next b { color: var(--accent); }
+
+  .foot { margin-top: 72px; padding-top: 16px; border-top: 1px solid var(--hairline);
+          font-family: var(--mono); font-size: 11.5px; color: var(--faint); }
+  @media (max-width: 760px) { .pair { grid-template-columns: 1fr; } }
+</style>
+
+<div class="wrap">
+
+  <div class="mast">
+    <span class="hq">HQ</span>
+    <h1>Floor Board — Shipped</h1>
+    <div class="when">2026-08-12 · tool v3.0 + wall v1.0<br>live &amp; byte-verified</div>
+  </div>
+
+  <section>
+    <p class="eyebrow">Status</p>
+    <div class="live">
+      <p style="font-size:17px;"><strong>Both surfaces are live, serving real production data,
+      and verified by rendering the actual URLs — not the mock.</strong> The board split into
+      two pages that each do one job: a workstation for the tablet, and a monitor center for
+      any screen you want to hang it on.</p>
+      <div class="urls">
+        <div class="url"><b>hq.yassinqurabi.com/</b>
+          <span>THE TOOL — the tablet's workstation. Every action lives here.</span></div>
+        <div class="url"><b>hq.yassinqurabi.com/wall</b>
+          <span>THE MONITOR CENTER — all metrics, read-only, zero write surface. Safe on any screen.</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <p class="eyebrow">What changed, measured</p>
+    <h2>The numbers</h2>
+    <div class="nums">
+      <div class="num"><div class="k">First pick row</div>
+        <div class="v"><span class="was">460px</span><span class="arrow">→</span>115px</div>
+        <div class="s">portrait — the chrome tax, repaid</div></div>
+      <div class="num"><div class="k">Landscape</div>
+        <div class="v"><span class="was">½ row</span><span class="arrow">→</span>11 rows</div>
+        <div class="s">two columns, nothing stacks</div></div>
+      <div class="num"><div class="k">Font sizes</div>
+        <div class="v"><span class="was">31</span><span class="arrow">→</span>5-token scale</div>
+        <div class="s">50 var-driven + 4 step-downs</div></div>
+      <div class="num"><div class="k">Colour literals</div>
+        <div class="v"><span class="was">117</span><span class="arrow">→</span>~12 tokens</div>
+        <div class="s">one meaning per colour</div></div>
+      <div class="num"><div class="k">Media blocks</div>
+        <div class="v"><span class="was">8</span><span class="arrow">→</span>4</div>
+        <div class="s">one per breakpoint, last in the sheet</div></div>
+      <div class="num"><div class="k">Tool file size</div>
+        <div class="v"><span class="was">284k</span><span class="arrow">→</span>173k</div>
+        <div class="s">monitor DNA removed, not hidden</div></div>
+    </div>
+  </section>
+
+  <section>
+    <p class="eyebrow">Live, right now</p>
+    <h2>Rendered from production</h2>
+    <div class="shots">
+      <figure><img src="{{IMG:f-live-tool-portrait.png}}" alt="Live tool, tablet portrait">
+        <figcaption><b>The tool · live data</b> A quiet end-of-day floor: one line, shelf J-33.
+        Real picker, real prayer time, real Today numbers — and look at the row:
+        <em>📌 Thank You.</em> That is a buyer note with no <code>**</code> marker, which means it
+        was invisible on the board for its entire life until today.</figcaption></figure>
+      <figure class="span2"><img src="{{IMG:f-live-wall.png}}" alt="Live wall, 1920×1080">
+        <figcaption><b>The wall · live data</b> 22 shipped (92% of today out), 24 received,
+        oldest 29m inside the line, pipeline showing prep 39 / zoho 66 to pull / sync 30m,
+        both channels on screen, feed running. No buttons anywhere.</figcaption></figure>
+    </div>
+  </section>
+
+  <section>
+    <p class="eyebrow">Before / after</p>
+    <h2>The tool, on a busy shift</h2>
+    <p class="quiet">Same mock shift both sides, so the comparison is honest.</p>
+    <div class="pair">
+      <div><span class="tag b">Before · v2.1</span>
+        <figure><img src="{{IMG:f-board-tablet-portrait.png}}" alt="Old board portrait">
+        <figcaption><b>Six layers of furniture</b> before the first shelf.</figcaption></figure></div>
+      <div><span class="tag a">After · v3.0</span>
+        <figure><img src="{{IMG:f-port-portrait-direct.png}}" alt="New tool, Direct tab">
+        <figcaption><b>Direct tab</b> Kit progress now rides ON the order band
+        (<span style="color:#63ffff">●</span> 160029 · 2/6 &nbsp;<span style="color:#b163ff">●</span> 158652 · 1/5),
+        the strip is gone, and a shut order still shows <em>KIT · decide</em> so a decision can
+        never hide inside a collapsed card.</figcaption></figure></div>
+    </div>
+    <div class="pair" style="margin-top:20px;">
+      <div><span class="tag b">Before · landscape</span>
+        <figure><img src="{{IMG:f-board-tablet-landscape.png}}" alt="Old landscape, broken">
+        <figcaption><b>Half of one clipped row</b> — rotating the tablet lost the tool.</figcaption></figure></div>
+      <div><span class="tag a">After · landscape</span>
+        <figure><img src="{{IMG:f-port-landscape.png}}" alt="New landscape, two columns">
+        <figcaption><b>The walk continues sideways.</b> CSS columns with
+        <code>break-inside: avoid</code> — an order can never be cut across the gutter.</figcaption></figure></div>
+    </div>
+    <div class="shots" style="margin-top:20px;">
+      <figure><img src="{{IMG:f-port-portrait-today.png}}" alt="Today drawer open">
+        <figcaption><b>The Today drawer</b> Shipped · received · units · the live feed —
+        one tap, and zero pixels the rest of the time.</figcaption></figure>
+      <figure><img src="{{IMG:f-port-phone.png}}" alt="Phone">
+        <figcaption><b>Phone</b> Sheds every ornament, keeps the list.</figcaption></figure>
+    </div>
+  </section>
+
+  <section>
+    <p class="eyebrow">Under the hood</p>
+    <h2>How it was done safely</h2>
+    <p>This was surgery on a 6,000-line file that runs the warehouse, so the method was the
+    point. Every edit was an <strong>anchored replacement whose anchor had to be unique</strong>,
+    all 18 of them applied in memory and written once at the end — so a failed check costs
+    nothing instead of leaving the file half-edited.</p>
+    <p>The new markup <strong>reuses the same element IDs</strong> wherever behavior survives,
+    which meant the battle-tested code was never rewritten at all: drawers, the number pad and
+    its Zoho receipt, print, the picker gate, radio, the beacon with its 45-minute memory and
+    quiet-when-someone-is-present rule, optimistic picks that survive a stale tick, the accordion
+    rules. Component styling was carried across mechanically with the old token names aliased,
+    so nothing had to be re-themed by hand.</p>
+    <div class="keep">
+      <h3>Everything that worked, still works</h3>
+      <p style="margin:0;">The Direct accordion, one-job tabs, shelf-first rows, 44px ✓ Pick,
+      dual shelves as two places, pack-size receding, the honest "+N past the cap", bands that
+      count the whole order, the shelf count with its Zoho receipt, and the beacon. Nothing
+      earned was spent.</p>
+    </div>
+  </section>
+
+  <section>
+    <p class="eyebrow">The loop earned its keep</p>
+    <h2>Six defects caught before you saw them</h2>
+    <ul class="pts">
+      <li><b>The note was truncating instead of the order id</b> — backwards. The id now yields first; the exception always leads.</li>
+      <li><b>A deviance row crushed its own SKU</b> — the prose now gives the lane to the chips.</li>
+      <li><b>The phone bar overflowed and the tabs collided</b> — the phone sheds ornaments and keeps the list.</li>
+      <li><b>Metric cards overflowed their own borders</b> — a grid child refuses to shrink unless you tell it to.</li>
+    </ul>
+    <div class="caught">
+      <p style="margin:0;"><b>And two that only the LIVE render could find</b> — the mock could not
+      lie about them: the wall was printing the spreadsheet's <em>raw status cell</em> inside its own
+      status line, and its staleness thresholds disagreed with the tool's, so the same pipe would
+      have read "stale" on one screen and "idle" on another. Both fixed; all three surfaces now
+      report identically. <strong>New rule: always finish by rendering the live page, not just the mock.</strong></p>
+    </div>
+  </section>
+
+  <section>
+    <p class="eyebrow">Over to you</p>
+    <h2>One action, one small piece left</h2>
+    <div class="next">
+      <ol>
+        <li><b>Hard-reload the devices.</b> The kiosk tab polls data forever but never re-fetches
+        its own HTML — so pickers keep seeing the old board until someone reloads. That is also
+        exactly why shipping this mid-afternoon was safe: the file changed, nobody's screen did.
+        Reload the tablet (and any wall screen) when the shift ends.</li>
+        <li><b>Point a screen at <code>/wall</code></b> — the warehouse wall, your Riyadh desk, a TV.
+        It is read-only, so the link is safe to hand to anyone.</li>
+        <li><b>The night dial still has to move</b> from the old board to the wall. The wall has a
+        simple resting state for now; the dial is preserved in the pre-port backup and I'll bring
+        it across whenever you want it.</li>
+      </ol>
+    </div>
+  </section>
+
+  <div class="foot">
+    HQ Motor Service · Floor Board v3.0 + Wall v1.0 · shipped 2026-08-12 ·
+    tool 173,023 bytes verified live · wall 37,524 bytes verified live ·
+    no Apps Script version cut required (both pages are static-hosted, server contract unchanged)
+  </div>
+
+</div>

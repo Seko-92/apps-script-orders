@@ -1,0 +1,159 @@
+<body>
+  <div class="beacon-edge" id="beaconEdge" aria-hidden="true"></div>
+  <div class="board booting" id="board">
+
+    <!-- TOP BAR — the only chrome. Everything a picker does not act on
+         mid-walk lives in the Today drawer or the ⋯ menu. -->
+    <div class="bar">
+      <div class="hdr-mono">HQ</div>
+      <div class="bar-clock">
+        <span id="clockTime">—:—</span>
+        <span id="clockDate">loading</span>
+        <span id="hijri" class="hidden"></span>
+      </div>
+      <div class="pray" title="Prayer times · Houston">
+        <span class="pray-name" id="prayName"></span>
+        <span class="pray-time" id="prayTime"></span>
+        <span class="pray-count" id="prayCount"></span>
+      </div>
+      <div class="bar-grab" id="barGrab">
+        <b id="grabNum">—</b><span id="grabWord">to grab</span>
+      </div>
+      <div class="bar-paid hidden" id="barPaid" title="Buyer paid for a shipping service — match the exact label level">
+        ⚠ <b id="barPaidNum">0</b> paid
+      </div>
+      <div class="live">
+        <span class="live-dot" id="liveDot"></span>
+        <span id="liveText">connecting</span>
+      </div>
+    </div>
+
+    <!-- TABS = the panel header. The lit tab IS the section head. -->
+    <div class="tabs-row">
+      <div class="chantabs" id="chanTabs">
+        <button class="ct" data-ch="EBAY"><span>eBay</span><b id="ctEbay">0</b></button>
+        <button class="ct" data-ch="DIRECT"><span>Direct</span><b id="ctDirect">0</b></button>
+      </div>
+      <div class="tabs-side">
+        <span class="sortsw" id="sortSw" title="Aisle order is the walk. Age order is the triage.">
+          <b class="sortsw-opt on" data-mode="aisle">Aisle</b><b class="sortsw-opt" data-mode="age">Age</b>
+        </span>
+        <span id="pickCount"></span>
+        <span id="pickModeWord" class="hidden">by aisle</span>
+      </div>
+    </div>
+
+    <div class="othernudge hidden" id="otherNudge"></div>
+
+    <!-- NEW-ORDER BEACON — for the picker who is NOT looking at the board. -->
+    <div class="beacon-strip hidden" id="beaconStrip" title="Tap to dismiss">
+      <span class="beacon-word">New</span>
+      <span class="beacon-body" id="beaconBody"></span>
+      <span class="beacon-more" id="beaconMore"></span>
+    </div>
+
+    <!-- THE LIST — two ULs, one per channel; the tabs choose which shows. -->
+    <div class="picksplit" id="pickSplit">
+      <ul class="pickcol" id="pickListEbay"></ul>
+      <ul class="pickcol" id="pickListDirect"></ul>
+      <div class="pick-none" id="pickNone">nothing open to pick</div>
+    </div>
+
+    <!-- FOOTER — Today drawer bar + the actions. -->
+    <div class="ftr">
+      <div class="radio" id="radio">
+        <span class="radio-btn" id="radioBtn" title="Play / pause">▶</span>
+        <span class="eq" id="eq" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span>
+        <span class="radio-meta" id="radioMeta" title="Choose station">radio</span>
+        <span class="radio-pick" id="radioPick" title="Choose station">▾</span>
+        <div class="radio-pop" id="radioPop"></div>
+      </div>
+      <div class="today-bar" id="todayBar" title="Today's numbers + the live feed">
+        ▤ Today · <b id="tdOut">—</b> out · <b id="tdIn">—</b> in
+      </div>
+      <div class="ftr-right">
+        <span id="footSync">sync —</span>
+        <span class="ftr-picker" id="footPicker" title="Pick ID — required before printing">picker —</span>
+        <button class="ftr-btn primary" id="printBtn" title="Print the pick list — PREPARING rows">Print</button>
+        <button class="ftr-btn" id="menuBtn" title="More">⋯</button>
+      </div>
+    </div>
+
+    <!-- TODAY DRAWER — everything ambient, one tap away, zero pixels otherwise -->
+    <div class="today-sheet" id="todaySheet">
+      <div class="ts-head">
+        <h3>Today</h3>
+        <button class="ts-close" id="todayClose">Close</button>
+      </div>
+      <div class="ts-stats">
+        <div class="ts-stat">
+          <div class="ts-lab">Shipped</div>
+          <div class="ts-num" id="tdShipped">—</div>
+          <div class="ts-sub" id="tdShippedSub">&nbsp;</div>
+        </div>
+        <div class="ts-stat">
+          <div class="ts-lab">Received</div>
+          <div class="ts-num" id="tdReceived">—</div>
+          <div class="ts-sub" id="tdReceivedSub">&nbsp;</div>
+        </div>
+        <div class="ts-stat">
+          <div class="ts-lab">Units to pick</div>
+          <div class="ts-num" id="tdUnits">—</div>
+          <div class="ts-sub" id="tdUnitsSub">&nbsp;</div>
+        </div>
+      </div>
+      <div class="feed-head">
+        <span class="feed-title">As it lands</span>
+      </div>
+      <ul class="feed-list" id="feedList">
+        <li class="feed-empty">waiting for today's first event…</li>
+      </ul>
+    </div>
+
+    <!-- ⋯ MENU — arcade (SAME TAB — the two-tab bug died here), fullscreen, sound -->
+    <div class="menu-pop hidden" id="menuPop">
+      <a class="menu-item" href="/arcade" title="Break-room cabinet — six games">
+        <i class="ftr-ico">▶</i><span>Arcade</span>
+      </a>
+      <span class="menu-item" id="fsToggle" title="Fullscreen (tap on the tablet)">Full</span>
+      <span class="menu-item" id="soundToggle" title="Sound — distinct chime per event">
+        <i class="ftr-ico">♪</i><span class="ftr-lbl">off</span>
+      </span>
+    </div>
+
+    <!-- NUMBER PAD — the board's own entry surface for a quantity. -->
+    <div class="numpad hidden" id="numPad">
+      <div class="np-card" id="npCard">
+        <div class="np-title" id="npTitle"></div>
+        <div class="np-sub" id="npSub"></div>
+        <div class="np-context" id="npContext"></div>
+        <div class="np-value" id="npValue">0</div>
+        <div class="np-note" id="npNote"></div>
+        <div class="np-keys" id="npKeys"></div>
+        <div class="np-actions">
+          <button class="np-btn np-cancel" id="npCancel">Cancel</button>
+          <button class="np-btn np-ok" id="npOk">Save</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="connlost" id="connLost">lost the line · retrying</div>
+    <div class="egg" id="egg"></div>
+    <div class="ctoast" id="ctoast">
+      <span id="ctoastMsg"></span>
+      <button id="ctoastUndo">undo</button>
+    </div>
+  </div>
+
+  <div class="drw-back" id="drwBack"></div>
+  <div class="drw" id="drw" role="dialog" aria-modal="true">
+    <div class="drw-grip"></div>
+    <div class="drw-head">
+      <div style="min-width:0;">
+        <div class="drw-title" id="drwTitle">—</div>
+        <div class="drw-sub" id="drwSub"></div>
+      </div>
+      <button class="drw-x" id="drwX" aria-label="Close">&#10005;</button>
+    </div>
+    <div class="drw-body" id="drwBody"></div>
+  </div>

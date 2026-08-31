@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HQ · Wall — LAB</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@300;400;500;600;700&family=Roboto+Mono:wght@400;500;700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+/* ============================================================================
+   HQ WALL — DESIGN LAB · the MONITOR CENTER (hq.yassinqurabi.com/wall)
+   Read-only projection: every metric visible, both channels always on screen,
+   ZERO write surface — this link can hang anywhere.
+   Same rules as the tool; type scale stepped up for distance:
+     wall scale: 72 hero · 24 shelf · 18 row · 14 sub · 12 labels
+   ============================================================================ */
+:root {
+  --g0: #0e0e0d;  --g1: #161614;  --g2: #1d1d1a;  --g3: #26261f;
+  --line: rgba(245,245,242,0.09);
+  --line-brand: rgba(255,212,0,0.22);
+  --t1: #f5f5f2;  --t2: rgba(245,245,242,0.64);  --t3: rgba(245,245,242,0.38);
+  --act: #ffd400;  --ok: #4caf50;  --alarm: #ff6b6b;  --money: #ffb84d;
+  --kit-a: #63ffff;  --kit-b: #b163ff;
+  --fs-hero: 72px; --fs-shelf: 24px; --fs-row: 18px; --fs-sub: 14px; --fs-lab: 12px;
+  --disp: 'Oswald', sans-serif;  --mono: 'Roboto Mono', monospace;  --body: 'Roboto', sans-serif;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; }
+body { background: var(--g0); color: var(--t1); font-family: var(--body); overflow: hidden; }
+.wall { height: 100dvh; display: grid;
+        grid-template-rows: 64px 1fr;
+        grid-template-columns: 340px 1fr 1fr;
+        grid-template-areas: "hdr hdr hdr" "rail ebay direct"; }
+
+/* ── HEADER ────────────────────────────────────────────────────────────── */
+.hdr { grid-area: hdr; display: flex; align-items: center; gap: 24px; padding: 0 28px;
+       background: var(--g1); border-bottom: 1px solid var(--line-brand); }
+.hdr-hq { background: var(--act); color: var(--g0); font-family: var(--disp);
+          font-weight: 700; font-size: 22px; padding: 3px 12px; letter-spacing: 0.04em; }
+.hdr-word { font-family: var(--disp); font-weight: 500; font-size: 16px;
+            letter-spacing: 0.3em; text-transform: uppercase; color: var(--t2); }
+.hdr-mid { margin-left: auto; display: flex; gap: 28px; align-items: center;
+           font-family: var(--mono); font-size: var(--fs-sub); color: var(--t2); }
+.hdr-live { display: flex; align-items: center; gap: 8px; font-family: var(--disp);
+            font-size: var(--fs-lab); letter-spacing: 0.18em; text-transform: uppercase; color: var(--ok); }
+.hdr-live i { width: 10px; height: 10px; border-radius: 50%; background: var(--ok);
+              box-shadow: 0 0 8px rgba(76,175,80,0.8); }
+.hdr-clock { font-family: var(--disp); font-weight: 600; font-size: 30px; letter-spacing: 0.04em; }
+.hdr-date { font-family: var(--mono); font-size: var(--fs-lab); color: var(--t3); text-align: right; line-height: 1.5; }
+
+/* ── METRICS RAIL — the monitor center ─────────────────────────────────── */
+.rail { grid-area: rail; display: flex; flex-direction: column; gap: 12px;
+        padding: 16px; background: var(--g1); border-right: 1px solid var(--line);
+        overflow: hidden; }
+.m { background: var(--g2); border: 1px solid var(--line); padding: 12px 16px; }
+.m-lab { font-family: var(--disp); font-size: var(--fs-lab); letter-spacing: 0.2em;
+         text-transform: uppercase; color: var(--t3); margin-bottom: 2px; }
+.m-hero { border-color: var(--line-brand); }
+.m-hero .m-num { font-family: var(--disp); font-weight: 600; font-size: var(--fs-hero);
+                 line-height: 1; color: var(--act); }
+.m-hero .m-split { display: flex; gap: 18px; margin-top: 6px; font-family: var(--mono);
+                   font-size: var(--fs-sub); color: var(--t2); }
+.m-hero .m-split b { color: var(--t1); }
+.sharebar { display: flex; height: 5px; margin-top: 10px; border-radius: 3px; overflow: hidden; }
+.sharebar .e { background: var(--act); }
+.sharebar .d { background: var(--t3); }
+.m-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.m-num2 { font-family: var(--disp); font-weight: 600; font-size: 34px; line-height: 1.1; }
+.m-num2.warn { color: var(--alarm); }
+.m-sub { font-family: var(--mono); font-size: var(--fs-lab); color: var(--t3); margin-top: 3px;
+         white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mbar { height: 4px; background: var(--g3); border-radius: 2px; margin-top: 8px; overflow: hidden; }
+.mbar i { display: block; height: 100%; }
+.m-paid { border-color: rgba(255,184,77,0.5); display: flex; align-items: center; gap: 12px; }
+.m-paid .m-num2 { color: var(--money); }
+.m-paid .m-text { font-family: var(--disp); font-size: var(--fs-sub); letter-spacing: 0.06em;
+                  text-transform: uppercase; color: var(--money); }
+.m-paid small { display: block; font-family: var(--body); font-size: var(--fs-lab);
+                color: var(--t3); text-transform: none; letter-spacing: 0; margin-top: 2px; }
+.m-pipe { display: flex; gap: 16px; font-family: var(--mono); font-size: var(--fs-sub); color: var(--t2); }
+.m-pipe b { color: var(--t1); }
+
+/* feed */
+.feed { flex: 1; min-height: 0; display: flex; flex-direction: column; background: var(--g2);
+        border: 1px solid var(--line); padding: 12px 0 4px; }
+.feed .m-lab { padding: 0 16px 8px; border-bottom: 1px solid var(--line); }
+.feed ul { list-style: none; overflow: hidden; flex: 1; }
+.feed li { display: flex; gap: 10px; align-items: center; padding: 7px 16px;
+           border-bottom: 1px solid var(--line); font-family: var(--mono); font-size: var(--fs-sub); }
+.feed time { color: var(--t3); font-size: var(--fs-lab); width: 44px; }
+.ftag { font-family: var(--disp); font-size: 10px; letter-spacing: 0.12em; padding: 1px 7px;
+        border-radius: 3px; color: var(--g0); background: var(--t3); text-transform: uppercase; }
+.ftag.new  { background: var(--act); }
+.ftag.ship { background: var(--ok); }
+.ftag.cancel { background: var(--alarm); }
+.feed .fid { color: var(--t2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.feed .fch { margin-left: auto; color: var(--t3); font-size: var(--fs-lab); }
+
+/* ── CHANNEL COLUMNS ───────────────────────────────────────────────────── */
+.chan { min-width: 0; overflow: hidden; display: flex; flex-direction: column; }
+.chan-ebay { grid-area: ebay; border-right: 1px solid var(--line); }
+.chan-direct { grid-area: direct; }
+.chan-head { display: flex; align-items: baseline; gap: 14px; padding: 14px 24px 10px;
+             border-bottom: 2px solid var(--line-brand); }
+.chan-head h2 { font-family: var(--disp); font-weight: 600; font-size: 22px;
+                letter-spacing: 0.14em; text-transform: uppercase; }
+.chan-head .cnt { font-family: var(--mono); font-size: var(--fs-sub); color: var(--t2); }
+.chan-head .over { margin-left: auto; font-family: var(--mono); font-size: var(--fs-sub); color: var(--alarm); }
+.chan ul { list-style: none; overflow: hidden; flex: 1; }
+
+.wband { display: flex; align-items: center; gap: 14px; min-height: 42px; padding: 4px 24px;
+         background: var(--g2); border-top: 1px solid var(--line); flex-wrap: wrap; }
+.wband .band-id { font-family: var(--mono); font-weight: 700; font-size: var(--fs-sub); }
+.wband .band-n { font-family: var(--disp); font-size: var(--fs-lab); letter-spacing: 0.12em;
+                 text-transform: uppercase; color: var(--t3); }
+.wband .age { margin-left: auto; font-family: var(--mono); font-size: var(--fs-sub); color: var(--t3); }
+.wband .age.late { color: var(--alarm); }
+.kitchip { display: inline-flex; align-items: center; gap: 6px; font-family: var(--mono);
+           font-size: var(--fs-lab); color: var(--t2); background: var(--g3);
+           border: 1px solid var(--line); border-radius: 3px; padding: 2px 8px; }
+.kitchip i { width: 8px; height: 8px; border-radius: 50%; }
+.kitchip.ka i { background: var(--kit-a); }
+.kitchip.kb i { background: var(--kit-b); }
+
+.wrow { display: grid; grid-template-columns: 118px 1fr 64px 70px; align-items: center;
+        height: 46px; padding: 0 24px 0 21px; border-top: 1px solid var(--line);
+        border-left: 3px solid transparent; }
+.wrow.kit-a { border-left-color: var(--kit-a); }
+.wrow.kit-b { border-left-color: var(--kit-b); }
+.wrow.prep-row { opacity: 0.45; }
+.wshelf { font-family: var(--mono); font-weight: 700; font-size: var(--fs-shelf); color: var(--act); }
+.wshelf.gone { color: var(--t3); font-size: var(--fs-row); }
+.wshelf small { font-size: var(--fs-sub); color: var(--t3); font-weight: 400; }
+.wshelf.dual { font-size: 17px; white-space: nowrap; }
+.wshelf.dual i { font-style: normal; color: var(--t3); padding: 0 1px; }
+.wsku { font-family: var(--mono); font-size: var(--fs-row); color: var(--t1); }
+.wsku .kitflag { font-family: var(--disp); font-size: var(--fs-lab); color: var(--g0);
+                 background: var(--kit-a); padding: 1px 6px; border-radius: 3px; margin-left: 10px; }
+.wqty { font-family: var(--disp); font-weight: 600; font-size: var(--fs-row);
+        color: var(--t3); text-align: center; }
+.wqty.multi { color: var(--act); }
+.wst { font-family: var(--disp); font-size: var(--fs-lab); letter-spacing: 0.14em;
+       text-transform: uppercase; color: var(--t3); text-align: right; }
+.wmore { padding: 12px 24px; font-family: var(--mono); font-size: var(--fs-sub); color: var(--alarm); }
+</style>
+</head>
+<body>
+<div class="wall">
+
+  <div class="hdr">
+    <span class="hdr-hq">HQ</span>
+    <span class="hdr-word">Warehouse Floor</span>
+    <span class="hdr-mid">
+      <span>🕌 ASR · 3:42 PM · in 1h 05m</span>
+      <span class="hdr-live"><i></i>Live · 2m</span>
+      <span class="hdr-clock">2:37:33 PM</span>
+      <span class="hdr-date">Tuesday · Aug 11<br>27 Safar 1448</span>
+    </span>
+  </div>
+
+  <div class="rail">
+    <div class="m m-hero">
+      <div class="m-lab">Orders to grab</div>
+      <div class="m-num">19</div>
+      <div class="m-split"><span>eBay <b>9</b></span><span>Direct <b>10</b></span><span style="color:var(--t3)">5 in progress</span></div>
+      <div class="sharebar"><i class="e" style="flex:9"></i><i class="d" style="flex:10"></i></div>
+    </div>
+
+    <div class="m-pair">
+      <div class="m">
+        <div class="m-lab">Oldest waiting</div>
+        <div class="m-num2 warn">2d</div>
+        <div class="m-sub">3 past the 3h line</div>
+        <div class="mbar"><i style="width:100%;background:var(--alarm)"></i></div>
+      </div>
+      <div class="m">
+        <div class="m-lab">Units to pick</div>
+        <div class="m-num2">43+</div>
+        <div class="m-sub">24 of 27 lines · 9 aisles</div>
+        <div class="mbar"><i style="width:64%;background:var(--act)"></i></div>
+      </div>
+    </div>
+
+    <div class="m-pair">
+      <div class="m">
+        <div class="m-lab">Shipped today</div>
+        <div class="m-num2" style="color:var(--ok)">41</div>
+        <div class="m-sub">72% of today out</div>
+        <div class="mbar"><i style="width:72%;background:var(--ok)"></i></div>
+      </div>
+      <div class="m">
+        <div class="m-lab">Received today</div>
+        <div class="m-num2">57</div>
+        <div class="m-sub">eBay 38 · Direct 19</div>
+        <div class="mbar"><i style="width:67%;background:var(--t3)"></i></div>
+      </div>
+    </div>
+
+    <div class="m m-paid">
+      <span class="m-num2">2</span>
+      <span class="m-text">Paid shipping waiting<small>match the exact label level</small></span>
+    </div>
+
+    <div class="m">
+      <div class="m-lab">Pipeline</div>
+      <div class="m-pipe"><span>prep <b>7</b></span><span>zoho <b>4</b> to pull</span><span>sync <b style="color:var(--ok)">2m</b></span></div>
+    </div>
+
+    <div class="feed">
+      <div class="m-lab">As it lands</div>
+      <ul>
+        <li><time>12:32</time><span class="ftag new">Received</span><span class="fid">SO-24620</span><span class="fch">Direct</span></li>
+        <li><time>12:31</time><span class="ftag ship">Shipped</span><span class="fid">24-14979-87359</span><span class="fch">eBay</span></li>
+        <li><time>12:31</time><span class="ftag new">Received</span><span class="fid">24-15004-11290</span><span class="fch">eBay</span></li>
+        <li><time>12:30</time><span class="ftag cancel">Canceled</span><span class="fid">24-14971-00518</span><span class="fch">eBay</span></li>
+        <li><time>12:29</time><span class="ftag new">Received</span><span class="fid">24-15019-08841</span><span class="fch">eBay</span></li>
+        <li><time>12:28</time><span class="ftag new">Received</span><span class="fid">24-15015-60233</span><span class="fch">eBay</span></li>
+        <li><time>12:27</time><span class="ftag ship">Shipped</span><span class="fid">SO-24580 · 2 items</span><span class="fch">Direct</span></li>
+        <li><time>12:26</time><span class="ftag">Printed</span><span class="fid">—</span><span class="fch"></span></li>
+        <li><time>12:26</time><span class="ftag">Prepping</span><span class="fid">08-15017-44806</span><span class="fch">eBay</span></li>
+        <li><time>12:25</time><span class="ftag ship">Shipped</span><span class="fid">23-14990-11873</span><span class="fch">eBay</span></li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="chan chan-ebay">
+    <div class="chan-head"><h2>eBay</h2><span class="cnt">13 lines · 7 orders</span><span class="over">+2 past the cap</span></div>
+    <ul id="ebayList"></ul>
+  </div>
+
+  <div class="chan chan-direct">
+    <div class="chan-head"><h2>Direct</h2><span class="cnt">14 lines · 4 orders</span></div>
+    <ul id="directList"></ul>
+  </div>
+
+</div>
+
+<script>
+const ROWS = [
+ { ch:'EBAY', oid:'24-15021-77421', sku:'194244', qty:1, loc:'A-14', st:'PENDING' },
+ { ch:'EBAY', oid:'08-15017-44806', sku:'167517', qty:1, loc:'A-31', st:'PENDING' },
+ { ch:'EBAY', oid:'08-15017-44806', sku:'155394', qty:2, loc:'B-12', st:'PENDING' },
+ { ch:'EBAY', oid:'08-15017-44806', sku:'168138', qty:1, loc:'C-44', st:'PREPARING' },
+ { ch:'EBAY', oid:'08-15017-44806', sku:'176701', qty:4, loc:'F-3',  st:'PENDING' },
+ { ch:'EBAY', oid:'08-15017-44806', sku:'190455', qty:1, loc:'L-77', st:'PENDING' },
+ { ch:'EBAY', oid:'24-15008-33107', sku:'165447', qty:2, loc:'B-30', st:'PENDING' },
+ { ch:'EBAY', oid:'24-15003-91882', sku:'176688', qty:8, loc:'C-18', st:'PENDING' },
+ { ch:'EBAY', oid:'24-15015-60233', sku:'183112', qty:1, loc:'G-35 * 2', st:'PENDING' },
+ { ch:'EBAY', oid:'24-15019-08841', sku:'157023', qty:1, loc:'L-208/C-51', st:'PENDING' },
+ { ch:'EBAY', oid:'24-15004-11290', sku:'172764', qty:1, loc:'NOT FOUND', st:'PENDING' },
+ { ch:'DIRECT', oid:'SO-24612', sku:'162198', qty:4, loc:'A-9',  st:'PENDING',  kit:'160029' },
+ { ch:'DIRECT', oid:'SO-24612', sku:'155457', qty:1, loc:'C-2',  st:'PENDING',  kit:'160029' },
+ { ch:'DIRECT', oid:'SO-24612', sku:'158652', qty:1, loc:'E-17', st:'PENDING',  kit:'158652' },
+ { ch:'DIRECT', oid:'SO-24612', sku:'167409', qty:2, loc:'E-37', st:'PENDING',  kit:'158652' },
+ { ch:'DIRECT', oid:'SO-24612', sku:'167517', qty:2, loc:'B-12', st:'PREPARING', kit:'160029' },
+ { ch:'DIRECT', oid:'SO-24612', sku:'159579', qty:1, loc:'F-20', st:'PREPARING', kit:'158652' },
+ { ch:'DIRECT', oid:'SO-24618', sku:'171003', qty:1, loc:'A-51', st:'PENDING', kit:'217475' },
+ { ch:'DIRECT', oid:'SO-24618', sku:'168138', qty:1, loc:'B-44', st:'PENDING', kit:'217475' },
+ { ch:'DIRECT', oid:'SO-24618', sku:'196080', qty:2, loc:'D-7',  st:'PENDING' },
+ { ch:'DIRECT', oid:'SO-24631', sku:'183220', qty:2, loc:'A-22', st:'PENDING' },
+ { ch:'DIRECT', oid:'SO-24631', sku:'190455', qty:1, loc:'C-30', st:'PENDING' },
+ { ch:'DIRECT', oid:'SO-24631', sku:'196530', qty:1, loc:'G-10', st:'PENDING' },
+ { ch:'DIRECT', oid:'SO-24620', sku:'217871', qty:1, loc:'K-55', st:'PENDING', isKit:true }
+];
+const KITS = {
+ 'SO-24612': [ { k:'160029', done:2, tot:6, cls:'ka' }, { k:'158652', done:1, tot:5, cls:'kb' } ],
+ 'SO-24618': [ { k:'217475', done:2, tot:5, cls:'ka' } ]
+};
+const AGE = { '24-15021-77421':'5h10m','08-15017-44806':'1h35m','24-15008-33107':'3h44m',
+ 'SO-24612':'2d','SO-24618':'6h40m','SO-24631':'2h10m','SO-24620':'1h05m' };
+const LATE = { '24-15021-77421':1,'24-15008-33107':1,'SO-24612':1,'SO-24618':1 };
+
+function kitCls(r) {
+  const ks = KITS[r.oid]; if (!ks || ks.length < 2 || !r.kit) return '';
+  const m = ks.find(x => x.k === r.kit); return m ? ' ' + (m.cls === 'ka' ? 'kit-a' : 'kit-b') : '';
+}
+function shelf(loc) {
+  if (!loc || loc === 'NOT FOUND') return '<span class="wshelf gone">—</span>';
+  if (loc.includes('/')) {
+    const toks = loc.split('/').map(s => s.trim());
+    return `<span class="wshelf dual">${toks.join('<i>/</i>')}</span>`;
+  }
+  const p = loc.match(/^(.*?)\s*(\*\s*\d+)$/);
+  if (p) return `<span class="wshelf">${p[1]} <small>${p[2]}</small></span>`;
+  return `<span class="wshelf">${loc}</span>`;
+}
+function row(r) {
+  return `<li class="wrow${kitCls(r)}${r.st === 'PREPARING' ? ' prep-row' : ''}">
+    ${shelf(r.loc)}
+    <span class="wsku">${r.sku}${r.isKit ? '<span class="kitflag">KIT</span>' : ''}</span>
+    <span class="wqty${r.qty > 1 ? ' multi' : ''}">×${r.qty}</span>
+    <span class="wst">${r.st === 'PREPARING' ? 'Prep' : ''}</span>
+  </li>`;
+}
+function band(oid, n) {
+  const kits = (KITS[oid] || []).map(k =>
+    `<span class="kitchip ${k.cls}"><i></i>${k.k} · ${k.done}/${k.tot}</span>`).join('');
+  return `<li class="wband"><span class="band-id">${oid}</span>
+    <span class="band-n">${n} line${n > 1 ? 's' : ''}</span>${kits}
+    <span class="age${LATE[oid] ? ' late' : ''}">${AGE[oid] || ''}</span></li>`;
+}
+function paint(ch, el, hidden) {
+  const rows = ROWS.filter(r => r.ch === ch);
+  let html = '', prev = null;
+  for (const r of rows) {
+    if (r.oid !== prev) {
+      const n = rows.filter(x => x.oid === r.oid).length;
+      if (ch === 'DIRECT' || n > 1) html += band(r.oid, n);
+      prev = r.oid;
+    }
+    html += row(r);
+  }
+  if (hidden) html += `<li class="wmore">+${hidden} more open — see the tool</li>`;
+  document.getElementById(el).innerHTML = html;
+}
+paint('EBAY', 'ebayList', 2);
+paint('DIRECT', 'directList', 0);
+</script>
+</body>
+</html>
