@@ -15,7 +15,7 @@ const path = require('path'), fs = require('fs');
   fs.mkdirSync(OUT, { recursive: true });
 
   const b = await chromium.launch();
-  const p = await b.newPage({ viewport: { width: 287, height: 56 }, deviceScaleFactor: 3 });
+  const p = await b.newPage({ viewport: { width: 280, height: 56 }, deviceScaleFactor: 3 });
   await p.goto('file://' + path.join(__dirname, 'masthead.html'), { waitUntil: 'networkidle' });
   await p.waitForSelector('html[data-ready="1"]');
   await p.evaluate(() => document.fonts.ready);

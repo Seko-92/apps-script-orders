@@ -94,13 +94,19 @@ var MASTHEAD = {
   //    what happened on 2026-08-30: the sky kept showing a broken-logo build long after
   //    the file was replaced, and it read as "the images are broken" when they were fine.
   //    This rule was written in the docblock above and then violated by its author.
-  version:      "v4",  // 2026-08-31 — the horizon/mark fix, the seam vignette, 287x56
+  version:      "v5",  // 2026-08-31 — the horizon/mark fix, the seam vignette, 280x56
                        // ⚠ BUMPED ONLY AFTER ship-masthead.sh byte-verified all 144
                        //   v4 faces against the served copy. Reversed, every face
                        //   becomes the text chip at once.
   ext:          "png",  // ⚠ NOT gif — Sheets shows only a GIF's first frame (see above)
   imgH:         56,    // px — mode-4 explicit sizing, so nothing letterboxes
-  imgW:         287,   // px — EQUALS A1:C1, asserted by setupMasthead
+  imgW:         280,   // px — EQUALS A1:C1 (107+70+103), asserted by setupMasthead
+                       // ⚠ MEASURED, NOT READ OFF A COMMENT. Schema's layout note says
+                       //   "A1:C1 (287px)" and the live sheet is 280 — the comment was
+                       //   aspirational and I sized the v4 art to it. The assertion
+                       //   caught the 7px gap on its first real run, which is exactly
+                       //   what it exists for. The art matches the SHEET; the sheet's
+                       //   widths belong to the table below and are the operator's.
   restAccent:   "#7e8894",  // the cool tone the rest face wears — shared with its curve
   // ⚠ The neutral row-1 ink. D1 and E1 wear it so the face's state word is the ONLY
   //   coloured thing in the row. Three yellows meant nothing led.
@@ -200,22 +206,32 @@ function applyBrandTheme(sheetName) {
     // banner merges above — B1:D1 stays 285px (date fits at 200px); G1:J1 stays
     // 470px (stats fit at ~300px); G2:H2 Pick ID merge stays 200px (dropdown
     // text ~140px fits with margin).
-    sheet.setColumnWidth(Schema.cols.SKU,         110);
-    sheet.setColumnWidth(Schema.cols.QTY,          70);
-    sheet.setColumnWidth(Schema.cols.LOCATION,     95);
-    sheet.setColumnWidth(Schema.cols.SALES_ORDER, 130);
-    sheet.setColumnWidth(Schema.cols.NOTE,        300);
+    // ⚠⚠ MEASURED OFF THE LIVE SHEET 2026-08-31, NOT DESIGNED. These had drifted badly
+    //    from the operator's layout, and a theme re-apply would have silently undone it:
+    //    SALES_ORDER alone was 130 here against 232 live, which would CLIP the masthead's
+    //    headline; SKU/LOCATION would have moved A1:C1 out from under the face image,
+    //    and =IMAGE() mode 4 takes explicit pixel dimensions, so the art would stretch.
+    //    setupMasthead now asserts A1:C1 == MASTHEAD.imgW and says so loudly.
+    //    Re-measure with diagnoseMasthead() before changing any of these.
+    sheet.setColumnWidth(Schema.cols.SKU,         107);   // A ┐
+    sheet.setColumnWidth(Schema.cols.QTY,          70);   // B ├ = 280 = MASTHEAD.imgW
+    sheet.setColumnWidth(Schema.cols.LOCATION,    103);   // C ┘
+    sheet.setColumnWidth(Schema.cols.SALES_ORDER, 232);   // D — the masthead's headline
+    sheet.setColumnWidth(Schema.cols.NOTE,        307);   // E — the pulse (MUST NOT MOVE)
     sheet.setColumnWidth(Schema.cols.STATUS,      130);  // tightened from 250 → 130
-    sheet.setColumnWidth(Schema.cols.HAND,        100);  // tightened from 145 → 100
-    sheet.setColumnWidth(Schema.cols.LEFT,        100);  // tightened from 145 → 100
+    sheet.setColumnWidth(Schema.cols.HAND,        100);
+    sheet.setColumnWidth(Schema.cols.LEFT,        107);
     sheet.setColumnWidth(Schema.cols.SHIPPING,    180);
     sheet.setColumnWidth(Schema.cols.SHIP_COST,    90);
 
     // ── ROW HEIGHTS ──
     // Lab values that produced the right visual rhythm. Set BEFORE _style*
     // calls so the styled rows have the right height when their content lands.
-    sheet.setRowHeight(1, 42);   // banner row 1 — date+pulse+stats strip
-    sheet.setRowHeight(2, 65);   // logo + Pick-ID badges (taller for eBay logo + dropdown breathing room)
+    // ⚠ setupMasthead OWNS row 1's height (MASTHEAD.rowHeight). This used to set 42
+    //   while setupMasthead set 52, so the banner's height depended on which ran last.
+    sheet.setRowHeight(1, MASTHEAD.rowHeight);
+    sheet.setRowHeight(2, 65);   // logo + Pick-ID badges; setupMasthead drops it to 44
+                                 // once the pickers move off the banner
     sheet.setRowHeight(3, 36);   // eBay header row
     // Data rows: uniform 30px breathable read. setRowHeights is a batch op —
     // much faster than per-row. Boundary + DIRECT header heights get overridden
@@ -3325,9 +3341,14 @@ function diagnoseMasthead() {
       '   (the "HQ" chip means IMAGE() errored and IFERROR caught it)');
 
   say('\n--- can the URLs actually be fetched? ---');
-  [['face', MASTHEAD.baseUrl + state + '-h' + hh + '-' + MASTHEAD.version + '.' + MASTHEAD.ext],
-   ['sky',  MASTHEAD.baseUrl + 'sky-h' + hh + '-' + MASTHEAD.version + '.' + MASTHEAD.ext]
-  ].forEach(function (pair) {
+  // ⚠ Only probe the sky when it is switched ON. It is off, no sky art of any version
+  //   has ever been on the server, and probing it printed a guaranteed ✗ every run —
+  //   a diagnostic that always shows one failure teaches you to skim past its failures.
+  var probes = [['face', MASTHEAD.baseUrl + state + '-h' + hh + '-' + MASTHEAD.version + '.' + MASTHEAD.ext]];
+  if (MASTHEAD.sky) {
+    probes.push(['sky', MASTHEAD.baseUrl + 'sky-h' + hh + '-' + MASTHEAD.version + '.' + MASTHEAD.ext]);
+  }
+  probes.forEach(function (pair) {
     var url = pair[1];
     try {
       var r  = UrlFetchApp.fetch(url, { muteHttpExceptions: true, followRedirects: true });

@@ -38,7 +38,7 @@ const VER    = process.env.VER || 'v4';
 //    number that lives in the CSS, so they are ASSERTED against the real .face below
 //    rather than trusted — a silent mismatch would letterbox or stretch all 144 faces
 //    and the contact sheet would look plausible while being wrong.
-const W = Number(process.env.W || 287);
+const W = Number(process.env.W || 280);
 const H = Number(process.env.H || 56);
 
 const SRC  = 'file://' + path.join(__dirname, 'masthead.html');
