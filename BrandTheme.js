@@ -577,6 +577,29 @@ var ALL_ORDERS_LOCK = {
  * Report the current lock state WITHOUT changing anything. Run this first, and
  * again after installing — the Run button shows no return value, so it logs.
  */
+/**
+ * True when a lock is installed AND its carve-out no longer covers a Pick ID cell's
+ * full merged range. Cheap enough to run at the end of every setupMasthead().
+ *
+ * ⚠ Returns FALSE when nothing is locked — an absent lock is not a stale one, and a
+ *   warning on an unlocked sheet would train the reader to skip the line.
+ */
+function _lockNeedsRefresh(sheet) {
+  try {
+    var mine = sheet.getProtections(SpreadsheetApp.ProtectionType.SHEET)
+      .filter(function (p) {
+        return String(p.getDescription() || "").indexOf(ALL_ORDERS_LOCK.tag) === 0;
+      });
+    if (!mine.length) return false;
+    var open = mine[0].getUnprotectedRanges().map(function (r) { return r.getA1Notation(); });
+    return [Schema.pickIdA1(), Schema.pickIdA1('adjustment')].some(function (a1) {
+      var mg = sheet.getRange(a1).getMergedRanges();
+      var want = (mg && mg.length) ? mg[0].getA1Notation() : a1;
+      return open.indexOf(want) === -1;
+    });
+  } catch (e) { return false; }
+}
+
 function describeAllOrdersLock() {
   var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   var sheet = ss.getSheetByName(MAIN_SHEET_NAME);
@@ -595,6 +618,32 @@ function describeAllOrdersLock() {
     out.push("state:      LOCKED");
     out.push("editors:    " + (p.getEditors().map(function (u) { return u.getEmail(); }).join(", ") || "(owner only)"));
     out.push("open cells: " + p.getUnprotectedRanges().map(function (r) { return r.getA1Notation(); }).join(" · "));
+  }
+
+  // ⚠⚠ A CARVE-OUT THAT NAMES ONLY PART OF A MERGE LOCKS THE WHOLE MERGE.
+  //    Sheets requires write access to the ENTIRE merged range, so an unprotected "F2"
+  //    against a merged F2:G2 leaves the Shipping picker unusable for staff — and
+  //    perfectly usable for the owner, because removeEditors() ignores the owner. That
+  //    is this file's oldest trap wearing a new face.
+  //
+  // ⭐ IT IS A SEQUENCING BUG, WHICH IS WHY A DETECTOR BEATS AN INSTRUCTION.
+  //    protectAllOrdersSheet() resolves the merge correctly — but only the merge that
+  //    exists WHEN IT RUNS. Run it before setupMasthead() rebuilds row 2 and it carves a
+  //    lone cell, then the merge appears underneath it and nothing complains. Happened
+  //    2026-08-31: lock at 12:59:48, merge restored at 1:01:03.
+  if (mine.length) {
+    var openA1 = mine[0].getUnprotectedRanges().map(function (r) { return r.getA1Notation(); });
+    [Schema.pickIdA1(), Schema.pickIdA1('adjustment')].forEach(function (a1) {
+      try {
+        var mg = sheet.getRange(a1).getMergedRanges();
+        var want = (mg && mg.length) ? mg[0].getA1Notation() : a1;
+        if (openA1.indexOf(want) === -1) {
+          out.push("⚠⚠ PICKER " + a1 + " IS MERGED AS " + want + " BUT THE CARVE-OUT SAYS '" +
+                   (openA1.filter(function (x) { return x.indexOf(a1) === 0; })[0] || "nothing") +
+                   "' — staff CANNOT edit it. Re-run protectAllOrdersSheet().");
+        }
+      } catch (e) { /* never let the reporter throw */ }
+    });
   }
 
   var acct = "";
@@ -2000,8 +2049,12 @@ function rollbackPickIdCells(mode) {
     SpreadsheetApp.flush();
   });
 
-  say(APPLY ? '  ⏭ Re-run protectAllOrdersSheet() and setupMasthead().'
-            : '  Re-run as rollbackPickIdCells("APPLY") to act.');
+  // ⚠⚠ ORDER IS LOAD-BEARING: setupMasthead() FIRST. It rebuilds row 2's merges, and
+  //    the lock can only carve out the merge that exists when it runs — reversed, it
+  //    names a lone cell, the merge appears underneath, and the picker silently refuses
+  //    STAFF. That is exactly what happened on 2026-08-31.
+  say(APPLY ? '  ⏭ NEXT, IN THIS ORDER:  1) setupMasthead()   2) protectAllOrdersSheet()'
+            : '  Re-run as rollbackPickIdCellsAPPLY() to act.');
   var rep = out.join('\n'); console.log(rep); return rep;
 }
 
@@ -3691,6 +3744,12 @@ function setupMasthead(sheetName) {
               Schema.pickIdA1() + "/" + Schema.pickIdA1('adjustment') + ")\n    " +
             row2Log.join("\n    ") +
             "\n\n  DIVIDER\n    " + dividerLine +
+            (_lockNeedsRefresh(sheet)
+              ? "\n\n  ⚠⚠ RE-RUN protectAllOrdersSheet() — row 2's merges just changed and the" +
+                "\n     lock's carve-out still names the OLD shape. A partial carve-out over a" +
+                "\n     merge locks the whole merge, so the Pick ID would refuse STAFF while" +
+                "\n     working fine for you (removeEditors ignores the owner)."
+              : "") +
             "\n\n  ↩ revertRow2() puts row 2 back the way it was, in one call.";
   console.log(rep);
   return rep;
