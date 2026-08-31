@@ -96,13 +96,13 @@ var Schema = {
   boundaryLeftWidth:  6,
 
   /** Width of the boundary row's right merge (G:J) */
-  // BANDS BLEED, TABLES DON'T (2026-08-31). The divider's RIGHT merge now runs from G
-  // to the bleed column so the gold band leaves the screen the way the masthead does.
-  // Cosmetic only: this drives exactly one range -- the right merge in
-  // _styleDirectDivider -- and nothing else in the codebase reads it.
-  // boundaryLeftWidth MUST NOT change: A:F carries the literal "DIRECT" value that
-  // getBoundaryRow() strict-equality matches, plus its '"|  "@' display prefix.
-  boundaryRightWidth: 14,
+  // ⚠ REVERTED 2026-08-31, same day. I widened this to 14 (G:T) for a "bands bleed,
+  //   tables don't" rule that was in the plan and approved on paper — and the moment it
+  //   was on screen the owner's verdict was that it just extended the band into empty
+  //   columns and added nothing. They were right: it was paint, not engineering, and it
+  //   was folded in beside real defect fixes where it did not belong.
+  //   Design gets judged in the eye, not in a document. Back to G:J.
+  boundaryRightWidth: 4,
 
 
   // =====================================================================================

@@ -118,9 +118,21 @@ var MASTHEAD = {
   // Nothing reads past dataWidth -- formats, CF and banding all stop there -- so K:T is
   // free canvas. Hidden columns take zero width, so with I:J hidden the band is
   // continuous from A to the viewport edge.
-  bleedToCol:   20,         // column T
-  // The warm charcoal plate row 2 wears. One dark family with row 1; gold stays
-  // exclusive to the DIRECT divider so the sheet has exactly one gold object.
+  // ⚠⚠ ROW 2'S LOOK IS AN EXPLICIT CHOICE, NOT SOMETHING DERIVED. It used to be
+  //    inferred from WHERE THE PICKERS LIVE, because when that was written the two were
+  //    the same question — moving the dropdowns off the banner was what freed the space.
+  //    revertRow2() split them apart and the coupling broke immediately: the cream
+  //    layout came back carrying the DARK-grounded logo, a black rectangle floating in
+  //    a cream row. Two independent decisions must not share one input.
+  //
+  //      'cream'  the long-standing layout — A2:E2 merged, 65px, transparent logo
+  //      'plate'  the nameplate — A2:F2 + G2:H2, 44px, charcoal, logo with its bar
+  //
+  //    'plate' additionally REQUIRES the pickers to have moved (G2 is half of the
+  //    F2:G2 Shipping merge otherwise), so setupMasthead checks both.
+  row2Style:    'cream',
+  // The warm charcoal plate the 'plate' style wears. One dark family with row 1; gold
+  // stays exclusive to the DIRECT divider so the sheet has exactly one gold object.
   row2Plate:    "#2a2724",
   nameplateInk: "#8a8f98",
   // ONE PREFIX, TWO NAMEPLATES. Retyping the house mark in two places is how the live
@@ -326,7 +338,7 @@ function setupBannerDateTime() {
  *
  * Idempotent — overwrites whatever's currently in A2.
  */
-function setupEbayLogo() {
+function setupEbayLogo(plate) {
   // ⚠ ADMIN, NOT WORKFLOW — owner-only, and deliberately NOT bridged. The owner
   //   bridge exists so staff WRITES run as the owner; routing a SETUP function
   //   through it would let anyone re-theme, re-protect or rewrite rules on a locked
@@ -364,7 +376,14 @@ function setupEbayLogo() {
   // ⚠ The bar has to live INSIDE the PNG. A cell cannot hold both an =IMAGE() and a
   //   number-format prefix, which is how the divider draws its ▌ — so the only way to
   //   give row 2 the same mark is to composite it into the art.
-  var plateMode = (Schema.pickIdA1() === Schema.cellEmployeeIdNext);
+  // ⚠⚠ THE CALLER DECIDES, because the ASSET has to match the CELL it lands on and
+  //    nothing else. This used to read Schema.pickIdA1() — i.e. it inferred the look
+  //    from where the dropdowns were — and the moment those two decisions came apart it
+  //    painted the dark-grounded logo onto the cream row. A logo's ground and a
+  //    dropdown's address are unrelated facts.
+  var plateMode = (arguments.length > 0)
+    ? !!plate
+    : (MASTHEAD.row2Style === 'plate');
   var logoUrl   = MASTHEAD.baseUrl + (plateMode ? "ebay-v2.png" : "ebay-v1.png");
 
   // ⚠ 500x201 source = 2.49:1. An older call passed (32, 120) = 3.75:1, so the logo had
@@ -1180,7 +1199,7 @@ function _styleBannerRow1(sheet) {
   //
   // This is left as the ground fill only, so a theme re-apply cannot repaint the
   // banner into the pre-masthead layout. setupMasthead does the rest.
-  sheet.getRange(1, 1, 1, MASTHEAD.bleedToCol).setBackground(BRAND.ink);
+  sheet.getRange(1, 1, 1, Schema.dataWidth).setBackground(BRAND.ink);
 }
 
 function _styleBannerRow2(sheet) {
@@ -2068,12 +2087,8 @@ function _styleDirectDivider(sheet, boundary) {
 
   // Black borders top + bottom across the entire row — frames the yellow band
   // so it reads as a defined section break (not just a colored row).
-  // BANDS BLEED: the band and its two rules run past J to the bleed column, so the
-  // divider leaves the screen the way the masthead does. The rows above and below stop
-  // at J, and that contrast is the point -- the tables stay defined blocks between two
-  // full-bleed rules.
-  sheet.getRange(boundary, 1, 1, MASTHEAD.bleedToCol)
-       .setBackground(BRAND.yellow)
+  // ⚠ Stops at dataWidth. A "bleed past J" version was tried and reverted the same day.
+  sheet.getRange(boundary, 1, 1, Schema.dataWidth)
        .setBorder(true, null, true, null, null, null,
                   BRAND.ink, SpreadsheetApp.BorderStyle.SOLID_THICK);
 
@@ -3346,6 +3361,196 @@ function _setSystemPulseBannerFormulas(sheet) {
  *    hardcode a wipe of I2:J2, which the 2026-08-31 migration turns into the LIVE pick-ID
  *    cells. It now protects the live addresses and sweeps the rest.
  */
+/**
+ * _buildRow2 — row 2 is the eBay table's NAME, and this owns it end to end.
+ *
+ * ⚠⚠ IT REPORTS EVERY STEP, AND THAT IS THE POINT. On 2026-08-31 a run of setupMasthead
+ *    left row 2 HALF-APPLIED: the row height moved to the nameplate's 44px while the
+ *    merges and the logo stayed on the old layout. The result looked worse than either
+ *    design, and working out which half had landed took reading the sheet back through a
+ *    separate diagnostic. A build step that cannot say what it did turns every future
+ *    failure into archaeology — so each step here is isolated, and the caller prints the
+ *    outcome of all of them.
+ *
+ * ⚠ IDEMPOTENT BY CONSTRUCTION. Every merge is broken before it is made, every colour is
+ *   set explicitly rather than inherited, and the VACATED picker cells are actively
+ *   repainted — they keep their dark badge styling otherwise and read as two empty black
+ *   boxes in the middle of the row, which is exactly what they did after the migration.
+ *
+ * @param {Sheet}   sheet
+ * @param {boolean} plate  true once the pickers have moved off the banner
+ * @returns {string[]} one line per step
+ */
+function _buildRow2(sheet, plate) {
+  var log = [];
+  var step = function (name, fn) {
+    try { fn(); log.push('✓ ' + name); }
+    catch (e) { log.push('✗ ' + name + ' — ' + e); }
+  };
+
+  // Break EVERY shape row 2 has ever worn, whichever direction we are going.
+  step('clear merges', function () {
+    ['A2:D2', 'A2:E2', 'A2:F2', 'E2:F2', 'F2:G2', 'G2:H2', 'I2:J2'].forEach(function (r) {
+      try { sheet.getRange(r).breakApart(); } catch (e) { /* not merged — fine */ }
+    });
+  });
+
+  if (plate) {
+    step('merge A2:F2 + G2:H2', function () {
+      sheet.getRange('A2:F2').merge();
+      sheet.getRange('G2:H2').merge();
+    });
+
+    // ⚠ A:H only. I2/J2 hold the pickers and are hidden — leave their badge styling be.
+    step('plate A2:H2', function () {
+      sheet.getRange(2, 1, 1, 8)
+        .setBackground(MASTHEAD.row2Plate)
+        .setFontColor(MASTHEAD.nameplateInk)
+        .setFontFamily(BRAND.fontDisplay)
+        .setVerticalAlignment('middle')
+        .setBorder(false, false, false, false, false, false);
+    });
+
+    step('nameplate G2:H2', function () {
+      sheet.getRange('G2:H2')
+        .setFormula(_nameplateFormula(MASTHEAD.nameEbay, 'A17'))
+        .setFontColor(MASTHEAD.nameplateInk)
+        .setFontFamily(BRAND.fontDisplay).setFontWeight('bold').setFontSize(10)
+        .setHorizontalAlignment('right').setVerticalAlignment('middle').setWrap(false);
+    });
+
+    step('eBay logo (plate asset)', function () { setupEbayLogo(true); });
+    step('row height ' + MASTHEAD.row2Height, function () {
+      sheet.setRowHeight(2, MASTHEAD.row2Height);
+    });
+
+  } else {
+    // The pre-2026-08-31 layout, restored exactly: cream logo zone, pickers on the banner.
+    //
+    // ⚠⚠ THE PLATE'S GROUND HAS TO BE SCRUBBED FIRST. The first cut of this branch only
+    //    painted A2:E2 cream and left F2:H2 wearing the charcoal — so a revert produced a
+    //    row that was half cream and half plate, which reads as a design choice rather
+    //    than the residue it is. A revert has to undo the WHOLE of what it reverses, not
+    //    the part that is easy to name.
+    step('scrub the plate off A2:H2', function () {
+      sheet.getRange(2, 1, 1, 8)
+        .setBackground(BRAND.paperWarm)
+        .setFontColor(BRAND.ink)
+        .setBorder(false, false, false, false, false, false);
+      sheet.getRange('G2:H2').clearContent();
+    });
+
+    // ⚠ BOTH merges, not just the logo's. The Shipping picker lives in a MERGED F2:G2 —
+    //   the plate broke it to build A2:F2 + G2:H2, and re-merging A2:E2 alone would send
+    //   the dropdown home to a cell half the width it expects.
+    step('merge A2:E2 + F2:G2', function () {
+      sheet.getRange('A2:E2').merge();
+      sheet.getRange('F2:G2').merge();
+    });
+
+    // Reuse the styler rather than re-deriving the badge look here — it branches on the
+    // resolver, so after a rollback it paints the pickers exactly as they were.
+    step('logo zone + Pick ID badges', function () { _styleBannerRow2(sheet); });
+    step('eBay logo (transparent asset)', function () { setupEbayLogo(false); });
+    step('row height 65', function () { sheet.setRowHeight(2, 65); });
+  }
+
+  // ⚠⚠ READ IT BACK. Every assertion above is about what we ASKED for; this is the only
+  //    part that says what the sheet actually holds. It is what would have caught the
+  //    half-applied run immediately instead of hours later.
+  SpreadsheetApp.flush();
+  try {
+    var mg = [];
+    sheet.getRange(2, 1, 1, Schema.dataWidth).getMergedRanges()
+         .forEach(function (r) { mg.push(r.getA1Notation()); });
+    var wantMerge = plate ? 'A2:F2' : 'A2:E2';
+    var a2 = String(sheet.getRange('A2').getFormula() || '');
+    var h  = sheet.getRowHeight(2);
+
+    log.push('— read-back —');
+    var wantAlso = plate ? 'G2:H2' : 'F2:G2';
+    log.push((mg.indexOf(wantMerge) !== -1 ? '✓' : '✗') + ' merges: ' +
+             (mg.length ? mg.join(' ') : 'none') + '   (want ' + wantMerge + ')');
+    log.push((mg.indexOf(wantAlso) !== -1 ? '✓' : '✗') + ' second merge ' + wantAlso +
+             (plate ? '   (the nameplate)' : '   (the Shipping picker)'));
+    log.push((a2.indexOf(plate ? 'ebay-v2' : 'ebay-v1') !== -1 ? '✓' : '✗') +
+             ' logo: ' + (a2.match(/ebay-v\d/) || ['none'])[0] +
+             '   (want ' + (plate ? 'ebay-v2' : 'ebay-v1') + ')');
+    log.push((h === (plate ? MASTHEAD.row2Height : 65) ? '✓' : '✗') + ' height: ' + h + 'px');
+  } catch (e) {
+    log.push('✗ read-back threw — ' + e);
+  }
+  return log;
+}
+
+/**
+ * _applyDividerNameplate — the DIRECT band's right-hand count.
+ *
+ * ⚠⚠ THE MISSING CALL SITE. _styleDirectDivider is only ever reached through
+ *    applyBrandTheme, which repaints the ENTIRE sheet and is not something anyone runs
+ *    casually. So the divider's nameplate formula — written on 2026-08-31 — had never
+ *    once been applied, and the band was still showing a hand-edited static string that
+ *    happened to match. Two nameplates were designed to rhyme and only one existed.
+ *    setupMasthead owns the banner's grammar, so it owns this too.
+ *
+ * ⚠ The formula goes on the ANCHOR CELL, not the span. setFormula on a multi-cell range
+ *   writes it into every cell, and the right merge is not created by code — it was made
+ *   by hand — so the span may or may not actually be merged.
+ */
+function _applyDividerNameplate(sheet) {
+  var boundary = _findBoundaryInSheet(sheet);
+  if (boundary <= 0) return '✗ divider: boundary row not found';
+  try {
+    var col = Schema.boundaryLeftWidth + 1;                       // G
+    sheet.getRange(boundary, col).setFormula(_nameplateFormula(MASTHEAD.nameDirect, 'A18'));
+    sheet.getRange(boundary, col, 1, Schema.boundaryRightWidth)
+      .setFontFamily(BRAND.fontDisplay).setFontWeight('bold').setFontSize(10)
+      .setFontColor(BRAND.ink)
+      .setHorizontalAlignment('right').setVerticalAlignment('middle');
+    SpreadsheetApp.flush();
+    var got = String(sheet.getRange(boundary, col).getDisplayValue() || '');
+    return (got.indexOf(MASTHEAD.namePrefix) !== -1 ? '✓' : '✗') +
+           ' divider nameplate row ' + boundary + ': "' + got + '"';
+  } catch (e) {
+    return '✗ divider nameplate — ' + e;
+  }
+}
+
+/**
+ * revertRow2 — put row 2 back exactly as it was before 2026-08-31.
+ *
+ * Cream A2:E2 logo zone, the transparent logo asset at its old size, 65px.
+ * Editor-run, zero args, owner-gated. This is the promised one-call escape hatch: the
+ * nameplate is a taste decision, and a taste decision that cannot be undone in one
+ * step is not a decision, it is a commitment.
+ *
+ * ⚠ It does NOT move the pickers back — that is rollbackPickIdCells, and the two are
+ *   deliberately separate. Row 2's appearance and where the dropdowns live are
+ *   different questions, and conflating them would make a cosmetic revert into a
+ *   data migration.
+ */
+function revertRow2() {
+  if (typeof _obRequireOwner === "function") {
+    var denied = _obRequireOwner("Reverting row 2");
+    if (denied) return denied;
+  }
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  var sheet = ss.getSheetByName(MAIN_SHEET_NAME);
+  if (!sheet) return "❌ Main sheet not found.";
+  var out = _buildRow2(sheet, false);
+  var rep = "↩ Row 2 reverted to the pre-nameplate layout\n  " + out.join('\n  ') +
+            (MASTHEAD.row2Style === 'plate'
+              ? "\n\n  ⚠⚠ MASTHEAD.row2Style is still 'plate', so the NEXT setupMasthead()" +
+                "\n     will build the nameplate again and undo this. Set it to 'cream'" +
+                "\n     in BrandTheme.js and push — a revert the installer overwrites is" +
+                "\n     not a revert."
+              : "") +
+            "\n\n  The pickers were NOT moved — run rollbackPickIdCells() for that," +
+            "\n  and delete the PICK_ID_ADDR property first if you do.";
+  console.log(rep);
+  return rep;
+}
+
 function setupMasthead(sheetName) {
   var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   var sheet = ss.getSheetByName(sheetName || MAIN_SHEET_NAME);
@@ -3360,10 +3565,10 @@ function setupMasthead(sheetName) {
   sheet.getRange('F1:H1').merge();
 
   // 2 — the ground. Row 1 is ink end to end; each face's own art carries the colour.
-  //     BANDS BLEED: it runs to the bleed column, not to dataWidth, so the masthead
-  //     leaves the screen instead of stopping at a hard edge in the middle of it.
-  //     Hidden columns take zero width, so with I:J hidden this reads continuous.
-  sheet.getRange(1, 1, 1, MASTHEAD.bleedToCol)
+  //     ⚠ It stops at dataWidth. A version of this ran to column T so the band would
+  //       "bleed" off the right edge; on screen that read as nothing but colour poured
+  //       into empty columns, and it was reverted the same day.
+  sheet.getRange(1, 1, 1, Schema.dataWidth)
     .setBackground(BRAND.ink)
     .setFontColor('#ffffff')
     .setFontFamily(BRAND.fontDisplay)
@@ -3396,38 +3601,15 @@ function setupMasthead(sheetName) {
   //    So the layout follows Schema.pickIdA1(): with PICK_ID_ADDR unset this rebuilds
   //    row 2 EXACTLY as it is today, and the nameplate appears only when the property
   //    flips. Shipping this changes nothing on the sheet, which is the point.
+  // ⚠ TWO CONDITIONS, AND THEY MEAN DIFFERENT THINGS. row2Style is the look you want;
+  //   pickersMoved is whether the space is physically free (G2 is half of the F2:G2
+  //   Shipping merge until the dropdowns move). Wanting the plate is not enough.
   var pickersMoved = (Schema.pickIdA1() === Schema.cellEmployeeIdNext);
-
-  if (pickersMoved) {
-    // The nameplate layout. Row 2 is the eBay table's LABEL — the quiet counterpart to
-    // the gold DIRECT divider — so it gets the same grammar: mark + name on the left,
-    // the count of what is waiting below it on the right. That number sits at the rows
-    // it counts, which is the one thing the sidebar's queue strip structurally cannot do.
-    ['A2:E2', 'A2:F2', 'F2:G2', 'G2:H2', 'I2:J2'].forEach(function (r) {
-      try { sheet.getRange(r).breakApart(); } catch (e) { /* not merged — fine */ }
-    });
-    sheet.getRange('A2:F2').merge();
-    sheet.getRange('G2:H2').merge();
-
-    // One warm charcoal plate, bleeding like row 1. One dark family with the masthead;
-    // gold stays exclusive to the DIRECT divider so the sheet has exactly one gold object.
-    sheet.getRange(2, 1, 1, MASTHEAD.bleedToCol).setBackground(MASTHEAD.row2Plate);
-
-    sheet.getRange('G2:H2')
-      .setFormula(_nameplateFormula(MASTHEAD.nameEbay, 'A17'))
-      .setFontColor(MASTHEAD.nameplateInk)
-      .setFontFamily(BRAND.fontDisplay).setFontWeight('bold').setFontSize(10)
-      .setHorizontalAlignment('right').setVerticalAlignment('middle').setWrap(false);
-
-    try { setupEbayLogo(); } catch (e) { console.log('setupMasthead.ebayLogo: ' + e); }
-
-  } else if (MASTHEAD.sky) {
-    sheet.getRange('A2:E2').setBackground(BRAND.ink);
-  } else {
-    // Today's row 2, untouched: cream ground + the eBay logo that NAMES the table.
-    // setupEbayLogo owns that formula, so it is called rather than duplicated.
-    sheet.getRange('A2:E2').setBackground(BRAND.paperWarm);
-    try { setupEbayLogo(); } catch (e) { console.log('setupMasthead.ebayLogo: ' + e); }
+  var wantPlate    = (MASTHEAD.row2Style === 'plate') && pickersMoved && !MASTHEAD.sky;
+  var row2Log = _buildRow2(sheet, wantPlate);
+  if (MASTHEAD.row2Style === 'plate' && !pickersMoved) {
+    row2Log.push('⚠ row2Style is "plate" but the pickers are still on the banner — ' +
+                 'built the cream layout instead. Run migratePickIdCells first.');
   }
 
   // 5 — the inputs, then the formulas that read them.
@@ -3435,7 +3617,6 @@ function setupMasthead(sheetName) {
   _setSystemPulseBannerFormulas(sheet);
 
   sheet.setRowHeight(1, MASTHEAD.rowHeight);
-  if (pickersMoved) sheet.setRowHeight(2, MASTHEAD.row2Height);
 
   // ⚠⚠ ASSERT THE FACE'S CANVAS. =IMAGE() mode 4 takes explicit pixel dimensions, so if
   //    A1:C1 does not sum to imgW the art STRETCHES OR CLIPS — silently, and it still
@@ -3498,14 +3679,21 @@ function setupMasthead(sheetName) {
   }
 
   SpreadsheetApp.flush();
-  return "✅ Masthead installed · row 1 = " + MASTHEAD.rowHeight + "px · faces " +
-         MASTHEAD.version +
-         " · row 2 = " + (pickersMoved ? "NAMEPLATE (pickers at " + Schema.pickIdA1() +
-                                         "/" + Schema.pickIdA1('adjustment') + ")"
-                                       : "unchanged (pickers still on the banner)") +
-         (phantoms.length ? " · swept stale row-2 validation(s): " + phantoms.join(', ')
-                          : "") +
-         widthNote;
+  // ⚠ The divider is part of the banner's grammar, so the installer owns it. It used to
+  //   be reachable only through applyBrandTheme, which is why its nameplate had never
+  //   actually been applied.
+  var dividerLine = _applyDividerNameplate(sheet);
+
+  var rep = "✅ Masthead installed · row 1 = " + MASTHEAD.rowHeight + "px · faces " +
+            MASTHEAD.version + widthNote +
+            (phantoms.length ? "\n   swept stale row-2 validation(s): " + phantoms.join(', ') : "") +
+            "\n\n  ROW 2 (style=" + MASTHEAD.row2Style + " · pickers at " +
+              Schema.pickIdA1() + "/" + Schema.pickIdA1('adjustment') + ")\n    " +
+            row2Log.join("\n    ") +
+            "\n\n  DIVIDER\n    " + dividerLine +
+            "\n\n  ↩ revertRow2() puts row 2 back the way it was, in one call.";
+  console.log(rep);
+  return rep;
 }
 
 /**
