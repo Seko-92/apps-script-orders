@@ -4198,6 +4198,7 @@ body.dark-theme .footer-version { border-color: #2c2c2c; }
           </div>
           <button class="btn-secondary" onclick="run('refreshAllOrdersEnrichment')" title="Link every SKU → its eBay listing (title+photo card) AND every order # → the actual order (eBay Seller Hub / Zoho SO). New rows link automatically on entry; this is the one-time backfill / re-apply.">🔗 Link SKUs + Orders</button>
           <button class="btn-danger" onclick="run('runDeleteEmptyRowsTableOne')">Cleanup Empty Rows</button>
+          <button class="btn-secondary" onclick="run('balanceTableBuffersNow')">⇕ Even Up Blank Rows</button>
           <div class="range-control">
             <div class="range-header"><span class="range-label">Insert Rows</span><span class="range-value" id="r1">10</span></div>
             <input type="range" min="1" max="50" value="10" step="1" oninput="document.getElementById('r1').innerText=this.value">

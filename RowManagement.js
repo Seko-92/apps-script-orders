@@ -76,6 +76,119 @@ function ensureDirectTableBuffer() {
   sheet.setRowHeights(lastRow + 1, rowsToAdd, 30);
 }
 
+/** How many blank rows each table carries below its last row of data. */
+var TABLE_BUFFER_ROWS = 3;
+
+/**
+ * balanceTableBuffers(n) — give BOTH tables exactly the same number of trailing
+ * blank rows. Owner-run, idempotent, reports what it did.
+ *
+ * ⚠⚠ WHY THE TWO DRIFTED APART. `ensureDirectTableBuffer` only ever ADDS — it tops the
+ *    DIRECT table back up to 3 and has no path that removes anything. So every row
+ *    deleted from the middle, every n8n shipped-row sweep, every manual tidy leaves the
+ *    tail one row longer than it found it, and the gap grows in one direction forever.
+ *    Observed 2026-08-31: eBay 3, DIRECT 6. **Exactly the Prep Queue's buffer bug of
+ *    2026-07-20** — and the resolution is the same one: the automatic path keeps only
+ *    GROWING (it must never delete a row someone is mid-way through typing into), and the
+ *    trim lives behind a deliberate call.
+ *
+ * ⚠ NEVER DELETES A ROW THAT HOLDS ANYTHING. Both ends are measured from
+ *   findLastDataRowInSegment, which reads column A, so only the genuinely blank tail
+ *   past the buffer is ever removed. A table with no data at all is handled: the scanner
+ *   returns start-1, so "last data + buffer" still resolves to the right target.
+ *
+ * ⚠ eBay's tail sits ABOVE the divider and DIRECT's sits at the BOTTOM OF THE SHEET, so
+ *   they are two different edits — the first moves the boundary, the second does not.
+ *   eBay is done FIRST and the boundary is re-read afterwards, because inserting or
+ *   deleting above it invalidates every row number below.
+ *
+ * ⚠ Deliberately NOT bridged through OwnerBridge. The allowlist is EXECUTED BY doPost on
+ *   the pinned /exec, so adding a name to it costs a New Version — and this is owner-side
+ *   housekeeping, not something the floor ever calls.
+ */
+function balanceTableBuffersNow() { return balanceTableBuffers(); }
+
+function balanceTableBuffers(n) {
+  if (typeof _obRequireOwner === "function") {
+    var denied = _obRequireOwner("Balancing the table buffers");
+    if (denied) return denied;
+  }
+  var want = Math.max(1, parseInt(n, 10) || TABLE_BUFFER_ROWS);
+  var sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(MAIN_SHEET_NAME);
+  if (!sheet) { var m = "❌ Main sheet not found."; console.log(m); return m; }
+
+  var out = ["── BALANCE TABLE BUFFERS · target " + want + " blank row(s) each ──"];
+
+  // ---- eBay: the tail between its last data row and the DIRECT divider ----------------
+  var b = getBoundaryRow();
+  if (b === -1) {
+    var msg = "❌ DIRECT divider not found — refusing to touch row structure.\n" +
+              "   getBoundaryRow() is strict equality on \"DIRECT\" in column A.";
+    console.log(msg); return msg;
+  }
+  var eLast = findLastDataRowInSegment(Schema.dataStartRow, b - 1);
+  var eHave = (b - 1) - eLast;
+  out.push("eBay:   last data row " + (eLast < Schema.dataStartRow ? "(none)" : eLast) +
+           " · " + eHave + " blank → " + want);
+
+  if (eHave > want) {
+    var cut = eHave - want;
+    sheet.deleteRows(eLast + want + 1, cut);
+    out.push("        ✓ removed " + cut + " blank row(s)");
+  } else if (eHave < want) {
+    var add = want - eHave;
+    // ⚠ insertRowsBefore on this sheet can corrupt the header text — a documented
+    //   Sheets bug (gotcha #4). Restore immediately, before anything reads the columns.
+    sheet.insertRowsBefore(b, add);
+    try { verifyAndRestoreHeaders(); } catch (e) { out.push("        ⚠ header restore: " + e); }
+    // Format from a real data row, never from whatever sat above the insert point.
+    sheet.getRange(Schema.dataStartRow, 1, 1, Schema.dataWidth)
+         .copyTo(sheet.getRange(b, 1, add, Schema.dataWidth),
+                 SpreadsheetApp.CopyPasteType.PASTE_FORMAT, false);
+    sheet.setRowHeights(b, add, 30);
+    out.push("        ✓ added " + add + " blank row(s)");
+  } else {
+    out.push("        – already right");
+  }
+
+  // ---- DIRECT: the tail between its last data row and the end of the sheet ------------
+  // ⚠ RE-READ THE BOUNDARY. The edit above moved it.
+  SpreadsheetApp.flush();
+  b = getBoundaryRow();
+  var dStart = b + 2;
+  var maxRow = sheet.getMaxRows();
+  var dLast  = findLastDataRowInSegment(dStart, maxRow);
+  var dHave  = maxRow - dLast;
+  out.push("DIRECT: last data row " + (dLast < dStart ? "(none)" : dLast) +
+           " · " + dHave + " blank → " + want);
+
+  if (dHave > want) {
+    var dcut = dHave - want;
+    sheet.deleteRows(dLast + want + 1, dcut);
+    out.push("        ✓ removed " + dcut + " blank row(s)");
+  } else if (dHave < want) {
+    var dadd = want - dHave;
+    sheet.insertRowsAfter(maxRow, dadd);
+    sheet.getRange(Schema.dataStartRow, 1, 1, Schema.dataWidth)
+         .copyTo(sheet.getRange(maxRow + 1, 1, dadd, Schema.dataWidth),
+                 SpreadsheetApp.CopyPasteType.PASTE_FORMAT, false);
+    sheet.setRowHeights(maxRow + 1, dadd, 30);
+    out.push("        ✓ added " + dadd + " blank row(s)");
+  } else {
+    out.push("        – already right");
+  }
+
+  // The divider's per-order boxes are drawn by ROW POSITION, so anything that shifts
+  // rows has to leave them repainted rather than stranded one row off.
+  try { setupDuplicateSalesOrderHighlighting(); } catch (e) {
+    out.push("⚠ duplicate/divider repaint failed: " + e);
+  }
+
+  var rep = out.join("\n");
+  console.log(rep);
+  return rep;
+}
+
 /**
  * Adds rows to Table 1 (eBay) - PUSHES DIRECT TABLE DOWN
  * @param {number} n - Number of rows to add
