@@ -1610,6 +1610,301 @@ function describePickIdCells() {
   return report;
 }
 
+/**
+ * migratePickIdCells — move the two Pick ID dropdowns into the hidden columns.
+ *
+ *   migratePickIdCells()        DRY RUN. Reads, checks, reports. Writes NOTHING.
+ *   migratePickIdCells("APPLY") does it.
+ *
+ * ⚠⚠ VALIDATE EVERYTHING, THEN WRITE. NEVER WRITE THEN DISCOVER. The option lists exist
+ *    nowhere in this codebase — they were authored by hand in the Sheets UI, so the cell
+ *    is the only copy of its own options and a botched half-migration is not recoverable
+ *    from source. Every preflight below is a hard refuse with ZERO writes behind it.
+ *
+ * ⚠⚠ IT DOES NOT HARDCODE setAllowInvalid(false). Both live rules are allowInvalid:false,
+ *    and resetDailyPickIds writes a value into these cells at 4am — against a strict rule
+ *    that does not list that value, setValue THROWS, into that function's own try/catch,
+ *    where nobody reads it. Yesterday's picker then rolls forward onto today's work. So
+ *    allowInvalid, showDropdown and helpText are all PRESERVED from the source rule, and
+ *    the preflight refuses unless the placeholder the reset would derive is actually
+ *    writable. (That failure was already live on H2 before this migration existed.)
+ *
+ * ⚠ COPY THE OPTIONS VERBATIM. Never author, normalize, dedupe, sort or trim them.
+ *   _rewritePickIdValidation is the cautionary tale: it rewrote the options into a
+ *   two-line form that broke three gate regexes at once, permanently and silently.
+ *
+ * ⚠ THE PROPERTY IS SET LAST, after every cell has been written AND read back. Until
+ *   that moment every reader still resolves to the old cells, so an abort at any earlier
+ *   point leaves a sheet that still works.
+ *
+ * ⚠ It deliberately does NOT call applyBrandTheme, setupMasthead, setupPickIdBadges or
+ *   relocateAdjustmentBadge; does not unhide I or J; does not touch the lock; and leaves
+ *   the F2:G2 merge alone. An empty unvalidated cell inside a surviving merge is inert,
+ *   and breaking that merge would make rollback non-trivial.
+ *
+ * ⏭ AFTER A SUCCESSFUL APPLY: re-run protectAllOrdersSheet() — the lock's carve-out
+ *   follows Schema.pickIdA1() and a stale one fails SILENTLY for staff while working
+ *   perfectly for the owner. Then setupMasthead() to build row 2's nameplate.
+ *
+ * @param {string} mode - "APPLY" to write. Anything else is a dry run.
+ * @returns {string} the report, also console.log'd
+ */
+function migratePickIdCells(mode) {
+  if (typeof _obRequireOwner === "function") {
+    var denied = _obRequireOwner("Migrating the Pick ID cells");
+    if (denied) return denied;
+  }
+
+  var APPLY = (String(mode || '').toUpperCase() === 'APPLY');
+  var out = [], say = function (s) { out.push(s); };
+  var RULE = '════════════════════════════════════════════════════════════════════';
+
+  say(RULE);
+  say(' MIGRATE PICK ID CELLS · ' + (APPLY ? '⚠ APPLY (writing)' : 'DRY RUN (no writes)'));
+  say(RULE);
+
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  var sheet = ss.getSheetByName(MAIN_SHEET_NAME);
+  if (!sheet) { var m = '❌ Main sheet not found.'; console.log(m); return m; }
+
+  var PLAN = [
+    { label: 'SHIPPING',   from: Schema.cellEmployeeId,   to: Schema.cellEmployeeIdNext,
+      gate: /^Shipping\s*-\s*/i,               fallback: 'Pick ID for Shipping' },
+    { label: 'ADJUSTMENT', from: Schema.cellAdjustmentId, to: Schema.cellAdjustmentIdNext,
+      gate: /^adjustment(?:s)?\s*[-:·]\s*/i,   fallback: 'Pick ID for Adjustment' }
+  ];
+
+  // ── PREFLIGHT. Every check runs before ANY write. ────────────────────────────────
+  var refuse = [], captured = [];
+
+  if (Schema._pickIdMode() === 'new') {
+    refuse.push('PICK_ID_ADDR is already "new" — the migration has already run. ' +
+                'Run rollbackPickIdCells() first if you need to redo it.');
+  }
+
+  PLAN.forEach(function (p) {
+    var src = sheet.getRange(p.from), dst = sheet.getRange(p.to);
+    var dv  = src.getDataValidation();
+
+    if (!dv) { refuse.push(p.label + ': ' + p.from + ' has NO validation to move.'); return; }
+
+    var type = String(dv.getCriteriaType());
+    if (type !== 'VALUE_IN_LIST') {
+      // ⚠ A VALUE_IN_RANGE rule returns a *Range* from getCriteriaValues()[0]. Copying it
+      //   would leave getBoardPickers reading undefined.length — it never loops, returns
+      //   {ok:true, pickers:[]}, and offers nobody while looking perfectly healthy.
+      refuse.push(p.label + ': ' + p.from + ' is ' + type + ', not VALUE_IN_LIST. ' +
+                  'A range-backed rule cannot be copied safely.');
+      return;
+    }
+
+    var cv = dv.getCriteriaValues() || [];
+    if (!Array.isArray(cv[0]) || !cv[0].length) {
+      refuse.push(p.label + ': ' + p.from + ' has no readable option list.');
+      return;
+    }
+
+    // destination must be genuinely untouched — this is the anti-half-migration gate
+    if (dst.getDataValidation()) refuse.push(p.label + ': ' + p.to + ' ALREADY has a validation.');
+    if (String(dst.getValue()))  refuse.push(p.label + ': ' + p.to + ' is not empty.');
+    if (dst.getMergedRanges().length) {
+      refuse.push(p.label + ': ' + p.to + ' is inside a merge (' +
+                  dst.getMergedRanges()[0].getA1Notation() + ').');
+    }
+
+    var opts = cv[0].slice();          // verbatim copy, never re-authored
+    var gateValid = 0;
+    for (var i = 0; i < opts.length; i++) if (p.gate.test(String(opts[i]))) gateValid++;
+    if (!gateValid) {
+      refuse.push(p.label + ': no option satisfies the gate regex — a picker could ' +
+                  'never be resolved from this list.');
+    }
+
+    // ⚠ Would the 4am reset still land after the move? It derives the placeholder off
+    //   the cell, so ask the REAL function rather than restating its rule here.
+    var placeholder = (typeof _pickIdPlaceholder === 'function')
+      ? _pickIdPlaceholder(src, p.gate, p.fallback) : p.fallback;
+    var allowInvalid = dv.getAllowInvalid();
+    if (opts.indexOf(placeholder) === -1 && !allowInvalid) {
+      refuse.push(p.label + ': the placeholder ' + JSON.stringify(placeholder) +
+                  ' is not in the list and allowInvalid is false — resetDailyPickIds ' +
+                  'would THROW at 4am. Fix the option list first.');
+    }
+
+    captured.push({
+      label: p.label, from: p.from, to: p.to,
+      opts: opts, showDropdown: cv[1], allowInvalid: allowInvalid,
+      helpText: dv.getHelpText() || '', value: String(src.getValue()),
+      gateValid: gateValid, placeholder: placeholder
+    });
+  });
+
+  captured.forEach(function (c) {
+    say('');
+    say(' ' + c.label + '   ' + c.from + '  →  ' + c.to);
+    say('   value        : ' + JSON.stringify(c.value));
+    say('   options (' + c.opts.length + ')  : ' + c.gateValid + ' satisfy the gate');
+    for (var i = 0; i < c.opts.length; i++) say('       [' + i + '] ' + JSON.stringify(String(c.opts[i])));
+    say('   allowInvalid : ' + c.allowInvalid + '   showDropdown: ' + c.showDropdown);
+    say('   helpText     : ' + JSON.stringify(c.helpText));
+    say('   4am reset    : would write ' + JSON.stringify(c.placeholder) + ' → ' +
+        ((c.opts.indexOf(c.placeholder) !== -1 || c.allowInvalid) ? '✓ lands' : '❌ THROWS'));
+  });
+
+  say('');
+  say(RULE);
+  if (refuse.length) {
+    say(' ❌ REFUSED — ' + refuse.length + ' blocking problem(s). NOTHING was written.');
+    refuse.forEach(function (r) { say('   • ' + r); });
+    say(RULE);
+    var rep = out.join('\n'); console.log(rep); return rep;
+  }
+
+  if (!APPLY) {
+    say(' ✓ PREFLIGHT PASSES. No writes were made.');
+    say('');
+    say('   Re-run as migratePickIdCells("APPLY") to move them.');
+    say('   Then: protectAllOrdersSheet()  ·  setupMasthead()');
+    say(RULE);
+    var rep2 = out.join('\n'); console.log(rep2); return rep2;
+  }
+
+  // ── APPLY. Per cell: write → flush → READ BACK AND ASSERT → only then clear source. ──
+  var done = [];
+  for (var k = 0; k < captured.length; k++) {
+    var c = captured[k];
+    var src = sheet.getRange(c.from), dst = sheet.getRange(c.to);
+
+    var b = SpreadsheetApp.newDataValidation()
+      .requireValueInList(c.opts, c.showDropdown !== false)
+      .setAllowInvalid(c.allowInvalid);           // PRESERVED, never hardcoded
+    if (c.helpText) b.setHelpText(c.helpText);
+
+    dst.setDataValidation(b.build());
+    if (c.value) dst.setValue(c.value);
+    dst.setBackground(BRAND.ink).setFontColor(BRAND.yellow)
+       .setFontFamily(BRAND.fontDisplay).setFontWeight('bold').setFontSize(11)
+       .setHorizontalAlignment('center').setVerticalAlignment('middle').setWrap(true);
+
+    SpreadsheetApp.flush();
+
+    // read back — a write that reports success and did not land is the whole risk here
+    var back = dst.getDataValidation();
+    var bad  = [];
+    if (!back) bad.push('no validation landed');
+    else {
+      var bv = back.getCriteriaValues() || [];
+      if (!Array.isArray(bv[0]) || bv[0].length !== c.opts.length) bad.push('option count differs');
+      else for (var q = 0; q < c.opts.length; q++) {
+        if (String(bv[0][q]) !== String(c.opts[q])) { bad.push('option ' + q + ' differs'); break; }
+      }
+      if (back.getAllowInvalid() !== c.allowInvalid) bad.push('allowInvalid differs');
+    }
+    if (String(dst.getValue()) !== c.value) bad.push('value differs');
+
+    if (bad.length) {
+      say('');
+      say(' ❌ ' + c.label + ' FAILED THE READ-BACK: ' + bad.join(', '));
+      say('   ' + c.from + ' was NOT cleared and PICK_ID_ADDR was NOT set, so every');
+      say('   reader still points at the old cell and the sheet still works.');
+      say('   Clear ' + c.to + ' by hand, then investigate before retrying.');
+      say(RULE);
+      var rep3 = out.join('\n'); console.log(rep3); return rep3;
+    }
+
+    // only now is it safe to let go of the original
+    src.setDataValidation(null);
+    src.clearContent();
+    SpreadsheetApp.flush();
+    done.push(c.label + ' ' + c.from + ' → ' + c.to);
+  }
+
+  // ⚠ LAST. Until this line every reader still resolves to the old cells.
+  PropertiesService.getScriptProperties().setProperty('PICK_ID_ADDR', 'new');
+
+  say(' ✅ MIGRATED — ' + done.join('  ·  '));
+  say('   PICK_ID_ADDR = new');
+  say('');
+  say(' ⏭ NOW, IN THIS ORDER:');
+  say('   1. protectAllOrdersSheet()   — the carve-out must follow the pickers.');
+  say('      ⚠ Verify as a STAFF account. removeEditors() ignores the owner, so a');
+  say('        stale carve-out fails silently for staff and works fine for you.');
+  say('   2. setupMasthead()           — builds row 2 as the nameplate.');
+  say('   3. describePickIdCells()     — confirm, and check I/J are still hidden.');
+  say('');
+  say(' ↩ Rollback: delete the PICK_ID_ADDR property (instant, no deploy), THEN');
+  say('   rollbackPickIdCells().');
+  say(RULE);
+  var rep4 = out.join('\n'); console.log(rep4); return rep4;
+}
+
+/**
+ * rollbackPickIdCells — the mirror. Moves the dropdowns back to the banner cells.
+ *
+ * ⚠⚠ THE PROPERTY GOES FIRST, AND THE ORDER IS LOAD-BEARING. Deleting it makes every
+ *    reader — including the PINNED /exec, which cannot be redeployed instantly — resolve
+ *    to the old cells on its next execution. Doing the cells first would leave a window
+ *    where every surface points at cells that are already empty.
+ *
+ * The instant, no-deploy rollback is deleting the property ALONE. This function is only
+ * needed to put the data back afterwards.
+ */
+function rollbackPickIdCells(mode) {
+  if (typeof _obRequireOwner === "function") {
+    var denied = _obRequireOwner("Rolling back the Pick ID cells");
+    if (denied) return denied;
+  }
+  var APPLY = (String(mode || '').toUpperCase() === 'APPLY');
+  var out = [], say = function (s) { out.push(s); };
+
+  say('=== ROLLBACK PICK ID CELLS · ' + (APPLY ? '⚠ APPLY' : 'DRY RUN') + ' ===');
+
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  var sheet = ss.getSheetByName(MAIN_SHEET_NAME);
+  if (!sheet) { var m = '❌ Main sheet not found.'; console.log(m); return m; }
+
+  if (APPLY) {
+    // FIRST — every reader goes back to the banner cells on its next execution.
+    PropertiesService.getScriptProperties().deleteProperty('PICK_ID_ADDR');
+    Schema._pickIdModeCache = null;
+    say('  ✓ PICK_ID_ADDR deleted — all readers resolve to the old cells again.');
+  } else {
+    say('  would delete PICK_ID_ADDR first (this alone is the instant rollback)');
+  }
+
+  var PAIRS = [
+    [Schema.cellEmployeeIdNext,   Schema.cellEmployeeId,   'SHIPPING'],
+    [Schema.cellAdjustmentIdNext, Schema.cellAdjustmentId, 'ADJUSTMENT']
+  ];
+
+  PAIRS.forEach(function (p) {
+    var from = sheet.getRange(p[0]), to = sheet.getRange(p[1]);
+    var dv = from.getDataValidation();
+    if (!dv) { say('  – ' + p[2] + ': nothing at ' + p[0] + ' to move back.'); return; }
+    var cv = dv.getCriteriaValues() || [];
+    if (!Array.isArray(cv[0])) { say('  ✗ ' + p[2] + ': ' + p[0] + ' is not a literal list.'); return; }
+
+    say('  ' + p[2] + ': ' + p[0] + ' → ' + p[1] + '  (' + cv[0].length + ' options)');
+    if (!APPLY) return;
+
+    var b = SpreadsheetApp.newDataValidation()
+      .requireValueInList(cv[0], cv[1] !== false)
+      .setAllowInvalid(dv.getAllowInvalid());
+    if (dv.getHelpText()) b.setHelpText(dv.getHelpText());
+    to.setDataValidation(b.build());
+    var v = String(from.getValue());
+    if (v) to.setValue(v);
+    SpreadsheetApp.flush();
+    from.setDataValidation(null);
+    from.clearContent();
+    SpreadsheetApp.flush();
+  });
+
+  say(APPLY ? '  ⏭ Re-run protectAllOrdersSheet() and setupMasthead().'
+            : '  Re-run as rollbackPickIdCells("APPLY") to act.');
+  var rep = out.join('\n'); console.log(rep); return rep;
+}
+
 function _styleHeaderRow(sheet, row) {
   // Black bg, brand yellow uppercase Oswald, thick yellow underline
   var range = sheet.getRange(row, 1, 1, Schema.dataWidth);
