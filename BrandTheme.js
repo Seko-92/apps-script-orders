@@ -1320,11 +1320,13 @@ function describePickIdCells() {
   say(' ⚠ SAVE THIS OUTPUT. The option lists exist nowhere in code.');
   say('');
 
-  // Two-line detection is the gate, so it is tallied across BOTH cells.
+  // Tallied across BOTH cells — these are what the gate reads.
   var twoLineTotal = 0;
   var rangeBacked  = 0;
+  var unresolvable = 0;   // a list offering nothing the gate regex would ever accept
+  var resetUnsafe  = [];  // cells where resetDailyPickIds' literal is not a valid option
 
-  var describe = function (label, a1, gateRe) {
+  var describe = function (label, a1, gateRe, resetLiteral) {
     say(THIN);
     say(' ' + label + ' · ' + a1);
     say(THIN);
@@ -1373,13 +1375,67 @@ function describePickIdCells() {
       if (multi) twoLineTotal++;
       say('      [' + i + '] ' + JSON.stringify(o) + (multi ? '   ⚠ TWO-LINE' : ''));
     }
+
+    // ---- can a picker be RESOLVED from this list at all? ------------------------
+    // ⚠⚠ NOT the same question as "is one selected right now". The placeholder is
+    //    DELIBERATELY rejected — _currentPicker says so in its own comment — so an
+    //    empty getCurrentPicker() between the 4am reset and the first pick of the
+    //    day is CORRECT, not an outage. What matters is whether the list holds
+    //    anything the gate would accept once somebody picks.
+    var matching = 0;
+    for (var m = 0; m < opts.length; m++) if (gateRe.test(String(opts[m]))) matching++;
+    if (!matching) unresolvable++;
+    say('    gate-valid   : ' + matching + ' of ' + opts.length +
+        (matching ? '' : '   ✗ NOTHING here would ever satisfy the gate'));
+
+    // ---- what would the 4am reset ACTUALLY write, and would it land? ------------
+    // ⚠⚠ IT CALLS THE REAL _pickIdPlaceholder RATHER THAN RE-DERIVING THE RULE.
+    //    Apps Script puts every root file in one global scope, so the diagnostic can
+    //    exercise the production function directly — which means it tests the real
+    //    path and cannot drift from it. A third copy of a rule is how A-9 sorted
+    //    after A-50 in three files until August.
+    //
+    // ⚠ The first version of this check asked "is resetDailyPickIds' LITERAL in the
+    //   list?" That was right while the reset hardcoded one. It no longer does — it
+    //   derives the placeholder off the cell — so the literal is now only a fallback
+    //   for an unreadable rule, and gating on it flagged a cell that was already
+    //   fixed. Test the mechanism, not a proxy for it.
+    if (resetLiteral !== undefined) {
+      var derived = null, derr = null;
+      try { derived = _pickIdPlaceholder(cell, gateRe, resetLiteral); }
+      catch (e) { derr = e; }
+
+      if (derr) {
+        resetUnsafe.push(a1 + ' (derivation threw)');
+        say('    reset writes : ✗ could not derive a placeholder — ' + derr);
+      } else {
+        var lands = (opts.indexOf(derived) !== -1) || dv.getAllowInvalid();
+        if (!lands) resetUnsafe.push(a1);
+        say('    reset writes : ' + JSON.stringify(derived) +
+            (lands ? '   ✓ lands' : '   ❌ REJECTED → setValue THROWS at 4am'));
+
+        // Cosmetic, not gating: the hardcoded fallback is reached ONLY when the rule
+        // cannot be read, so a mismatch here is drift worth tidying rather than a fault.
+        if (opts.indexOf(resetLiteral) === -1) {
+          say('    ⚠ cosmetic   : the fallback literal ' + JSON.stringify(resetLiteral));
+          say('                   is not a member of this list. Harmless while the');
+          say('                   derivation works — it is only used when the rule');
+          say('                   is unreadable — but worth tidying in the UI.');
+        }
+      }
+    }
   };
 
+  // ⚠ These literals are a SECOND COPY of what resetDailyPickIds writes — they are
+  //   inline strings there, not exported. That is the drift class this project keeps
+  //   getting bitten by, so it is flagged rather than hidden: if that function ever
+  //   changes what it writes, change these too. The durable fix is to have the reset
+  //   write option [0] read off the cell and delete both copies.
   describe('SHIPPING   · Schema.cellEmployeeId',   Schema.cellEmployeeId,
-           /^Shipping\s*-\s*/i);
+           /^Shipping\s*-\s*/i,                    'Pick ID for Shipping');
   say('');
   describe('ADJUSTMENT · Schema.cellAdjustmentId', Schema.cellAdjustmentId,
-           /^adjustment(?:s)?\s*[-:·]\s*/i);
+           /^adjustment(?:s)?\s*[-:·]\s*/i,        'Pick ID for Adjustment');
 
   // ---- destinations -------------------------------------------------------------
   say('');
@@ -1410,9 +1466,11 @@ function describePickIdCells() {
   say('  getCurrentPicker() : ' + JSON.stringify(picker) +
       (picker ? '' : '   ✗ EMPTY — every Activity Log row is unattributed'));
 
+  var boardCount = 0;
   try {
     var bp = getBoardPickers() || {};
     var list = bp.pickers || [];
+    boardCount = list.length;
     say('  getBoardPickers()  : ok=' + bp.ok +
         '  current=' + JSON.stringify(String(bp.current || '')) +
         '  pickers=' + list.length);
@@ -1423,25 +1481,38 @@ function describePickIdCells() {
   }
 
   // ---- the gate -----------------------------------------------------------------
-  var pass = (twoLineTotal === 0) && !!picker && (rangeBacked === 0);
+  // ⚠⚠ THE CRITERION IS "CAN A PICKER BE RESOLVED", NOT "IS ONE SELECTED".
+  //    The first cut of this diagnostic gated on getCurrentPicker() being non-empty
+  //    and duly FAILED on a Saturday night with the floor closed — because the 4am
+  //    reset had correctly restored the placeholder and _currentPicker correctly
+  //    rejects it. That would have sent someone hunting a pre-existing outage that
+  //    does not exist, which is the precise mistake the plan warns against in the
+  //    other direction. Plumbing health is what getBoardPickers reports; whether
+  //    anyone has picked today is a fact about the shift, so it is informational.
+  var blocking = (twoLineTotal > 0) || (rangeBacked > 0) || (unresolvable > 0) ||
+                 (destDirty > 0)    || (resetUnsafe.length > 0);
   say('');
   say(RULE);
   say(' GATE');
   say(RULE);
-  say('  two-line opts: ' + twoLineTotal);
-  say('  range-backed rules: ' + rangeBacked);
-  say('  getCurrentPicker(): ' + (picker ? 'non-empty' : 'EMPTY'));
-  say('  destinations dirty: ' + destDirty);
+  say('  two-line options     : ' + twoLineTotal + (twoLineTotal ? '   ❌' : '   ✓'));
+  say('  range-backed rules   : ' + rangeBacked  + (rangeBacked  ? '   ❌' : '   ✓'));
+  say('  lists with no valid  : ' + unresolvable + (unresolvable ? '   ❌' : '   ✓'));
+  say('  destinations dirty   : ' + destDirty    + (destDirty    ? '   ❌' : '   ✓'));
+  say('  reset-unsafe cells   : ' + (resetUnsafe.length
+                                      ? resetUnsafe.join(', ') + '   ❌'
+                                      : '0   ✓'));
   say('');
-  if (pass && destDirty === 0) {
-    say('  ✅ GATE PASSES — safe to proceed.');
-  } else if (pass) {
-    say('  ⚠ Gate passes on the SOURCES, but I2/J2 are not clean.');
-    say('    That is a half-finished migration. Do not write over it —');
-    say('    run rollbackPickIdCells() or clear them by hand first.');
+  say('  ── informational, NOT gating ──');
+  say('  pickers offered      : ' + boardCount);
+  say('  picker selected NOW  : ' + (picker ? JSON.stringify(picker)
+                                            : 'none (expected off-shift / before the first pick)'));
+  say('');
+  if (!blocking) {
+    say('  ✅ GATE PASSES — safe to proceed with the migration.');
   } else {
-    say('  ❌ GATE FAILS — STOP. Fix this in its OWN commit before migrating,');
-    say('    or the move will be blamed for a pre-existing outage.');
+    say('  ❌ GATE FAILS — STOP. Fix in its OWN commit before migrating, or the');
+    say('     move will be blamed for a fault that was already there.');
   }
   say('');
   say('  Next: run describeAllOrdersLock() and save its `editable:` line too.');
