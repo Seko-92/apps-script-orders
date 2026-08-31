@@ -1596,7 +1596,19 @@ function describePickIdCells() {
                                             : 'none (expected off-shift / before the first pick)'));
   say('');
   if (!blocking) {
-    say('  ✅ GATE PASSES — safe to proceed with the migration.');
+    // ⚠ The verdict has to know which side of the migration it is on. Printing
+    //   "safe to proceed with the migration" AFTER it has already run is a stale label
+    //   on a finished state — small, but this codebase's own ruling is that a reassuring
+    //   message about the wrong state is a bug.
+    say(isNew ? '  ✅ ALL HEALTHY — the pickers are migrated and every check passes.'
+              : '  ✅ GATE PASSES — safe to proceed with the migration.');
+    if (isNew) {
+      say('');
+      say('  ⏭ If protectAllOrdersSheet() has not been re-run since the move, its');
+      say('     carve-out still opens the OLD cells. Nothing breaks today (the board');
+      say('     writes through doPost, which runs as the owner) — but any sidebar');
+      say('     control writing these cells would be refused for STAFF.');
+    }
   } else {
     say('  ❌ GATE FAILS — STOP. Fix in its OWN commit before migrating, or the');
     say('     move will be blamed for a fault that was already there.');
