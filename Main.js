@@ -319,6 +319,12 @@ function onEditInstallable(e) {
   try {
     var _sh = e && e.range && e.range.getSheet();
     if (_sh && _sh.getName() === MAIN_SHEET_NAME) _dashBustTickCache();
+
+    // ⚠ THE PICK ID IS A GATE, so it gets the sidebar's cache cleared too — narrowly,
+    //   only when the edit actually touched one of those two cells. Setting it BY HAND
+    //   on the banner is the path that was reported slow: the board caught up within a
+    //   minute and the panel did not, because nothing had ever cleared its 300s copy.
+    if (_editTouchedPickId(e)) _sidebarBustTickCache();
   } catch (err) { /* best-effort — never block an edit on the board's freshness */ }
 }
 

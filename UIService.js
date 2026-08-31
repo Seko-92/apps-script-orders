@@ -216,6 +216,51 @@ var SIDEBAR_TICK_BUILD_KEY = 'hqSidebarTick_building';
    The real fix is to publish this tick to a cell and let n8n serve it, the way
    the Floor Board is served — then viewers cost nothing at all. */
 var SIDEBAR_TICK_FRESH_SEC = 300;         // how long a copy counts as current
+
+/**
+ * Drop the sidebar's cached tick so the NEXT poll rebuilds instead of serving a copy.
+ *
+ * ⚠⚠ WHY THIS EXISTS (2026-08-31, reported from use): setting the Pick ID took up to
+ *    FIVE MINUTES to show in the sidebar banner. Nothing was broken — the write landed,
+ *    the board picked it up within a minute via _dashBustTickCache — but nothing had
+ *    ever cleared THIS cache, so the panel kept serving a copy that still said
+ *    "No picker set".
+ *
+ * ⭐ THE RULE THIS IS THE SECOND INSTANCE OF: a cache TTL is chosen for the SLOWEST
+ *    thing in its group, and 300s is right for every other field on this tick — out of
+ *    stock, photo backlog, price drift, prep queue. Those are BACKLOGS, where a quarter
+ *    hour means nothing. The picker is not a backlog, it is a GATE: it blocks printing
+ *    and it interrupts a pick. Dropping something with a deadline into a group sized for
+ *    things without one inherits a staleness budget nobody chose for it — exactly the
+ *    2026-08-21 held-count bug, one field over.
+ *
+ * ⚠ Deliberately NOT wired into every edit. Busting on each cell change would force an
+ *   EIGHT-SHEET rebuild per keystroke and defeat the cache entirely; only the picker
+ *   cells clear it, because only they are read as a gate.
+ */
+function _sidebarBustTickCache() {
+  try { CacheService.getScriptCache().remove(SIDEBAR_TICK_CACHE_KEY); }
+  catch (e) { /* best-effort — a stale panel must never block the write that caused it */ }
+}
+
+/**
+ * True when an edit event touched either Pick ID cell on the main sheet.
+ * ⚠ Resolves the addresses through Schema.pickIdA1() rather than the constants, so it
+ *   keeps working on whichever side of the grace period the sheet is on.
+ */
+function _editTouchedPickId(e) {
+  try {
+    var r = e && e.range; if (!r) return false;
+    var sh = r.getSheet(); if (!sh || sh.getName() !== MAIN_SHEET_NAME) return false;
+    var top = r.getRow(), bot = top + r.getNumRows() - 1;
+    var lft = r.getColumn(), rgt = lft + r.getNumColumns() - 1;
+    return [Schema.pickIdA1(), Schema.pickIdA1('adjustment')].some(function (a1) {
+      var c = sh.getRange(a1);
+      return c.getRow() >= top && c.getRow() <= bot &&
+             c.getColumn() >= lft && c.getColumn() <= rgt;
+    });
+  } catch (err) { return false; }
+}
 var SIDEBAR_TICK_KEEP_SEC  = 21600;       // keep as a fallback (6h = cache max)
 var SIDEBAR_TICK_BUILD_SEC = 45;          // rebuild-in-progress flag lifetime
 var SIDEBAR_TICK_MAX_BYTES = 90000;       // CacheService hard-caps a value at 100KB

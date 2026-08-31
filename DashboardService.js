@@ -1142,6 +1142,12 @@ function _setPickerAllowlisted(value, source) {
     // that changes data the cache holds, not just the obvious ones.
     try { _dashBustTickCache(); } catch (e) { /* best-effort */ }
 
+    // ⚠ AND THE SIDEBAR'S OWN CACHE — a different store with a different TTL. Busting
+    //   only the board's left the panel that OWNS this control showing the old name for
+    //   up to five minutes, including on a second device where the optimistic override
+    //   cannot mask it. Enumerate every cache that holds the value, not just the first.
+    try { _sidebarBustTickCache(); } catch (e) { /* best-effort */ }
+
     return { ok: true, picker: want, message: "" };
   } catch (err) {
     try { console.log("_setPickerAllowlisted(" + source + "): " + err); } catch (_) {}
