@@ -994,17 +994,36 @@ function removeActivityLogTrigger() {
 // =======================================================================================
 
 /**
- * Blanks G2 (Pick ID for Shipping) and I2 (Pick ID for Adjustment) so each
- * shift starts with a fresh selection. Run by a daily 4am trigger — between
- * the Activity Log purge (3am) and warehouse-open hours.
+ * Resets both Pick ID cells to their own dropdown's placeholder so each shift
+ * starts with a fresh selection. Run by a daily 4am trigger — between the
+ * Activity Log purge (3am) and warehouse-open hours.
  *
- * Why this matters: the print path refuses to run when G2 is empty. That
- * forcing-function only "forces" if G2 actually starts empty each day. Without
- * a reset, yesterday's value lingers and the picker may forget to update it,
- * causing the day's events to be attributed to the wrong person.
+ * Why this matters: the print path refuses to run while the Shipping cell is
+ * unset. That forcing-function only "forces" if the cell actually starts unset
+ * each day. Without a reset, yesterday's value lingers and the day's events are
+ * attributed to the wrong person.
  *
- * Safe to run any time. Only writes empty strings — does NOT touch the
- * dropdown validation rules on those cells (those are preserved).
+ * ⚠⚠ IT NO LONGER WRITES A HARDCODED LITERAL, AND THAT IS THE WHOLE POINT.
+ *    Until 2026-08-31 it wrote "Pick ID for Shipping" / "Pick ID for Adjustment"
+ *    as inline strings. The Adjustment dropdown's own first option carries a
+ *    TRAILING SPACE ("Pick ID for Adjustment "), so the literal was not a member
+ *    of its own list — and against allowInvalid:false, setValue THROWS on a value
+ *    the rule does not list (proven on this sheet 2026-05-19). The throw landed
+ *    in this function's try/catch at 4am, Logger.log wrote it where nobody reads,
+ *    and the Adjustment picker silently stopped resetting. Yesterday's picker
+ *    rolling forward is the exact failure this function exists to prevent.
+ *
+ * ⭐ THE PLACEHOLDER IS DERIVED NOW, WITH A RULE THAT ALREADY EXISTS. A pick-ID
+ *    option is either a real picker ("Shipping - YAwiss 1") or the placeholder,
+ *    and _currentPicker already tells them apart with a gate regex. So the
+ *    placeholder is simply THE OPTION THAT FAILS THAT GATE — one rule, read off
+ *    the cell, instead of a second copy of a string that lives in the sheet.
+ *    Edit the list in the Sheets UI and this function follows it; it can no
+ *    longer drift away from the data it is writing.
+ *
+ * ⚠ Each cell resets in its OWN try/catch. Previously a throw on the first write
+ *   skipped every write after it — the cells are independent and must fail
+ *   independently. (Same defense-in-depth shape as onEditInstallable's dispatch.)
  */
 function resetDailyPickIds() {
   try {
@@ -1012,16 +1031,81 @@ function resetDailyPickIds() {
     var sheet = ss.getSheetByName(MAIN_SHEET_NAME);
     if (!sheet) return "Main sheet not found.";
 
-    sheet.getRange(Schema.cellEmployeeId).setValue("Pick ID for Shipping");
-    sheet.getRange(Schema.cellAdjustmentId).setValue("Pick ID for Adjustment");
+    var out = [];
+    out.push(_resetOnePickId(sheet, Schema.cellEmployeeId,
+                             /^Shipping\s*-\s*/i,                 "Pick ID for Shipping"));
+    out.push(_resetOnePickId(sheet, Schema.cellAdjustmentId,
+                             /^adjustment(?:s)?\s*[-:·]\s*/i,     "Pick ID for Adjustment"));
 
-    Logger.log("Daily Pick IDs reset (" + Schema.cellEmployeeId + ", " +
-      Schema.cellAdjustmentId + ") at " + new Date().toISOString());
-    return "✅ Pick IDs reset.";
+    var msg = "Daily Pick IDs reset at " + new Date().toISOString() + " — " + out.join(" · ");
+    Logger.log(msg);
+    console.log(msg);          // Executions panel, where a 4am failure is actually findable
+    return msg;
   } catch (err) {
-    Logger.log("resetDailyPickIds error: " + err);
-    return "❌ Reset error: " + err;
+    var e = "❌ resetDailyPickIds error: " + err;
+    Logger.log(e);
+    console.log(e);
+    return e;
   }
+}
+
+/**
+ * Resets ONE pick-ID cell to its dropdown's placeholder. Never throws — a failure
+ * on one cell must not skip the other, so it is reported as text instead.
+ *
+ * @param {Sheet}  sheet
+ * @param {string} a1               the cell, from Schema
+ * @param {RegExp} gateRe           what a REAL picker looks like (the _currentPicker gate)
+ * @param {string} fallbackLiteral  used only when the rule cannot be read
+ * @returns {string} a short status, safe to concatenate into the log line
+ */
+function _resetOnePickId(sheet, a1, gateRe, fallbackLiteral) {
+  if (!a1) return "(no address configured)";
+  try {
+    var cell = sheet.getRange(a1);
+    var want = _pickIdPlaceholder(cell, gateRe, fallbackLiteral);
+    if (String(cell.getValue()) === want) return a1 + " already reset";
+    cell.setValue(want);
+    return a1 + " → " + JSON.stringify(want);
+  } catch (err) {
+    // ⚠ Loud on purpose. The likeliest cause is a value the validation rejects,
+    //   which is invisible from the floor but means a stale picker all day.
+    return "❌ " + a1 + " FAILED (stale picker for the day): " + err;
+  }
+}
+
+/**
+ * The placeholder is the one option a real picker name could never be: the option
+ * the gate regex REJECTS. Reading it off the cell is what stops this function and
+ * the dropdown drifting apart.
+ */
+function _pickIdPlaceholder(cell, gateRe, fallbackLiteral) {
+  var dv = null;
+  try { dv = cell.getDataValidation(); } catch (e) { dv = null; }
+  if (!dv) return fallbackLiteral;
+
+  var cv = null;
+  try { cv = dv.getCriteriaValues(); } catch (e) { cv = null; }
+
+  // ⚠ A VALUE_IN_RANGE rule returns a *Range* here, not an Array. Detect it rather
+  //   than assume — reading .length off a Range is exactly how getBoardPickers can
+  //   return {ok:true, pickers:[]} and offer nobody.
+  if (!cv || !Array.isArray(cv[0]) || !cv[0].length) return fallbackLiteral;
+
+  var opts = cv[0];
+
+  // Index 0 by convention, checked first so a list carrying more than one
+  // non-matching entry still resolves the way a reader would expect.
+  if (!gateRe.test(String(opts[0]))) return String(opts[0]);
+  for (var i = 1; i < opts.length; i++) {
+    if (!gateRe.test(String(opts[i]))) return String(opts[i]);
+  }
+
+  // ⚠ Every option is a real picker — this list has no placeholder. Falling back to
+  //   the literal is correct even though it will throw against a strict rule: THAT
+  //   is the right outcome. Writing a real picker's name here would silently
+  //   attribute the whole day to them, which is worse than a loud failure.
+  return fallbackLiteral;
 }
 
 /**
