@@ -14,21 +14,32 @@
 function onOpen() {
   const ui = SpreadsheetApp.getUi();
 
-  // 1. Create the Control Panel Menu
-  ui.createMenu('▦ CONTROL PANEL')
-    .addItem('Open Control Panel', 'showSidebar')
-    .addToUi();
-
-  // 2. Arcade menu — a single door into the cabinet (Snake now lives INSIDE it
-  //    alongside Tetris/Flappy/Breakout/Invaders/Pac-Man).
-  ui.createMenu('🕹️ HQ ARCADE')
-    .addItem('Open HQ Arcade', 'openHQArcade')
-    .addToUi();
-
-  // 2b. Floor Board — the warehouse monitor. Opens in-sheet for a quick look;
-  //     the always-on version is the doGet web-app URL (open in a tablet tab).
-  ui.createMenu('▤ FLOOR BOARD')
-    .addItem('Open Floor Board', 'openFloorBoard')
+  // 1. ONE menu, named and cased like Google's own.
+  //
+  // ⚠⚠ A SHEETS MENU CAN ONLY HOLD PLAIN TEXT — there is no way to put the sidebar's
+  //    marks up here. Those are SVG sprite symbols drawn on a 24px grid; a menu label is
+  //    a string. So "match the sidebar" cannot mean matching its GLYPHS, and the honest
+  //    equivalent is matching its RESTRAINT: the v3.6 pass replaced 26 colour emoji with
+  //    drawn marks precisely because an emoji is someone else's artwork, rendered by
+  //    whatever font the device happens to carry. Up here that has no replacement, so the
+  //    glyph goes. `▦` and `▤` were rendering as bare boxes on the user's machine —
+  //    the same tofu failure as `📻` and `⛶` on the warehouse tablet (2026-08-07).
+  //
+  // ⭐ AND ONE MENU, NOT THREE. Google's nine are single Title-Case words; three shouting
+  //    all-caps entries beside them read as a bolted-on add-on rather than part of the
+  //    application. Collapsing also leaves room to grow without ever taking more bar.
+  //
+  // ⚠ The extra click costs nothing in practice: showSidebar() runs on every open (see
+  //   below), so "Control Panel" here is a RECOVERY path for someone who closed it, not
+  //   a daily action. If that ever proves wrong, splitting it back out is one line.
+  //
+  // ⚠ Menus are built in onOpen — a change here does NOT appear until the sheet is
+  //   RELOADED. Nothing is broken in the meantime; the old menu just lingers.
+  ui.createMenu('HQ')
+    .addItem('Control Panel', 'showSidebar')
+    .addItem('Floor Board', 'openFloorBoard')
+    .addSeparator()
+    .addItem('Arcade', 'openHQArcade')   // break-room, not a tool — hence the rule above it
     .addToUi();
   
   // ⭐⭐ 3. THE SIDEBAR OPENS BEFORE ANY BACKGROUND WORK, AND THAT ORDER IS THE FIX.
