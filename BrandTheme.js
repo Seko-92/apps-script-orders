@@ -94,17 +94,43 @@ var MASTHEAD = {
   //    what happened on 2026-08-30: the sky kept showing a broken-logo build long after
   //    the file was replaced, and it read as "the images are broken" when they were fine.
   //    This rule was written in the docblock above and then violated by its author.
-  version:      "v3",  // hour-lit set, corrected 05:00-21:00 light curve
+  version:      "v4",  // 2026-08-31 — the horizon/mark fix, the seam vignette, 287x56
+                       // ⚠ BUMPED ONLY AFTER ship-masthead.sh byte-verified all 144
+                       //   v4 faces against the served copy. Reversed, every face
+                       //   becomes the text chip at once.
   ext:          "png",  // ⚠ NOT gif — Sheets shows only a GIF's first frame (see above)
-  imgH:         44,    // px — mode-4 explicit sizing, so nothing letterboxes
-  imgW:         280,   // px — fits A1:C1 (287px) with breathing room
+  imgH:         56,    // px — mode-4 explicit sizing, so nothing letterboxes
+  imgW:         287,   // px — EQUALS A1:C1, asserted by setupMasthead
   restAccent:   "#7e8894",  // the cool tone the rest face wears — shared with its curve
+  // ⚠ The neutral row-1 ink. D1 and E1 wear it so the face's state word is the ONLY
+  //   coloured thing in the row. Three yellows meant nothing led.
+  quietInk:     "#e8e8e8",
+  // BANDS BLEED. TABLES DON'T. The masthead and the gold DIRECT divider run off the
+  // right edge; the two table blocks sit between them as defined shapes ending at
+  // column J. The white strip to the right stops reading as "the sheet ran out" and
+  // starts reading as a margin between two full-bleed rules.
+  // Nothing reads past dataWidth -- formats, CF and banding all stop there -- so K:T is
+  // free canvas. Hidden columns take zero width, so with I:J hidden the band is
+  // continuous from A to the viewport edge.
+  bleedToCol:   20,         // column T
+  // The warm charcoal plate row 2 wears. One dark family with row 1; gold stays
+  // exclusive to the DIRECT divider so the sheet has exactly one gold object.
+  row2Plate:    "#2a2724",
+  nameplateInk: "#8a8f98",
+  // ONE PREFIX, TWO NAMEPLATES. Retyping the house mark in two places is how the live
+  // sheet ended up saying "HQMS . DIRECT ORDERS" while the code wrote
+  // "HQ MS . DIRECT TABLE" -- a hand-edit the next applyBrandTheme would have
+  // normalised away without anyone noticing which one was intended.
+  namePrefix:   "HQMS",
+  nameEbay:     "EBAY ORDERS",
+  nameDirect:   "DIRECT ORDERS",
   // ⭐ THE FACE KEEPS THE HOUR. It cannot MOVE (a floating image scrolls off the frozen
   //    banner; =IMAGE() shows a GIF's first frame only) — but it can be LIT. Light is the
   //    one thing that reads correctly at ~1 frame per minute, because a day changes
   //    slowly anyway. Cold before dawn, amber as the floor opens, clean at noon, an ember
   //    horizon at 5pm, quiet by midnight. The Floor Board's night dial, on the sheet.
-  rowHeight:    52,
+  rowHeight:    56,   // px — imgH matches, so the art fills the row edge to edge
+  row2Height:   44,   // px — only applied once the pickers have moved off the banner
   // ---- ROW 2: THE DAY -----------------------------------------------------------------
   // ⭐ 826x65px of cream sat under the lit face doing nothing but holding a small logo —
   //    the biggest dead space in the banner, and the reason rows 1-2 read as two objects
@@ -263,11 +289,13 @@ function setupBannerDateTime() {
   var sheet = ss.getSheetByName(MAIN_SHEET_NAME);
   if (!sheet) return "❌ Main sheet not found.";
 
-  // B1:D1 is merged. Writing to the anchor (B1) populates the merged display.
-  sheet.getRange("B1").setFormula(
-    '=TEXT(NOW(), "dddd, mmmm d, yyyy · h:mm AM/PM")'
-  );
-  return "✅ Banner date+time formula installed. Updates on every recalc.";
+  // ⚠ RETIRED 2026-08-31. Its comment below describes a layout that no longer exists:
+  //   B1:D1 has not been the merge since the masthead shipped — B1 now sits INSIDE
+  //   A1:C1, so this formula wrote a date into a cell nobody could see.
+  //   The date's job belongs to the face (which carries the hour as LIGHT) and to D1.
+  return "⚠ RETIRED — B1 is inside the A1:C1 masthead merge, so this wrote an " +
+         "invisible formula. The date is carried by the face and D1 now. " +
+         "Run setupMasthead() instead.";
 }
 
 
@@ -616,7 +644,11 @@ function protectAllOrdersSheet() {
   // The two Pick ID cells. ⚠ Pick ID for Shipping is a MERGE (F2:G2 today), and a
   // merge is only editable through its whole range — so resolve the merge rather
   // than hardcoding the second column, which has already moved once (2026-05-19).
-  [Schema.cellEmployeeId, Schema.cellAdjustmentId].forEach(function (a1) {
+  // ⚠ The carve-out must follow the pickers. A STALE one fails SILENTLY for staff
+  //   while working perfectly for you, because removeEditors() ignores the owner —
+  //   the 2026-08-29 "measured the wrong population" trap. Re-run
+  //   protectAllOrdersSheet() after any flip, and verify as a STAFF account.
+  [Schema.pickIdA1(), Schema.pickIdA1('adjustment')].forEach(function (a1) {
     var cell = sheet.getRange(a1);
     var merges = cell.getMergedRanges();
     open.push(merges && merges.length ? merges[0] : cell);
@@ -1044,7 +1076,10 @@ function repairLiveBannerFormulas() {
   if (!sheet) return "❌ Main sheet not found";
   _ensureSparkData(ss);
   _setSystemPulseBannerFormulas(sheet);
-  return "✅ Live banner formulas re-installed in E1 and G1.";
+  // ⚠ It writes A1/D1/E1/F1. The pre-masthead layout put the stats in G1 and this
+  //   string was never updated — a report that names the wrong cells sends the next
+  //   reader to the wrong place.
+  return "✅ Live banner formulas re-installed (A1 face · D1 headline · E1 pulse · F1 curve).";
 }
 
 /**
@@ -1095,22 +1130,22 @@ function _styleBannerRow1(sheet) {
   // persisted. Uniform whole-row styling here guarantees E1 + G1 inherit
   // brand yellow on black even when no legacy writer exists. Emoji bullets
   // (🔴🟡🟢⚫🟢) in the G1/E1 formulas render their own colors regardless.
-  var fullRow = sheet.getRange(1, 1, 1, Schema.dataWidth);
-  fullRow.setBackground(BRAND.ink)
-         .setFontColor(BRAND.yellow)
-         .setFontFamily(BRAND.fontData)
-         .setFontWeight('bold')
-         .setFontSize(11)
-         .setHorizontalAlignment('center')
-         .setVerticalAlignment('middle')
-         .setWrap(true);
-
-  // A1 — HQ brand monogram. Oswald display 16pt for the chip identity.
-  // Image overlay (via setupBrandLogo) will sit on top once installed.
-  sheet.getRange('A1')
-    .setFontFamily(BRAND.fontDisplay)
-    .setFontSize(16);
-  if (!sheet.getRange('A1').getValue()) sheet.getRange('A1').setValue('HQ');
+  // ⚠⚠ ROW 1 HAS ONE OWNER NOW, AND IT IS setupMasthead. Until 2026-08-31 this
+  //    function and setupMasthead BOTH styled row 1, and they disagreed about
+  //    everything: 42px vs 56px, Roboto vs Oswald, brand yellow vs white, centred vs
+  //    left. Whichever ran last won, so the banner's appearance depended on the order
+  //    of two unrelated calls.
+  //
+  // ⚠⚠ AND IT COULD CLOBBER THE FACE. The old body ended with
+  //    `if (!A1.getValue()) A1.setValue('HQ')` — a guard written when A1 held a text
+  //    chip. A1 now holds the =IMAGE() formula, and getValue() on a formula cell
+  //    returns its RESULT: for an image that is an empty string. So the guard read
+  //    "empty", wrote the literal "HQ", and destroyed the masthead. Silently, and it
+  //    looks exactly like the documented IFERROR fallback.
+  //
+  // This is left as the ground fill only, so a theme re-apply cannot repaint the
+  // banner into the pre-masthead layout. setupMasthead does the rest.
+  sheet.getRange(1, 1, 1, MASTHEAD.bleedToCol).setBackground(BRAND.ink);
 }
 
 function _styleBannerRow2(sheet) {
@@ -1139,13 +1174,17 @@ function _styleBannerRow2(sheet) {
   //   person to add a layout would inherit a branch that silently guesses.
   //
   // This function only PAINTS — it does not create or break merges.
+  // ⚠ Branch on the RESOLVER, not the constant. Schema.cellAdjustmentId stays "H2"
+  //   for the whole grace period even after the pickers move, so branching on it
+  //   would paint the OLD layout over the new one.
+  var adj = Schema.pickIdA1('adjustment');
   var logoZone;
-  if (Schema.cellAdjustmentId === 'E2') {
+  if (adj === 'E2') {
     logoZone = 'A2:D2';
-  } else if (Schema.cellAdjustmentId === 'H2') {
+  } else if (adj === 'H2') {
     logoZone = 'A2:E2';
-  } else if (Schema.cellAdjustmentId === 'J2') {
-    logoZone = 'A2:F2';
+  } else if (adj === 'J2') {
+    logoZone = 'A2:F2';       // pickers are in the hidden columns; row 2 is the nameplate
   } else {
     logoZone = 'A2:F2';
   }
@@ -1155,7 +1194,7 @@ function _styleBannerRow2(sheet) {
   // We MUST NOT write VALUES to these cells during the theme apply, or the
   // validation will reject anything not in its list and abort the whole theme.
   // Style only — values stay untouched, dropdown stays functional.
-  [Schema.cellEmployeeId, Schema.cellAdjustmentId].forEach(function(a1) {
+  [Schema.pickIdA1(), adj].forEach(function(a1) {
     sheet.getRange(a1)
       .setBackground(BRAND.ink)
       .setFontColor(BRAND.yellow)
@@ -1431,19 +1470,32 @@ function describePickIdCells() {
   //   getting bitten by, so it is flagged rather than hidden: if that function ever
   //   changes what it writes, change these too. The durable fix is to have the reset
   //   write option [0] read off the cell and delete both copies.
-  describe('SHIPPING   · Schema.cellEmployeeId',   Schema.cellEmployeeId,
-           /^Shipping\s*-\s*/i,                    'Pick ID for Shipping');
+  // ⚠ Report whichever cells are LIVE, via the resolver — not the constants. After the
+  //   flip, Schema.cellEmployeeId still says "F2" while the data is at I2, so a
+  //   constant-driven diagnostic would confidently describe two empty cells.
+  var liveShip  = Schema.pickIdA1();
+  var liveAdj   = Schema.pickIdA1('adjustment');
+  var isNew     = (liveShip === Schema.cellEmployeeIdNext);
+  var otherShip = isNew ? Schema.cellEmployeeId   : Schema.cellEmployeeIdNext;
+  var otherAdj  = isNew ? Schema.cellAdjustmentId : Schema.cellAdjustmentIdNext;
+
+  say(' PICK_ID_ADDR mode: ' + (isNew ? 'new (migrated)' : 'old (pre-migration)'));
   say('');
-  describe('ADJUSTMENT · Schema.cellAdjustmentId', Schema.cellAdjustmentId,
-           /^adjustment(?:s)?\s*[-:·]\s*/i,        'Pick ID for Adjustment');
+
+  describe('SHIPPING   · live at', liveShip,
+           /^Shipping\s*-\s*/i,                 'Pick ID for Shipping');
+  say('');
+  describe('ADJUSTMENT · live at', liveAdj,
+           /^adjustment(?:s)?\s*[-:·]\s*/i,     'Pick ID for Adjustment');
 
   // ---- destinations -------------------------------------------------------------
   say('');
   say(THIN);
-  say(' DESTINATIONS (must be empty and unvalidated before migrating)');
+  say(isNew ? ' THE VACATED CELLS (should be empty — the data has moved)'
+            : ' DESTINATIONS (must be empty and unvalidated before migrating)');
   say(THIN);
   var destDirty = 0;
-  ['I2', 'J2'].forEach(function (a1) {
+  [otherShip, otherAdj].forEach(function (a1) {
     var c = sheet.getRange(a1);
     var hasDv = !!c.getDataValidation();
     var val   = String(c.getValue());
@@ -1538,6 +1590,28 @@ function _styleHeaderRow(sheet, row) {
                   BRAND.yellow, SpreadsheetApp.BorderStyle.SOLID_THICK);
 }
 
+/**
+ * One nameplate, two callers. Row 2 names the eBay table; the gold divider names the
+ * DIRECT one. Same grammar, same prefix, same count-suffix rule -- built here so the two
+ * cannot drift into saying the house mark differently.
+ *
+ * A BLANK COUNT DROPS THE SUFFIX ENTIRELY. __SparkData A17/A18 use pubNumBlank, which
+ * yields "" when the published key cannot be read -- so an unreadable payload renders
+ * "HQMS . EBAY ORDERS" rather than "HQMS . EBAY ORDERS . 0 waiting". A reassuring label
+ * on a wrong state is a bug; saying less is the honest degradation. A genuine 0 still
+ * prints "0 waiting", because an empty table saying so is true.
+ *
+ * A FORMULA IN THE BOUNDARY ROW'S RIGHT MERGE IS SAFE. It already held a static string,
+ * getBoundaryRow() matches column A only, and n8n's All-Orders readers take
+ * UNFORMATTED_VALUE -- which returns the computed string exactly as today.
+ */
+function _nameplateFormula(label, sparkCell) {
+  var SD = "'__SparkData'!";
+  return '="' + MASTHEAD.namePrefix + ' \u00b7 ' + label + '"&' +
+         'IF(' + SD + sparkCell + '="","",' +
+         '" \u00b7 "&' + SD + sparkCell + '&" waiting")';
+}
+
 function _styleDirectDivider(sheet, boundary) {
   // Service Bay v6 divider — full-row brand-yellow band, the loudest section
   // break in the sheet. Reads from across the warehouse.
@@ -1572,7 +1646,7 @@ function _styleDirectDivider(sheet, boundary) {
   // displayed render. Sheets persists number formats per-cell, so the prefix
   // survives re-runs of this function.
 
-  rightMerge.setValue('HQ MS · DIRECT TABLE')
+  rightMerge.setFormula(_nameplateFormula(MASTHEAD.nameDirect, 'A18'))
             .setBackground(BRAND.yellow)
             .setFontColor(BRAND.ink)
             .setFontFamily(BRAND.fontDisplay)
@@ -1583,7 +1657,12 @@ function _styleDirectDivider(sheet, boundary) {
 
   // Black borders top + bottom across the entire row — frames the yellow band
   // so it reads as a defined section break (not just a colored row).
-  sheet.getRange(boundary, 1, 1, Schema.dataWidth)
+  // BANDS BLEED: the band and its two rules run past J to the bleed column, so the
+  // divider leaves the screen the way the masthead does. The rows above and below stop
+  // at J, and that contrast is the point -- the tables stay defined blocks between two
+  // full-bleed rules.
+  sheet.getRange(boundary, 1, 1, MASTHEAD.bleedToCol)
+       .setBackground(BRAND.yellow)
        .setBorder(true, null, true, null, null, null,
                   BRAND.ink, SpreadsheetApp.BorderStyle.SOLID_THICK);
 
@@ -2549,7 +2628,13 @@ function _ensureDateFormula(sheet) {
   // every status change. Banner feels alive without any trigger overhead.
   // Force-write to ensure the canonical v6 format (older versions used just
   // TODAY() without the time, or static text — both should be upgraded).
-  sheet.getRange('B1').setFormula('=TEXT(NOW(), "dddd, mmmm d, yyyy · h:mm AM/PM")');
+  // ⚠ DELETED 2026-08-31. B1 is INSIDE the A1:C1 masthead merge, so this formula has
+  //   been invisible since the masthead shipped — it wrote a date nobody could see, and
+  //   writing into a merged range's non-anchor cell is a good way to be surprised later.
+  //   The date's job moved to the face and to D1. setupBannerDateTime went with it.
+  //   (Kept as a no-op rather than deleted outright so applyBrandTheme's call site and
+  //   any stale trigger stay harmless.)
+  return;
 }
 
 
@@ -2659,6 +2744,21 @@ function _ensureSparkData(ss) {
   var pubNum = function (key) {
     return '=IFERROR(VALUE(REGEXEXTRACT(' + PUB + ',' + '"""' + key + '"":(\\d+)")),0)';
   };
+  // BLANK, NEVER ZERO. pubNum returns 0 through IFERROR when a key is absent, and
+  // "0 waiting" on a busy table is a reassuring label on a wrong state -- which this
+  // codebase already rules is a bug. The nameplates use this variant so a key that
+  // cannot be read drops the suffix entirely rather than lying about the count.
+  // A genuine 0 still renders "0 waiting", because an empty table saying so is TRUE.
+  var pubNumBlank = function (key) {
+    return '=IFERROR(VALUE(REGEXEXTRACT(' + PUB + ',' + '\x22\x22\x22' + key + '\x22\x22:(\\d+)")),"")';
+  };
+  // Both counts come from getDashboardSnapshot, which the sidebar's queue strip also
+  // reads -- so the nameplates and the strip cannot disagree. And the 2026-06-02 fix
+  // already un-merged the Zoho mirror out of directPending, so it counts DIRECT-table
+  // rows only. No boundary derivation anywhere.
+  sheet.getRange('A17').setFormula(pubNumBlank('ebayPending'));
+  sheet.getRange('A18').setFormula(pubNumBlank('directPending'));
+
   sheet.getRange('A7').setFormula(pubNum('oldestPendingMinutes'));
   sheet.getRange('A9').setFormula(pubNum('receivedToday'));
   sheet.getRange('A10').setFormula(pubNum('shippedToday'));
@@ -2750,14 +2850,25 @@ function _setSystemPulseBannerFormulas(sheet) {
   // ---- D1 — THE HEADLINE -------------------------------------------------------------
   // Branches on the same A6 verdict the face uses, so the picture and the words always
   // agree by construction. Two lines via CHAR(10); the cell is set to WRAP.
+  // ⭐ D1 CARRIES NUMBERS. THE FACE CARRIES THE STATE. Until 2026-08-31 both narrated
+  //    the same thing in two typefaces 287px apart — the face said "ALL CAUGHT UP /
+  //    nothing waiting" while D1 said "N in · N out / nothing waiting", the SAME WORDS
+  //    twice on the clear verdict. That is the "two objects" feeling: a redundancy
+  //    problem, not a lighting one. Splitting the voices is what makes them one object.
+  //
+  // ⚠ Lowercase, and neutral ink. The face does the shouting — uppercase, tracked, and
+  //   the only coloured thing in row 1. If D1 shouts too, nothing leads.
+  //
+  // ⚠ NO LET(). It throws "Formula parse error" on this sheet (2026-06-05), so the
+  //   __SparkData refs are repeated rather than bound.
   sheet.getRange(Schema.cellStats).setFormula(
-    '=IF(' + SD + 'A6="rest",IF(' + SD + 'A8>0,' + SD + 'A8&" waiting","all clear")&' +
-    'CHAR(10)&"opens in "&' + SD + 'A15,' +
-    'IF(' + SD + 'A6="late","OLDEST "&' + SD + 'A11&CHAR(10)&' + SD + 'A8&" still waiting",' +
-    'IF(' + SD + 'A6="stale","LAST SEEN "&' + SD + 'A12&CHAR(10)&"nothing has landed",' +
-    'IF(' + SD + 'A6="busy",' + SD + 'A8&" TO GRAB"&CHAR(10)&' + SD + 'A9&" in · "&' +
+    '=IF(' + SD + 'A6="rest","opens in "&' + SD + 'A15&' +
+      'IF(' + SD + 'A8>0," · "&' + SD + 'A8&" waiting",""),' +
+    'IF(' + SD + 'A6="late","oldest "&' + SD + 'A11&CHAR(10)&' + SD + 'A8&" still waiting",' +
+    'IF(' + SD + 'A6="stale","last seen "&' + SD + 'A12,' +
+    'IF(' + SD + 'A6="busy",' + SD + 'A8&" to grab"&CHAR(10)&' + SD + 'A9&" in · "&' +
     SD + 'A10&" out",' +
-    SD + 'A9&" in · "&' + SD + 'A10&" out"&CHAR(10)&"nothing waiting"))))'
+    SD + 'A9&" in · "&' + SD + 'A10&" out"))))'
   );
 
   // ---- E1 — THE PULSE (cell deliberately UNMOVED) ------------------------------------
@@ -2838,7 +2949,10 @@ function setupMasthead(sheetName) {
   sheet.getRange('F1:H1').merge();
 
   // 2 — the ground. Row 1 is ink end to end; each face's own art carries the colour.
-  sheet.getRange(1, 1, 1, Schema.dataWidth)
+  //     BANDS BLEED: it runs to the bleed column, not to dataWidth, so the masthead
+  //     leaves the screen instead of stopping at a hard edge in the middle of it.
+  //     Hidden columns take zero width, so with I:J hidden this reads continuous.
+  sheet.getRange(1, 1, 1, MASTHEAD.bleedToCol)
     .setBackground(BRAND.ink)
     .setFontColor('#ffffff')
     .setFontFamily(BRAND.fontDisplay)
@@ -2850,21 +2964,57 @@ function setupMasthead(sheetName) {
   sheet.getRange(Schema.cellMasthead)
     .setFontColor(BRAND.yellow).setFontSize(16).setFontWeight('bold')
     .setHorizontalAlignment('left');                      // styles the "HQ" fallback only
-  sheet.getRange(Schema.cellStats)
-    .setFontSize(10).setFontWeight('normal')
-    .setHorizontalAlignment('left').setWrap(true);
-  sheet.getRange(Schema.cellSyncTime)
-    .setFontSize(10).setFontWeight('normal')
-    .setHorizontalAlignment('left').setWrap(false);
+  // ⚠ ONE ACCENT AT A TIME. Row 1 used to paint three separate things brand yellow —
+  //   the face, the headline and the pulse — so nothing led. The face's state word is
+  //   the accent now; D1 and E1 go neutral, same size, same weight, same alignment, so
+  //   they read as one continuous line of information rather than two competing labels.
+  // ⚠ D1 WRAPS (it uses CHAR(10)); E1 must NOT (its string is parsed by ActivityLog).
+  [Schema.cellStats, Schema.cellSyncTime].forEach(function (a1) {
+    sheet.getRange(a1)
+      .setFontColor(MASTHEAD.quietInk).setFontSize(10).setFontWeight('normal')
+      .setHorizontalAlignment('left').setVerticalAlignment('middle');
+  });
+  sheet.getRange(Schema.cellStats).setWrap(true);
+  sheet.getRange(Schema.cellSyncTime).setWrap(false);
 
-  // 4 — ⚠ row 2's ground goes INK. _styleBannerRow2 paints the logo zone paperWarm
-  //     (cream), which would leave a bright halo around a dark sky and keep the banner
-  //     reading as two objects.
-  if (MASTHEAD.sky) {
+  // 4 — ROW 2, BUILT FOR WHERE THE PICKERS ACTUALLY ARE.
+  //
+  // ⚠⚠ THIS BRANCH IS WHAT MAKES THE WHOLE STEP DORMANT. The nameplate's home is G2:H2
+  //    — and until migratePickIdCells runs, G2 is the second half of the F2:G2 Shipping
+  //    merge. Building the nameplate unconditionally would tear a live dropdown in half.
+  //    So the layout follows Schema.pickIdA1(): with PICK_ID_ADDR unset this rebuilds
+  //    row 2 EXACTLY as it is today, and the nameplate appears only when the property
+  //    flips. Shipping this changes nothing on the sheet, which is the point.
+  var pickersMoved = (Schema.pickIdA1() === Schema.cellEmployeeIdNext);
+
+  if (pickersMoved) {
+    // The nameplate layout. Row 2 is the eBay table's LABEL — the quiet counterpart to
+    // the gold DIRECT divider — so it gets the same grammar: mark + name on the left,
+    // the count of what is waiting below it on the right. That number sits at the rows
+    // it counts, which is the one thing the sidebar's queue strip structurally cannot do.
+    ['A2:E2', 'A2:F2', 'F2:G2', 'G2:H2', 'I2:J2'].forEach(function (r) {
+      try { sheet.getRange(r).breakApart(); } catch (e) { /* not merged — fine */ }
+    });
+    sheet.getRange('A2:F2').merge();
+    sheet.getRange('G2:H2').merge();
+
+    // One warm charcoal plate, bleeding like row 1. One dark family with the masthead;
+    // gold stays exclusive to the DIRECT divider so the sheet has exactly one gold object.
+    sheet.getRange(2, 1, 1, MASTHEAD.bleedToCol).setBackground(MASTHEAD.row2Plate);
+
+    sheet.getRange('G2:H2')
+      .setFormula(_nameplateFormula(MASTHEAD.nameEbay, 'A17'))
+      .setFontColor(MASTHEAD.nameplateInk)
+      .setFontFamily(BRAND.fontDisplay).setFontWeight('bold').setFontSize(10)
+      .setHorizontalAlignment('right').setVerticalAlignment('middle').setWrap(false);
+
+    try { setupEbayLogo(); } catch (e) { console.log('setupMasthead.ebayLogo: ' + e); }
+
+  } else if (MASTHEAD.sky) {
     sheet.getRange('A2:E2').setBackground(BRAND.ink);
   } else {
-    // Put row 2 back exactly as it was: cream ground + the eBay logo that NAMES the
-    // table. setupEbayLogo owns that formula, so it is called rather than duplicated.
+    // Today's row 2, untouched: cream ground + the eBay logo that NAMES the table.
+    // setupEbayLogo owns that formula, so it is called rather than duplicated.
     sheet.getRange('A2:E2').setBackground(BRAND.paperWarm);
     try { setupEbayLogo(); } catch (e) { console.log('setupMasthead.ebayLogo: ' + e); }
   }
@@ -2874,6 +3024,17 @@ function setupMasthead(sheetName) {
   _setSystemPulseBannerFormulas(sheet);
 
   sheet.setRowHeight(1, MASTHEAD.rowHeight);
+  if (pickersMoved) sheet.setRowHeight(2, MASTHEAD.row2Height);
+
+  // ⚠⚠ ASSERT THE FACE'S CANVAS. =IMAGE() mode 4 takes explicit pixel dimensions, so if
+  //    A1:C1 does not sum to imgW the art STRETCHES OR CLIPS — silently, and it still
+  //    looks like a masthead. applyBrandTheme sets explicit widths on A-J, so a theme
+  //    re-apply is exactly what would move this out from under the image.
+  var span = 0;
+  for (var wc = 1; wc <= 3; wc++) span += sheet.getColumnWidth(wc);
+  var widthNote = (span === MASTHEAD.imgW) ? '' :
+    ' · ⚠ A1:C1 is ' + span + 'px but MASTHEAD.imgW is ' + MASTHEAD.imgW +
+    ' — the face will stretch. Reconcile applyBrandTheme\'s column widths.';
 
   // 6 — ⚠⚠ SWEEP STALE ROW-2 VALIDATIONS — AND NEVER THE LIVE PICK IDs.
   //
@@ -2928,8 +3089,12 @@ function setupMasthead(sheetName) {
   SpreadsheetApp.flush();
   return "✅ Masthead installed · row 1 = " + MASTHEAD.rowHeight + "px · faces " +
          MASTHEAD.version +
+         " · row 2 = " + (pickersMoved ? "NAMEPLATE (pickers at " + Schema.pickIdA1() +
+                                         "/" + Schema.pickIdA1('adjustment') + ")"
+                                       : "unchanged (pickers still on the banner)") +
          (phantoms.length ? " · swept stale row-2 validation(s): " + phantoms.join(', ')
-                          : "");
+                          : "") +
+         widthNote;
 }
 
 /**
@@ -3107,8 +3272,34 @@ function diagnoseMasthead() {
 
   say('\n--- the formulas actually IN the cells ---');
   say('A1: ' + sheet.getRange(Schema.cellMasthead).getFormula());
-  say('A2: ' + sheet.getRange(MASTHEAD.skyCell).getFormula());
+  // ⚠ A2 holds the eBay LOGO while MASTHEAD.sky is off. Reading it unconditionally and
+  //   labelling it "sky" described a feature that is switched OFF and mislabelled the
+  //   one that is on — row 2 is the eBay table's NAME, not a canvas.
+  say('A2 (' + (MASTHEAD.sky ? 'sky' : 'eBay logo') + '): ' +
+      sheet.getRange(MASTHEAD.skyCell).getFormula());
   say('D1: ' + sheet.getRange(Schema.cellStats).getFormula());
+
+  // ---- GEOMETRY. The masthead is sized in PIXELS against columns it does not own. ----
+  // ⚠⚠ applyBrandTheme sets explicit widths on A-J, so a theme re-apply can silently
+  //    resize the zones the face and the headline live in. These are the numbers to pin.
+  say('\n--- geometry (pin these into applyBrandTheme) ---');
+  var w = [], tot = 0;
+  for (var c = 1; c <= Schema.dataWidth; c++) {
+    var cw = sheet.getColumnWidth(c);
+    w.push(String.fromCharCode(64 + c) + '=' + cw);
+    if (c <= 3) tot += cw;
+  }
+  say('widths : ' + w.join('  '));
+  say('A1:C1  : ' + tot + 'px   vs MASTHEAD.imgW ' + MASTHEAD.imgW +
+      (tot === MASTHEAD.imgW ? '   ✓' : '   ⚠ MISMATCH — mode-4 sizing will stretch or clip'));
+  say('rows   : 1=' + sheet.getRowHeight(1) + 'px (MASTHEAD.rowHeight ' + MASTHEAD.rowHeight +
+      ', imgH ' + MASTHEAD.imgH + ')   2=' + sheet.getRowHeight(2) + 'px');
+  say('hidden : I=' + sheet.isColumnHiddenByUser(9) + '  J=' + sheet.isColumnHiddenByUser(10));
+  var mg = [];
+  sheet.getRange(1, 1, 2, Schema.dataWidth).getMergedRanges()
+       .forEach(function (r) { mg.push(r.getA1Notation()); });
+  say('merges : ' + (mg.length ? mg.join('  ') : 'none'));
+  say('pickers: shipping=' + Schema.pickIdA1() + '  adjustment=' + Schema.pickIdA1('adjustment'));
 
   say('\n--- what the cells RENDER ---');
   say('A1 shows: "' + sheet.getRange(Schema.cellMasthead).getDisplayValue() + '"' +

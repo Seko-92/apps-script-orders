@@ -117,7 +117,25 @@ ok('a quiet night can no longer read as a dead pipeline',
 ok('"opens in" skips the weekend',          /WEEKDAY\([\s\S]*?\)=7,2/.test(opens));
 ok('opens-in can never go negative',        /^=MAX\(0,/.test(opens));
 ok('D1 has a rest branch that says when we open', /"opens in "&'__SparkData'!A15/.test(W.D1 || ''));
-ok('D1 still reports what is waiting overnight',  /A6="rest",IF\('__SparkData'!A8>0/.test(W.D1 || ''));
+// ⚠ ASSERT THE BEHAVIOUR, NOT THE ORDERING. The first version of this pinned
+//   `A6="rest",IF(A8>0` — the exact shape the branch happened to have — so moving the
+//   count to a SUFFIX ("opens in 19h 44m · 12 waiting") failed a test whose stated
+//   subject was preserved perfectly. A test that describes the implementation instead
+//   of the promise blocks the refactor it should have been protecting.
+ok('D1 still reports what is waiting overnight',
+   /A6="rest"[\s\S]*?A8>0[\s\S]*?" waiting"/.test(W.D1 || ''), W.D1);
+
+// ⭐ THE SPLIT-VOICE RULE (2026-08-31). The face carries the STATE in words; D1 carries
+//   NUMBERS. Before this, both narrated the same thing in two typefaces 287px apart —
+//   on the clear verdict they used the SAME WORDS, "nothing waiting". That redundancy is
+//   the "two objects" feeling, so it is pinned here rather than left to taste.
+['nothing waiting', 'nothing has landed', 'the floor is asleep',
+ 'orders being picked', 'TO GRAB', 'OLDEST', 'LAST SEEN'].forEach(function (phrase) {
+  ok('D1 does not repeat the face: ' + JSON.stringify(phrase),
+     (W.D1 || '').indexOf(phrase) === -1);
+});
+ok('⚠ D1 is lowercase — the face does the shouting',
+   !/[A-Z]{4,}/.test((W.D1 || '').replace(/'__SparkData'!A\d+|IFERROR|REGEXEXTRACT|VALUE|CHAR|IF/g, '')));
 // ⚠ LET() threw "Formula parse error" on this live sheet (2026-06-05). It must never
 //   reappear in a banner formula, however tempting the repeated base expression is.
 ok('⚠ no LET() in any masthead formula',

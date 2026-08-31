@@ -96,7 +96,13 @@ var Schema = {
   boundaryLeftWidth:  6,
 
   /** Width of the boundary row's right merge (G:J) */
-  boundaryRightWidth: 4,
+  // BANDS BLEED, TABLES DON'T (2026-08-31). The divider's RIGHT merge now runs from G
+  // to the bleed column so the gold band leaves the screen the way the masthead does.
+  // Cosmetic only: this drives exactly one range -- the right merge in
+  // _styleDirectDivider -- and nothing else in the codebase reads it.
+  // boundaryLeftWidth MUST NOT change: A:F carries the literal "DIRECT" value that
+  // getBoundaryRow() strict-equality matches, plus its '"|  "@' display prefix.
+  boundaryRightWidth: 14,
 
 
   // =====================================================================================
@@ -200,6 +206,62 @@ var Schema = {
   cellMasthead:     "A1",   // state face (A1:C1 merge anchor)
   cellStats:        "D1",   // live headline (was F1 until 2026-08-30)
   cellDayCurve:     "F1",   // SPARKLINE of today (F1:H1 merge anchor)
-  cellEmployeeId:   "F2",   // Pick ID for Shipping (F2:G2 merge anchor)
-  cellAdjustmentId: "H2"    // Pick ID for Adjustment (single cell, no merge)
+  // ── PICK ID ADDRESSES · GRACE PERIOD (2026-08-31) ──────────────────────────────
+  //
+  // The pickers are moving off the banner into the hidden columns so row 2 can carry
+  // the eBay table's nameplate. Both addresses are live at once during the cut-over,
+  // and WHICH ONE IS CURRENT IS RUNTIME STATE, NOT A CONSTANT.
+  //
+  // ⚠⚠ WHY A SCRIPT PROPERTY AND NOT JUST EDITING THESE CONSTANTS. A dual-read placed
+  //    in HEAD cannot help, because THE PINNED /exec DOES NOT HAVE THE HEAD CODE.
+  //    Worse: getDashboardTick caches into CacheService.getScriptCache(), which is
+  //    shared across the WHOLE script project — so in any window where the pinned
+  //    /exec reads F2 while the HEAD publish trigger reads I2, both write the SAME
+  //    KEY. The picker chip would then flicker on a 45-second coin flip: ✓ Pick works,
+  //    then asks who you are, then works. That reads as flaky wifi, not as a deploy.
+  //
+  //    A Script Property is read identically by BOTH versions, so flipping it moves
+  //    every surface in the same instant. It is also the one-click rollback: delete
+  //    the property and everything resolves 'old' on its next execution, with no
+  //    deploy and no New Version.
+  //
+  // ⚠ UNSET, UNREADABLE OR ANYTHING BUT "new" ⇒ 'old'. Failing safe means failing to
+  //   the cells that hold the data today. Guessing "probably migrated" would point
+  //   every reader at empty cells.
+  cellEmployeeId:       "F2",   // Pick ID for Shipping (F2:G2 merge anchor)
+  cellAdjustmentId:     "H2",   // Pick ID for Adjustment (single cell, no merge)
+  cellEmployeeIdNext:   "I2",   // where migratePickIdCells puts it
+  cellAdjustmentIdNext: "J2",
+
+  /**
+   * Which cell currently holds a Pick ID. Every reader goes through this.
+   * @param {string} which - 'employee' (default) or 'adjustment'
+   * @returns {string} an A1 address
+   */
+  pickIdA1: function (which) {
+    var isNew = Schema._pickIdMode() === 'new';
+    return (which === 'adjustment')
+      ? (isNew ? Schema.cellAdjustmentIdNext : Schema.cellAdjustmentId)
+      : (isNew ? Schema.cellEmployeeIdNext   : Schema.cellEmployeeId);
+  },
+
+  // ⚠ MEMOISED PER EXECUTION, and that is deliberate in both directions. _currentPicker
+  //   runs inside getDashboardSnapshot, which is on the board tick — one property read
+  //   per execution is fine, one per call is not. And the address must NOT be able to
+  //   change halfway through a single run: a function that reads F2 and then writes I2
+  //   is the row-shift bug class wearing different clothes.
+  //   Apps Script resets globals per execution, so a flip takes effect on the next one.
+  _pickIdModeCache: null,
+  _pickIdMode: function () {
+    if (Schema._pickIdModeCache !== null) return Schema._pickIdModeCache;
+    var m = 'old';
+    try {
+      var v = PropertiesService.getScriptProperties().getProperty('PICK_ID_ADDR');
+      if (String(v || '').trim().toLowerCase() === 'new') m = 'new';
+    } catch (e) {
+      m = 'old';   // no PropertiesService, no permission, anything at all → today's cells
+    }
+    Schema._pickIdModeCache = m;
+    return m;
+  }
 };

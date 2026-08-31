@@ -104,7 +104,8 @@ function doGet(e) {
  *     in OrderService.js after every successful n8n insert. A wall clock
  *     overwriting it every minute would erase the signal it carries.
  *
- *   - B1 holds the auto-updating date formula installed by _ensureDateFormula()
+ *   - B1 is INSIDE the A1:C1 masthead merge (2026-08-30). The date formula that
+ *     _ensureDateFormula() used to write there was invisible and is retired.
  *     in BrandTheme.js: =TEXT(TODAY(), "dddd, mmmm d, yyyy"). Writing a
  *     static string would overwrite the formula and freeze the date.
  *

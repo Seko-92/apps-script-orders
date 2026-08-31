@@ -1059,7 +1059,7 @@ function getBoardPickers() {
     var sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(MAIN_SHEET_NAME);
     if (!sheet) return { ok: false, pickers: [], current: "" };
 
-    var range = sheet.getRange(Schema.cellEmployeeId);
+    var range = sheet.getRange(Schema.pickIdA1());
     var current = String(range.getValue() || "").trim();
 
     var dv = range.getDataValidation();
@@ -1104,7 +1104,7 @@ function setBoardPicker(value) {
     }
 
     var sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(MAIN_SHEET_NAME);
-    sheet.getRange(Schema.cellEmployeeId).setValue(want);
+    sheet.getRange(Schema.pickIdA1()).setValue(want);
 
     try {
       logActivity("NOTE", "", "", 0, "board", "picker set to " + want);

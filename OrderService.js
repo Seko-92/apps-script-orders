@@ -2085,7 +2085,8 @@ function sortDirectTable() {
 
 function refreshProDashboard() {
   // Stats banner (G1) refresh. The date in B1 auto-updates via the
-  // =TEXT(TODAY(),...) formula installed by _ensureDateFormula(). The
+  // =TEXT(TODAY(),...) formula that _ensureDateFormula() used to install (retired
+  // 2026-08-31 — B1 is inside the A1:C1 masthead merge). The
   // last-sync timestamp in E1 only updates on actual sync events — manual
   // refresh shouldn't fake that, so we don't touch it here.
   updateOrderStatsInSheet();

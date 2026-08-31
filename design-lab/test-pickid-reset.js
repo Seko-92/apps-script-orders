@@ -84,7 +84,16 @@ const LIVE_ADJ  = ['Pick ID for Adjustment ', 'Adjustments - AShamma 12343',
 const sandbox = {
   console, JSON, String, Number, Boolean, Array, Object, RegExp, Math, Date,
   SPREADSHEET_ID: 'x', MAIN_SHEET_NAME: 'All orders',
-  Schema: { cellEmployeeId: 'F2', cellAdjustmentId: 'H2' },
+  // ⚠ The resolver is part of Schema now (2026-08-31 grace period). A stub without it
+  //   makes resetDailyPickIds throw TypeError, which reads as a product failure — the
+  //   harness accusing correct code, again. Mirrors the real shape: unset ⇒ old cells.
+  Schema: {
+    cellEmployeeId: 'F2',       cellAdjustmentId: 'H2',
+    cellEmployeeIdNext: 'I2',   cellAdjustmentIdNext: 'J2',
+    pickIdA1: function (which) {
+      return which === 'adjustment' ? 'H2' : 'F2';
+    }
+  },
   Logger: { log: () => {} },
   Utilities: { formatDate: () => '' },
   SpreadsheetApp: null                       // replaced per-test

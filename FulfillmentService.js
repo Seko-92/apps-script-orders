@@ -29,10 +29,13 @@ function preparePrintSheet(opts) {
   // Shipping" — we must reject that as "unset," not accept it as a valid
   // picker. Real values follow the shape "Shipping - [Name] [Id]" (e.g.
   // "Shipping - YAwiss 1"). Pattern-match instead of just checking non-empty.
-  var pickIdRaw = sheet.getRange(Schema.cellEmployeeId).getValue();
+  // ⚠ Schema.pickIdA1(), not Schema.cellEmployeeId — the address is runtime state
+  //   during the 2026-08-31 grace period. See the block in Schema.js.
+  var pickIdCell = Schema.pickIdA1();
+  var pickIdRaw  = sheet.getRange(pickIdCell).getValue();
   var pickIdRawStr = String(pickIdRaw || "").trim();
   if (!pickIdRawStr || !/^Shipping\s*-\s*/i.test(pickIdRawStr)) {
-    var guardMsg = "❌ Pick a real Pick ID for Shipping (cell " + Schema.cellEmployeeId +
+    var guardMsg = "❌ Pick a real Pick ID for Shipping (cell " + pickIdCell +
                    ") — the dropdown header doesn't count.";
     // The board needs a structured refusal it can render; the sidebar has
     // always expected a plain string. The GUARD ITSELF is unchanged — it is
@@ -73,7 +76,7 @@ function preparePrintSheet(opts) {
   // _extractPickIdData strips the "Shipping - " / "Adjustments - " prefix and
   // standardizes the trailing ID separator (e.g., "YAwiss · 1").
   var pickIdShipping   = _extractPickIdData(pickIdRaw);
-  var pickIdAdjustment = _extractPickIdData(sheet.getRange(Schema.cellAdjustmentId).getValue());
+  var pickIdAdjustment = _extractPickIdData(sheet.getRange(Schema.pickIdA1('adjustment')).getValue());
   // Backward-compatible alias used by older code paths
   var employeeId = pickIdShipping;
 

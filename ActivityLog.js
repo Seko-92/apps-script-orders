@@ -308,7 +308,9 @@ function _currentPicker() {
     var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
     var sheet = ss.getSheetByName(MAIN_SHEET_NAME);
     if (!sheet) return "";
-    var raw = sheet.getRange(Schema.cellEmployeeId).getValue();
+    // ⚠ runtime address — see Schema.pickIdA1. This is the hottest reader of it
+    //   (getDashboardSnapshot -> boardTick), which is why the mode is memoised.
+    var raw = sheet.getRange(Schema.pickIdA1()).getValue();
     if (!raw) return "";
     var rawStr = String(raw).trim();
     // Real values look like "Shipping - [Name] [Id]". The dropdown's header
@@ -1032,9 +1034,9 @@ function resetDailyPickIds() {
     if (!sheet) return "Main sheet not found.";
 
     var out = [];
-    out.push(_resetOnePickId(sheet, Schema.cellEmployeeId,
+    out.push(_resetOnePickId(sheet, Schema.pickIdA1(),
                              /^Shipping\s*-\s*/i,                 "Pick ID for Shipping"));
-    out.push(_resetOnePickId(sheet, Schema.cellAdjustmentId,
+    out.push(_resetOnePickId(sheet, Schema.pickIdA1('adjustment'),
                              /^adjustment(?:s)?\s*[-:·]\s*/i,     "Pick ID for Adjustment"));
 
     var msg = "Daily Pick IDs reset at " + new Date().toISOString() + " — " + out.join(" · ");
