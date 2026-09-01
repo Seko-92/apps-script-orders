@@ -304,9 +304,32 @@ soft('H', () => {
   // sheet, that throw killed the rest of the function — and showSidebar() sat after it.
   // Same shape as the 2026-05-01 onEditInstallable bug: nothing a user depends on may sit
   // downstream of something that can fail.
+  // ⚠⚠ THE BODY IS BRACE-MATCHED, NOT SLICED AT A MAGIC NUMBER. This used to take a fixed
+  //    3000 characters after `function onOpen()`, so the moment the function grew a longer
+  //    comment block the window cut off before showSidebar() and the suite accused
+  //    CORRECT CODE of the exact regression it exists to prevent. Found 2026-09-02 when
+  //    the menu rewrite landed; H1, H3 and H4 had already been failing that way for a
+  //    while and nobody could see it, because a truncated window fails quietly.
+  //    Fifteenth instance in this project of the harness being the bug. Suspect it first.
+  //
+  // ⚠ AND COMMENTS ARE STRIPPED FIRST. This function's own docblock says "showSidebar()
+  //   used to sit after it" — so a naive indexOf finds the PROSE before the CALL, and H1's
+  //   ordering check passes for entirely the wrong reason. Documentation describes the
+  //   bug, which is exactly what these patterns are hunting for.
   const main = read('Main.js');
-  const body = main.slice(main.indexOf('function onOpen()'),
-                          main.indexOf('function onOpen()') + 3000);
+  const bodyOf = (src, decl) => {
+    const start = src.indexOf(decl);
+    if (start < 0) return '';
+    let i = src.indexOf('{', start), depth = 0;
+    for (let j = i; j < src.length; j++) {
+      if (src[j] === '{') depth++;
+      else if (src[j] === '}' && --depth === 0) return src.slice(start, j + 1);
+    }
+    return src.slice(start);
+  };
+  const stripComments = (src) =>
+    src.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/^[ \t]*\/\/.*$/gm, ' ');
+  const body = stripComments(bodyOf(main, 'function onOpen()'));
 
   const iSidebar = body.indexOf('showSidebar()');
   const iDup     = body.indexOf('setupDuplicateSalesOrderHighlighting()');
@@ -325,8 +348,15 @@ soft('H', () => {
   const adminGated = ['setupBuyerNoteHighlighting','setupEbayLogo','setupIdentityHighlighting',
                       'setupKitRowHighlighting','protectSheetStructure','unprotectSheetStructure']
     .filter(n => {
-      const i = bt.indexOf('function ' + n + '()');
-      return i > -1 && bt.slice(i, i + 500).indexOf('_obRequireOwner') > -1;
+      // ⚠ MATCH THE NAME, NOT A SIGNATURE SHAPE. This looked for the literal
+      //   `function NAME()` with empty parens, so setupEbayLogo(plate) — which IS
+      //   owner-gated, and has been — was silently dropped from the list and the count
+      //   came back 5 of 6. The suite then reported a missing owner gate on a function
+      //   that had one. Sixteenth instance of the harness accusing correct code here;
+      //   the tell, as ever, was that the "missing" thing was plainly there when read.
+      // ⚠ Anchored with \s*\( so setupEbayLogoSomethingElse could never satisfy it.
+      const m = new RegExp('function ' + n + '\\s*\\(').exec(bt);
+      return !!m && bt.slice(m.index, m.index + 500).indexOf('_obRequireOwner') > -1;
     });
   t('H5 every admin writer on All Orders is owner-gated', adminGated.length, 6);
   t('H6 ⚠⚠ …and NONE of them is allowlisted in the bridge',

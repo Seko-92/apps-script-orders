@@ -104,7 +104,23 @@ function build(opts) {
     Schema: {
       cols: { SKU: 1, QTY: 2, LOCATION: 3, SALES_ORDER: 4, NOTE: 5, STATUS: 6, HAND: 7, LEFT: 8 },
       dataStartRow: 4, headerRow: 3, dataWidth: 10,
-      cellEmployeeId: 'F2', cellAdjustmentId: 'H2'
+      cellEmployeeId: 'F2', cellAdjustmentId: 'H2',
+      cellEmployeeIdNext: 'I2', cellAdjustmentIdNext: 'J2',
+      // ⚠⚠ WITHOUT THIS THE SUITE WAS 38/5 AND HAD BEEN FOR A WHILE. Five whole sections
+      //    — including D, the one that checks the carve-outs are exactly what the floor
+      //    needs — threw `Schema.pickIdA1 is not a function` and failed SOFT, so the file
+      //    still printed a tidy tally while its most important assertions never ran. A
+      //    permanently-red check is a check nobody reads; a red check that is red for a
+      //    HARNESS reason is worse, because it hides the real ones behind it.
+      // ⚠ This mirrors pickIdA1's BRANCH, not its plumbing — the resolver has its own
+      //   suite (test-pickid-resolver.js). What this stub has to get right is that the
+      //   lock ASKS for an address instead of hardcoding one, and gets a different answer
+      //   when the mode flips. `pickIdMode: 'new'` in opts exercises the other arm.
+      pickIdA1: function (which) {
+        var isNew = opts.pickIdMode === 'new';
+        return (which === 'adjustment') ? (isNew ? 'J2' : 'H2')
+                                        : (isNew ? 'I2' : 'F2');
+      }
     },
     SpreadsheetApp: {
       openById: () => ({ getSheetByName: n => (n === 'All orders' ? sheet : null) }),
