@@ -1,0 +1,302 @@
+<title>The Dial, Drawn</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Oswald:wght@300;400;500;600&family=Spectral:ital,wght@0,300;0,400;0,600;1,400&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+:root{
+  --paper:#f5f2ec; --raise:#fffdf8; --rule:#ddd6c6; --rule-soft:#e8e2d5;
+  --ink:#17150f; --ink-2:#514c40; --ink-3:#8b8474;
+  --gold:#a8790a; --late:#b34a1e; --ok:#3a6f47; --band:#1a1a1a;
+  --shadow:0 1px 1px rgba(23,21,15,.05), 0 10px 26px rgba(23,21,15,.07);
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --paper:#14130f; --raise:#1c1a15; --rule:#2e2b23; --rule-soft:#252219;
+    --ink:#ece8dd; --ink-2:#a9a294; --ink-3:#736c5e;
+    --gold:#ffd400; --late:#ff8a5c; --ok:#7ec98a; --band:#1a1a1a;
+    --shadow:0 1px 1px rgba(0,0,0,.5), 0 12px 30px rgba(0,0,0,.4);
+  }
+}
+:root[data-theme="dark"]{
+  --paper:#14130f; --raise:#1c1a15; --rule:#2e2b23; --rule-soft:#252219;
+  --ink:#ece8dd; --ink-2:#a9a294; --ink-3:#736c5e;
+  --gold:#ffd400; --late:#ff8a5c; --ok:#7ec98a; --band:#1a1a1a;
+  --shadow:0 1px 1px rgba(0,0,0,.5), 0 12px 30px rgba(0,0,0,.4);
+}
+*{box-sizing:border-box}
+body{
+  margin:0; padding:0 24px 110px; background:var(--paper); color:var(--ink);
+  font:400 16.5px/1.62 Spectral,Georgia,serif; -webkit-font-smoothing:antialiased;
+}
+.wrap{max-width:1010px; margin:0 auto}
+.mono{font-family:"JetBrains Mono",ui-monospace,monospace}
+
+/* ---- masthead ---- */
+header{padding:56px 0 26px; border-bottom:1px solid var(--ink); margin-bottom:34px}
+.kicker{
+  font:500 11px/1 Oswald,Impact,sans-serif; letter-spacing:.26em; text-transform:uppercase;
+  color:var(--gold); margin:0 0 14px;
+}
+h1{
+  font:400 46px/1.02 Oswald,Impact,sans-serif; letter-spacing:.005em; text-transform:uppercase;
+  margin:0 0 16px; text-wrap:balance;
+}
+.lede{font-size:19px; line-height:1.55; color:var(--ink-2); max-width:60ch; margin:0}
+.lede b{color:var(--ink); font-weight:600}
+
+/* ---- sections ---- */
+section{margin:0 0 12px; padding-top:44px}
+h2{
+  font:500 13px/1 Oswald,sans-serif; letter-spacing:.2em; text-transform:uppercase;
+  color:var(--ink-3); margin:0 0 10px;
+}
+h2::after{content:""; display:block; width:34px; height:2px; background:var(--gold); margin-top:9px}
+.blurb{color:var(--ink-2); max-width:64ch; margin:0 0 26px}
+.blurb b{color:var(--ink); font-weight:600}
+p{margin:0 0 16px}
+p:last-child{margin-bottom:0}
+
+/* ---- the state strips: the dial ON the band, at true 280x121 ---- */
+.states{display:flex; flex-direction:column; gap:2px; border:1px solid var(--rule); background:var(--band)}
+.strip{display:flex; align-items:stretch; background:var(--band); gap:0}
+.strip img{display:block; width:280px; height:121px; flex:0 0 280px; image-rendering:auto}
+.note{padding:16px 22px; min-width:0; display:flex; flex-direction:column; justify-content:center; gap:5px}
+.note .who{
+  font:500 11px/1 Oswald,sans-serif; letter-spacing:.17em; text-transform:uppercase; color:#e8e8e8;
+}
+.note .who em{font-style:normal; color:#8a8f98}
+.note p{margin:0; font-size:14.5px; line-height:1.5; color:#a7a29a}
+.note p b{color:#e8e8e8; font-weight:600}
+@media (max-width:720px){
+  .strip{flex-direction:column}
+  .strip img{flex:0 0 auto}
+  .note{padding:14px 18px 20px}
+}
+
+/* ---- the banner comparison ---- */
+.opt{border:1px solid var(--rule); background:var(--raise); margin-bottom:26px; box-shadow:var(--shadow)}
+.opt > h3{
+  display:flex; align-items:baseline; gap:12px; flex-wrap:wrap; margin:0;
+  padding:15px 20px; border-bottom:1px solid var(--rule-soft);
+  font:500 14px/1 Oswald,sans-serif; letter-spacing:.12em; text-transform:uppercase;
+}
+.tag{
+  font:500 9.5px/1 Oswald,sans-serif; letter-spacing:.14em; text-transform:uppercase;
+  padding:5px 8px; border:1px solid currentColor; color:var(--ink-3);
+}
+.tag.rec{background:var(--gold); border-color:var(--gold); color:#1a1a1a}
+.opt .why{padding:14px 20px 0; color:var(--ink-2); font-size:15px; max-width:70ch}
+.scroll{overflow-x:auto; padding:18px 20px 20px}
+.scroll img{display:block; width:1156px; max-width:none; height:auto}
+
+/* ---- contract table ---- */
+.tablewrap{overflow-x:auto; border:1px solid var(--rule)}
+table{border-collapse:collapse; width:100%; min-width:600px; background:var(--raise)}
+th,td{text-align:left; padding:11px 14px; border-bottom:1px solid var(--rule-soft); font-size:14.5px}
+th{
+  font:500 10.5px/1 Oswald,sans-serif; letter-spacing:.15em; text-transform:uppercase;
+  color:var(--ink-3); background:var(--paper);
+}
+tr:last-child td{border-bottom:0}
+td.k{font-family:"JetBrains Mono",monospace; font-size:13px; color:var(--gold); white-space:nowrap}
+td.src{font-family:"JetBrains Mono",monospace; font-size:12.5px; color:var(--ink-3); white-space:nowrap}
+.new{font:500 9px/1 Oswald,sans-serif; letter-spacing:.12em; color:var(--late); margin-left:7px}
+
+/* ---- findings: what LOOKING at it caught ---- */
+.finds{display:flex; flex-direction:column; gap:0; border-top:1px solid var(--rule)}
+.find{display:grid; grid-template-columns:118px 1fr; gap:22px; padding:20px 0; border-bottom:1px solid var(--rule)}
+.find .cat{
+  font:500 10.5px/1.35 Oswald,sans-serif; letter-spacing:.14em; text-transform:uppercase; color:var(--late);
+}
+.find h4{font:600 17px/1.3 Spectral,serif; margin:0 0 7px; color:var(--ink)}
+.find p{color:var(--ink-2); font-size:15px; margin:0}
+@media (max-width:600px){.find{grid-template-columns:1fr; gap:8px}}
+
+/* ---- phases ---- */
+.phases{display:flex; flex-direction:column; border:1px solid var(--rule); background:var(--raise)}
+.ph{display:grid; grid-template-columns:26px 1fr auto; gap:16px; align-items:baseline;
+    padding:15px 20px; border-bottom:1px solid var(--rule-soft)}
+.ph:last-child{border-bottom:0}
+.ph .n{font:500 15px/1 Oswald,sans-serif; color:var(--ink-3); font-variant-numeric:tabular-nums}
+.ph .t{font-size:15.5px}
+.ph .t b{font-weight:600}
+.ph .t span{color:var(--ink-2); display:block; font-size:14px; margin-top:2px}
+.ph .s{font:500 10px/1 Oswald,sans-serif; letter-spacing:.14em; text-transform:uppercase; color:var(--ink-3)}
+.ph.done .s{color:var(--ok)}
+.ph.done .n{color:var(--ok)}
+
+/* ---- the ask ---- */
+.ask{margin-top:52px; border:2px solid var(--ink); background:var(--raise); padding:28px 30px}
+.ask h2{color:var(--ink)}
+.ask h2::after{background:var(--ink)}
+.ask ol{margin:0; padding-left:22px}
+.ask li{margin-bottom:11px; color:var(--ink-2); max-width:68ch}
+.ask li:last-child{margin-bottom:0}
+.ask li b{color:var(--ink); font-weight:600}
+code{
+  font-family:"JetBrains Mono",monospace; font-size:.87em; background:var(--rule-soft);
+  padding:2px 5px; color:var(--ink);
+}
+@media (max-width:640px){h1{font-size:34px} body{padding:0 16px 70px}}
+</style>
+
+<div class="wrap">
+
+<header>
+  <p class="kicker">All Orders · banner · phase one</p>
+  <h1>The dial, drawn</h1>
+  <p class="lede">The renderer is built and every state is on this page at <b>true 280 × 121</b>, sitting on the real black band. Nothing has touched the sheet. <b>You look first — that was the rule this build exists to follow.</b></p>
+</header>
+
+<section>
+  <h2>The five states</h2>
+  <p class="blurb">One verdict cell drives all of it — <code>__SparkData!A6</code>, the same cell the current face reads. The dial shows <b>what matters in that state and nothing else</b>: the clock when there is nothing to act on, the wait as a shape when there is.</p>
+  <div class="states">
+
+    <div class="strip">
+      <img src="{{IMG:rest-night@2x.png}}" alt="Resting dial at 9:57 PM showing yesterday's shipments as pips and a countdown to opening" width="280" height="121">
+      <div class="note">
+        <p class="who">Rest <em>— 9:57 PM, floor closed</em></p>
+        <p>The ring wears <b>yesterday</b>, one mark per worked hour. Cool grey throughout so the loudest place on the screen never raises an alarm nobody can answer — with the single warm point on the one live number, the countdown to nine.</p>
+      </div>
+    </div>
+
+    <div class="strip">
+      <img src="{{IMG:clear-midday@2x.png}}" alt="Clear dial at 1:05 PM, a green arc tracing nine to five filled up to now" width="280" height="121">
+      <div class="note">
+        <p class="who">Clear <em>— 1:05 PM, queue empty</em></p>
+        <p>The arc traces <b>nine to five along the path the hands actually travel</b>, filled to now, bright head on the leading edge. Deliberately green rather than brand yellow: yellow means <i>act</i> everywhere else on this sheet, and an empty queue asks for nothing.</p>
+      </div>
+    </div>
+
+    <div class="strip">
+      <img src="{{IMG:busy-after@2x.png}}" alt="Busy dial at 2:14 PM with a narrow wedge between two hands" width="280" height="121">
+      <div class="note">
+        <p class="who">Busy <em>— 2:14 PM, twelve to grab</em></p>
+        <p>One hand is now. The other points at when the oldest open order landed. <b>The wedge between them is the wait</b> — the only duration on this sheet, and the only number that costs money as it grows.</p>
+      </div>
+    </div>
+
+    <div class="strip">
+      <img src="{{IMG:late@2x.png}}" alt="Late dial, warm red, wedge open to about ninety degrees" width="280" height="121">
+      <div class="note">
+        <p class="who">Late <em>— three past the 3h line</em></p>
+        <p>Same instrument, warm red, and the wedge has opened to a right angle. <b>You read lateness as a shape from across the desk</b> instead of comparing two numbers. Third row swaps to the past-the-line count.</p>
+      </div>
+    </div>
+
+    <div class="strip">
+      <img src="{{IMG:stale@2x.png}}" alt="Stale dial in alarm red showing time since the last logged activity" width="280" height="121">
+      <div class="note">
+        <p class="who">Stale <em>— nothing logged for 1h 13m</em></p>
+        <p>A different red from <i>late</i>, because it is a different problem: the orders are fine, the <b>pipeline</b> is not. The floor's own counts stay visible — a dead sync does not make the work disappear, it means nobody can trust the count.</p>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<section>
+  <h2>The decision I need from you</h2>
+  <p class="blurb">Drawn at true width with real content, one thing showed up that the mockup could not: <b>the dial now says what D1 says.</b> On <i>busy</i> the flank reads “12 to grab / 14 out today” and D1 reads “12 to grab / 14 in · 14 out”, 200px apart. On <i>stale</i> the same duration appears three times — dial, D1, pulse. D1's headline was written to complement a face that only ever said a state word; it was never meant to sit beside an instrument.</p>
+
+  <div class="opt">
+    <h3>A · as approved <span class="tag">the mockup's layout</span></h3>
+    <p class="why">D1 keeps its numbers. Nothing else changes, and the duplication is simply accepted.</p>
+    <div class="scroll"><img src="{{IMG:banner@2x.png}}" alt="Five banner states with D1 repeating the dial's figures" width="1156"></div>
+  </div>
+
+  <div class="opt">
+    <h3>B · D1 stops repeating <span class="tag rec">what I'd ship</span></h3>
+    <p class="why">D1 gives up the figures and takes the one thing nothing in the banner has ever shown: <b>which table the work is in</b>. <code>__SparkData</code> already holds <code>A17</code> ebayPending and <code>A18</code> directPending. Every element then earns its place — the dial is the instrument, D1 says what is happening and where, E1 is pipeline health, the curve is the day's shape.</p>
+    <div class="scroll"><img src="{{IMG:banner-b@2x.png}}" alt="Five banner states with D1 carrying a state line and the channel split" width="1156"></div>
+  </div>
+</section>
+
+<section>
+  <h2>What looking at it caught</h2>
+  <p class="blurb">Three things that a code review would not have found, and one of them was already shipping.</p>
+  <div class="finds">
+    <div class="find">
+      <p class="cat">Bug · tofu</p>
+      <div>
+        <h4>The clock rendered as four empty boxes</h4>
+        <p>The font library <i>reports</i> Oswald ExtraLight as weight <code>250</code> and then fails to match it when you ask for 250 — <code>measureText("9:57")</code> comes back 600px instead of 29px, silently. Same shape as the ⛶ and 📻 tofu the Floor Board hit on the real tablet. There is now a boot probe that refuses to stay quiet about it.</p>
+      </div>
+    </div>
+    <div class="find">
+      <p class="cat">Design · collision</p>
+      <div>
+        <h4>The shift arc and the wait wedge fought each other</h4>
+        <p>Both are accent-coloured curves on a 103px face, drawn concentrically. At 4× they looked fine; at true size they fused into one orange smear. They now take turns — <b>the arc yields whenever there is a wait</b>, because a duration is worth more than a progress bar.</p>
+      </div>
+    </div>
+    <div class="find">
+      <p class="cat">Design · overlap</p>
+      <div>
+        <h4>The hands buried the newest thing on the ring</h4>
+        <p>The now-hand always points at the current hour, which is always where the newest pip sits — so full-length hands permanently hid the most recent thing the day's record had to say. The hands stop short now: <b>outer ring is the day so far, inner zone is the wait</b>, and they never cross.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Where the numbers come from</h2>
+  <p class="blurb">Nothing new is derived. Every value already exists in <code>__SparkData</code> and is read by the current face or headline — this is a renderer, not a feature. Three parameters are additions to the contract in the plan.</p>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>Param</th><th>Is</th><th>Cell</th></tr></thead>
+      <tbody>
+        <tr><td class="k">s</td><td>the verdict — rest / clear / busy / late / stale</td><td class="src">A6</td></tr>
+        <tr><td class="k">t</td><td>the time as HHmm — also what busts Google's per-URL image cache</td><td class="src">NOW()</td></tr>
+        <tr><td class="k">o</td><td>oldest pending, minutes — the wedge</td><td class="src">A7</td></tr>
+        <tr><td class="k">g</td><td>to grab</td><td class="src">A8</td></tr>
+        <tr><td class="k">r</td><td>received today</td><td class="src">A9</td></tr>
+        <tr><td class="k">p</td><td>shipped today</td><td class="src">A10</td></tr>
+        <tr><td class="k">h</td><td>24 hourly counts — the pips. Yesterday's row when resting</td><td class="src">A1:X1 · A2:X2</td></tr>
+        <tr><td class="k">u<span class="new">new</span></td><td>minutes until open — the resting countdown</td><td class="src">A14</td></tr>
+        <tr><td class="k">y<span class="new">new</span></td><td>minutes since the last logged activity — the stale face</td><td class="src">A4</td></tr>
+        <tr><td class="k">l<span class="new">new</span></td><td>orders past the 3h line — needs one line added to __SparkData</td><td class="src">pastRedlineCount</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section>
+  <h2>Build order</h2>
+  <p class="blurb">The plan's four phases. Only phase three touches the sheet, and putting the face back is one formula at any point.</p>
+  <div class="phases">
+    <div class="ph done">
+      <span class="n">1</span>
+      <span class="t"><b>Draw it here</b><span>One module, two hosts — this machine and the container. 42 assertions, three mutations proven to fail.</span></span>
+      <span class="s">Done</span>
+    </div>
+    <div class="ph">
+      <span class="n">2</span>
+      <span class="t"><b>The container</b><span>Node + the canvas binding + the Oswald files, on the existing compose stack. Then one Caddy route — the highest blast-radius file on the VPS, restarted not reloaded.</span></span>
+      <span class="s">Next</span>
+    </div>
+    <div class="ph">
+      <span class="n">3</span>
+      <span class="t"><b>The sheet</b><span>One <code>=IMAGE()</code> in a merged A1:C2, row 2's logo zone shrinks to D2:E2, the face formula retires. The art stays on the server for a week.</span></span>
+      <span class="s">Waiting</span>
+    </div>
+    <div class="ph">
+      <span class="n">4</span>
+      <span class="t"><b>Verify</b><span>The per-minute refresh is the one real unknown — and a missing route answers 200 with the board's HTML, so the check has to read content type, not status.</span></span>
+      <span class="s">Waiting</span>
+    </div>
+  </div>
+</section>
+
+<div class="ask">
+  <h2>Three things to tell me</h2>
+  <ol>
+    <li><b>A or B</b> — does D1 keep its numbers, or take the channel split?</li>
+    <li><b>Does the escalation read?</b> Scroll the five states quickly. Rest → clear → busy → late → stale should be obvious without reading a word. If any two look alike at a glance, that is the one to fix.</li>
+    <li><b>Anything you'd cut.</b> The pips, the arc, the wedge and the state colour all stack on one 103px face. If it is doing too much, the wedge is the one I'd keep.</li>
+  </ol>
+</div>
+
+</div>

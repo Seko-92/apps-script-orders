@@ -92,3 +92,14 @@ design-lab/*
 design-lab/assessment-2026-08-11.html
 design-lab/shipped.html
 design-lab/redesign-round1.html
+
+# The dial renderer — SOURCE and FONTS are tracked, OUTPUT is not.
+#
+# ⚠ dial/src/fonts/*.ttf ARE committed, deliberately. The VPS has no Oswald installed
+#   (fc-list -> 0 faces) and nobody will remember to install it after the next rebuild, so
+#   the six static weights ship inside the image. That is the whole reason the renderer is
+#   a container rather than a host install — the font cannot depend on host state.
+#
+# ⚠ Same shape as design-lab above: `dial/renders/*` would be 2.2M of regenerable PNGs, and
+#   `node render-states.js` rebuilds every one of them in under a second.
+dial/renders/

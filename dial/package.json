@@ -1,0 +1,15 @@
+{
+  "name": "hq-dial",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Renders the All Orders banner dial as a PNG. One drawing module, two hosts: the local phase-1 renderer and the container that serves /dial.",
+  "type": "commonjs",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "states": "node render-states.js"
+  },
+  "dependencies": {
+    "@napi-rs/canvas": "0.1.100"
+  }
+}
