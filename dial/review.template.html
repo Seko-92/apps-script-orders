@@ -89,6 +89,35 @@ p:last-child{margin-bottom:0}
 .scroll{overflow-x:auto; padding:18px 20px 20px}
 .scroll img{display:block; width:1156px; max-width:none; height:auto}
 
+/* ---- the film ---- */
+.film{border:1px solid var(--rule); background:var(--band); padding:22px; text-align:center}
+.film img{display:block; margin:0 auto; width:560px; max-width:100%; height:auto}
+.film .cap{
+  font:500 10px/1.5 Oswald,sans-serif; letter-spacing:.16em; text-transform:uppercase;
+  color:#8a8f98; margin:16px 0 0;
+}
+.pair{border:1px solid var(--rule); background:var(--band); padding:0; margin-top:24px}
+.pair img{display:block; width:100%; max-width:632px; margin:0 auto; height:auto}
+.verdictline{
+  display:flex; gap:14px; align-items:baseline; flex-wrap:wrap;
+  margin:26px 0 0; padding:18px 20px; border-left:3px solid var(--gold); background:var(--raise);
+}
+.verdictline b{font:500 12px/1 Oswald,sans-serif; letter-spacing:.15em; text-transform:uppercase; color:var(--gold)}
+.verdictline p{margin:0; color:var(--ink-2); font-size:15.5px; flex:1; min-width:260px}
+.routes{display:flex; flex-direction:column; gap:0; margin-top:26px; border-top:1px solid var(--rule)}
+.route{display:grid; grid-template-columns:1fr auto; gap:18px; align-items:start;
+       padding:18px 0; border-bottom:1px solid var(--rule)}
+.route h4{font:600 16.5px/1.3 Spectral,serif; margin:0 0 6px}
+.route p{margin:0; color:var(--ink-2); font-size:15px}
+.route .st{
+  font:500 9.5px/1 Oswald,sans-serif; letter-spacing:.14em; text-transform:uppercase;
+  padding:5px 8px; border:1px solid currentColor; white-space:nowrap;
+}
+.route .st.no{color:var(--late)}
+.route .st.ask{color:var(--gold)}
+.route .st.yes{color:var(--ok)}
+@media (max-width:560px){.route{grid-template-columns:1fr}}
+
 /* ---- contract table ---- */
 .tablewrap{overflow-x:auto; border:1px solid var(--rule)}
 table{border-collapse:collapse; width:100%; min-width:600px; background:var(--raise)}
@@ -197,6 +226,52 @@ code{
 </section>
 
 <section>
+  <h2>Does it move?</h2>
+  <p class="blurb">You asked, so here is the evidence rather than the argument. <b>On the sheet the ceiling is one frame a minute</b> — formula recalc, measured, not guessed. The film below is <b>every frame the banner will actually draw</b> between 8:40 and 5:40, in order, nothing interpolated. Nine hours in fourteen seconds.</p>
+
+  <div class="film">
+    <img src="{{IMG:shift.gif}}" alt="The dial across a full shift: quiet open, the queue building, the wedge opening past the three-hour line, a dead-sync window, then rest" width="560">
+    <p class="cap">One frame per minute · 8:40 AM → 5:40 PM · shown at 2× · ~40× real speed</p>
+  </div>
+
+  <div class="verdictline">
+    <b>The honest half</b>
+    <p>Compressed, it looks alive. Lived at real speed it is <b>a clock, not an animation</b> — it reads as alive the way a wall clock does, because you catch it in a different position, not because you watched it move.</p>
+  </div>
+
+  <div class="pair">
+    <img src="{{IMG:minute-pair@2x.png}}" alt="The same dial one minute, thirty minutes and one hour apart — barely different, then clearly different" width="632">
+  </div>
+
+  <p class="blurb" style="margin-top:22px">Which is why the design has <b>no second hand</b>. Anything that should sweep would instead twitch once a minute and read as broken. What does change is the thing worth watching: the wedge opens, the arc fills, the pips accumulate, the colour escalates.</p>
+
+  <h3 style="font:500 12px/1 Oswald,sans-serif; letter-spacing:.18em; text-transform:uppercase; color:var(--ink-3); margin:34px 0 0">Three routes to real motion</h3>
+  <div class="routes">
+    <div class="route">
+      <div>
+        <h4>An animated GIF in the cell</h4>
+        <p><code>=IMAGE()</code> renders a GIF's <b>first frame and never advances it</b>. Proven twice with a known-good file. This one is closed.</p>
+      </div>
+      <span class="st no">Dead end</span>
+    </div>
+    <div class="route">
+      <div>
+        <h4>A floating image over the banner</h4>
+        <p><code>insertImage()</code> <b>does animate</b> — that part is proven. But a floating image anchors to a <i>cell</i>, not the viewport, so it slides off the frozen banner the moment you scroll. <b>That, and only that, is what rules it out.</b> It is also the one measurement worth re-taking: the same note once read “a Sheet cannot animate”, concluded from the line above, and you were right to push back on it. The probe is written — anchored <i>inside</i> the frozen region this time, which has never actually been tested here. Thirty seconds, writes no cells, removes itself.</p>
+      </div>
+      <span class="st ask">Worth one test</span>
+    </div>
+    <div class="route">
+      <div>
+        <h4>The same dial, on a surface that can move</h4>
+        <p>The drawing module is plain canvas — <b>it already runs unchanged in a browser</b>. The Floor Board and the wall could carry this exact instrument at sixty frames a second, hands sweeping, for no new drawing code at all. One module, three surfaces. That is also this project's own long-standing ruling about where smooth motion belongs, and the dial just made it nearly free.</p>
+      </div>
+      <span class="st yes">Free, once built</span>
+    </div>
+  </div>
+</section>
+
+<section>
   <h2>The decision I need from you</h2>
   <p class="blurb">Drawn at true width with real content, one thing showed up that the mockup could not: <b>the dial now says what D1 says.</b> On <i>busy</i> the flank reads “12 to grab / 14 out today” and D1 reads “12 to grab / 14 in · 14 out”, 200px apart. On <i>stale</i> the same duration appears three times — dial, D1, pulse. D1's headline was written to complement a face that only ever said a state word; it was never meant to sit beside an instrument.</p>
 
@@ -296,6 +371,7 @@ code{
     <li><b>A or B</b> — does D1 keep its numbers, or take the channel split?</li>
     <li><b>Does the escalation read?</b> Scroll the five states quickly. Rest → clear → busy → late → stale should be obvious without reading a word. If any two look alike at a glance, that is the one to fix.</li>
     <li><b>Anything you'd cut.</b> The pips, the arc, the wedge and the state colour all stack on one 103px face. If it is doing too much, the wedge is the one I'd keep.</li>
+    <li><b>Motion</b> — do you want me to run the floating-image probe, and do you want this dial on the Floor Board where it can actually sweep?</li>
   </ol>
 </div>
 
