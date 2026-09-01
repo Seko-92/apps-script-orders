@@ -1,0 +1,14 @@
+# Only the renderer and its fonts go in the image. Everything else here is bench tooling
+# that produces PNGs for humans and has no business in a running service.
+node_modules
+renders
+*.gs
+*.template.html
+render-states.js
+contact-sheet.js
+banner-mock.js
+bars-question.js
+minute-pair.js
+shift-film.js
+build-review.js
+test-dial.js

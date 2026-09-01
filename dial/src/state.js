@@ -71,10 +71,16 @@ function buildState(q) {
   const pastLine  = num(q.l, null);
   const hours     = parseHours(q.h);
 
-  // ⚠ The day's pips are OPTIONAL because they overlap the F1:H1 curve — both answer
-  //   "when did the day happen". Which one should own that is a live question; this makes
-  //   it something you can look at instead of argue about. `np=1` = no pips.
-  const st = { verdict, nowMin, oldestMin: oldest || 0, hours, showPips: q.np !== '1' };
+  // ⭐ THE PIPS ARE OFF BY DEFAULT (decided 2026-09-02, after seeing both drawn at true
+  //   size). They and the F1:H1 curve both answer "when did the day happen" — but the curve
+  //   can carry MAGNITUDE and a radial tick at 103px cannot, so the pips were the redundant
+  //   half. They also cost real clutter: they are why the hands had to be shortened, and
+  //   they crowded the wedge, which is the one thing on that face worth looking at.
+  //
+  // ⭐ AND IT SIMPLIFIES THE SHEET FORMULA. With pips off, `h` goes unused — so the
+  //   =IMAGE() formula no longer needs a TEXTJOIN over __SparkData!A1:X1, and the URL drops
+  //   ~60 characters. The capability stays one parameter away: `pips=1`.
+  const st = { verdict, nowMin, oldestMin: oldest || 0, hours, showPips: q.pips === '1' };
 
   if (verdict === 'rest') {
     st.big     = fmtClock(nowMin);

@@ -1,0 +1,33 @@
+# hq-dial — its own stack at /opt/hq-dial, matching how caddy and n8n already run.
+#
+# ⚠⚠ ITS OWN STACK ON PURPOSE. Folding this into n8n's compose file would put a cosmetic
+#    renderer in the same `docker compose up` as the thing every webhook depends on. A
+#    separate directory means the dial can be rebuilt, restarted or deleted without ever
+#    typing a command that could touch n8n or Postgres.
+#
+# ⚠⚠ NO `ports:` MAPPING, DELIBERATELY. The dial is NOT published to the host and is not
+#    reachable from the internet except through Caddy. It joins the shared `web` network
+#    and Caddy proxies one path to it by container name.
+services:
+  dial:
+    build: .
+    image: hq-dial:latest
+    container_name: hq-dial
+    restart: unless-stopped
+    init: true                 # so SIGTERM reaps cleanly on every deploy
+    environment:
+      PORT: 8099
+    networks:
+      - web
+    # A renderer should never be able to starve n8n or Postgres of the box's 7.7 GB.
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+    logging:
+      driver: json-file
+      options: { max-size: "5m", max-file: "3" }
+
+networks:
+  web:
+    external: true

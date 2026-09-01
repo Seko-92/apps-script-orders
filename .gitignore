@@ -103,3 +103,9 @@ design-lab/redesign-round1.html
 # ⚠ Same shape as design-lab above: `dial/renders/*` would be 2.2M of regenerable PNGs, and
 #   `node render-states.js` rebuilds every one of them in under a second.
 dial/renders/
+
+# ⚠ THE ONE EXCEPTION to the blanket `package-lock.json` rule above. This lockfile is
+#   BUILD INPUT for a container that ships — `npm ci` needs it, and without it the image
+#   resolves transitive deps fresh on every build, which is the opposite of reproducible.
+#   The blanket rule was written for a repo that had no npm build; this directory does.
+!dial/package-lock.json
