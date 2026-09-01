@@ -5,6 +5,7 @@
 #   hq.yassinqurabi.com/         → Floor Board   (public, as it is today)
 #   hq.yassinqurabi.com/kits     → Kit expansion (slice 2, Telegram-authed)
 #   hq.yassinqurabi.com/api/*    → n8n
+#   hq.yassinqurabi.com/dial     → the banner dial renderer (hq-dial container)
 #
 # Named for the APP, not the page — the board is simply what lives at "/".
 # Decided before DNS on purpose: the tablet gets a home-screen icon pointing
@@ -46,6 +47,19 @@ hq.yassinqurabi.com {
 		}
 	}
 
+	# The banner dial — the ONLY route here that is not n8n and not a static file.
+	# ⭐ It holds no data and reads nothing: every number arrives in the query string,
+	# already computed by __SparkData. That is why an unauthenticated route is the right
+	# shape — Google's =IMAGE() fetcher cannot send a header, so it has to be open, and it
+	# is safe to be open precisely because a caller can only render numbers they supplied.
+	# ⚠ EXACT PATH, no wildcard — /healthz stays unrouted and therefore internal-only.
+	# ⚠ The site-wide `header` block below overrides the renderer's own Cache-Control with
+	#   no-store. Harmless, and probably helpful: every minute is its own URL (t=HHmm), so
+	#   no-store guarantees Google can never serve a stale image for one.
+	handle /dial {
+		reverse_proxy hq-dial:8099
+	}
+
 	# Everything else is the app's static files.
 	handle {
 		root * /opt/hq-app
@@ -66,8 +80,22 @@ hq.yassinqurabi.com {
 # Caddyfile invalid — which would take n8n and tracker down too. None of the
 # existing site blocks use one. `docker compose logs caddy` is enough.
 #
-# ALWAYS validate before reloading, for the same reason:
-#   docker compose exec caddy caddy validate --config /etc/caddy/Caddyfile
+# ⚠⚠ DO NOT TRUST `validate`, AND DO NOT `reload`. This Caddyfile is a SINGLE-FILE BIND
+# MOUNT, so it is bound by INODE: an editor that writes-and-renames leaves the container
+# reading the PRE-EDIT file, and `caddy validate` AND `caddy reload` BOTH SUCCEED HAPPILY
+# against that stale copy. The honest check asks the container what it can actually see:
+#
+#   docker exec caddy caddy adapt --config /etc/caddy/Caddyfile | grep -c <your-new-route>
+#
+# and the fix is a RESTART, never a reload:
+#
+#   cd /opt/caddy && docker compose restart caddy
+#
+# Edit in place with truncate-and-write (python `open(p,"w")`, or `cat new > Caddyfile`) so
+# the inode survives — never `mv`. Back up to a DATED filename first; there is already a
+# Caddyfile.bak from June and clobbering it would destroy the only other known-good copy.
+# ⭐ Verified 2026-09-02 when /dial went in: inode 387893 before and after, and `adapt`
+#   inside the container saw the route — which is itself the proof the write landed.
 #
 # `reverse_proxy n8n:5678` works because Caddy and n8n share the external `web`
 # Docker network — the same way n8n.yassinqurabi.com is already served.
