@@ -14,34 +14,52 @@
 function onOpen() {
   const ui = SpreadsheetApp.getUi();
 
-  // 1. ONE menu, named and cased like Google's own.
+  // ---- THE HQ MENUS ------------------------------------------------------------------
   //
-  // ⚠⚠ A SHEETS MENU CAN ONLY HOLD PLAIN TEXT — there is no way to put the sidebar's
-  //    marks up here. Those are SVG sprite symbols drawn on a 24px grid; a menu label is
-  //    a string. So "match the sidebar" cannot mean matching its GLYPHS, and the honest
-  //    equivalent is matching its RESTRAINT: the v3.6 pass replaced 26 colour emoji with
-  //    drawn marks precisely because an emoji is someone else's artwork, rendered by
-  //    whatever font the device happens to carry. Up here that has no replacement, so the
-  //    glyph goes. `▦` and `▤` were rendering as bare boxes on the user's machine —
-  //    the same tofu failure as `📻` and `⛶` on the warehouse tablet (2026-08-07).
+  // ⭐ THREE MENUS WITH MARKS, ON PURPOSE. They were briefly collapsed into a single
+  //    Title-Case "HQ" to blend with File / Edit / View, and the user rejected it: the
+  //    old bar "felt richer and gave the sheet a signature." That is the right call and
+  //    the collapse was an over-correction — this system has a deliberate personality
+  //    streak (the arcade, the night dial, the HQ-mark easter egg), and the menu bar is
+  //    the one place the sheet says whose it is. Blending erased that to gain nothing.
   //
-  // ⭐ AND ONE MENU, NOT THREE. Google's nine are single Title-Case words; three shouting
-  //    all-caps entries beside them read as a bolted-on add-on rather than part of the
-  //    application. Collapsing also leaves room to grow without ever taking more bar.
+  // ⚠⚠ BUT THE GLYPHS HAD A REAL DEFECT, AND IT IS NOT THE ONE IT LOOKED LIKE. `▦` and
+  //    `▤` are not tofu — they are geometric BMP shapes that happen to be a filled square
+  //    at menu size, so they render as featureless boxes and READ as tofu. The rule this
+  //    project already wrote after `📻` and `⛶` failed on the warehouse tablet still
+  //    applies, just pointed the other way: a mark in a text-only surface has to survive
+  //    at ~11px, and a colour emoji does because it is a PICTURE. Geometry does not.
   //
-  // ⚠ The extra click costs nothing in practice: showSidebar() runs on every open (see
-  //   below), so "Control Panel" here is a RECOVERY path for someone who closed it, not
-  //   a daily action. If that ever proves wrong, splitting it back out is one line.
+  // ⚠ Variation selector U+FE0F is deliberate on ⚙️ and 🕹️ — without it some platforms
+  //   pick the monochrome TEXT presentation, which is the flat grey glyph we just left.
   //
-  // ⚠ Menus are built in onOpen — a change here does NOT appear until the sheet is
-  //   RELOADED. Nothing is broken in the meantime; the old menu just lingers.
-  ui.createMenu('HQ')
-    .addItem('Control Panel', 'showSidebar')
-    .addItem('Floor Board', 'openFloorBoard')
+  // ⭐ AND EACH MENU EARNS ITS DROPDOWN. A menu holding exactly one item is two clicks to
+  //   do one thing; Sheets has no directly-clickable top-level entry, so the fix is to
+  //   give it something to hold. Print is the floor's most frequent action and lived only
+  //   inside the sidebar until now.
+  //
+  // ⚠ Title Case, not caps — the user's own note. Loud enough with the mark carrying it.
+  // ⚠ Menus build in onOpen: a change here needs a sheet RELOAD before it appears.
+
+  // 1 · The tool.
+  ui.createMenu('⚙️ Control Panel')
+    .addItem('Open Control Panel', 'showSidebar')
     .addSeparator()
-    .addItem('Arcade', 'openHQArcade')   // break-room, not a tool — hence the rule above it
+    .addItem('Print Pick List', 'preparePrintSheet')
     .addToUi();
-  
+
+  // 2 · The display. In-sheet modal for a quick look; the always-on version is the
+  //     hosted board on a tablet tab (link lives in the sidebar's Displays card).
+  ui.createMenu('📺 Floor Board')
+    .addItem('Open Floor Board', 'openFloorBoard')
+    .addToUi();
+
+  // 3 · The break room — one door into the cabinet (Snake lives INSIDE it now,
+  //     alongside Tetris / Flappy / Breakout / Invaders / Pac-Man).
+  ui.createMenu('🕹️ HQ Arcade')
+    .addItem('Open HQ Arcade', 'openHQArcade')
+    .addToUi();
+
   // ⭐⭐ 3. THE SIDEBAR OPENS BEFORE ANY BACKGROUND WORK, AND THAT ORDER IS THE FIX.
   //
   // ⚠⚠ 2026-08-30: with All Orders locked, an EMPLOYEE opening the sheet got no sidebar at

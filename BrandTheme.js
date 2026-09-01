@@ -592,6 +592,20 @@ function _lockNeedsRefresh(sheet) {
       });
     if (!mine.length) return false;
     var open = mine[0].getUnprotectedRanges().map(function (r) { return r.getA1Notation(); });
+
+    // ⚠⚠ A ROW-BOUNDED CARVE-OUT IS A LOCKOUT WITH A DELAY ON IT. The columns are written
+    //    as unbounded "E:E" so they follow the table forever — but if that ever
+    //    materialises to a fixed range, it stops tracking and staff lose the rows below it
+    //    days later, on a shift, while it keeps working for the owner. So verify the
+    //    PROPERTY every time rather than trusting the notation: any single-column carve-out
+    //    whose last row is behind the sheet is already expired.
+    var maxNow = sheet.getMaxRows();
+    var expired = open.some(function (a1) {
+      var m = a1.match(/^([A-Z]+)(\d+):([A-Z]+)(\d+)$/);
+      return !!m && m[1] === m[3] && Number(m[4]) < maxNow;
+    });
+    if (expired) return true;
+
     return [Schema.pickIdA1(), Schema.pickIdA1('adjustment')].some(function (a1) {
       var mg = sheet.getRange(a1).getMergedRanges();
       var want = (mg && mg.length) ? mg[0].getA1Notation() : a1;
@@ -644,6 +658,23 @@ function describeAllOrdersLock() {
         }
       } catch (e) { /* never let the reporter throw */ }
     });
+
+    // ⚠⚠ AND THE SAME CLASS ONE AXIS OVER: a ROW-BOUNDED carve-out. Installed off-hours
+    //    (correctly), getMaxRows() captures the sheet's low-water mark and every row the
+    //    week adds afterwards falls outside it — silently, for staff only. Bit the floor
+    //    2026-08-31 at row 51. The fix shipped the same day (unbounded whole columns);
+    //    this line is what makes a REGRESSION loud instead of a Monday morning.
+    try {
+      var maxNow = sheet.getMaxRows();
+      openA1.forEach(function (a1) {
+        var m = a1.match(/^([A-Z]+)(\d+):([A-Z]+)(\d+)$/);
+        if (m && m[1] === m[3] && Number(m[4]) < maxNow) {
+          out.push("⚠⚠ CARVE-OUT " + a1 + " IS ROW-BOUNDED at " + m[4] + " but the sheet has " +
+                   maxNow + " rows — staff CANNOT edit column " + m[1] + " below row " + m[4] +
+                   ". Re-run protectAllOrdersSheet().");
+        }
+      });
+    } catch (e) { /* never let the reporter throw */ }
   }
 
   var acct = "";
@@ -736,13 +767,46 @@ function protectAllOrdersSheet() {
   // ---- 4. Carve out what the floor actually works in ----
   // ⚠ Built from Schema, never from A1 literals, so a column move cannot silently
   //   open the wrong one — this is the file where a wrong range is a locked-out shift.
-  var maxRow = sheet.getMaxRows();
-  var span = maxRow - Schema.dataStartRow + 1;
-  var open = [
-    sheet.getRange(Schema.dataStartRow, Schema.cols.NOTE,   span, 1),
-    sheet.getRange(Schema.dataStartRow, Schema.cols.STATUS, span, 1),
-    sheet.getRange(Schema.dataStartRow, Schema.cols.LEFT,   span, 1)
-  ];
+  // ⚠⚠ WHOLE COLUMNS, UNBOUNDED — NEVER getMaxRows(). 2026-08-31, reported from the
+  //    floor as "the entire sheet is locked except the Pick ID for Shipping". It was
+  //    installed at 21:53 on a Saturday with the floor closed, which is the CORRECT
+  //    practice and is precisely what caused it: that is when the sheet is SMALLEST,
+  //    because n8n's ~1 AM sweep has just deleted the shipped rows. getMaxRows()
+  //    captured a low-water mark of 51, so the carve-outs read E4:E51 · F4:F51 · H4:H51
+  //    and every row the week's orders added after that — including the whole DIRECT
+  //    segment — sat OUTSIDE them. STATUS, NOTE and LEFT were locked for staff down
+  //    there while working perfectly for the owner, because removeEditors() ignores
+  //    the owner. The Pick ID kept working only because F2:G2 is a fixed address.
+  //
+  // ⭐ THE SIBLING IN THIS FILE ALREADY KNEW. IDENTITY_WARN.columns uses unbounded
+  //    "A:A" and spells out the reason: this table inserts and deletes rows all day
+  //    (n8n at the top, kit expansion mid-table, Zoho pull into DIRECT, the 1 AM sweep
+  //    removing them again), so any fixed row bound needs re-applying every time the
+  //    boundary moves. The lock never got that treatment. A row-bounded carve-out here
+  //    is not a bug that shows up on install — it is a SILENT, DELAYED lockout that
+  //    arrives days later, on a shift, for staff only.
+  //
+  // ⚠⚠ BOUNDED AT THE TOP, UNBOUNDED AT THE BOTTOM — "E4:E", not "E:E". The delayed
+  //    lockout above is caused by a bounded BOTTOM, so only the bottom has to be open;
+  //    starting at dataStartRow costs nothing and keeps rows 1-3 locked. That matters
+  //    more than it looks:
+  //
+  //      E1 is Schema.cellSyncTime — the System Pulse. ActivityLog.js READS that cell and
+  //         regex-parses it into cockpit.lastSyncMinutes, which drives the Floor Board
+  //         heartbeat, the sidebar pulse, /status and the published tick. A staff member
+  //         clearing it breaks four surfaces at once, silently. Not cosmetic.
+  //      F1 is Schema.cellDayCurve and the anchor of the F1:H1 MERGE, which both F and H
+  //         would partially overlap — and a partial carve-out over a merge locks the whole
+  //         merge (c1aab9e). An unintended interaction either way.
+  //
+  // ⭐ "E4:E" is still open-ended, so it follows the table forever exactly as intended —
+  //   the property that matters is an unbounded END, and this keeps it.
+  // ⚠ ACCEPTED COST, unchanged from before: the DIRECT header row's NOTE/STATUS/LEFT
+  //   labels stay editable. getBoundaryRow() reads only column A, which is locked.
+  var open = ["NOTE", "STATUS", "LEFT"].map(function (name) {
+    var L = _iwColumnLetter(Schema.cols[name]);
+    return sheet.getRange(L + Schema.dataStartRow + ":" + L);
+  });
 
   // The two Pick ID cells. ⚠ Pick ID for Shipping is a MERGE (F2:G2 today), and a
   // merge is only editable through its whole range — so resolve the merge rather
