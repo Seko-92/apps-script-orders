@@ -71,7 +71,10 @@ function buildState(q) {
   const pastLine  = num(q.l, null);
   const hours     = parseHours(q.h);
 
-  const st = { verdict, nowMin, oldestMin: oldest || 0, hours };
+  // ⚠ The day's pips are OPTIONAL because they overlap the F1:H1 curve — both answer
+  //   "when did the day happen". Which one should own that is a live question; this makes
+  //   it something you can look at instead of argue about. `np=1` = no pips.
+  const st = { verdict, nowMin, oldestMin: oldest || 0, hours, showPips: q.np !== '1' };
 
   if (verdict === 'rest') {
     st.big     = fmtClock(nowMin);

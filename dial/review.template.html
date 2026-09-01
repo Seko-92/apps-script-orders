@@ -272,6 +272,40 @@ code{
 </section>
 
 <section>
+  <h2>The bars — you're right to doubt them</h2>
+  <p class="blurb">Two separate problems, and I'd only spotted one of them. Both are cheap to fix.</p>
+
+  <div class="film" style="padding:20px">
+    <img src="{{IMG:bars@2x.png}}" alt="The dial with and without pips, and the day curve counting log rows versus shipped lines" width="686" style="width:686px">
+    <p class="cap">Same day, same hour · shown at 2×</p>
+  </div>
+
+  <div class="routes" style="margin-top:30px">
+    <div class="route">
+      <div>
+        <h4>They aren't counting what they look like they're counting</h4>
+        <p><code>__SparkData!A1:X1</code> is a <code>COUNTIFS</code> over the Activity Log's timestamp column with <b>no event filter</b> — and <code>StatusService</code> writes <b>one row per order line</b>. So a 12-line order going PENDING → PREPARING → SHIPPED writes ~36 rows, while five separate one-line orders write 15. <b>The curve is driven by order size and status churn, not by throughput.</b> Bottom left: the 11am spike is one fourteen-line order being worked. 3pm shipped nearly twice as much and looks smaller.</p>
+        <p style="margin-top:9px">Adding one criterion — <code>EVENT = "SHIPPED"</code> — makes it what everyone already reads it as: <b>what actually left the building, by hour</b>. One line in <code>_ensureSparkData</code>, and it's the same fix on the yesterday row.</p>
+      </div>
+      <span class="st ask">One line</span>
+    </div>
+    <div class="route">
+      <div>
+        <h4>And the dial's pips are now doing the curve's job</h4>
+        <p>Both answer <i>when did the day happen</i>. The curve can carry <b>magnitude</b>; a radial tick at 103px can only say <i>something happened</i>. So the pips are the redundant half — and they cost real clutter: they're why the hands had to be shortened, and they crowd the wedge, which is the one thing on that face worth looking at.</p>
+        <p style="margin-top:9px"><b>Compare A and B above.</b> Without them the wedge reads immediately and the resting face becomes a proper watch face. Nothing is lost — the banner still wears the day, one cell to the right.</p>
+      </div>
+      <span class="st yes">I'd cut them</span>
+    </div>
+  </div>
+
+  <div class="verdictline" style="margin-top:26px">
+    <b>One caveat</b>
+    <p>The curve fix changes a chart that is <b>live on your sheet today</b>. It's a correctness change, not part of the dial — so I'd ship it on its own rather than fold it in. <i>Never bundle a look with a repair</i> is the rule that cost this project a whole round.</p>
+  </div>
+</section>
+
+<section>
   <h2>The decision I need from you</h2>
   <p class="blurb">Drawn at true width with real content, one thing showed up that the mockup could not: <b>the dial now says what D1 says.</b> On <i>busy</i> the flank reads “12 to grab / 14 out today” and D1 reads “12 to grab / 14 in · 14 out”, 200px apart. On <i>stale</i> the same duration appears three times — dial, D1, pulse. D1's headline was written to complement a face that only ever said a state word; it was never meant to sit beside an instrument.</p>
 
@@ -366,12 +400,12 @@ code{
 </section>
 
 <div class="ask">
-  <h2>Three things to tell me</h2>
+  <h2>What to tell me</h2>
   <ol>
     <li><b>A or B</b> — does D1 keep its numbers, or take the channel split?</li>
     <li><b>Does the escalation read?</b> Scroll the five states quickly. Rest → clear → busy → late → stale should be obvious without reading a word. If any two look alike at a glance, that is the one to fix.</li>
     <li><b>Anything you'd cut.</b> The pips, the arc, the wedge and the state colour all stack on one 103px face. If it is doing too much, the wedge is the one I'd keep.</li>
-    <li><b>Motion</b> — do you want me to run the floating-image probe, and do you want this dial on the Floor Board where it can actually sweep?</li>
+    <li><b>The bars</b> — cut the pips (B above)? And do you want the curve counting shipped lines instead of log rows?</li>
   </ol>
 </div>
 

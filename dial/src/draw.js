@@ -270,9 +270,9 @@ function drawDial(ctx, st, scale) {
   // --- the day's pips: one mark per worked hour, at its own hour position --------------
   // A 9-17 shift spans 9,10,11,12,1,2,3,4 on a 12-hour face — 240deg with nothing wrapping
   // onto itself, which is the only reason this is legible rather than merely decorative.
-  const hours = st.hours || [];
+  const hours = st.showPips === false ? [] : (st.hours || []);
   const nowH  = Math.floor(st.nowMin / 60);
-  for (let h = 0; h < 24; h++) {
+  for (let h = 0; st.showPips !== false && h < 24; h++) {
     // ⚠ THE FUTURE IS NEVER LIT. A count on an hour that has not happened yet means the
     //   data is wrong (clock drift, a stale __Published copy) — and a face that cheerfully
     //   paints it would be the "reassuring label on a dangerous state" this codebase rules
