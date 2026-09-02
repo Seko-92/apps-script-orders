@@ -20,8 +20,13 @@ const ok = (name, cond, got) => {
 // ---- a sheet that records what was written, per range ---------------------------------
 function fakeSheet() {
   const w = {};
+  // ⚠ Ranges that were STYLED, not just written. The 2026-09-02 live failure was a styling
+  //   call on an undefined address — every formula was fine, so a writes-only fake could
+  //   never have seen it.
+  const touched = new Set();
   const cell = ref => ({
     setFormula(f) { w[ref] = f; return this; },
+    setBorder() { touched.add(ref); return this; },
     setBackground(){return this;}, setFontColor(){return this;}, setFontFamily(){return this;},
     setFontSize(){return this;},   setFontWeight(){return this;}, setWrap(){return this;},
     setHorizontalAlignment(){return this;}, setVerticalAlignment(){return this;},
@@ -30,8 +35,15 @@ function fakeSheet() {
     merge(){return this;}, breakApart(){return this;}
   });
   return {
-    writes: w,
-    getRange: (a, b, c, d) => cell(typeof a === 'string' ? a : 'R' + a + 'C' + b + '+' + c + 'x' + d),
+    writes: w, touched: touched,
+    getRange: (a, b, c, d) => {
+      // ⚠ THROW ON A NULL ADDRESS, exactly as Sheets does. A fake that quietly accepts
+      //   undefined cannot see a bug that the real getRange refuses outright.
+      if (a === undefined || a === null) throw new Error('Argument cannot be null: a1Notation');
+      const ref = typeof a === 'string' ? a : 'R' + a + 'C' + b + '+' + c + 'x' + d;
+      touched.add(ref);
+      return cell(ref);
+    },
     setRowHeight(){}, hideSheet(){}, getName(){ return '__SparkData'; }
   };
 }
@@ -41,7 +53,9 @@ const sandbox = {
   console, Date, Math, String, Number, JSON, RegExp, Object, Array,
   SPREADSHEET_ID: 'x', MAIN_SHEET_NAME: 'All orders',
   Schema: { dataStartRow: 4, dataWidth: 10, cellSyncTime: 'E1', cellMasthead: 'A1',
-            cellStats: 'D1', cellDayCurve: 'F1' },
+            cellStats: 'D1', cellDayCurve: 'F1',
+            cellEmployeeId: 'F2', cellAdjustmentId: 'H2',
+            pickIdA1: function (which) { return which === 'adjustment' ? 'H2' : 'F2'; } },
   SpreadsheetApp: { flush(){}, openById: () => ({ getSheetByName: () => null, insertSheet: () => null }) }
 };
 vm.createContext(sandbox);
@@ -60,8 +74,22 @@ ok('nothing was written to B1/C1', !W.B1 && !W.C1);
 // ⚠ the extension must match what is actually SHIPPED. Sheets shows only a GIF's first
 //   frame (tested 2026-08-30), so these are PNG stills — and a config that drifts from
 //   the files on the VPS turns every face into the text chip, silently, behind a 200.
-ok('the face URL uses MASTHEAD.ext', new RegExp('\\.' + sandbox.MASTHEAD.ext + '"').test(W.A1 || ''), (W.A1||'').slice(-46));
-ok('⚠ and it is NOT .gif', !/\.gif"/.test(W.A1 || ''));
+// ⚠ THE ART CONTRACT MOVED. With the dial there is no filename to drift — the risk is the
+//   ROUTE, and a missing route under this host answers 200 with the Floor Board's HTML,
+//   which IMAGE() cannot decode. So pin the endpoint and the mode-4 dimensions instead.
+if (sandbox.MASTHEAD.dial) {
+  ok('A1 points at the dial renderer', (W.A1 || '').indexOf(sandbox.MASTHEAD.dialUrl) > -1);
+  ok('⚠ mode 4 with explicit w/h, so nothing letterboxes',
+     new RegExp(',4,' + sandbox.MASTHEAD.dialH + ',' + sandbox.MASTHEAD.dialW + '\\)').test(W.A1 || ''),
+     (W.A1||'').slice(-40));
+  ['s=', '&t=', '&o=', '&g=', '&r=', '&p=', '&u=', '&y=', '&l='].forEach(function (k) {
+    ok('the URL carries ' + JSON.stringify(k), (W.A1 || '').indexOf('"' + k + '"') > -1 ||
+       (W.A1 || '').indexOf(k) > -1);
+  });
+} else {
+  ok('the face URL uses MASTHEAD.ext', new RegExp('\\.' + sandbox.MASTHEAD.ext + '"').test(W.A1 || ''), (W.A1||'').slice(-46));
+  ok('⚠ and it is NOT .gif', !/\.gif"/.test(W.A1 || ''));
+}
 
 console.log('\nB · ⚠⚠ E1 still speaks the format the Floor Board parses');
 // the REAL regex, lifted out of the shipped ActivityLog.js — never retyped
@@ -116,26 +144,39 @@ ok('a quiet night can no longer read as a dead pipeline',
    V.indexOf('A13') < V.indexOf('A4<0'));
 ok('"opens in" skips the weekend',          /WEEKDAY\([\s\S]*?\)=7,2/.test(opens));
 ok('opens-in can never go negative',        /^=MAX\(0,/.test(opens));
-ok('D1 has a rest branch that says when we open', /"opens in "&'__SparkData'!A15/.test(W.D1 || ''));
+// ⚠ The countdown moved ONTO the dial, so D1 no longer prints it — but it must still name
+//   the state, or an operator glancing at the words alone learns nothing.
+ok('D1 has a rest branch that names the state',
+   /A6="rest"[\s\S]*?"the floor is asleep"/.test(W.D1 || ''));
 // ⚠ ASSERT THE BEHAVIOUR, NOT THE ORDERING. The first version of this pinned
 //   `A6="rest",IF(A8>0` — the exact shape the branch happened to have — so moving the
 //   count to a SUFFIX ("opens in 19h 44m · 12 waiting") failed a test whose stated
 //   subject was preserved perfectly. A test that describes the implementation instead
 //   of the promise blocks the refactor it should have been protecting.
 ok('D1 still reports what is waiting overnight',
-   /A6="rest"[\s\S]*?A8>0[\s\S]*?" waiting"/.test(W.D1 || ''), W.D1);
+   /A6="rest"[\s\S]*?A8>0[\s\S]*?waiting/.test(W.D1 || ''), W.D1);
 
 // ⭐ THE SPLIT-VOICE RULE (2026-08-31). The face carries the STATE in words; D1 carries
 //   NUMBERS. Before this, both narrated the same thing in two typefaces 287px apart —
 //   on the clear verdict they used the SAME WORDS, "nothing waiting". That redundancy is
 //   the "two objects" feeling, so it is pinned here rather than left to taste.
-['nothing waiting', 'nothing has landed', 'the floor is asleep',
- 'orders being picked', 'TO GRAB', 'OLDEST', 'LAST SEEN'].forEach(function (phrase) {
-  ok('D1 does not repeat the face: ' + JSON.stringify(phrase),
-     (W.D1 || '').indexOf(phrase) === -1);
+// ⚠⚠ THE RULE, AND IT IS THE ONE THAT KEEPS THE BANNER HONEST: D1 names the STATE and says
+//    WHERE; the DIAL carries the FIGURES. Drawn at true width, the old D1 read
+//    "12 to grab / 14 out today" while the dial said exactly that 200px away, and 'stale'
+//    printed one duration three times across D1, the dial and the pulse.
+// ⚠ This caught a REGRESSION during the very commit that introduced the rule — the 'late'
+//   branch was written as "3 past the 3h line", which is the dial's own flank label. A
+//   rule with no test is a rule that lasts one branch.
+['to grab', 'out today', 'until open', 'oldest waiting', 'past the line',
+ 'nothing waiting', 'nothing has landed', 'orders being picked',
+ 'TO GRAB', 'OLDEST', 'LAST SEEN'].forEach(function (phrase) {
+  ok('D1 does not repeat the dial: ' + JSON.stringify(phrase),
+     (W.D1 || '').toLowerCase().indexOf(phrase.toLowerCase()) === -1);
 });
 ok('⚠ D1 is lowercase — the face does the shouting',
-   !/[A-Z]{4,}/.test((W.D1 || '').replace(/'__SparkData'!A\d+|IFERROR|REGEXEXTRACT|VALUE|CHAR|IF/g, '')));
+   // ⚠ Strip FUNCTION NAMES before judging the prose. TEXT( is four capitals and is not
+   //   something anyone reads on the banner — the assertion is about the words, not the code.
+   !/[A-Z]{4,}/.test((W.D1 || '').replace(/'__SparkData'!A\d+|IFERROR|REGEXEXTRACT|VALUE|CHAR|TEXT|IF/g, '')));
 // ⚠ LET() threw "Formula parse error" on this live sheet (2026-06-05). It must never
 //   reappear in a banner formula, however tempting the repeated base expression is.
 ok('⚠ no LET() in any masthead formula',
@@ -209,7 +250,10 @@ ok('⚠ the face and its curve share ONE rest tone',
 
 console.log('\nJ · the face keeps the hour');
 const face = W.A1 || '';
-ok('the URL carries the Houston hour',  /"-h"&TEXT\(HOUR\(NOW\(\)\),"00"\)/.test(face));
+ok('the URL carries the Houston hour',
+   sandbox.MASTHEAD.dial
+     ? /TEXT\(HOUR\(NOW\(\)\),"00"\)&TEXT\(MINUTE\(NOW\(\)\),"00"\)/.test(face)
+     : /"-h"&TEXT\(HOUR\(NOW\(\)\),"00"\)/.test(face));
 ok('⚠ zero-padded, so h09 is not h9',   /"00"/.test(face));
 ok('it still carries the state first',  face.indexOf('A6') < face.indexOf('HOUR(NOW())'));
 ok('and still falls back to the chip',  /,"HQ"\)$/.test(face));
@@ -226,6 +270,30 @@ ok('so A2 is left to setupEbayLogo',    !(W.A2 || '').length, W.A2);
 ok('the switch still exists for later', 'sky' in sandbox.MASTHEAD);
 ok('⚠ the day CURVE stays brand yellow — data is not decorated by the clock',
    /A1:X1[\s\S]*#ffd400/.test(W.F1 || '') && !/HOUR\(NOW\(\)\)/.test(W.F1 || ''));
+
+// ==========================================================================================
+console.log('\nL · ⚠⚠ the row-2 styler must survive BOTH layouts');
+// 2026-09-02, on the live sheet: setupMasthead reported
+//     ✗ logo zone + Pick ID badges — Exception: Argument cannot be null: a1Notation
+// and both Pick ID dropdowns silently kept the cream banner styling instead of their dark
+// badges. Cause: `var adj = Schema.pickIdA1('adjustment')` had been declared INSIDE the
+// non-dial branch, so with the dial on it was hoisted-but-unassigned and the badge loop
+// called getRange(undefined). Every formula was correct, which is exactly why the existing
+// writes-only assertions all passed — this one DRIVES the function instead of reading it.
+[true, false].forEach(function (dialOn) {
+  const label = dialOn ? 'dial' : 'face';
+  const prev = sandbox.MASTHEAD.dial;
+  sandbox.MASTHEAD.dial = dialOn;
+  const s2 = fakeSheet();
+  let threw = null;
+  try { sandbox._styleBannerRow2(s2); } catch (e) { threw = String((e && e.message) || e); }
+  ok('_styleBannerRow2 does not throw · ' + label, threw === null, threw);
+  ok('both Pick ID cells get styled · ' + label,
+     s2.touched.has('F2') && s2.touched.has('H2'), [...s2.touched].join(','));
+  ok('the logo zone matches the layout · ' + label,
+     s2.touched.has(dialOn ? 'D2:E2' : 'A2:E2'), [...s2.touched].join(','));
+  sandbox.MASTHEAD.dial = prev;
+});
 
 console.log('\n' + (fail ? '✗ ' + fail + ' FAILED' : '✓ all') + ' · ' + pass + ' passed\n');
 process.exit(fail ? 1 : 0);

@@ -147,6 +147,26 @@ var MASTHEAD = {
   //    one thing that reads correctly at ~1 frame per minute, because a day changes
   //    slowly anyway. Cold before dawn, amber as the floor opens, clean at noon, an ember
   //    horizon at 5pm, quiet by midnight. The Floor Board's night dial, on the sheet.
+  // ---- THE DIAL (2026-09-02) ----------------------------------------------------------
+  // ⭐⭐ ONE BOOLEAN REVERTS THE WHOLE THING. `dial:false` puts the face back in A1:C1, the
+  //    logo zone back to A2:E2 and the =IMAGE() back to the pre-rendered art — because the
+  //    plan's own promise was "putting the face back is one formula", and a rollback that
+  //    needs four coordinated edits is not a rollback. The 144 face PNGs stay on the server.
+  //
+  // ⚠⚠ AND IT IS THE DISCRIMINATOR FOR ROW 2, deliberately. The logo-zone chain in
+  //    _styleBannerRow2 branches on Schema.pickIdA1('adjustment') — which is 'H2' again
+  //    after the 2026-08-31 rollback, i.e. exactly what it was before. Adding an arm to
+  //    that chain would mean two different layouts answering to one input, which is the
+  //    coupling that already broke once (row 2's look was inferred from where the pickers
+  //    live, and revertRow2 split them apart). Where the dial is, is its own question.
+  //
+  // ⚠ The renderer holds no data: every number is in the query string, already computed by
+  //   __SparkData. A caller can only ever render numbers they supplied, which is why an
+  //   unauthenticated route is safe — Google's =IMAGE() fetcher cannot send a header.
+  dial:         true,
+  dialUrl:      "https://hq.yassinqurabi.com/dial",
+  dialW:        280,   // = A1:C1 (107+70+103), asserted by setupMasthead
+  dialH:        121,   // = row 1 (56) + row 2 (65), asserted by setupMasthead
   rowHeight:    56,   // px — imgH matches, so the art fills the row edge to edge
   row2Height:   44,   // px — only applied once the pickers have moved off the banner
   // ---- ROW 2: THE DAY -----------------------------------------------------------------
@@ -393,10 +413,15 @@ function setupEbayLogo(plate) {
   var h = plateMode ? 30 : 40;
   var w = plateMode ? 80 : 100;   // v2 carries the bar + a gap, so it is wider per unit height
 
-  sheet.getRange("A2").setFormula(
+  // ⚠⚠ A2 IS THE DIAL'S NOW. With MASTHEAD.dial on, A2 is the bottom half of the A1:C2
+  //    merge — so this write landed inside it and was discarded the moment the merge was
+  //    made, which is why the first live install came up with an empty cream zone and no
+  //    logo. The logo follows its zone.
+  var logoCell = MASTHEAD.dial ? "D2" : "A2";
+  sheet.getRange(logoCell).setFormula(
     '=IFERROR(IMAGE("' + logoUrl + '", 4, ' + h + ', ' + w + '),"eBay")'
   );
-  return "✅ eBay logo restored to A2 — self-hosted, true aspect, " +
+  return "✅ eBay logo restored to " + logoCell + " — self-hosted, true aspect, " +
          (plateMode ? "plate ground + ▌ bar (nameplate layout)." : "transparent (cream layout).");
 }
 
@@ -1344,7 +1369,26 @@ function _styleBannerRow2(sheet) {
   // ⚠ Branch on the RESOLVER, not the constant. Schema.cellAdjustmentId stays "H2"
   //   for the whole grace period even after the pickers move, so branching on it
   //   would paint the OLD layout over the new one.
+  // ⚠⚠ THE DIAL IS ASKED FIRST, AND IT IS ITS OWN QUESTION. The chain below branches on
+  //    where the PICKERS are — and after the 2026-08-31 rollback that answer is 'H2'
+  //    again, exactly what it was before the dial existed. Adding a fourth arm there would
+  //    make two independent layouts answer to one input, which is precisely the coupling
+  //    that already broke once: row 2's look used to be inferred from the picker address,
+  //    and the moment revertRow2 split them apart the cream layout came back wearing the
+  //    dark plate. Where the DIAL is has nothing to do with where the PICKERS are.
+  // ⚠⚠ RESOLVED BEFORE THE BRANCH, and the first cut got this wrong. `adj` is used by the
+  //    Pick ID badge styling BELOW as well as by the logo-zone chain, and declaring it
+  //    inside the else meant it was `undefined` whenever the dial was on — var hoists the
+  //    declaration but not the assignment. getRange(undefined) threw "Argument cannot be
+  //    null: a1Notation" on the live sheet and the badges silently never got styled.
   var adj = Schema.pickIdA1('adjustment');
+
+  if (MASTHEAD.dial) {
+    sheet.getRange('D2:E2').setBackground(BRAND.paperWarm);
+    // ⚠ A2:C2 is deliberately NOT painted — it is the bottom half of the dial's merge and
+    //   painting it cream would put a cream band across the instrument.
+  } else {
+
   var logoZone;
   if (adj === 'E2') {
     logoZone = 'A2:D2';
@@ -1356,6 +1400,7 @@ function _styleBannerRow2(sheet) {
     logoZone = 'A2:F2';
   }
   sheet.getRange(logoZone).setBackground(BRAND.paperWarm);
+  }
 
   // Both Pick ID cells have data validation (dropdowns of allowed values).
   // We MUST NOT write VALUES to these cells during the theme apply, or the
@@ -3303,6 +3348,12 @@ function _ensureSparkData(ss) {
   sheet.getRange('A18').setFormula(pubNumBlank('directPending'));
 
   sheet.getRange('A7').setFormula(pubNum('oldestPendingMinutes'));
+  // ⚠ A19 — how many orders are past the 3h line, not just how old the oldest is. A7 says
+  //   ONE order is late; this says whether that is an incident or a backlog, and the two
+  //   read very differently on a banner. getDashboardSnapshot has counted it since
+  //   2026-06-08; nothing had ever read it. ⚠ pubNum, so an unreadable tick gives 0 and the
+  //   'late' headline falls back to naming the age instead of claiming "0 past the line".
+  sheet.getRange('A19').setFormula(pubNum('pastRedlineCount'));
   sheet.getRange('A9').setFormula(pubNum('receivedToday'));
   sheet.getRange('A10').setFormula(pubNum('shippedToday'));
 
@@ -3385,10 +3436,39 @@ function _setSystemPulseBannerFormulas(sheet) {
   // ---- A1:C1 — THE FACE --------------------------------------------------------------
   // ⚠ IFERROR is not optional. If the endpoint dies at 3am the header degrades to the
   //   text "HQ" chip — never a broken-image icon, never a dead header.
-  sheet.getRange(Schema.cellMasthead).setFormula(
+  // ⭐ THE DIAL. Every value is read from __SparkData, which already holds all of it —
+  //   this is a renderer, not a feature, and nothing new is derived on the way out.
+  //
+  // ⚠ t=HHmm IS WHAT MAKES IT LIVE. Sheets caches =IMAGE() per URL, so the minute is what
+  //   gives each redraw its own address. Built as TEXT(HOUR(...))&TEXT(MINUTE(...)) rather
+  //   than TEXT(NOW(),"hhmm") — the two-argument form is already proven on this sheet by
+  //   the face formula, and "mm" is minutes-or-months depending on what precedes it.
+  //
+  // ⚠ ROUND on A7/A14/A4: they are computed minutes and can be fractional. A4 is -1 when
+  //   the Activity Log is unreadable — that survives as y=-1 and the dial prints an em
+  //   dash rather than a confident zero.
+  //
+  // ⚠ IFERROR is not optional, and it is the ENTIRE rollback story. If the container dies
+  //   at 3am the banner degrades to the text "HQ" chip — never a broken-image icon. And a
+  //   missing route under this host answers 200 with the Floor Board's HTML, which IMAGE()
+  //   cannot decode, so that failure lands here too.
+  var dialFormula =
+    '=IFERROR(IMAGE("' + MASTHEAD.dialUrl + '?s="&' + SD + 'A6&' +
+    '"&t="&TEXT(HOUR(NOW()),"00")&TEXT(MINUTE(NOW()),"00")&' +
+    '"&o="&ROUND(' + SD + 'A7)&' +
+    '"&g="&' + SD + 'A8&' +
+    '"&r="&' + SD + 'A9&' +
+    '"&p="&' + SD + 'A10&' +
+    '"&u="&ROUND(' + SD + 'A14)&' +
+    '"&y="&ROUND(' + SD + 'A4)&' +
+    '"&l="&' + SD + 'A19' +
+    ',4,' + MASTHEAD.dialH + ',' + MASTHEAD.dialW + '),"HQ")';
+
+  var faceFormula =
     '=IFERROR(IMAGE("' + MASTHEAD.baseUrl + '"&' + SD + 'A6&"-h"&TEXT(HOUR(NOW()),"00")&"-' +
-    MASTHEAD.version + '.' + MASTHEAD.ext + '",4,' + MASTHEAD.imgH + ',' + MASTHEAD.imgW + '),"HQ")'
-  );
+    MASTHEAD.version + '.' + MASTHEAD.ext + '",4,' + MASTHEAD.imgH + ',' + MASTHEAD.imgW + '),"HQ")';
+
+  sheet.getRange(Schema.cellMasthead).setFormula(MASTHEAD.dial ? dialFormula : faceFormula);
 
   // ---- D1 — THE HEADLINE -------------------------------------------------------------
   // Branches on the same A6 verdict the face uses, so the picture and the words always
@@ -3404,14 +3484,40 @@ function _setSystemPulseBannerFormulas(sheet) {
   //
   // ⚠ NO LET(). It throws "Formula parse error" on this sheet (2026-06-05), so the
   //   __SparkData refs are repeated rather than bound.
+  // ⭐⭐ D1 STOPPED REPEATING THE DIAL (2026-09-02). Its old text was written to complement
+  //    a FACE that only ever said a state WORD; beside an instrument that carries five
+  //    numbers it became an echo. Drawn at true width the duplication was obvious — 'busy'
+  //    read "12 to grab / 14 out today" on the dial and "12 to grab / 14 in · 14 out" here,
+  //    200px apart, and 'stale' printed the same duration THREE times across D1, the dial
+  //    and the pulse.
+  //
+  // ⭐ So D1 takes the one thing nothing in this banner has ever shown: WHICH TABLE the
+  //   work is in. A17/A18 have carried ebayPending/directPending since the nameplate round
+  //   and nothing in row 1 read them. The dial says how much and how late; D1 says where.
+  //
+  // ⚠ A17/A18 come from pubNumBlank, so an unreadable tick gives "" — the split line then
+  //   disappears entirely rather than rendering "eBay  · Direct ". Blank, never a
+  //   reassuring zero.
+  // ⚠ The newline lives INSIDE the conditional, or a suppressed split leaves a trailing
+  //   CHAR(10) and the cell grows an empty second line.
+  var splitLine = 'IF(' + SD + 'A17="","",CHAR(10)&"eBay "&' + SD + 'A17&" · Direct "&' +
+                  SD + 'A18)';
   sheet.getRange(Schema.cellStats).setFormula(
-    '=IF(' + SD + 'A6="rest","opens in "&' + SD + 'A15&' +
-      'IF(' + SD + 'A8>0," · "&' + SD + 'A8&" waiting",""),' +
-    'IF(' + SD + 'A6="late","oldest "&' + SD + 'A11&CHAR(10)&' + SD + 'A8&" still waiting",' +
-    'IF(' + SD + 'A6="stale","last seen "&' + SD + 'A12,' +
-    'IF(' + SD + 'A6="busy",' + SD + 'A8&" to grab"&CHAR(10)&' + SD + 'A9&" in · "&' +
-    SD + 'A10&" out",' +
-    SD + 'A9&" in · "&' + SD + 'A10&" out"))))'
+    '=IF(' + SD + 'A6="rest","the floor is asleep"&' +
+      'IF(' + SD + 'A8>0,CHAR(10)&"waiting: "&' + SD + 'A8,""),' +
+    // ⚠⚠ NO NUMBER HERE. The first cut printed "3 past the 3h line" — and the dial's own
+    //    flank already shows exactly that count on a 'late' verdict, 200px away. That is
+    //    the duplication this whole rewrite existed to remove, reintroduced one branch
+    //    later. THE RULE, and it is the only thing keeping the two honest: D1 names the
+    //    STATE and says WHERE; the dial carries the FIGURES. Every branch obeys it.
+    'IF(' + SD + 'A6="late","running late"&' + splitLine + ',' +
+    'IF(' + SD + 'A6="stale","pipeline quiet"&CHAR(10)&' +
+      'IF(' + SD + 'A3>0,"nothing logged since "&TEXT(' + SD + 'A3,"h:mm AM/PM"),' +
+      '"no activity logged"),' +
+    // ⚠ 'clear' is deliberately ONE quiet line. The dial already carries the day\'s
+    //   figures, and a calm state that fills the banner is how a banner stops being read.
+    'IF(' + SD + 'A6="busy","picking"&' + splitLine + ',' +
+    '"all caught up"))))'
   );
 
   // ---- E1 — THE PULSE (cell deliberately UNMOVED) ------------------------------------
@@ -3560,8 +3666,14 @@ function _buildRow2(sheet, plate) {
     // ⚠ BOTH merges, not just the logo's. The Shipping picker lives in a MERGED F2:G2 —
     //   the plate broke it to build A2:F2 + G2:H2, and re-merging A2:E2 alone would send
     //   the dropdown home to a cell half the width it expects.
-    step('merge A2:E2 + F2:G2', function () {
-      sheet.getRange('A2:E2').merge();
+    // ⚠⚠ THE DIAL OWNS A2:C2. With MASTHEAD.dial on, row 2's left third is the bottom half
+    //    of the A1:C2 merge, so the logo zone starts at D — and merging A2:E2 here would
+    //    overlap a range setupMasthead is about to claim. It cannot: setupMasthead clears
+    //    A1:C2 before this runs and re-merges it after, so the ONLY correct answer here is
+    //    to stay out of columns A-C entirely.
+    var logoMerge = MASTHEAD.dial ? 'D2:E2' : 'A2:E2';
+    step('merge ' + logoMerge + ' + F2:G2', function () {
+      sheet.getRange(logoMerge).merge();
       sheet.getRange('F2:G2').merge();
     });
 
@@ -3580,7 +3692,9 @@ function _buildRow2(sheet, plate) {
     var mg = [];
     sheet.getRange(2, 1, 1, Schema.dataWidth).getMergedRanges()
          .forEach(function (r) { mg.push(r.getA1Notation()); });
-    var wantMerge = plate ? 'A2:F2' : 'A2:E2';
+    // ⚠ A CHECK THAT CRIES WOLF IS WORSE THAN NO CHECK. This still wanted A2:E2 after the
+    //   dial moved the logo zone, so a correct install reported "✗ merges" on its first run.
+    var wantMerge = plate ? 'A2:F2' : (MASTHEAD.dial ? 'D2:E2' : 'A2:E2');
     var a2 = String(sheet.getRange('A2').getFormula() || '');
     var h  = sheet.getRowHeight(2);
 
@@ -3674,7 +3788,10 @@ function setupMasthead(sheetName) {
   if (!sheet) return "❌ Sheet not found: " + (sheetName || MAIN_SHEET_NAME);
 
   // 1 — clear every row-1 merge shape this layout has ever worn, then build ours.
-  ['A1:C1', 'A1:D1', 'A1:H1', 'B1:D1', 'B1:E1', 'D1:E1', 'F1:H1', 'G1:J1']
+  // ⚠ 'A1:C2' FIRST — the dial's merge spans BOTH rows, and breakApart on a sub-range of a
+  //   live merge throws. Clearing it here is what lets _buildRow2 rebuild row 2 freely
+  //   below; the two-row merge is re-made AFTER that, once row 2 is settled.
+  ['A1:C2', 'A1:C1', 'A1:D1', 'A1:H1', 'B1:D1', 'B1:E1', 'D1:E1', 'F1:H1', 'G1:J1']
     .forEach(function (r) {
       try { sheet.getRange(r).breakApart(); } catch (e) { /* not merged — fine */ }
     });
@@ -3724,6 +3841,29 @@ function setupMasthead(sheetName) {
   var pickersMoved = (Schema.pickIdA1() === Schema.cellEmployeeIdNext);
   var wantPlate    = (MASTHEAD.row2Style === 'plate') && pickersMoved && !MASTHEAD.sky;
   var row2Log = _buildRow2(sheet, wantPlate);
+
+  // 4b — THE DIAL TAKES BOTH ROWS, and this has to happen AFTER row 2 exists.
+  // ⚠⚠ ORDER IS THE WHOLE POINT. Row 1 merged A1:C1 back at step 1 so that everything
+  //    above styled a normal one-row banner; _buildRow2 then cleared and rebuilt row 2
+  //    against that. Merging A1:C2 any earlier makes every row-2 breakApart overlap a live
+  //    merge — which throws, gets swallowed by _buildRow2's try/catch, and leaves whatever
+  //    shape was there before. Silently.
+  if (MASTHEAD.dial) {
+    try {
+      try { sheet.getRange('A1:C1').breakApart(); } catch (e) { /* already free */ }
+      sheet.getRange('A1:C2').merge();
+      sheet.getRange(Schema.cellMasthead)
+        .setHorizontalAlignment('left').setVerticalAlignment('middle')
+        // ⚠ CLEAR THE BORDERS. A merge inherits the anchor's formatting, and row 1 has worn
+        //   several layouts — any leftover rule now draws a line ACROSS the instrument,
+        //   which reads as damage rather than as residue. The 6th flag is the internal
+        //   horizontal: the row 1/row 2 gridline inside the merge.
+        .setBorder(false, false, false, false, false, false);
+      row2Log.push('✓ merge A1:C2 (the dial)');
+    } catch (e) {
+      row2Log.push('✗ merge A1:C2 (the dial) — ' + e);
+    }
+  }
   if (MASTHEAD.row2Style === 'plate' && !pickersMoved) {
     row2Log.push('⚠ row2Style is "plate" but the pickers are still on the banner — ' +
                  'built the cream layout instead. Run migratePickIdCells first.');
@@ -3741,9 +3881,25 @@ function setupMasthead(sheetName) {
   //    re-apply is exactly what would move this out from under the image.
   var span = 0;
   for (var wc = 1; wc <= 3; wc++) span += sheet.getColumnWidth(wc);
-  var widthNote = (span === MASTHEAD.imgW) ? '' :
-    ' · ⚠ A1:C1 is ' + span + 'px but MASTHEAD.imgW is ' + MASTHEAD.imgW +
-    ' — the face will stretch. Reconcile applyBrandTheme\'s column widths.';
+  var wantW = MASTHEAD.dial ? MASTHEAD.dialW : MASTHEAD.imgW;
+  var widthNote = (span === wantW) ? '' :
+    ' · ⚠ A1:C1 is ' + span + 'px but the art is ' + wantW +
+    'px — it will stretch. Reconcile applyBrandTheme\'s column widths.';
+
+  // ⚠⚠ AND THE HEIGHT, because the dial is the first thing here to span TWO ROWS. The
+  //    width assertion caught a 7px gap on its first real run — a comment in Schema said
+  //    A1:C1 was 287 and the live sheet was 280 — and the same class of drift is now
+  //    possible vertically: row 2's height is owned by _buildRow2 (65) and row 1's by
+  //    MASTHEAD.rowHeight (56), two different places, and mode-4 IMAGE() stretches to
+  //    whatever it is given. Measured, never read off a constant.
+  var heightNote = '';
+  if (MASTHEAD.dial) {
+    var vspan = sheet.getRowHeight(1) + sheet.getRowHeight(2);
+    if (vspan !== MASTHEAD.dialH) {
+      heightNote = ' · ⚠ A1:C2 is ' + vspan + 'px but MASTHEAD.dialH is ' + MASTHEAD.dialH +
+                   ' — the dial will stretch.';
+    }
+  }
 
   // 6 — ⚠⚠ SWEEP STALE ROW-2 VALIDATIONS — AND NEVER THE LIVE PICK IDs.
   //
@@ -3801,8 +3957,11 @@ function setupMasthead(sheetName) {
   //   actually been applied.
   var dividerLine = _applyDividerNameplate(sheet);
 
-  var rep = "✅ Masthead installed · row 1 = " + MASTHEAD.rowHeight + "px · faces " +
-            MASTHEAD.version + widthNote +
+  var rep = "✅ Masthead installed · " +
+            (MASTHEAD.dial
+              ? "THE DIAL · A1:C2 " + MASTHEAD.dialW + "x" + MASTHEAD.dialH
+              : "row 1 = " + MASTHEAD.rowHeight + "px · faces " + MASTHEAD.version) +
+            widthNote + heightNote +
             (phantoms.length ? "\n   swept stale row-2 validation(s): " + phantoms.join(', ') : "") +
             "\n\n  ROW 2 (style=" + MASTHEAD.row2Style + " · pickers at " +
               Schema.pickIdA1() + "/" + Schema.pickIdA1('adjustment') + ")\n    " +
