@@ -165,6 +165,23 @@ var MASTHEAD = {
   //   unauthenticated route is safe — Google's =IMAGE() fetcher cannot send a header.
   dial:         true,
   dialUrl:      "https://hq.yassinqurabi.com/dial",
+  // ⭐⭐ WHICH FACE A1:C2 WEARS. ONE WORD REVERTS IT.
+  //    "dial"  — the instrument that shipped 2026-09-02 (clock, arc, wedge, flank)
+  //    "board" — the Solari split-flap board: TO GRAB and OUT TODAY on flaps
+  //
+  // ⚠ BOTH ARE STILL IMAGES THROUGH THE SAME =IMAGE() FORMULA, and that is the point:
+  //   a split-flap board standing still is still a split-flap board, so the LOOK costs
+  //   exactly what the dial costs — nothing. Apps Script does not run; the container
+  //   draws, Sheets fetches.
+  //
+  // ⚠⚠ MOTION IS A SEPARATE DECISION WITH A SEPARATE COST. `=IMAGE()` renders frame ONE
+  //    of a GIF and never advances (settled 2026-08-30), so animating the cascade needs a
+  //    FLOATING image via insertImage() — which only Apps Script can place, and which has
+  //    to be re-hung whenever the numbers change. Do not conflate the two: this constant
+  //    buys the look for free and forecloses nothing.
+  //
+  // ROLLBACK: set this back to "dial", clasp push, re-run setupMasthead(). Nothing else.
+  dialFace:     "dial",
   dialW:        280,   // = A1:C1 (107+70+103), asserted by setupMasthead
   dialH:        121,   // = row 1 (56) + row 2 (65), asserted by setupMasthead
   rowHeight:    56,   // px — imgH matches, so the art fills the row edge to edge
@@ -3452,17 +3469,62 @@ function _setSystemPulseBannerFormulas(sheet) {
   //   at 3am the banner degrades to the text "HQ" chip — never a broken-image icon. And a
   //   missing route under this host answers 200 with the Floor Board's HTML, which IMAGE()
   //   cannot decode, so that failure lands here too.
-  var dialFormula =
-    '=IFERROR(IMAGE("' + MASTHEAD.dialUrl + '?s="&' + SD + 'A6&' +
-    '"&t="&TEXT(HOUR(NOW()),"00")&TEXT(MINUTE(NOW()),"00")&' +
-    '"&o="&ROUND(' + SD + 'A7)&' +
-    '"&g="&' + SD + 'A8&' +
-    '"&r="&' + SD + 'A9&' +
-    '"&p="&' + SD + 'A10&' +
-    '"&u="&ROUND(' + SD + 'A14)&' +
-    '"&y="&ROUND(' + SD + 'A4)&' +
-    '"&l="&' + SD + 'A19' +
-    ',4,' + MASTHEAD.dialH + ',' + MASTHEAD.dialW + '),"HQ")';
+  // ⚠⚠ THE URL CARRIES EXACTLY WHAT THE FACE DRAWS — NOTHING MORE. THIS IS THE FLASH FIX.
+  //
+  //    `=IMAGE()` caches per URL and has NO double-buffering: a new address means an
+  //    uncached fetch, and the cell is EMPTY while the image is in flight. So every change
+  //    to the URL costs one visible blink, whether or not the picture actually differs.
+  //
+  //    The dial draws a clock, an arc and a wedge, so it genuinely needs the minute — its
+  //    URL must change every minute and the blink is the price of being live.
+  //
+  //    ⭐ THE BOARD DRAWS NO TIME AT ALL. It shows TO GRAB and OUT TODAY. Sending it `t`,
+  //      `o`, `y`, `u` and `l` — every one of them minute-granular — rewrote the address
+  //      1,440 times a day for a picture that changes a few dozen times. **That was the
+  //      whole flash**, and it was self-inflicted: data the renderer ignores was still
+  //      busting its cache.
+  //
+  //    Now the board's URL changes ONLY when the verdict or one of its two counts changes,
+  //    so the face sits perfectly still until something actually happens — and the blink that
+  //    remains marks a real event instead of the clock ticking.
+  //
+  // ⚠ ADD A PARAMETER HERE WHENEVER THE FACE STARTS DRAWING A NEW VALUE, and never before.
+  //   An unused parameter is not harmless — it is a cache-buster.
+  var dialFormula = (MASTHEAD.dialFace === 'board')
+    ? '=IFERROR(IMAGE("' + MASTHEAD.dialUrl + '?face=board&s="&' + SD + 'A6&' +
+      '"&g="&' + SD + 'A8&' +
+      '"&p="&' + SD + 'A10' +
+      ',4,' + MASTHEAD.dialH + ',' + MASTHEAD.dialW + '),"HQ")'
+    // ⚠⚠ THE FLASH FIX, AND IT IS FOUR VALUES — NOT ONE.
+    //
+    //    `=IMAGE()` caches PER URL and has no double-buffering, so every distinct address
+    //    costs one uncached fetch with the cell EMPTY while it loads. That is the blink.
+    //
+    //    ⚠ CLAUDE.md's recorded fix — coarsen `t` — is INCOMPLETE and would not have
+    //      worked. `o` (oldest), `u` (until open) and `y` (minutes since sync) are ALL
+    //      minute-granular, so the URL kept changing every minute with `t` frozen. Any one
+    //      of them alone is enough to bust the cache. **Measured by reading the formula,
+    //      not assumed** — and worth keeping, because the note looked complete.
+    //
+    //    All four now sit in FIVE-MINUTE buckets: 12 addresses an hour instead of 60, so
+    //    five sixths of the blinks disappear. The cost is up to 5 minutes of resolution on
+    //    a face whose figures move by one a minute — and the DISPLAYED value is the
+    //    bucketed one, so nothing on screen disagrees with the URL that drew it.
+    //
+    // ⚠ THE -1 SENTINEL ON A4 MUST SURVIVE. A4 is -1 when the Activity Log is unreadable,
+    //   and the dial prints an em dash rather than a confident zero. ROUND(-1/5)*5 is 0 —
+    //   which would silently turn "I cannot read this" into "synced just now", exactly the
+    //   reassuring-label-on-a-dangerous-state bug this codebase rules against.
+    : '=IFERROR(IMAGE("' + MASTHEAD.dialUrl + '?s="&' + SD + 'A6&' +
+      '"&t="&TEXT(HOUR(NOW()),"00")&TEXT(FLOOR(MINUTE(NOW())/5)*5,"00")&' +
+      '"&o="&ROUND(' + SD + 'A7/5)*5&' +
+      '"&g="&' + SD + 'A8&' +
+      '"&r="&' + SD + 'A9&' +
+      '"&p="&' + SD + 'A10&' +
+      '"&u="&ROUND(' + SD + 'A14/5)*5&' +
+      '"&y="&IF(' + SD + 'A4<0,-1,ROUND(' + SD + 'A4/5)*5)&' +
+      '"&l="&' + SD + 'A19' +
+      ',4,' + MASTHEAD.dialH + ',' + MASTHEAD.dialW + '),"HQ")';
 
   var faceFormula =
     '=IFERROR(IMAGE("' + MASTHEAD.baseUrl + '"&' + SD + 'A6&"-h"&TEXT(HOUR(NOW()),"00")&"-' +
@@ -4217,4 +4279,271 @@ function diagnoseMasthead() {
   say('  =IMAGE("' + MASTHEAD.baseUrl + state + '-h' + hh + '-' + MASTHEAD.version +
       '.' + MASTHEAD.ext + '",4,' + MASTHEAD.imgH + ',' + MASTHEAD.imgW + ')');
   return L.join('\n');
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════════════════
+   THE BANNER LOOP — A1:C2 as a floating GIF that never changes.
+   ═══════════════════════════════════════════════════════════════════════════════════════
+
+   ⚠⚠ WHY THIS SHAPE, AFTER A LONG DAY OF THE OTHER ONES. Every flash chased on 2026-09-02
+      traced to ONE mechanism: a number changed -> the `=IMAGE()` URL changed -> Sheets
+      refetched -> the cell sat EMPTY while it loaded. That is structural. Coarsening the URL
+      only makes it blink less often; it cannot make it stop.
+
+      **This image carries no data, so its URL never changes, so it is fetched once and
+      never again. It cannot flash — there is nothing to refetch.** The variety comes from
+      the GIF being long (five patterns, 36s) rather than from ever swapping it.
+
+   ⭐ IT SITS ON TOP, SO THE ROLLBACK IS FREE. A1:C2 keeps its `=IMAGE()` dial formula,
+     untouched and still evaluating underneath. `removeBanner()` IS the revert — zero cell
+     writes, nothing to restore, because nothing was replaced.
+
+   ⚠ THE FIGURES ARE NOT LOST. D1 keeps the state and waiting count, E1 the pulse and
+     last-sync, F1:H1 the day curve — all live, all free, all uncovered. A1:C2 stops being
+     an instrument and becomes an object.
+
+   ⚠⚠ NEVER EXTEND THIS OVER ROW 2 PAST COLUMN E. F2 (Pick ID for Shipping, the F2:G2
+      merge) and H2 (Pick ID for Adjustment) live there, and a floating image swallows
+      CLICKS as well as pixels — covering them breaks the accountability gate on printing
+      and picking. That is a floor outage, not a cosmetic bug.
+*/
+
+/** ⚠ VERSIONED FILENAME. Sheets and Google's fetcher both cache per URL, so replacing the
+ *  art at the same name can serve the old bytes indefinitely. Bump to -v2 to change it. */
+var BANNER = {
+  url:    MASTHEAD.baseUrl + 'banner-v2.gif',
+  width:  260,   // ⚠ INTRINSIC to the art — the GIF is drawn 260x121. Not derived from
+  height: 121    //   MASTHEAD, because MASTHEAD.dialW is 280 and THE SHEET DISAGREES.
+};
+
+/* ⚠⚠ MEASURED 2026-09-02: A=103 B=70 C=87 = 260, NOT the 280 MASTHEAD.dialW claims
+      ("107+70+103"). Columns A and C were narrowed at some point and the constant was never
+      updated, so the `=IMAGE()` dial has been drawing 280px into a 260px merge — squashed,
+      and invisible because a dial is a drawing and nobody could see the 20px.
+
+   ⚠ A FLOATING image is less forgiving than a cell one: 280 wide would OVERHANG 20px into
+     column D and cover the left edge of the live headline. That is why this is measured.
+
+   ⏭ MASTHEAD.dialW is deliberately NOT changed here — it would alter how the live dial
+     renders, and this file's own rule is never to bundle a look with a repair. Separate fix. */
+
+/** Every floating image on row 1 that is ours.
+ *  ⚠⚠ WIDTH IS THE DISCRIMINATOR, NEVER THE ANCHOR. setupBrandLogo also floats at A1 and is
+ *     capped at colW-4 = 103px, so it can never be 280. Matching row+column alone would
+ *     silently delete the HQ mark — a live defect in removeMastheadAnimated() that this
+ *     deliberately does not copy. */
+var BANNER_MARK = '/mast/banner-';   // every version of the art, v1 · v2 · whatever is next
+
+function _bannerImages(sheet) {
+  var out = [], imgs = sheet.getImages();
+  for (var i = 0; i < imgs.length; i++) {
+    try {
+      if (imgs[i].getAnchorCell().getRow() !== 1) continue;
+      var u = '';
+      try { u = imgs[i].getUrl() || ''; } catch (e) { u = ''; }
+      // ⚠⚠ MATCH THE URL, NOT THE WIDTH. Width was the first cut and it was WRONG the moment
+      //    the art changed size: bumping BANNER.width 280 -> 260 stopped it recognising the
+      //    v1 image already hanging there, so an install would have STACKED a second banner
+      //    instead of replacing it. The URL family is stable across versions; the size is not.
+      // ⚠ The width test survives only as a fallback for a blob-inserted image (null URL),
+      //   and NEVER matches the brand logo, which is capped at colWidth-4 = 103.
+      if (u.indexOf(BANNER_MARK) > -1) { out.push(imgs[i]); continue; }
+      if (!u && Math.round(imgs[i].getWidth()) >= 200) out.push(imgs[i]);
+    } catch (e) { /* unreadable — not ours, leave it alone */ }
+  }
+  return out;
+}
+
+/**
+ * Hang the loop over A1:C2.
+ *
+ * ⚠ INSERT FIRST, THEN REMOVE ANY OLD ONE. Remove-then-insert leaves the banner empty for
+ *   the length of a fetch, which is the exact flash this design exists to remove. Inserting
+ *   first is a double buffer — something `=IMAGE()` can never do, because a cell has one slot.
+ */
+function installBanner() {
+  try {
+    var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    var sheet = ss.getSheetByName(MAIN_SHEET_NAME);
+    if (!sheet) return '❌ Main sheet not found.';
+
+    // ⚠⚠ MEASURE THE SHEET, NEVER TRUST THE CONSTANT. The 280-vs-260 drift above is exactly
+    //    what a constant hides: it stayed right in code while the sheet moved underneath it.
+    //    A banner one column too wide covers D1's headline, so this refuses rather than guess.
+    var h = sheet.getRowHeight(1) + sheet.getRowHeight(2);
+    var w = sheet.getColumnWidth(1) + sheet.getColumnWidth(2) + sheet.getColumnWidth(3);
+    if (h !== BANNER.height || w !== BANNER.width) {
+      return '❌ A1:C2 measures ' + w + 'x' + h + ', the art is ' +
+             BANNER.width + 'x' + BANNER.height + '.\n' +
+             '   Columns: A=' + sheet.getColumnWidth(1) + ' B=' + sheet.getColumnWidth(2) +
+             ' C=' + sheet.getColumnWidth(3) + ' · rows: ' + sheet.getRowHeight(1) +
+             '+' + sheet.getRowHeight(2) + '\n' +
+             '   Refusing — a mismatched banner overhangs into D1. Rebuild the art at ' +
+             w + 'x' + h + ' (dial/make-shuffle.js, W= H=) or restore the widths.';
+    }
+
+    var stale = _bannerImages(sheet);              // snapshot BEFORE inserting
+    var img = sheet.insertImage(BANNER.url, 1, 1, 0, 0);
+    img.setWidth(BANNER.width).setHeight(BANNER.height);
+    SpreadsheetApp.flush();
+    for (var i = 0; i < stale.length; i++) { try { stale[i].remove(); } catch (e) {} }
+    SpreadsheetApp.flush();
+
+    return '✅ Banner hung over A1:C2' +
+           (stale.length ? ' (replaced ' + stale.length + ')' : '') + '.\n' +
+           '   ' + BANNER.url + '\n' +
+           '   D1, E1 and F1:H1 are untouched. removeBanner() reverts it.';
+  } catch (e) {
+    console.log('installBanner failed: ' + e);
+    return '❌ ' + e;
+  }
+}
+
+/** The revert. The =IMAGE() dial underneath was never touched, so it is simply there again. */
+function removeBanner() {
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  var sheet = ss.getSheetByName(MAIN_SHEET_NAME);
+  var imgs = _bannerImages(sheet), gone = 0;
+  for (var i = 0; i < imgs.length; i++) { try { imgs[i].remove(); gone++; } catch (e) {} }
+  SpreadsheetApp.flush();
+  return '✅ Removed ' + gone + ' floating banner image(s). The dial is showing again.';
+}
+
+/**
+ * ⚠ THE RUN BUTTON DOES NOT DISPLAY RETURN VALUES — this project has lost an evening to that
+ *   twice (getPublishedTick, then checkPublishedTickNow was written for exactly this reason).
+ *   installBanner() returns its verdict as a STRING, so a refusal and a success look identical
+ *   from the editor. This logs instead. Run it, then read Executions → the log.
+ */
+function diagnoseBanner() {
+  var L = [];
+  function say(s) { L.push(s); console.log(s); }
+
+  try {
+    var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    var sheet = ss.getSheetByName(MAIN_SHEET_NAME);
+
+    say('── GEOMETRY ──');
+    var h1 = sheet.getRowHeight(1), h2 = sheet.getRowHeight(2);
+    say('  row1=' + h1 + '  row2=' + h2 + '  sum=' + (h1 + h2) +
+        '   expected ' + BANNER.height + (h1 + h2 === BANNER.height ? '  ✅' : '  ❌ WOULD REFUSE'));
+    say('  A=' + sheet.getColumnWidth(1) + ' B=' + sheet.getColumnWidth(2) +
+        ' C=' + sheet.getColumnWidth(3) + '  sum=' +
+        (sheet.getColumnWidth(1) + sheet.getColumnWidth(2) + sheet.getColumnWidth(3)) +
+        '   expected ' + BANNER.width);
+
+    say('── THE URL, AS APPS SCRIPT SEES IT ──');
+    say('  ' + BANNER.url);
+    try {
+      var r = UrlFetchApp.fetch(BANNER.url, { muteHttpExceptions: true, followRedirects: true });
+      var bytes = r.getBlob().getBytes().length;
+      say('  HTTP ' + r.getResponseCode() +
+          '  type=' + (r.getHeaders()['Content-Type'] || r.getHeaders()['content-type']) +
+          '  bytes=' + bytes);
+      // ⚠ A missing file answers 200 with the BOARD'S HTML, not 404 — so check the magic bytes.
+      var b = r.getBlob().getBytes();
+      var magic = String.fromCharCode(b[0], b[1], b[2], b[3], b[4], b[5]);
+      say('  magic="' + magic + '"' + (magic.indexOf('GIF8') === 0 ? '  ✅ a real GIF' : '  ❌ NOT A GIF'));
+    } catch (e) { say('  ❌ fetch failed: ' + e); }
+
+    say('── FLOATING IMAGES ON THIS SHEET ──');
+    var imgs = sheet.getImages();
+    say('  count=' + imgs.length);
+    for (var i = 0; i < imgs.length; i++) {
+      var a = '?', w = '?', hh = '?', u = '?';
+      try { a = imgs[i].getAnchorCell().getA1Notation(); } catch (e) {}
+      try { w = Math.round(imgs[i].getWidth()); hh = Math.round(imgs[i].getHeight()); } catch (e) {}
+      try { u = imgs[i].getUrl() || '(no url — inserted as a blob)'; } catch (e) { u = '(unreadable)'; }
+      say('  [' + i + '] anchor=' + a + '  ' + w + 'x' + hh +
+          (w === BANNER.width ? '  ← ours' : '') + '\n        ' + u);
+    }
+    say('── VERDICT ──');
+    say(imgs.length === 0
+      ? '  Nothing is floating. The insert either threw or was silently rejected — see the URL block.'
+      : '  ' + imgs.length + ' image(s) present. Anything 280 wide IS the banner.');
+  } catch (e) {
+    say('❌ ' + e);
+  }
+  return L.join('\n');
+}
+
+/* ⚠⚠⚠ THE LADDER ANSWERED, AND THE ANSWER WAS "THERE IS NO CEILING" — 2026-09-02.
+       All five rungs rendered, INCLUDING the 290-frame / 265 KB / 9.1 MP one that was
+       invisible on All Orders at that very moment. So frames were never the problem and the
+       whole size hunt was chasing the wrong variable.
+
+   ⭐⭐ THE REAL MECHANISM: **A NEWLY INSERTED OVER-GRID IMAGE DOES NOT REPAINT IN AN ALREADY-
+      OPEN TAB.** The ladder rendered because `insertSheet()` made a sheet the browser had
+      never painted, so it drew fresh. All Orders had been open for the whole session, so
+      every install landed in the model and never reached the screen. The user had already
+      observed this exact shape on the alpha probe — "I can't see anything... I ran the
+      remove, then again, and now I can see it" — a re-insert forces the repaint.
+
+   ⚠ THE STANDING HABIT: after ANY insertImage on a sheet someone has open, HARD-RELOAD the
+     tab. Same ritual as the kiosk Floor Board, and for the same reason: the client holds a
+     painted view that our write never invalidates.
+
+   ⚠ AND THE TRAP THAT MADE IT EXPENSIVE — `insertImage()` returns a live object and
+     `getImages()` lists it whether or not Sheets ever draws it. **No Apps Script diagnostic
+     can distinguish "installed" from "visible"; only an eye can.** Fourth instance of the
+     success-status/failure-content class in this project, after Zoho's 200-with-an-error-
+     body, Apps Script's 200-with-an-error-page, and the n8n banked-fake-success.
+
+   ═══════════════════════════════════════════════════════════════════════════════════════
+   THE LADDER — kept, because it is how the ceiling question got settled in ONE look.
+   ═══════════════════════════════════════════════════════════════════════════════════════
+   ⚠⚠ MEASURED 2026-09-02: the probe that RENDERED was 8 frames / 0.1 MP decoded. The banner
+      that did NOT was 290 frames / 9.1 MP — same host, same format, both valid GIF89a, both
+      fetched fine by Apps Script (HTTP 200, correct magic bytes). insertImage SUCCEEDS in
+      both cases and getImages() reports the image in both cases, so **Apps Script cannot
+      tell you whether Sheets actually rendered it — only an eye can.**
+   ⭐ Hence a ladder on a SCRATCH sheet: four sizes at once, one look, one answer. All Orders
+     is never touched, so this cannot disturb the floor.
+*/
+var BANNER_LADDER = [
+  { id: 'a', frames: 24,  secs: 3,  kb: 21  },
+  { id: 'b', frames: 63,  secs: 8,  kb: 55  },
+  { id: 'c', frames: 120, secs: 15, kb: 103 },
+  { id: 'd', frames: 200, secs: 25, kb: 184 },
+  { id: 'v2', frames: 290, secs: 36, kb: 265 }   // the one that is on the sheet and invisible
+];
+
+function probeBannerLadder() {
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  var name = '__BannerProbe';
+  var sh = ss.getSheetByName(name);
+  if (sh) ss.deleteSheet(sh);              // clean slate — stale images must not confuse the read
+  sh = ss.insertSheet(name);
+  sh.setColumnWidth(1, 260);
+  sh.getRange('A1').setValue('SCROLL DOWN. Tell me which of these ANIMATE. Then run removeBannerProbe().')
+    .setFontWeight('bold');
+
+  var row = 3, out = [];
+  for (var i = 0; i < BANNER_LADDER.length; i++) {
+    var v = BANNER_LADDER[i];
+    var url = MASTHEAD.baseUrl + (v.id === 'v2' ? 'banner-v2.gif' : 'ladder-' + v.id + '.gif');
+    sh.getRange(row, 1)
+      .setValue(v.id.toUpperCase() + ' · ' + v.frames + ' frames · ' + v.secs + 's · ' + v.kb + ' KB')
+      .setFontWeight('bold');
+    try {
+      var img = sh.insertImage(url, 1, row + 1, 0, 0);
+      img.setWidth(260).setHeight(121);
+      out.push(v.id + ' inserted');
+    } catch (e) { out.push(v.id + ' THREW: ' + e); }
+    row += 9;                               // 121px of image clears ~6 default rows
+  }
+  SpreadsheetApp.flush();
+  var msg = 'Ladder on "' + name + '":\n  ' + out.join('\n  ') +
+            '\n\nLook at the sheet. Which ones MOVE?';
+  console.log(msg);
+  return msg;
+}
+
+function removeBannerProbe() {
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  var sh = ss.getSheetByName('__BannerProbe');
+  if (!sh) return 'Nothing to remove.';
+  ss.deleteSheet(sh);
+  return '✅ Probe sheet deleted.';
 }

@@ -248,12 +248,27 @@ ok('each bucket degrades to 0',         yRow.length === 24 && yRow.every(f => /^
 ok('⚠ the face and its curve share ONE rest tone',
    curve.indexOf(sandbox.MASTHEAD.restAccent) > -1);
 
-console.log('\nJ · the face keeps the hour');
+console.log('\nJ · the face keeps the hour — in FIVE-MINUTE buckets');
 const face = W.A1 || '';
+// ⚠⚠ THE FLASH FIX IS FOUR VALUES, NOT ONE — this section is what pins that.
+//    `=IMAGE()` caches per URL with no double-buffer, so ANY minute-granular parameter
+//    costs a blink a minute. CLAUDE.md recorded the fix as "coarsen t"; that was
+//    INCOMPLETE — o, u and y are minute-granular too and each alone busts the cache.
+//    These assertions exist so a future edit cannot quietly un-bucket one of them.
 ok('the URL carries the Houston hour',
    sandbox.MASTHEAD.dial
-     ? /TEXT\(HOUR\(NOW\(\)\),"00"\)&TEXT\(MINUTE\(NOW\(\)\),"00"\)/.test(face)
+     ? /TEXT\(HOUR\(NOW\(\)\),"00"\)/.test(face)
      : /"-h"&TEXT\(HOUR\(NOW\(\)\),"00"\)/.test(face));
+if (sandbox.MASTHEAD.dial) {
+  ok('⚠ the MINUTE is bucketed to 5, not exact',
+     /FLOOR\(MINUTE\(NOW\(\)\)\/5\)\*5/.test(face) &&
+     !/TEXT\(MINUTE\(NOW\(\)\),"00"\)/.test(face));
+  ok('⚠ oldest is bucketed too',        /A7\/5\)\*5/.test(face));
+  ok('⚠ until-open is bucketed too',    /A14\/5\)\*5/.test(face));
+  ok('⚠ minutes-since-sync is bucketed', /A4\/5\)\*5/.test(face));
+  ok('⭐ and the unreadable-log sentinel survives bucketing',
+     /IF\('__SparkData'!A4<0,-1,/.test(face));
+}
 ok('⚠ zero-padded, so h09 is not h9',   /"00"/.test(face));
 ok('it still carries the state first',  face.indexOf('A6') < face.indexOf('HOUR(NOW())'));
 ok('and still falls back to the chip',  /,"HQ"\)$/.test(face));

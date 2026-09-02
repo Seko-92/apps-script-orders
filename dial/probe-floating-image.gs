@@ -1,71 +1,162 @@
 /**
  * probe-floating-image.gs — PASTE INTO THE APPS SCRIPT EDITOR, RUN, LOOK, DELETE.
  *
- * ⚠ NOT part of the project. This lives in dial/ (a subdirectory, so clasp never pushes
- *   it) precisely so it cannot become permanent by accident. Paste it into a scratch file
- *   in the editor, run the probe, answer the question, then delete the file.
+ * ⚠ NOT part of the project. It lives in dial/ (a subdirectory, so clasp never pushes it)
+ *   precisely so it cannot become permanent by accident. Paste into a scratch file in the
+ *   editor, run, answer the questions, then DELETE the file.
  *
- * ⚠⚠ THE ONE OPEN QUESTION ABOUT ANIMATION, AND THE REASON IT IS WORTH RE-ASKING.
+ * ⚠⚠ v2 — 2026-09-02. THE v1 PROBE RAN CLEAN AND DREW NOTHING, AND THE REASON MATTERS.
  *
- *    Settled 2026-08-30 by two probes:
- *      1 · =IMAGE() renders an animated GIF's FIRST FRAME and never advances it.
- *      2 · insertImage() DOES animate — a floating OverGridImage plays the GIF properly.
- *          ⚠ A Blob throws "blob format is unsupported"; a public URL or data URL works.
- *      3 · BUT a floating image is anchored to a CELL, not the viewport, so it scrolls
- *          away from the frozen banner. THAT is what rules it out — not the animation.
+ *    v1 inlined its art as `data:image/...;base64,...` URLs. Both probes returned with no
+ *    exception, `setWidth()` succeeded on the returned object, the log said "inserted" —
+ *    and the sheet stayed empty. **insertImage() accepts a data URL and silently fails to
+ *    render it.** Success status, failure content: the same shape as Zoho's 200-with-an-
+ *    error-body, the /exec 404 that answered HTTP 200, and the masthead face that 200s
+ *    with the board's HTML.
  *
- *    (3) is the finding this probe re-tests, for one reason: the same note once read
- *    "a Sheet cannot animate", concluded from (1) alone, and the user was right to push
- *    back on it. A measurement that expensive to be wrong about is worth 30 seconds.
+ *    ⭐ WHERE THE WRONG IDEA CAME FROM. CLAUDE.md states "a Blob throws; a public URL or
+ *      DATA URL works." The Blob half was measured (2026-08-30, "blob format is
+ *      unsupported"). The data-URL half never was — every insertImage in this project that
+ *      has ever rendered used an http(s) URL (GIF_PROBE.url, MASTHEAD.baseUrl). The note
+ *      was an assumption wearing a measurement's clothes, and this file believed it.
+ *      **A note here is evidence, not proof.**
  *
- *    ⭐ AND THIS PROBE ASKS A SHARPER VERSION OF IT than the last one did: anchored INSIDE
- *      THE FROZEN REGION (row 1), not merely near it. Frozen panes and the drawing layer
- *      are different systems in Sheets and it has never been tested that way here.
+ *    v2 serves both assets over HTTPS from the directory that already serves the masthead
+ *    faces, byte-verified on the server. No Caddy edit — /mast/ is an existing route.
  *
- * WHAT TO DO
- *   1 · Run probeFloatingDial()
- *   2 · Look at row 1. Is the little dial MOVING?           -> expected: yes
- *   3 · Scroll down one full page. Is it STILL on the banner? -> THE ACTUAL QUESTION
- *   4 · Reload the sheet. Is it still there and still moving?
- *   5 · Run removeFloatingDialProbe()  <- do not skip this
+ * ─────────────────────────────────────────────────────────────────────────────
+ * WHAT TO DO — run them in this order.
+ *
+ *   0 · diagnoseFloatingImages()   READ-ONLY. Lists every floating image on the sheet with
+ *       its anchor, size and source URL. Run it FIRST: v1 reported "removed 1 probe
+ *       image(s)" before it had inserted anything, so something was already there and we
+ *       do not yet know what. This answers that without changing a thing.
+ *
+ *   1 · probeFloatingDial()        THE ANCHOR QUESTION.
+ *       a · is it MOVING?                                     -> expected yes
+ *       b · SCROLL DOWN one full page. Still on the banner, or slid away?  <- THE QUESTION
+ *       c · reload the sheet. Still there, still moving?
+ *
+ *   2 · probeAlphaPassthrough()    THE ALPHA QUESTION.
+ *       A magenta frame lands over D1. Its middle is a HOLE; its right third carries a
+ *       white swatch, a black swatch and a 50% block.
+ *       · D1's headline readable through the hole -> ALPHA PASSES -> the STATIC FRAME
+ *         shape is live: zero recurring cost, and the state-drift trap disappears
+ *       · flat WHITE (the white swatch vanishes into it)  -> composited on white
+ *       · flat BLACK with no text (black swatch vanishes)  -> composited on black
+ *       Either composite answer kills the static frame and leaves the animated board.
+ *       The 50% block is a free third answer: a real blend means 8-bit alpha, solid-or-
+ *       gone means Sheets treats alpha as binary.
+ *
+ *   3 · removeFloatingDialProbe()  Clears both. DO NOT SKIP.
  *
  * ⚠ It writes NO cells and touches NO formulas. The only thing it changes is the sheet's
- *   floating-image list, and step 5 empties that of anything this probe made.
+ *   floating-image list, and step 3 empties that of anything this probe made.
  */
 
-// 8 frames of the real dial across a shift, 196px wide, 16 KB. Inlined so the probe needs
-// no upload and no Caddy route — the two things that make a "quick test" stop being quick.
-var PROBE_GIF = 'data:image/gif;base64,R0lGODlhxABVAPf/AAsLDRERERYUERgXExkYFBoWEhoXExsYFRsaFh0ZFh4bFyEdFyQgFigjFigkFi0nFjAfGDErHzgyJTw5M0Y8F0pIRktMTU4zJVJHFVZEJVpcX19ZVmdnaG9ZHnR1d4BsDYuMjoxiM6GHDKOlqad9QbW4vrqcBsPHz8uwm8ysGdbZ4N25BvTMBfqPYP/kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kA//kAwD/ACH/C05FVFNDQVBFMi4wAwEAAAAh+QQEIQAfACwAAAAAxABVAAAI/wAHCBxIsKDBgwgTKlzIsKHDhxAjSkxIYACBixcPaNSI4AACBBNDihxJsqTJkxUxZtzo0SPIkzBjypxJE2FKlSxbfqzJs6fPnwpvYszZcSfQ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';
+// Served from /opt/hq-app/mast on the VPS — the SAME directory as the 440 masthead faces,
+// so no Caddy route was added and the documented blast radius is untouched.
+// Both byte-verified on the server: 359 b PNG (RGBA, 232x56) and 16,389 b GIF.
+// ⚠ The ?v= is a cache-buster. Google fetches these server-side and will hold a copy;
+//   bump it if you ever replace the art at the same filename.
+var PROBE_GIF_URL = 'https://hq.yassinqurabi.com/mast/anchor-probe-v1.gif?v=1';
+var PROBE_PNG_URL = 'https://hq.yassinqurabi.com/mast/alpha-probe-v1.png?v=1';
 
-function probeFloatingDial() {
+// The two widths this probe owns. WIDTH IS THE DISCRIMINATOR FOR REMOVAL, never the anchor:
+// the brand logo also floats at A1 (setupBrandLogo -> insertImage(blob, 1, 1)) and is capped
+// at colW-4 = 103px, so it can never be 196 or 232. Matching row+column alone would delete
+// it — which is a live defect in BrandTheme.removeMastheadAnimated(), whose comment claims
+// the very protection its code omits. Do not copy that pattern.
+var PROBE_W_ANCHOR = 196;
+var PROBE_W_ALPHA  = 232;
+
+
+/** READ-ONLY. Changes nothing. Answers "what is actually floating on this sheet?" */
+function diagnoseFloatingImages() {
   var sheet = SpreadsheetApp.getActive().getSheetByName(MAIN_SHEET_NAME);
-  removeFloatingDialProbe();
-  var img = sheet.insertImage(PROBE_GIF, 1, 1, 6, 4);   // anchored A1, nudged inside row 1
-  img.setWidth(196).setHeight(85);
-  SpreadsheetApp.flush();
-  var msg =
-    'Floating image inserted over A1.\n\n' +
-    '1. Is it MOVING?\n' +
-    '2. SCROLL DOWN one page — does it stay on the banner, or slide away?\n' +
-    '3. Reload the sheet — still there, still moving?\n\n' +
-    'Then run removeFloatingDialProbe().';
+  var imgs = sheet.getImages();
+  var out = ['Floating images on "' + MAIN_SHEET_NAME + '": ' + imgs.length, ''];
+  for (var i = 0; i < imgs.length; i++) {
+    var im = imgs[i], anchor = '?', url = '?';
+    try { anchor = im.getAnchorCell().getA1Notation(); } catch (e) { anchor = '(unreadable)'; }
+    // getUrl() returns null for blob-inserted images — that is itself the tell for the
+    // brand logo, which setupBrandLogo inserts from a Drive blob.
+    try { url = im.getUrl() || '(no url — inserted from a blob, e.g. the brand logo)'; }
+    catch (e) { url = '(no url)'; }
+    var w = Math.round(im.getWidth()), h = Math.round(im.getHeight());
+    var mine = (w === PROBE_W_ANCHOR || w === PROBE_W_ALPHA) ? '  <- MATCHES THIS PROBE' : '';
+    out.push((i + 1) + ' · anchor ' + anchor + '  ' + w + 'x' + h +
+             '  offset ' + im.getAnchorCellXOffset() + ',' + im.getAnchorCellYOffset() + mine);
+    out.push('     ' + url);
+  }
+  if (!imgs.length) out.push('(none — nothing is floating over this sheet)');
+  var msg = out.join('\n');
   Logger.log(msg);
-  try { SpreadsheetApp.getUi().alert('Dial probe', msg, SpreadsheetApp.getUi().ButtonSet.OK); }
-  catch (e) { /* no UI when run headless — the log carries it */ }
   return msg;
 }
 
-function removeFloatingDialProbe() {
+
+function probeFloatingDial() {
   var sheet = SpreadsheetApp.getActive().getSheetByName(MAIN_SHEET_NAME);
+  _removeProbeWidth(sheet, PROBE_W_ANCHOR);          // idempotent, and only ours
+  var img = sheet.insertImage(PROBE_GIF_URL, 1, 1, 6, 4);   // anchored A1, inside row 1
+  img.setWidth(PROBE_W_ANCHOR).setHeight(85);
+  SpreadsheetApp.flush();
+  var msg =
+    'Anchor probe inserted over A1 (' + PROBE_W_ANCHOR + 'x85).\n\n' +
+    '1 · is it MOVING?\n' +
+    '2 · SCROLL DOWN one page — does it stay on the banner, or slide away?\n' +
+    '3 · reload the sheet — still there, still moving?\n\n' +
+    'If you see NOTHING, run diagnoseFloatingImages() — if it lists an image at A1\n' +
+    'with this URL, then it was placed and something is drawing on top of it.\n\n' +
+    'Then run removeFloatingDialProbe().';
+  Logger.log(msg);
+  return msg;
+}
+
+
+function probeAlphaPassthrough() {
+  var sheet = SpreadsheetApp.getActive().getSheetByName(MAIN_SHEET_NAME);
+  _removeProbeWidth(sheet, PROBE_W_ALPHA);           // re-runnable; leaves the anchor probe
+  // ⚠ D1 is the target on purpose: it is the surface the board would actually cover, it is
+  //   the dark band the design sits on, and it holds LIVE TEXT — the only thing that can
+  //   separate "alpha passed through" from "composited onto a black ground". A blank or
+  //   white cell would leave that ambiguous.
+  var img = sheet.insertImage(PROBE_PNG_URL, Schema.cols.SALES_ORDER, 1, 0, 0);
+  img.setWidth(PROBE_W_ALPHA).setHeight(56);
+  SpreadsheetApp.flush();
+  var msg =
+    'Alpha probe placed over D1 (' + PROBE_W_ALPHA + 'x56).\n\n' +
+    'Look INSIDE the magenta frame:\n' +
+    '  · can you READ D1\'s headline through it?  -> alpha PASSES THROUGH\n' +
+    '  · flat WHITE (white swatch disappears)     -> composited on white\n' +
+    '  · flat BLACK, no text (black swatch gone)  -> composited on black\n\n' +
+    'The 50% grey block, lower right: a real blend means 8-bit alpha,\n' +
+    'solid-or-gone means Sheets is treating alpha as binary.\n\n' +
+    'Then run removeFloatingDialProbe().';
+  Logger.log(msg);
+  return msg;
+}
+
+
+/** Removes ONLY row-1 images of one exact width. The narrowness is the safety story. */
+function _removeProbeWidth(sheet, width) {
   var imgs = sheet.getImages(), gone = 0;
   for (var i = 0; i < imgs.length; i++) {
-    // ⚠ ONLY ROW 1 AND ONLY 196px WIDE. The brand logo also floats over A1 (setupBrandLogo)
-    //   and removing it would be a real, silent regression — so the match is deliberately
-    //   narrow rather than "clear the images on this sheet".
-    var a = imgs[i].getAnchorCell();
-    if (a.getRow() === 1 && Math.round(imgs[i].getWidth()) === 196) { imgs[i].remove(); gone++; }
+    try {
+      if (imgs[i].getAnchorCell().getRow() === 1 &&
+          Math.round(imgs[i].getWidth()) === width) { imgs[i].remove(); gone++; }
+    } catch (e) { /* unreadable anchor — not ours, leave it alone */ }
   }
+  return gone;
+}
+
+
+function removeFloatingDialProbe() {
+  var sheet = SpreadsheetApp.getActive().getSheetByName(MAIN_SHEET_NAME);
+  var gone = _removeProbeWidth(sheet, PROBE_W_ANCHOR) + _removeProbeWidth(sheet, PROBE_W_ALPHA);
   SpreadsheetApp.flush();
-  Logger.log('removed ' + gone + ' probe image(s)');
-  return 'removed ' + gone + ' probe image(s)';
+  var msg = 'removed ' + gone + ' probe image(s)';
+  Logger.log(msg);
+  return msg;
 }

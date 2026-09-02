@@ -18,6 +18,22 @@ const path = require('path');
 const { createCanvas, GlobalFonts } = require('@napi-rs/canvas');
 const { drawDial, WIDTH, HEIGHT } = require('./draw');
 const { buildState } = require('./state');
+const { drawBoardFace, buildFigures, drawAnchorFigures } = require('./board-terminal');
+const { encodeSettle, scramble } = require('./gif');
+
+/**
+ * ⭐ THE FACES. `dial` is the default and is BYTE-IDENTICAL to what shipped 2026-09-02 —
+ *   an unknown or absent `face` renders it, so no existing URL can change behaviour and
+ *   rollback is removing one query parameter.
+ *
+ * ⚠ Both faces are 280x121. A face of a different size would need MASTHEAD.dialW/dialH to
+ *   change with it, and setupMasthead asserts those against the live column widths — so a
+ *   new size is a sheet change, not just a drawing.
+ */
+const FACES = {
+  dial:  (ctx, q, s) => drawDial(ctx, buildState(q), s),
+  board: (ctx, q, s) => drawBoardFace(ctx, q, s)
+};
 
 const WEIGHTS = [200, 300, 400, 500, 600, 700];
 let fontsReady = false;
@@ -78,8 +94,38 @@ function renderPng(query, scale) {
   const s = scale || 1;
   const canvas = createCanvas(Math.round(WIDTH * s), Math.round(HEIGHT * s));
   const ctx = canvas.getContext('2d');
-  drawDial(ctx, buildState(query), s);
+  const draw = FACES[(query && query.face) || 'dial'] || FACES.dial;
+  draw(ctx, query || {}, s);
   return canvas.toBuffer('image/png');
 }
 
-module.exports = { renderPng, registerFonts, assertFontWeights, WIDTH, HEIGHT, WEIGHTS };
+/**
+ * The board, animated: it settles once and holds.
+ *
+ * ⚠ ONLY the board face animates. The dial is a clock and an arc — a settle cascade means
+ *   nothing there, and `=IMAGE()` cannot play a GIF anyway, so this is reachable only from
+ *   the floating-image path.
+ */
+function renderGif(query, scale) {
+  registerFonts();
+  const s = scale || 1;
+  const to = buildFigures(query || {});
+  const from = {
+    verdict: to.verdict,
+    a: Object.assign({}, to.a, { value: scramble(to.a.value, 8, DRUM) }),
+    b: Object.assign({}, to.b, { value: scramble(to.b.value, 5, DRUM) })
+  };
+  // The longest cell journey plus the deliberate stillness at the end. Capped so a slow
+  // settle can never push the file past what a banner should cost.
+  const dur = Math.min(6, Math.max(
+    B_loop(from.a.value, to.a.value), B_loop(from.b.value, to.b.value)));
+  return encodeSettle(
+    (ctx, f, t2, t, sc) => drawAnchorFigures(ctx, f, t2, t, sc),
+    from, to,
+    { width: WIDTH, height: HEIGHT, scale: s, duration: dur });
+}
+const DRUM = require('./board').DIGITS;
+function B_loop(a, b) { return require('./board').loopSeconds(a, b, DRUM); }
+
+module.exports = { renderPng, renderGif, registerFonts, assertFontWeights,
+                   WIDTH, HEIGHT, WEIGHTS, FACES };

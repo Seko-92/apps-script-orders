@@ -21,7 +21,7 @@
 'use strict';
 
 const http = require('http');
-const { renderPng, registerFonts, assertFontWeights } = require('./render');
+const { renderPng, renderGif, registerFonts, assertFontWeights, FACES } = require('./render');
 const { VERDICTS } = require('./state');
 const { WIDTH, HEIGHT } = require('./draw');
 
@@ -57,6 +57,7 @@ const server = http.createServer((req, res) => {
     //   the verify in the same commit — a health check nobody can assert is decoration.
     const body = JSON.stringify({
       ok: true, service: 'hq-dial', size: WIDTH + 'x' + HEIGHT,
+      faces: Object.keys(FACES),
       verdicts: VERDICTS, served: served, failed: failed,
       fontProblems: assertFontWeights(), startedAt: startedAt
     }) + '\n';
@@ -77,6 +78,24 @@ const server = http.createServer((req, res) => {
   const scale = Math.min(MAX_SCALE, Math.max(1, Number(q.x) || 1));
 
   try {
+    // ⚠ anim=1 is the FLOATING-IMAGE path only. =IMAGE() renders frame one of a GIF and
+    //   never advances (settled 2026-08-30), so asking for a GIF through the cell formula
+    //   would silently show a scrambled first frame — the worst possible failure. The
+    //   board's =IMAGE() formula must never carry anim=1.
+    const wantsGif = q.anim === '1' && q.face === 'board';
+    if (wantsGif) {
+      const gif = renderGif(q, scale);
+      served++;
+      if (req.method === 'HEAD') {
+        res.writeHead(200, { 'Content-Type': 'image/gif', 'Content-Length': gif.length });
+        return res.end();
+      }
+      return send(res, 200, 'image/gif', gif, {
+        'Cache-Control': 'public, max-age=600',
+        'X-Dial-Face': 'board',
+        'X-Dial-Anim': 'settle-once'
+      });
+    }
     const png = renderPng(q, scale);
     served++;
     if (req.method === 'HEAD') {
@@ -87,7 +106,8 @@ const server = http.createServer((req, res) => {
     // box a re-render for every viewer of the same minute.
     return send(res, 200, 'image/png', png, {
       'Cache-Control': 'public, max-age=600',
-      'X-Dial-Verdict': VERDICTS.indexOf(q.s) >= 0 ? q.s : 'clear'
+      'X-Dial-Verdict': VERDICTS.indexOf(q.s) >= 0 ? q.s : 'clear',
+      'X-Dial-Face': (q.face && FACES[q.face]) ? q.face : 'dial'
     });
   } catch (e) {
     failed++;

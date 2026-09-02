@@ -10,6 +10,7 @@
     "states": "node render-states.js"
   },
   "dependencies": {
-    "@napi-rs/canvas": "0.1.100"
+    "@napi-rs/canvas": "0.1.100",
+    "gifenc": "^1.0.3"
   }
 }
