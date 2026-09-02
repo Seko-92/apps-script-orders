@@ -65,11 +65,23 @@ vm.runInContext(R('BrandTheme.js'), sandbox);
 console.log('\nA · the four zones land in the right cells');
 const sh = fakeSheet();
 sandbox._setSystemPulseBannerFormulas(sh);
+
+// ⚠⚠ THE DAY CURVE IS ASSERTED IN ITS OWN MODE, EXPLICITLY. MASTHEAD.strip decides whether
+//    F1 carries the SPARKLINE or the headline mirror, so a curve test that reads the SHIPPED
+//    default silently changes meaning the day that flag flips — which is exactly what
+//    happened: nine curve assertions went red on a correct build. The curve is the REVERT
+//    target and has to keep working, so it gets a sheet built with strip forced off.
+const _prevStrip = sandbox.MASTHEAD.strip;
+sandbox.MASTHEAD.strip = false;
+const shCurve = fakeSheet();
+sandbox._setSystemPulseBannerFormulas(shCurve);
+const WCURVE = shCurve.writes;
+sandbox.MASTHEAD.strip = _prevStrip;
 const W = sh.writes;
 ok('A1 holds the face image',      /^=IFERROR\(IMAGE\(/.test(W.A1 || ''), (W.A1||'').slice(0,28));
 ok('D1 holds the headline',        /^=IF\('__SparkData'!A6="rest"/.test(W.D1 || ''));
 ok('E1 holds the pulse',           /^=IF\('__SparkData'!A4<0/.test(W.E1 || ''));
-ok('F1 holds the SPARKLINE',       /SPARKLINE\('__SparkData'!A1:X1/.test(W.F1 || ''));
+ok('F1 holds the SPARKLINE',       /SPARKLINE\('__SparkData'!A1:X1/.test(WCURVE.F1 || ''));
 ok('nothing was written to B1/C1', !W.B1 && !W.C1);
 // ⚠ the extension must match what is actually SHIPPED. Sheets shows only a GIF's first
 //   frame (tested 2026-08-30), so these are PNG stills — and a config that drifts from
@@ -125,7 +137,7 @@ console.log('\nD · every published read degrades rather than throwing');
 ['A7','A9','A10'].forEach(r => ok(r + ' is IFERROR-wrapped', /^=IFERROR\(/.test(S[r] || '')));
 ok('A8 (queue) reads the sheet, not __Published', /COUNTIF\('All orders'!F4:F/.test(S.A8 || ''));
 ok('the face falls back to the text chip', /,"HQ"\)$/.test(W.A1 || ''));
-ok('the curve falls back to blank',        /,""\)$/.test(W.F1 || ''));
+ok('the curve falls back to blank',        /,""\)$/.test(WCURVE.F1 || ''));
 
 // a real tick, and the null case that must read as "nothing pending"
 const tick = '{"cockpit":{"shippedToday":16,"receivedToday":109,"oldestPendingMinutes":252}}';
@@ -230,7 +242,7 @@ ok('and the real heartbeat regex still parses a RESTING line',
    HEART.test('⏱ ⚪ RESTING · 9:57 PM · 6h 0m ago'));
 
 console.log('\nI · the resting curve wears yesterday, not an empty today');
-const curve = W.F1 || '', yRow = (S['R2C1+1x24'] || [[]])[0] || [];
+const curve = WCURVE.F1 || '', yRow = (S['R2C1+1x24'] || [[]])[0] || [];
 // ⚠ assert the harness can SEE the row before asserting anything about it — every
 //   check below uses .every(), which is vacuously true on an empty array. That is the
 //   blindness that let the command palette survive two emoji sweeps.
@@ -284,7 +296,7 @@ ok('the sky is OFF',                    sandbox.MASTHEAD.sky === false);
 ok('so A2 is left to setupEbayLogo',    !(W.A2 || '').length, W.A2);
 ok('the switch still exists for later', 'sky' in sandbox.MASTHEAD);
 ok('⚠ the day CURVE stays brand yellow — data is not decorated by the clock',
-   /A1:X1[\s\S]*#ffd400/.test(W.F1 || '') && !/HOUR\(NOW\(\)\)/.test(W.F1 || ''));
+   /A1:X1[\s\S]*#ffd400/.test(WCURVE.F1 || '') && !/HOUR\(NOW\(\)\)/.test(WCURVE.F1 || ''));
 
 // ==========================================================================================
 console.log('\nL · ⚠⚠ the row-2 styler must survive BOTH layouts');
@@ -309,6 +321,120 @@ console.log('\nL · ⚠⚠ the row-2 styler must survive BOTH layouts');
      s2.touched.has(dialOn ? 'D2:E2' : 'A2:E2'), [...s2.touched].join(','));
   sandbox.MASTHEAD.dial = prev;
 });
+
+
+// ═══════════════════════════════════════════════════════════════════════════════════════
+// ROW 1 GEOMETRY — the strip spans, from a measurement rather than a comment.
+//
+// ⚠⚠ THIS IS THE 280-vs-260 CLASS, PINNED. MASTHEAD.dialW claimed 280 while A:C measured
+//    260 and the dial drew 20px into column D for months, invisible because a dial is a
+//    drawing. The arithmetic that turns measured widths into strip spans is now pure and
+//    asserted, so a wrong span fails here instead of on the sheet.
+// ═══════════════════════════════════════════════════════════════════════════════════════
+console.log('\n── ROW 1 GEOMETRY ──');
+{
+  // A sheet whose columns are deliberately NOT what either comment claims, so a helper
+  // that quietly fell back to a constant could not pass.
+  const widths = { 1: 100, 2: 60, 3: 90, 4: 200, 5: 300, 6: 120, 7: 110, 8: 100 };
+  const gs = {
+    getColumnWidth: c => widths[c],
+    getRowHeight: r => (r === 1 ? 56 : 65),
+    isColumnHiddenByUser: () => false
+  };
+  const m = sandbox._rowOneWidths(gs);
+
+  ok('block span is A+B+C',        m.abc === 250, m.abc);
+  ok('C2 loop span is D+E',        m.de === 500, m.de);
+  ok('C2 headline cell is F+G',    m.fg === 230, m.fg);
+  ok('C1 readout span is F+G+H',   m.fgh === 330, m.fgh);
+  ok('B loop span is D..H',        m.dh === 830, m.dh);
+  ok('row 1 is read on its own',   m.row1 === 56 && m.row2 === 65, [m.row1, m.row2]);
+
+  const sp = sandbox._stripSpans(m);
+  // ⚠⚠ THE ONE THAT MATTERS. F2:G2 and H2 hold the Pick ID dropdowns and a floating image
+  //    swallows CLICKS as well as pixels, so a strip that is row1+row2 tall is a floor
+  //    outage on printing and picking — not a cosmetic bug.
+  ['c1', 'c2', 'b'].forEach(k => {
+    ok('the ' + k.toUpperCase() + ' loop is ROW 1 ONLY (Pick ID stays clickable)',
+       sp[k].loop.h === m.row1 && sp[k].loop.h !== m.row1 + m.row2, sp[k].loop.h);
+    ok('the ' + k.toUpperCase() + ' loop anchors at column D', sp[k].loop.col === 4, sp[k].loop.col);
+  });
+  ok('the block keeps BOTH rows',   sp.block.h === m.row1 + m.row2, sp.block.h);
+  ok('C2 splits the readout in two', sp.c2.read.length === 2, sp.c2.read.length);
+  ok('C1 keeps it as one merge',     sp.c1.read.length === 1 && sp.c1.read[0].a1 === 'F1:H1');
+  ok('B carries no readout at all',  sp.b.read.length === 0, sp.b.read.length);
+  // Loop + readout must tile D:H exactly, or there is a gap or an overhang at the seam.
+  ok('C2 tiles D:H exactly',
+     sp.c2.loop.w + sp.c2.read[0].w + sp.c2.read[1].w === m.dh,
+     sp.c2.loop.w + sp.c2.read[0].w + sp.c2.read[1].w);
+  ok('C1 tiles D:H exactly',
+     sp.c1.loop.w + sp.c1.read[0].w === m.dh, sp.c1.loop.w + sp.c1.read[0].w);
+  ok('B tiles D:H exactly', sp.b.loop.w === m.dh, sp.b.loop.w);
+
+  // A hidden column reports its width but takes no pixels — the span would be drawn wide.
+  const hid = sandbox._rowOneWidths(Object.assign({}, gs, {
+    isColumnHiddenByUser: c => c === 7
+  }));
+  ok('a hidden column in A:H is reported', hid.hidden.join(',') === 'G', hid.hidden);
+
+  // Neither shipped comment may be treated as fact.
+  ok('both claimed width sets are recorded for comparison',
+     sandbox.ROW1_CLAIMS.length === 2 &&
+     sandbox.ROW1_CLAIMS.every(c => 'd' in c && 'e' in c && 'fgh' in c));
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════════════════════
+// THE STRIP LAYOUT (C2) — the loop takes D1:E1, the readouts move right.
+//
+// ⚠⚠ THE HEADLINE ASSERTION HERE IS E1, AGAIN. In strip mode E1 sits UNDER the loop and H1
+//    shows a mirror of it — if that ever became a MOVE instead of a mirror, ActivityLog.js
+//    would regex an empty cell and the Floor Board heartbeat, the sidebar pulse, /status and
+//    the published tick would all go dark with no error anywhere.
+// ═══════════════════════════════════════════════════════════════════════════════════════
+console.log('\n── STRIP LAYOUT ──');
+{
+  const prev = sandbox.MASTHEAD.strip;
+  const run = (on) => { sandbox.MASTHEAD.strip = on;
+    const sh = fakeSheet(); sandbox._setSystemPulseBannerFormulas(sh); return sh; };
+
+  const off = run(false), on = run(true);
+
+  ok('OFF · F1 keeps the day curve',  /SPARKLINE/.test(off.writes.F1 || ''), off.writes.F1);
+  ok('OFF · H1 is cleared',           off.writes.H1 === '', off.writes.H1);
+  ok('ON  · F1 carries the headline', /all caught up/.test(on.writes.F1 || ''), on.writes.F1);
+  ok('ON  · F1 is NOT the day curve', !/SPARKLINE/.test(on.writes.F1 || ''));
+  ok('ON  · the F1:G1 merge is made', on.touched.has('F1:G1'), [...on.touched].join(','));
+
+  // One source string, written twice — the drift class this project keeps paying for.
+  ok('ON  · F1 is IDENTICAL to D1, not a re-derivation',
+     on.writes.F1 === on.writes.D1, [on.writes.F1, on.writes.D1]);
+
+  // ⚠ THE CONTRACT. E1 must be written in BOTH modes and must keep its parsed format.
+  [['OFF',off],['ON',on]].forEach(([lbl,sh]) => {
+    ok(lbl + '  · E1 is still written',  typeof sh.writes.E1 === 'string' && sh.writes.E1.length > 0);
+    ok(lbl + '  · E1 keeps "h:mm AM/PM"', /h:mm AM\/PM/.test(sh.writes.E1 || ''), sh.writes.E1);
+  });
+
+  // H1 is a MIRROR: it must read the same __SparkData cells E1 reads, never its own source.
+  ok('ON  · H1 mirrors the pulse clock', /h:mm AM\/PM/.test(on.writes.H1 || ''), on.writes.H1);
+  ['A3','A4','A13'].forEach(c => ok('ON  · H1 reads __SparkData!' + c,
+     on.writes.H1.indexOf(c) > -1, on.writes.H1));
+
+  // ⚠⚠ THE FLOOR-OUTAGE GUARD. F2:G2 and H2 hold the Pick ID dropdowns and a floating image
+  //    swallows clicks as well as pixels, so the strip must never be taller than row 1.
+  ok('STRIP is row 1 tall only', sandbox.STRIP.height === 56, sandbox.STRIP.height);
+  ok('STRIP width is the measured D+E', sandbox.STRIP.width === 539, sandbox.STRIP.width);
+  ok('the strip art is versioned in its filename', /strip-v\d+\.gif$/.test(sandbox.STRIP.url),
+     sandbox.STRIP.url);
+  ok('the block art is versioned too', /banner-v\d+\.gif$/.test(sandbox.BANNER.url),
+     sandbox.BANNER.url);
+  ok('removeBanner matches BOTH image families',
+     sandbox.STRIP.url.indexOf(sandbox.STRIP_MARK) > -1 &&
+     sandbox.BANNER.url.indexOf(sandbox.BANNER_MARK) > -1);
+
+  sandbox.MASTHEAD.strip = prev;
+}
 
 console.log('\n' + (fail ? '✗ ' + fail + ' FAILED' : '✓ all') + ' · ' + pass + ' passed\n');
 process.exit(fail ? 1 : 0);

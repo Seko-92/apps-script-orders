@@ -53,8 +53,10 @@ function markField(cols, rows, lines) {
   c.textAlign = 'center';
   c.textBaseline = 'middle';
   const n = lines.length;
-  lines.forEach((ln, i) => {
+  lines.forEach((ln) => {
     c.font = ln.weight + ' ' + ln.size + 'px Oswald';
+    // ⚠ dy is in GRID UNITS, not px — the caller is positioning discs, not type. A two-line
+    //   lockup on a square board needs it; a single wide line on a strip leaves it at 0.
     c.fillText(ln.text, cols / 2 + (ln.dx ? ln.dx / M.PITCH : 0), rows / 2 + (ln.dy || 0));
   });
   const px = c.getImageData(0, 0, cols, rows).data;

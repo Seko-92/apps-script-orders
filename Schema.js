@@ -199,10 +199,19 @@ var Schema = {
   // MASTHEAD LAYOUT (2026-08-30). Row 1 is four zones, bounded by the data table's
   // own column edges — the widths are shared with the table below and cannot move:
   //
-  //   A1:C1 (287px)  the state face, one =IMAGE() picked by __SparkData!A6
-  //   D1    (233px)  the live headline — cellStats, moved here from F1
-  //   E1    (306px)  the pulse — UNMOVED, still carries "h:mm AM/PM"
-  //   F1:H1 (344px)  SPARKLINE of today, from __SparkData!A1:X1
+  //   A1:C1 (260px)  the state face — A 103 · B 70 · C 87
+  //   D1    (232px)  the live headline — cellStats, moved here from F1
+  //   E1    (307px)  the pulse — UNMOVED, still carries "h:mm AM/PM"
+  //   F1:H1 (337px)  SPARKLINE of today — F 130 · G 100 · H 107
+  //
+  // ⚠⚠ THESE FIVE NUMBERS WERE WRONG UNTIL 2026-09-02 and are now MEASURED, not claimed.
+  //    This block used to read 287 / 233 / 306 / 344; diagnoseBanner()'s new row-1 section
+  //    read the live sheet and every one of them was off. banner-mock.js's copy was the
+  //    correct one all along, which is the whole problem with widths living in comments:
+  //    two files disagreed and neither was checkable without opening the spreadsheet.
+  //    Same class as MASTHEAD.dialW claiming 280 against a 260px merge — a constant that
+  //    stayed right in code while the sheet moved underneath it.
+  // ⭐ Re-run diagnoseBanner() rather than trusting this block. It measures.
   cellMasthead:     "A1",   // state face (A1:C1 merge anchor)
   cellStats:        "D1",   // live headline (was F1 until 2026-08-30)
   cellDayCurve:     "F1",   // SPARKLINE of today (F1:H1 merge anchor)

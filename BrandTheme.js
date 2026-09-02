@@ -108,6 +108,16 @@ var MASTHEAD = {
                        //   what it exists for. The art matches the SHEET; the sheet's
                        //   widths belong to the table below and are the operator's.
   restAccent:   "#7e8894",  // the cool tone the rest face wears — shared with its curve
+  // ⭐⭐ THE STRIP LAYOUT (C2). false = row 1 as it has always been: headline D1, pulse E1,
+  //    day curve across the F1:H1 merge. true = the ambient loop takes D1:E1 and the two
+  //    readouts move right — state+split into a NEW F1:G1 merge, pulse alone in H1.
+  // ⚠⚠ THIS ONE DOES WRITE CELLS, unlike the banner. It breaks the F1:H1 merge and retires
+  //    the day curve, so `removeBanner()` is NOT the whole revert here: set strip=false and
+  //    re-run setupMasthead(), which puts the merge and the SPARKLINE back.
+  // ⚠ E1 IS NEVER TOUCHED IN EITHER MODE. It keeps its real formula under the loop and
+  //   ActivityLog.js keeps parsing it; H1 is a MIRROR reading the same __SparkData cells,
+  //   never a relocation of the contract.
+  strip:        true,
   // ⚠ The neutral row-1 ink. D1 and E1 wear it so the face's state word is the ONLY
   //   coloured thing in the row. Three yellows meant nothing led.
   quietInk:     "#e8e8e8",
@@ -3564,7 +3574,10 @@ function _setSystemPulseBannerFormulas(sheet) {
   //   CHAR(10) and the cell grows an empty second line.
   var splitLine = 'IF(' + SD + 'A17="","",CHAR(10)&"eBay "&' + SD + 'A17&" · Direct "&' +
                   SD + 'A18)';
-  sheet.getRange(Schema.cellStats).setFormula(
+  // ⚠⚠ BUILT ONCE, WRITTEN TWICE. In strip mode F1:G1 shows the same headline while D1 sits
+  //    under the loop — two cells computing one value is the drift class this project has
+  //    paid for repeatedly, so there is exactly one source string.
+  var headlineFormula =
     '=IF(' + SD + 'A6="rest","the floor is asleep"&' +
       'IF(' + SD + 'A8>0,CHAR(10)&"waiting: "&' + SD + 'A8,""),' +
     // ⚠⚠ NO NUMBER HERE. The first cut printed "3 past the 3h line" — and the dial's own
@@ -3579,8 +3592,8 @@ function _setSystemPulseBannerFormulas(sheet) {
     // ⚠ 'clear' is deliberately ONE quiet line. The dial already carries the day\'s
     //   figures, and a calm state that fills the banner is how a banner stops being read.
     'IF(' + SD + 'A6="busy","picking"&' + splitLine + ',' +
-    '"all caught up"))))'
-  );
+    '"all caught up"))))';
+  sheet.getRange(Schema.cellStats).setFormula(headlineFormula);
 
   // ---- E1 — THE PULSE (cell deliberately UNMOVED) ------------------------------------
   // ⚠ THE PULSE MUST AGREE WITH THE FACE. Shipped 2026-08-30 saying "🔴 STALE" while the
@@ -3624,10 +3637,40 @@ function _setSystemPulseBannerFormulas(sheet) {
     return 'SPARKLINE(' + SD + range + ',{"charttype","column";"color","' + colour +
            '";"empty","zero"})';
   };
-  sheet.getRange(Schema.cellDayCurve).setFormula(
-    '=IFERROR(IF(' + SD + 'A13,' + spark('A2:X2', MASTHEAD.restAccent) + ',' +
-    spark('A1:X1', BRAND.yellow) + '),"")'
+  if (!MASTHEAD.strip) {
+    // ⚠ Restore the merge first — strip mode leaves F1:G1 merged and H1 loose, and writing
+    //   a SPARKLINE into a cell whose merge no longer spans F:H draws a chart 130px wide.
+    try { sheet.getRange('F1:G1').breakApart(); } catch (e) {}
+    try { sheet.getRange('F1:H1').merge(); } catch (e) {}
+    sheet.getRange('H1').setFormula('');
+    sheet.getRange(Schema.cellDayCurve).setFormula(
+      '=IFERROR(IF(' + SD + 'A13,' + spark('A2:X2', MASTHEAD.restAccent) + ',' +
+      spark('A1:X1', BRAND.yellow) + '),"")'
+    );
+    return;
+  }
+
+  // ---- STRIP MODE — the readouts move right, the loop takes D1:E1 ----------------------
+  // ⭐ F1:G1 carries the SAME headline as D1 (one source string, above). H1 carries a
+  //   compact mirror of the pulse: state word, then the clock beneath it.
+  // ⚠⚠ H1 IS A MIRROR, NOT A MOVE. E1 keeps its own formula and ActivityLog.js keeps
+  //    regex-parsing "h:mm AM/PM" out of E1 — relocating that contract needs a New Version
+  //    and breaks the Floor Board heartbeat in the window either side of the cut. Both read
+  //    the same __SparkData cells, so they cannot disagree.
+  try { sheet.getRange('F1:H1').breakApart(); } catch (e) {}
+  try { sheet.getRange('F1:G1').merge(); } catch (e) {}
+  sheet.getRange('F1').setFormula(headlineFormula);
+  sheet.getRange('H1').setFormula(
+    '=IF(' + SD + 'A4<0,"🔴 OFFLINE",' +
+    'IF(' + SD + 'A13,"⚪ RESTING",' +
+    'IF(' + SD + 'A4<15,"🟢 ALIVE",IF(' + SD + 'A4<60,"🟡 IDLE","🔴 STALE")))' +
+    '&CHAR(10)&TEXT(' + SD + 'A3,"h:mm AM/PM"))'
   );
+  sheet.getRange('F1:H1')
+    .setFontFamily('Oswald').setFontColor(MASTHEAD.quietInk)
+    .setVerticalAlignment('middle').setWrap(false);
+  sheet.getRange('F1').setFontSize(11).setHorizontalAlignment('left');
+  sheet.getRange('H1').setFontSize(10).setHorizontalAlignment('left');
 }
 
 /**
@@ -4312,7 +4355,7 @@ function diagnoseMasthead() {
 /** ⚠ VERSIONED FILENAME. Sheets and Google's fetcher both cache per URL, so replacing the
  *  art at the same name can serve the old bytes indefinitely. Bump to -v2 to change it. */
 var BANNER = {
-  url:    MASTHEAD.baseUrl + 'banner-v2.gif',
+  url:    MASTHEAD.baseUrl + 'banner-v3.gif',
   width:  260,   // ⚠ INTRINSIC to the art — the GIF is drawn 260x121. Not derived from
   height: 121    //   MASTHEAD, because MASTHEAD.dialW is 280 and THE SHEET DISAGREES.
 };
@@ -4334,6 +4377,21 @@ var BANNER = {
  *     silently delete the HQ mark — a live defect in removeMastheadAnimated() that this
  *     deliberately does not copy. */
 var BANNER_MARK = '/mast/banner-';   // every version of the art, v1 · v2 · whatever is next
+var STRIP_MARK  = '/mast/strip-';    // the D1:E1 loop, same versioning rule
+
+/**
+ * ⭐ THE STRIP — the C2 loop over D1:E1, row 1 ONLY.
+ * ⚠⚠ HEIGHT IS ROW 1 ALONE AND THAT IS NOT COSMETIC. F2:G2 and H2 carry the two Pick ID
+ *    dropdowns, and a floating image swallows CLICKS as well as pixels — a strip one row
+ *    taller is a floor outage on printing and picking, not a visual bug.
+ * ⚠ Width is the MEASURED D+E (232+307). installStrip() re-measures and refuses rather than
+ *   trust this, because the 280-vs-260 drift is exactly what a constant hides.
+ */
+var STRIP = {
+  url:    MASTHEAD.baseUrl + 'strip-v1.gif',
+  width:  539,
+  height: 56
+};
 
 function _bannerImages(sheet) {
   var out = [], imgs = sheet.getImages();
@@ -4348,7 +4406,12 @@ function _bannerImages(sheet) {
       //    instead of replacing it. The URL family is stable across versions; the size is not.
       // ⚠ The width test survives only as a fallback for a blob-inserted image (null URL),
       //   and NEVER matches the brand logo, which is capped at colWidth-4 = 103.
-      if (u.indexOf(BANNER_MARK) > -1) { out.push(imgs[i]); continue; }
+      // ⚠ BOTH FAMILIES. removeBanner() is the advertised one-call revert for the images, so
+      //   it has to take the strip down too — otherwise a "reverted" row 1 keeps half the
+      //   loop hanging and the next install stacks a second strip on top of it.
+      if (u.indexOf(BANNER_MARK) > -1 || u.indexOf(STRIP_MARK) > -1) {
+        out.push(imgs[i]); continue;
+      }
       if (!u && Math.round(imgs[i].getWidth()) >= 200) out.push(imgs[i]);
     } catch (e) { /* unreadable — not ours, leave it alone */ }
   }
@@ -4400,6 +4463,57 @@ function installBanner() {
   }
 }
 
+
+/**
+ * Hang the D1:E1 loop. Same shape as installBanner: MEASURE the sheet, refuse on mismatch.
+ * ⚠ Anchored at column 4 (D), row 1. A strip built to a stale width either overhangs into F1
+ *   — covering the headline it exists to sit beside — or leaves a dark gap at the seam, and
+ *   neither is visible until it is on the sheet in front of somebody.
+ */
+function installStrip() {
+  try {
+    var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    var sheet = ss.getSheetByName(MAIN_SHEET_NAME);
+    if (!sheet) return '❌ Main sheet not found.';
+    if (!MASTHEAD.strip) {
+      return '❌ MASTHEAD.strip is false — the readouts are still in D1/E1 and the strip would ' +
+             'cover them.\n   Set it true, clasp push, run setupMasthead(), then run this.';
+    }
+    var m = _rowOneWidths(sheet);
+    if (m.de !== STRIP.width || m.row1 !== STRIP.height) {
+      return '❌ D1:E1 measures ' + m.de + 'x' + m.row1 + ', the art is ' +
+             STRIP.width + 'x' + STRIP.height + '.\n' +
+             '   D=' + m.d + ' E=' + m.e + ' · row 1 = ' + m.row1 + '\n' +
+             '   Refusing. Rebuild the art at ' + m.de + 'x' + m.row1 +
+             ' (dial/make-shuffle.js W= H=) or restore the widths.';
+    }
+    var stale = _bannerImages(sheet).filter(function (im) {
+      var u = ''; try { u = im.getUrl() || ''; } catch (e) {}
+      return u.indexOf(STRIP_MARK) !== -1;
+    });
+    var img = sheet.insertImage(STRIP.url, 4, 1, 0, 0);
+    img.setWidth(STRIP.width).setHeight(STRIP.height);
+    SpreadsheetApp.flush();
+    for (var i = 0; i < stale.length; i++) { try { stale[i].remove(); } catch (e) {} }
+    SpreadsheetApp.flush();
+    return '✅ Strip hung over D1:E1' + (stale.length ? ' (replaced ' + stale.length + ')' : '') +
+           '.\n   ' + STRIP.url +
+           '\n   F1:G1 and H1 carry the readouts. E1 is untouched under the loop.' +
+           '\n   ⚠ HARD-RELOAD the tab — a new over-grid image does not repaint in an open one.';
+  } catch (e) {
+    console.log('installStrip failed: ' + e);
+    return '❌ ' + e;
+  }
+}
+
+/** Both boards, in the order that cannot leave a half-installed row 1. */
+function installRowOne() {
+  var a = installBanner(), b = installStrip();
+  return a + '\n\n' + b +
+    '\n\n⚠ HARD-RELOAD THE TAB. Both images are in the model; neither repaints in a tab that ' +
+    'was already open, and no Apps Script diagnostic can tell installed from visible.';
+}
+
 /** The revert. The =IMAGE() dial underneath was never touched, so it is simply there again. */
 function removeBanner() {
   var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
@@ -4407,7 +4521,10 @@ function removeBanner() {
   var imgs = _bannerImages(sheet), gone = 0;
   for (var i = 0; i < imgs.length; i++) { try { imgs[i].remove(); gone++; } catch (e) {} }
   SpreadsheetApp.flush();
-  return '✅ Removed ' + gone + ' floating banner image(s). The dial is showing again.';
+  return '✅ Removed ' + gone + ' floating image(s) — block and strip both.\n' +
+         '   ⚠ The READOUTS are cells, not images: if MASTHEAD.strip is true, F1:G1 and H1 ' +
+         'still\n     carry the mirrors and the day curve is still retired. Set strip=false ' +
+         'and re-run\n     setupMasthead() to put the F1:H1 merge and the SPARKLINE back.';
 }
 
 /**
@@ -4416,6 +4533,75 @@ function removeBanner() {
  *   installBanner() returns its verdict as a STRING, so a refusal and a success look identical
  *   from the editor. This logs instead. Run it, then read Executions → the log.
  */
+
+/* ═════════════════════════════════════════════════════════════════════════════════════════
+   ROW 1 GEOMETRY — measured, never read off a comment.
+
+   ⚠⚠ TWO FILES CARRY ROW-1 WIDTHS AS COMMENTS AND THEY DISAGREE.
+        banner-mock.js   D 232 · E 307 · F+G+H 337
+        Schema.js note   D 233 · E 306 · F:H     344
+      Both were written from the sheet at some moment; neither was ever re-checked. That is
+      the identical shape that had MASTHEAD.dialW claiming 280 (107+70+103) while A:C
+      actually measured 260 — the dial drew 20px into column D for months and nobody could
+      see it, because a dial is a drawing and not text.
+
+   ⭐ A FLOATING image is far less forgiving than a cell one: a strip built to the wrong
+     width either overhangs the next column or leaves a dark gap at the seam, and neither
+     is visible until it is on the sheet in front of someone. So nothing here reads a width
+     from a constant. It reads the sheet.
+   ═════════════════════════════════════════════════════════════════════════════════════ */
+
+/** What the two comments claim, so the diagnostic can say which — if either — is right. */
+var ROW1_CLAIMS = [
+  { src: 'banner-mock.js', d: 232, e: 307, fgh: 337 },
+  { src: 'Schema.js note', d: 233, e: 306, fgh: 344 }
+];
+
+/** THE SINGLE MEASUREMENT PATH. Everything needing row-1 geometry calls this. */
+function _rowOneWidths(sheet) {
+  var w = [], hidden = [];
+  for (var c = 1; c <= 8; c++) {
+    w[c] = sheet.getColumnWidth(c);
+    // ⚠ A hidden column still REPORTS its stored width while occupying zero pixels on
+    //   screen, so any span crossing one would be drawn too wide. I and J are hidden here
+    //   (the SHIPPING / SHIP COST soft-delete) — outside A:H, so this is cheap insurance
+    //   rather than a live problem. The day one of A:H gets hidden, a silent overhang is
+    //   the failure mode, and this is the only place that would say so.
+    try { if (sheet.isColumnHiddenByUser(c)) hidden.push(_iwColumnLetter(c)); } catch (e) {}
+  }
+  return {
+    a: w[1], b: w[2], c: w[3], d: w[4], e: w[5], f: w[6], g: w[7], h: w[8],
+    abc: w[1] + w[2] + w[3],          // the block — the existing banner
+    de:  w[4] + w[5],                 // C2's loop span
+    fg:  w[6] + w[7],                 // C2's headline cell
+    fgh: w[6] + w[7] + w[8],          // today's day-curve merge / C1's readout
+    dh:  w[4] + w[5] + w[6] + w[7] + w[8],   // B's loop span
+    row1: sheet.getRowHeight(1),
+    row2: sheet.getRowHeight(2),
+    hidden: hidden
+  };
+}
+
+/**
+ * PURE — the candidate strip geometries derived from one measurement. Kept separate from the
+ * reading so the arithmetic is Node-testable; the 280-vs-260 drift was an arithmetic claim
+ * nobody could check without opening the sheet.
+ *
+ * ⚠ EVERY LOOP SPAN IS ROW 1 ONLY (height = row1, never row1+row2). F2:G2 and H2 carry the
+ *   two Pick ID dropdowns, and a floating image swallows CLICKS as well as pixels — a strip
+ *   one row too tall is a floor outage on printing and picking, not a cosmetic problem.
+ */
+function _stripSpans(m) {
+  return {
+    block: { a1: 'A1:C2', w: m.abc, h: m.row1 + m.row2 },
+    c2: { loop: { a1: 'D1:E1', col: 4, w: m.de, h: m.row1 },
+          read: [{ a1: 'F1:G1', w: m.fg }, { a1: 'H1', w: m.h }] },
+    c1: { loop: { a1: 'D1:E1', col: 4, w: m.de, h: m.row1 },
+          read: [{ a1: 'F1:H1', w: m.fgh }] },
+    b:  { loop: { a1: 'D1:H1', col: 4, w: m.dh, h: m.row1 }, read: [] }
+  };
+}
+
 function diagnoseBanner() {
   var L = [];
   function say(s) { L.push(s); console.log(s); }
@@ -4432,6 +4618,47 @@ function diagnoseBanner() {
         ' C=' + sheet.getColumnWidth(3) + '  sum=' +
         (sheet.getColumnWidth(1) + sheet.getColumnWidth(2) + sheet.getColumnWidth(3)) +
         '   expected ' + BANNER.width);
+
+    // ── ROW 1, COLUMN BY COLUMN — the numbers the strip art has to be built to ──────
+    var m = _rowOneWidths(sheet), sp = _stripSpans(m);
+    say('');
+    say('── ROW 1, MEASURED ──');
+    say('  row1=' + m.row1 + '  row2=' + m.row2 + '   (a strip is row 1 ONLY: ' + m.row1 + 'px)');
+    say('  A=' + m.a + ' B=' + m.b + ' C=' + m.c + '        A:C = ' + m.abc + '   ← the block');
+    say('  D=' + m.d + '                    D   = ' + m.d);
+    say('  E=' + m.e + '                    E   = ' + m.e);
+    say('  F=' + m.f + ' G=' + m.g + ' H=' + m.h + '        F:H = ' + m.fgh);
+    say('                            D:H = ' + m.dh);
+    if (m.hidden.length) {
+      say('  ⚠ HIDDEN in A:H → ' + m.hidden.join(',') +
+          '  — a hidden column reports its width but takes zero pixels. Any span crossing');
+      say('    one will be drawn too wide. Re-check before building art.');
+    }
+
+    say('── WHICH COMMENT WAS RIGHT ──');
+    for (var ci = 0; ci < ROW1_CLAIMS.length; ci++) {
+      var cl = ROW1_CLAIMS[ci];
+      var okD = cl.d === m.d, okE = cl.e === m.e, okF = cl.fgh === m.fgh;
+      say('  ' + (okD && okE && okF ? '✅' : '❌') + ' ' + cl.src +
+          '  D ' + cl.d + (okD ? '' : '≠' + m.d) +
+          ' · E ' + cl.e + (okE ? '' : '≠' + m.e) +
+          ' · F:H ' + cl.fgh + (okF ? '' : '≠' + m.fgh));
+    }
+
+    say('── STRIP SPANS ──');
+    say('  C2  loop ' + sp.c2.loop.a1 + ' = ' + sp.c2.loop.w + 'x' + sp.c2.loop.h +
+        '   readout F1:G1 = ' + sp.c2.read[0].w + ' · H1 = ' + sp.c2.read[1].w);
+    say('  C1  loop ' + sp.c1.loop.a1 + ' = ' + sp.c1.loop.w + 'x' + sp.c1.loop.h +
+        '   readout F1:H1 = ' + sp.c1.read[0].w);
+    say('  B   loop ' + sp.b.loop.a1 + ' = ' + sp.b.loop.w + 'x' + sp.b.loop.h);
+    say('── RENDER THE ART AT ──');
+    say('  cd dial');
+    say('  C2:  W=' + sp.c2.loop.w + ' H=' + sp.c2.loop.h +
+        ' COLOURS=4 HOLD=5 NAMES=inlinefour,aisle,wave,ticker,night OUT=strip-c2.gif node make-shuffle.js');
+    say('  B :  W=' + sp.b.loop.w + ' H=' + sp.b.loop.h +
+        ' COLOURS=4 HOLD=5 NAMES=inlinefour,aisle,wave,ticker,night OUT=strip-b.gif  node make-shuffle.js');
+    say('  ⚠ The block stays ' + sp.block.w + 'x' + sp.block.h + ' — do not re-render it to match.');
+    say('');
 
     say('── THE URL, AS APPS SCRIPT SEES IT ──');
     say('  ' + BANNER.url);
@@ -4461,7 +4688,10 @@ function diagnoseBanner() {
     say('── VERDICT ──');
     say(imgs.length === 0
       ? '  Nothing is floating. The insert either threw or was silently rejected — see the URL block.'
-      : '  ' + imgs.length + ' image(s) present. Anything 280 wide IS the banner.');
+      // ⚠ WAS HARDCODED 280 — the exact number this whole session proved wrong. A
+      //   diagnostic that names a stale width teaches you to mis-read its own output.
+      : '  ' + imgs.length + ' image(s) present. Anything ' + BANNER.width +
+        ' wide IS the block; a strip would be ' + m.de + ' or ' + m.dh + ' at ' + m.row1 + ' tall.');
   } catch (e) {
     say('❌ ' + e);
   }

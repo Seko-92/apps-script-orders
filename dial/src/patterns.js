@@ -66,7 +66,11 @@ function ticker(c, cols, rows, phase, text, strip) {
 /** Renders the ticker's text once. Its width is the loop period. */
 function tickerStrip(createCanvas, cols, rows, text) {
   const probe = createCanvas(8, 8).getContext('2d');
-  const size = Math.max(6, Math.round(rows * 0.46));
+  // ⚠⚠ SIZED TO AN ABSOLUTE CEILING, NOT A FRACTION OF ROWS. `rows * 0.46` gave the
+  //    121px block 14-unit letters and the 56px strip 6-unit ones — side by side on the
+  //    same row they read as two different boards, which is exactly what the D1:H1
+  //    render exposed. Clamping to 14 keeps both near the same absolute height.
+  const size = Math.round(Math.min(rows * 0.78, 14));
   probe.font = '600 ' + size + 'px Oswald';
   const tw = Math.ceil(probe.measureText(text).width);
   const gap = Math.round(cols * 0.55);                  // clear space between repeats
@@ -153,4 +157,251 @@ function night(c, cols, rows, phase) {
   }
 }
 
-module.exports = { piston, ticker, tickerStrip, refresh, belt, night };
+
+/** ⭐⭐ THE INLINE ENGINE — the piston, fixed for a long board. `piston` is composed for a
+ *  TALL bore and at 876x56 it renders as one small blob adrift in a wide empty field. An
+ *  inline four is the same mechanism arranged the way a wide canvas actually wants it, and
+ *  it is more on-brand, not less: the cylinders fire in sequence across the strip.
+ *  ⚠ COUNT IS DERIVED FROM WIDTH, so one function serves both the 260px block (2 cylinders)
+ *    and the 876px strip (6). A fixed 4 would leave the block unreadable. */
+function inlineFour(c, cols, rows, phase) {
+  const n = Math.max(1, Math.min(6, Math.round(cols / 38)));
+  const FIRE = [0, 0.5, 0.75, 0.25, 0.125, 0.625];   // 1-3-4-2, extended for 5 and 6
+  const pitch = cols / n;
+  const bore = Math.min(pitch * 0.55, rows * 1.5);
+  const top = rows * 0.10, bottom = rows * 0.72;
+  const crankY = rows * 0.87, crankR = Math.max(2.0, rows * 0.11);
+  c.strokeStyle = '#fff'; c.fillStyle = '#fff';
+  for (let i = 0; i < n; i++) {
+    const cx = pitch * (i + 0.5);
+    const ang = (phase + FIRE[i % FIRE.length]) * TAU;
+    const pinX = cx + Math.sin(ang) * crankR;
+    const pinY = crankY - Math.cos(ang) * crankR;
+    const headY = top + (0.5 - Math.cos(ang) * 0.5) * (bottom - top) * 0.72;
+    c.lineWidth = Math.max(1.3, rows * 0.055);
+    c.beginPath();
+    c.moveTo(cx - bore / 2, top); c.lineTo(cx - bore / 2, bottom);
+    c.moveTo(cx + bore / 2, top); c.lineTo(cx + bore / 2, bottom);
+    c.stroke();
+    c.fillRect(cx - bore / 2, headY, bore, Math.max(2.2, rows * 0.12));
+    c.lineWidth = Math.max(1.5, rows * 0.07);
+    c.beginPath(); c.moveTo(cx, headY + rows * 0.10); c.lineTo(pinX, pinY); c.stroke();
+    c.lineWidth = Math.max(1.2, rows * 0.05);
+    c.beginPath(); c.arc(cx, crankY, crankR, 0, TAU); c.stroke();
+  }
+}
+
+/** ⭐ THE WAVE. The oldest flip-disc demo there is, and the one pattern that cannot care
+ *  about aspect — it is a band, so it fills whatever shape it is given. Cheap insurance in
+ *  a set where three of five patterns turned out to be composition-dependent. */
+function wave(c, cols, rows, phase) {
+  const mid = rows / 2, amp = rows * 0.30;
+  const th = Math.max(2, rows * 0.17);
+  const period = Math.max(18, cols / 3);
+  c.fillStyle = '#fff';
+  for (let x = 0; x < cols; x++) {
+    const y = mid + Math.sin((x / period + phase) * TAU) * amp;
+    c.fillRect(x, y - th / 2, 1.05, th);
+  }
+}
+
+/** ⭐⭐ THE AISLE. The floor's own shape: bays of shelving with a picker walking them,
+ *  pausing at each. A 16:1 field IS an aisle — this is the pattern the strip was asking for.
+ *  ⚠ The shelves are STATIC and only the picker moves. Scrolling both reads as a camera pan
+ *    and the walk stops being legible as a walk. */
+function aisle(c, cols, rows, phase) {
+  const floor = rows - Math.max(2, rows * 0.14);
+  const bays = Math.max(2, Math.round(cols / 30));
+  const pitch = cols / bays, bw = pitch * 0.56;
+  c.fillStyle = '#fff';
+  for (let i = 0; i < bays; i++) {
+    const x = i * pitch + (pitch - bw) / 2;
+    c.fillRect(x, floor - rows * 0.66, bw, Math.max(1.6, rows * 0.17));
+    c.fillRect(x, floor - rows * 0.36, bw, Math.max(1.6, rows * 0.17));
+  }
+  c.fillRect(0, floor, cols, Math.max(1, rows * 0.06));
+  const t = phase * bays, i = Math.floor(t), f = t - i;
+  const ease = f < 0.65 ? f / 0.65 : 1;                 // walk, then dwell at the bay
+  const px = ((i + ease) * pitch + pitch / 2) % cols;
+  // ⚠ THE PICKER HAS TO OUT-READ THE SHELVING. As a single floor-level disc it merged into
+  //   the bays and the walk stopped being legible — the whole point of the pattern. It gets
+  //   a body and a mast so it is unmistakably the one thing moving.
+  const r = Math.max(1.8, rows * 0.15);
+  c.fillRect(px - r, floor - r * 2, r * 2, r * 2);
+  c.fillRect(px - 0.6, floor - r * 3.4, 1.4, r * 1.6);
+}
+
+/** ⭐ THE SWEEP. A bar crosses the board and the discs behind it settle back in a decaying
+ *  trail — the medium showing its own refresh. Wraps, so the loop has no seam. */
+function sweep(c, cols, rows, phase) {
+  // ⚠ ONE HEAD IS NOT ENOUGH ON A LONG BOARD. At cols*0.30 the 876px strip sat ~70% dark
+  //   at every instant and read as broken rather than idling — measured, not guessed. Two
+  //   heads half a board apart keep the field alive at any width; on the short block they
+  //   overlap into one continuous sweep, which is what it looked like before.
+  const tail = Math.max(12, cols * 0.55);
+  c.fillStyle = '#fff';
+  for (let x = 0; x < cols; x++) {
+    let best = -1;
+    for (const off of [0, 0.5]) {
+      let d = ((phase + off) * cols) - x; if (d < 0) d += cols;
+      if (d <= tail) best = best < 0 ? d : Math.min(best, d);
+    }
+    if (best < 0) continue;
+    const k = 1 - best / tail;
+    for (let y = 0; y < rows; y++) {
+      if (best < 1.7 || ((x * 7 + y * 13) % 11) < k * k * 10) c.fillRect(x, y, 1.05, 1.05);
+    }
+  }
+}
+
+
+/* ═════════════════════════════════════════════════════════════════════════════════════════
+   THE QUIET SET — motion you cannot finish reading.
+
+   ⭐ The first seven patterns are REPRESENTATIONAL: a piston, a belt, an aisle. You read one,
+     you understand it, and after that there is nothing left to look at. These four are
+     SYSTEMS instead — simple rules whose output never quite repeats inside the loop, which
+     is the whole difference between something you watch and something you have already seen.
+
+   ⚠⚠ EVERY ONE LOOPS EXACTLY, and that is a hard constraint rather than a nicety: motion
+      built on `phase` must return to its start at phase 1 or the GIF shows a visible jump
+      once a loop. So every frequency here is an INTEGER number of cycles per loop. Nothing
+      is a hand-tuned drift that happens to look close.
+
+   ⚠ AND NOTHING HERE USES A NOISE FIELD. Measured 2026-09-02: `refresh` costs 99 KB alone
+     and +278 KB inside a set, `sweep` +83, because random dither is precisely what LZW
+     cannot pack — and it widens the shared palette, which taxes every OTHER pattern in the
+     same file. Large coherent shapes are both prettier here and very much cheaper.
+   ═════════════════════════════════════════════════════════════════════════════════════ */
+
+/** ⭐⭐ THE PENDULUM WAVE. A row of bobs whose frequencies differ by exactly one cycle per
+ *  loop, so they start in a line, fall out of step into travelling waves, braid through
+ *  every phase relationship there is, and snap back into a line at the end. The oldest
+ *  hypnotic physics demo there is, and it is a perfect fit: the whole point of the piece is
+ *  that it never looks the same twice until the instant it resolves. */
+function pendulum(c, cols, rows, phase) {
+  // ⚠⚠ SPEED LIVES HERE, NOT IN THE FRAME RATE. Bob i runs (base + i) cycles per hold, so
+  //    the COUNT sets the top speed: 24 bobs at base 3 put the fastest at 26 cycles in a 5s
+  //    hold — 5 Hz, which reads as shimmer, not as pendulums. Ten bobs starting at one cycle
+  //    top out near 1.2 Hz and the wave becomes something you can actually follow.
+  const n = Math.max(5, Math.min(16, Math.round(cols / 14)));
+  const base = 1;                       // slowest bob, in whole cycles per loop
+  const mid = rows / 2, amp = rows * 0.38;
+  const r = Math.max(1.4, rows * 0.15);
+  c.fillStyle = '#fff'; c.strokeStyle = '#fff';
+  c.lineWidth = Math.max(1, rows * 0.05);
+  for (let i = 0; i < n; i++) {
+    const x = (i + 0.5) * (cols / n);
+    const y = mid + Math.sin(phase * TAU * (base + i)) * amp;
+    // ⚠ THE STEM IS WHAT MAKES THE WAVE READABLE. A bob on its own is ~2 discs on a
+    //   14-disc-tall strip — it renders as dust and the travelling wave disappears. The
+    //   line back to the rest axis traces the wave shape at grid resolution.
+    c.beginPath(); c.moveTo(x, mid); c.lineTo(x, y); c.stroke();
+    c.beginPath(); c.arc(x, y, r, 0, TAU); c.fill();
+  }
+}
+
+/** ⭐⭐ THE MOIRÉ. Two gratings at slightly different wavelengths drifting against each
+ *  other. Neither is interesting alone; their interference walks slow dark bands across the
+ *  field that belong to neither, and the eye keeps trying to resolve which grating it is
+ *  looking at. Costs almost nothing — the output is large flat regions. */
+function moire(cols, rows, phase) {
+  const t = phase * TAU, f = [];
+  for (let y = 0; y < rows; y++) {
+    const r = [];
+    for (let x = 0; x < cols; x++) {
+      // ⚠ LOW SPATIAL FREQUENCIES. The first cut used 0.55/0.62 and produced a field of
+      //   small blobs — busy, expensive, and the interference was invisible because the
+      //   bands were narrower than the beat between them. Wide gratings, wide beat.
+      const u = Math.sin(x * 0.20 + y * 0.34 + t * 1);
+      const v = Math.sin(x * 0.24 - y * 0.29 - t * 2);
+      r.push(u + v > 0.62);
+    }
+    f.push(r);
+  }
+  return f;
+}
+
+/** ⭐⭐ THE LIQUID. Metaballs — bodies whose fields sum, so they bulge toward each other,
+ *  fuse into one mass and tear apart again. Nothing in the warehouse moves like this, which
+ *  is exactly why it reads as the calm thing on the board rather than another machine.
+ *  ⚠ Body count derives from ASPECT, not width: a long strip needs them spread along it or
+ *    four balls sit in a puddle at the left with 700px of dark to their right. */
+function liquid(cols, rows, phase) {
+  const t = phase * TAU;
+  // ⚠⚠ THE BODIES HAVE TO MEET OR THIS IS JUST DOTS. Metaballs are only interesting where
+  //    their fields overlap — the merge and the tear ARE the pattern. On a 14-disc-tall
+  //    strip that means radii near the full height and centres about a radius apart, which
+  //    reads as one undulating band that pinches and reconnects rather than as marbles.
+  // ⚠⚠ RADIUS AND COUNT MUST BE DERIVED FROM EACH OTHER, and the two earlier cuts each got
+  //    this wrong in opposite directions: count from ASPECT and radius from HEIGHT means the
+  //    strip gets 3 bodies too far apart to ever touch (marbles) while the block gets 3
+  //    bodies so large they fuse into a filled rectangle. Bodies merge when their centres
+  //    sit about two radii apart, so radius is capped by height and the COUNT follows from
+  //    it — one rule that holds at 2:1 and at 16:1.
+  const rad = rows * 0.45;
+  const n = Math.max(2, Math.min(12, Math.round(cols / (rad * 2.1))));
+  const pts = [];
+  for (let i = 0; i < n; i++) {
+    const u = (i + 0.5) / n;
+    const fx = 1 + (i % 3), fy = 1 + ((i * 2) % 3);     // integer → exact loop
+    pts.push({
+      x: (u + 0.075 * Math.sin(t * fx + i)) * cols,
+      y: (0.5 + 0.20 * Math.sin(t * fy + i * 1.7)) * rows,
+      r: rad * (1 + 0.16 * Math.sin(t * 2 + i))
+    });
+  }
+  const f = [];
+  for (let y = 0; y < rows; y++) {
+    const row = [];
+    for (let x = 0; x < cols; x++) {
+      let sum = 0;
+      for (let i = 0; i < n; i++) {
+        // ⚠⚠ NO ASPECT SCALING HERE, AND THE FIRST CUT'S WAS A NO-OP ANYWAY: it multiplied
+        //    (rows/cols) BY (cols/rows), which cancels to 1 and merely divided dx by 3.2 —
+        //    every body came out 3.2x too wide and the whole strip fused into a solid slab.
+        //    Discs are square, so grid units already ARE display units. Circles stay circles.
+        const dx = x - pts[i].x, dy = y - pts[i].y;
+        sum += (pts[i].r * pts[i].r) / (dx * dx + dy * dy + 0.7);
+      }
+      row.push(sum > 1.25);
+    }
+    f.push(row);
+  }
+  return f;
+}
+
+/** ⭐⭐ THE RIPPLE. A few still points on the board each send out expanding rings; where the
+ *  rings cross they reinforce and cancel. Reads as rain on water — and because the sources
+ *  sit at irrational spacings relative to one another, the interference figure between them
+ *  is different at every moment of the loop. */
+function ripple(cols, rows, phase) {
+  const t = phase * TAU, f = [];
+  const src = [
+    { x: cols * 0.14, y: rows * 0.32, k: 2 },
+    { x: cols * 0.47, y: rows * 0.70, k: 1 },
+    { x: cols * 0.79, y: rows * 0.28, k: 3 }
+  ];
+  // ⚠ NO HORIZONTAL STRETCH — discs are square, so a circle in grid units is already a
+  //   circle on screen. The first cut multiplied dx by 3.0 and the rings came out as wide
+  //   blobs. On a 14-row strip a real ring mostly shows as its vertical slice, which is
+  //   the sonar look and is the point.
+  for (let y = 0; y < rows; y++) {
+    const r = [];
+    for (let x = 0; x < cols; x++) {
+      let a = 0;
+      for (let i = 0; i < src.length; i++) {
+        const dx = x - src[i].x, dy = y - src[i].y;
+        const d = Math.sqrt(dx * dx + dy * dy);
+        a += Math.sin(d * 0.42 - t * src[i].k) / (1 + d * 0.055);
+      }
+      r.push(a > 0.62);          // a NARROW band around the crest → thin rings, not fill
+    }
+    f.push(r);
+  }
+  return f;
+}
+
+module.exports = { piston, ticker, tickerStrip, refresh, belt, night,
+                   inlineFour, wave, aisle, sweep,
+                   pendulum, moire, liquid, ripple };

@@ -24,6 +24,11 @@ const R     = 1.62;         // disc radius
 
 const ON_HI  = '#f4f0e4', ON_LO = '#cdc7b6';
 const OFF_HI = '#26221c', OFF_LO = '#15120f';
+/* ⭐ THE ACCENT DISC. A field cell may be 0 (off), 1 (lit) or 2 (lit in the brand's own
+   yellow) — and because 2 is truthy, every existing caller that treats the field as boolean
+   keeps working untouched. The tone is the LOGO'S #ffdc00, which is a shade warmer than
+   BRAND.yellow #ffd400; the mark should wear its own colour, not the sheet's approximation. */
+const ACC_HI = '#ffdc00', ACC_LO = '#d9ab00';
 
 /**
  * @param compose  (c, cols, rows) — draw the composition at GRID resolution
@@ -71,9 +76,10 @@ function drawMatrix(ctx, o) {
         ctx.fillStyle = 'rgba(0,0,0,0.55)';
         ctx.fill();
       }
+      const acc = on === 2;
       const g = ctx.createLinearGradient(0, cy - r, 0, cy + r);
-      g.addColorStop(0, on ? ON_HI : OFF_HI);
-      g.addColorStop(1, on ? ON_LO : OFF_LO);
+      g.addColorStop(0, acc ? ACC_HI : (on ? ON_HI : OFF_HI));
+      g.addColorStop(1, acc ? ACC_LO : (on ? ON_LO : OFF_LO));
       ctx.beginPath();
       ctx.arc(cx, cy, r, 0, Math.PI * 2);
       ctx.fillStyle = g;
