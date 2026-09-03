@@ -268,6 +268,41 @@
       padding: 3px 8px; border-radius: 3px; display: inline-block; margin-bottom: 8px;
     }
 
+    /* ── WORKING STATE ───────────────────────────────────────────────────────────
+       Adding a kit costs a Master Inventory read (~600k cells) plus the Zoho mirror,
+       so it is seconds, not milliseconds. Before this the only feedback was a line in
+       the FOOTER, and the kit card did not appear until the answer came back — so the
+       picker clicked Add and watched nothing happen. Now the card lands INSTANTLY from
+       the registry data the page already holds, wearing a spinner, and fills in. */
+    @keyframes kb-spin { to { transform: rotate(360deg); } }
+    .spin {
+      display: inline-block; width: 12px; height: 12px;
+      border: 2px solid rgba(0,0,0,0.16);
+      border-top-color: var(--yellow-deep);
+      border-radius: 50%;
+      animation: kb-spin 0.7s linear infinite;
+      vertical-align: -2px;
+    }
+    .btn .spin { border-top-color: var(--ink); margin-right: 6px; }
+
+    .kit-card.pending { border-left-color: var(--rule); background: var(--paper); }
+    .kit-card.pending .kit-sku { color: var(--ink-soft); }
+    .kit-wait {
+      display: flex; align-items: center; gap: 7px;
+      margin-top: 7px; font-size: 11.5px; color: var(--mute);
+    }
+
+    /* Kits already on screen stay READABLE while a refresh is in flight — dimming
+       them to nothing would make a qty tweak look like the card had been dropped. */
+    #kitHost.working .kit-card:not(.pending) { opacity: 0.55; transition: opacity 120ms; }
+    #sheetHost.working { opacity: 0.4; transition: opacity 120ms; }
+
+    .sheet-wait {
+      display: flex; align-items: center; gap: 9px;
+      padding: 20px 12px; color: var(--mute); font-size: 12.5px;
+      border: 1px dashed var(--rule); border-radius: 5px;
+    }
+
     .empty-state {
       text-align: center; color: var(--mute); font-size: 12.5px;
       padding: 26px 10px; border: 1px dashed var(--rule); border-radius: 5px;
@@ -324,7 +359,7 @@
         <span class="qty-label">Build</span>
         <input type="number" class="add-qty" id="addQty" min="1" max="99" value="1"
                onkeydown="onAddKey(event)">
-        <button class="btn btn-primary" onclick="onAdd()">+ Add kit</button>
+        <button class="btn btn-primary" id="addBtn" onclick="onAdd()">+ Add kit</button>
       </div>
       <div class="hint" id="addHint">
         Add one kit or several. Shared components are merged into a single gather line,
@@ -449,12 +484,16 @@
       }
       busy = true;
       document.getElementById('printBtn').disabled = true;
-      document.getElementById('summary').textContent = 'Working out the parts…';
+      setWorking(true);
 
+      // ⚠⚠ SEND THE KEY WHENEVER WE HAVE AN OPINION, EVEN IF THE LIST IS EMPTY.
+      //   Dropping an empty array made the server read "this kit is untouched" and
+      //   re-apply the bundled-parts default — so re-checking a bundled component
+      //   silently did not stick. Presence of the key IS the opinion; see the
+      //   matching note in KitBuild.js.
       var payload = { kits: selected.slice(), excluded: {} };
       Object.keys(excluded).forEach(function (k) {
-        var list = Object.keys(excluded[k] || {});
-        if (list.length) payload.excluded[k] = list;
+        payload.excluded[k] = Object.keys(excluded[k] || {});
       });
 
       google.script.run
@@ -463,14 +502,70 @@
         .getKitBuildPlan(payload);
     }
 
+    /* Show that the system is doing something. The expensive part is server-side
+       (a full Master Inventory read plus the Zoho mirror), so this is seconds. */
+    function setWorking(on) {
+      document.getElementById('kitHost').classList.toggle('working', on);
+      document.getElementById('sheetHost').classList.toggle('working', on);
+
+      var btn = document.getElementById('addBtn');
+      if (btn) {
+        btn.disabled = on;
+        btn.innerHTML = on ? '<span class="spin"></span>Reading stock…' : '+ Add kit';
+      }
+
+      var sum = document.getElementById('summary');
+      if (on) {
+        sum.innerHTML = '<span class="spin"></span> Reading locations and stock…';
+      }
+
+      if (on) renderPendingKits();
+    }
+
+    /* Draw a card for any kit we do not have a plan for YET, straight from the
+       registry list the page was handed at open. The picker sees the kit land the
+       instant they click Add; the components fill in when the server answers. */
+    function renderPendingKits() {
+      var known = {};
+      if (plan) (plan.kits || []).forEach(function (k) { known[String(k.kitSku).toLowerCase()] = true; });
+
+      var host = document.getElementById('kitHost');
+      var pendingHtml = '';
+      selected.forEach(function (sel) {
+        if (known[String(sel.sku).toLowerCase()]) return;
+        var meta = kitMeta(sel.sku);
+        pendingHtml += '<div class="kit-card pending">'
+          +   '<div class="kit-head">'
+          +     '<span class="kit-sku">' + esc(sel.sku) + '</span>'
+          +     '<span class="kit-name">' + esc(meta ? meta.name : '') + '</span>'
+          +     (meta ? '<span class="kit-pill ' + esc(meta.type) + '">' + esc(meta.type) + '</span>' : '')
+          +     '<span class="qty-label">build</span>'
+          +     '<span class="kit-sku">' + sel.qty + '</span>'
+          +   '</div>'
+          +   '<div class="kit-wait"><span class="spin"></span>'
+          +     'reading components, shelves and stock…</div>'
+          + '</div>';
+      });
+      if (pendingHtml) host.insertAdjacentHTML('beforeend', pendingHtml);
+
+      // First kit of the session — replace the empty state rather than leave it.
+      if (!plan) {
+        document.getElementById('sheetHost').innerHTML =
+          '<div class="sheet-wait no-print"><span class="spin"></span>'
+        + 'Working out the gather list…</div>';
+      }
+    }
+
     function onPlanFail(err) {
       busy = false;
+      setWorking(false);
       document.getElementById('summary').textContent =
         'Could not build the list — ' + (err && err.message ? err.message : err);
     }
 
     function onPlan(res) {
       busy = false;
+      setWorking(false);
       if (!res || !res.ok) {
         onPlanFail({ message: (res && res.reason) || 'no response' });
         return;

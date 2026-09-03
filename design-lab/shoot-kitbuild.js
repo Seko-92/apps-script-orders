@@ -70,7 +70,11 @@ const html = fs.readFileSync(SRC, 'utf8')
     const chain = { _s: null, _f: null,
       withSuccessHandler(f) { this._s = f; return this; },
       withFailureHandler(f) { this._f = f; return this; },
-      getKitBuildPlan() { const s = this._s; setTimeout(() => s && s(window.__PLAN), 5); }
+      getKitBuildPlan() { const s = this._s;
+        // ⚠ A REAL delay. The live call reads ~600k MI cells plus the Zoho mirror, so
+        //   it is seconds — an instant stub would render a loading state that nobody
+        //   could ever see, which is how a "working" indicator ships broken.
+        setTimeout(() => s && s(window.__PLAN), window.__DELAY || 5); }
     };
     window.google = { script: { run: chain, host: { close(){} } } };
   }, PLAN);
@@ -85,6 +89,26 @@ const html = fs.readFileSync(SRC, 'utf8')
   await p.waitForTimeout(400);
 
   await p.screenshot({ path: path.join(OUT, 'kitbuild-screen.png'), fullPage: true });
+
+  // ── THE WORKING STATE — add a third kit and catch it mid-flight.
+  await p.evaluate(() => { window.__DELAY = 4000; });
+  await p.evaluate(() => {
+    document.getElementById('addSku').value = '171018';
+    document.getElementById('addQty').value = '4';
+    onAdd();
+  });
+  await p.waitForTimeout(500);
+  await p.screenshot({ path: path.join(OUT, 'kitbuild-working.png'), fullPage: true });
+  const working = await p.evaluate(() => ({
+    pendingCards: document.querySelectorAll('.kit-card.pending').length,
+    spinners:     document.querySelectorAll('.spin').length,
+    addDisabled:  document.getElementById('addBtn').disabled,
+    addLabel:     document.getElementById('addBtn').textContent.trim(),
+    dimmed:       document.getElementById('kitHost').classList.contains('working')
+  }));
+  console.log('WORKING STATE: ' + JSON.stringify(working));
+  await p.evaluate(() => { window.__DELAY = 5; });
+  await p.waitForTimeout(4200);
 
   await p.emulateMedia({ media: 'print' });
   await p.waitForTimeout(150);

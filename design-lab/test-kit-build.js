@@ -253,6 +253,23 @@ soft('F', () => {
     r3.gather.map(g => g.sku).indexOf('162198') !== -1, true);
   t('F5 ⭐ …which is why the modal seeds the bundled skus into `excluded` on first plan',
     /seedBundled|bundled[\s\S]{0,80}excluded\[/.test(read('KitBuildModal.html')), true);
+
+  // ⚠⚠ AND THE OTHER HALF OF THE SAME CONTRACT (bug found 2026-09-03).
+  //   The client built its payload with `if (list.length) payload.excluded[k] = list`,
+  //   so an EMPTY list was dropped — the server then read "untouched" and re-applied
+  //   the bundled default. Re-checking a bundled part silently did not stick.
+  //   Presence of the key IS the opinion, so the key must always be sent.
+  const MODALSRC = read('KitBuildModal.html')
+    .replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+  t('F6 ⚠ the client never drops an EMPTY exclusion list',
+    /if\s*\(list\.length\)\s*payload\.excluded/.test(MODALSRC), false);
+  t('F7 ⭐ …it sends the key for every kit it has an opinion about',
+    /payload\.excluded\[k\]\s*=\s*Object\.keys/.test(MODALSRC), true);
+
+  // Prove the server side does the right thing with that empty list.
+  const r4 = B.getKitBuildPlan({ kits: [{ sku:'158679', qty:1 }], excluded: { '158679': [] } });
+  t('F8 ⭐ an empty list re-includes the bundled part — the re-check sticks',
+    r4.gather.map(g => g.sku).sort(), ['155394','162198','167517','171018']);
 });
 
 // ============================================================================
