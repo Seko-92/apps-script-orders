@@ -117,6 +117,26 @@ const sandbox = {
 };
 let BOUNDARY = -1, SENT = 0, BATCHES = [];
 vm.createContext(sandbox);
+
+// ⚠ THE REAL kitComponentTag, LIFTED FROM Helpers.js — never a re-typed copy.
+//   _igIsKitRow calls it to spot a kit-expansion component, and it is wrapped in a
+//   try/catch that degrades to "not a kit row" when Helpers.js is absent. So a sandbox
+//   without it would make every kit assertion below pass VACUOUSLY while the exemption
+//   did nothing. Same rule as the column-addressed fake range above: a stub cheaper than
+//   the real thing tests nothing.
+(function injectKitComponentTag() {
+  const src = read('Helpers.js');
+  const i = src.indexOf('function kitComponentTag');
+  if (i === -1) throw new Error('kitComponentTag not found in Helpers.js — the identity ' +
+                                'guard\'s kit exemption cannot be tested');
+  let depth = 0, started = false, end = -1;
+  for (let j = i; j < src.length; j++) {
+    if (src[j] === '{') { depth++; started = true; }
+    else if (src[j] === '}') { depth--; if (started && depth === 0) { end = j + 1; break; } }
+  }
+  vm.runInContext(src.slice(i, end), sandbox, { filename: 'Helpers.js#kitComponentTag' });
+})();
+
 vm.runInContext(read('IdentityGuard.js'), sandbox, { filename: 'IdentityGuard.js' });
 
 // OrderService is loaded only for _mrClassify. It is huge and full of Sheets calls, but
@@ -277,6 +297,59 @@ soft('D', () => {
   data = [row(SKU, REAL_SO, 'PENDING'), div, row('◈ SKU', 'SALES ORDER', 'STATUS')];
   scan = G._igScanRows(data, 5);
   t('D8 divider + DIRECT header are skipped', scan.rows.length, 1);
+
+  // ── THE KIT TWIN (2026-09-03) ──────────────────────────────────────────────────────
+  // Kit components inherit the PARENT's sales order, so one order legitimately carries
+  // the same pair twice in three normal situations. All three went red before this.
+
+  // (a) a component SKU that is ALSO a loose line on the same order
+  data = [row(SKU, REAL_SO, 'PENDING'),
+          row(SKU, REAL_SO, 'PENDING', '↳ from KIT-158679')];
+  scan = G._igScanRows(data, -1);
+  t('D9 ⭐ the kit component is excluded from the count',
+    scan.pairCounts[G._igSig(REAL_SO, SKU)], 1);
+  t('D10 …so the loose line does not flag',
+    G._igVerdict(scan.rows[0], known(), scan.pairCounts).verdict, 'ok');
+
+  // (b) two kits on one order sharing a component — BOTH rows are kit rows
+  data = [row(SKU, REAL_SO, 'PENDING', '↳ from KIT-158679'),
+          row(SKU, REAL_SO, 'PENDING', '↳ from KIT-217205')];
+  scan = G._igScanRows(data, -1);
+  t('D11 two kits sharing a part count zero, not two',
+    scan.pairCounts[G._igSig(REAL_SO, SKU)] || 0, 0);
+  t('D12 …and neither flags',
+    G._igVerdict(scan.rows[0], known(), scan.pairCounts).verdict, 'ok');
+
+  // (c) the CUSTOM-ADD tag shape. Matching only `↳ from KIT-` is a documented live bug
+  //     class here — it cost the board's done/total and _kitParentFollowUp once each.
+  data = [row(SKU, REAL_SO, 'PENDING'),
+          row(SKU, REAL_SO, 'PENDING', '↳ added to KIT-158679')];
+  scan = G._igScanRows(data, -1);
+  t('D13 ⚠ the `added to KIT-` shape is exempted too',
+    scan.pairCounts[G._igSig(REAL_SO, SKU)], 1);
+
+  // (d) _flagDirectRow PREPENDS its warning as its own first LINE and cascades onto a
+  //     removed kit's components, so the tag sits on line 2. kitComponentTag survives it.
+  data = [row(SKU, REAL_SO, 'PENDING'),
+          row(SKU, REAL_SO, 'PENDING', '\u26a0\ufe0f REMOVED IN ZOHO 9/3\n\u21b3 from KIT-158679')];
+  scan = G._igScanRows(data, -1);
+  t('D14 ⚠ a Zoho flag line above the tag does not break the exemption',
+    scan.pairCounts[G._igSig(REAL_SO, SKU)], 1);
+
+  // (e) THE REGRESSION NET — the fix must stay surgical.
+  data = [row(SKU, REAL_SO, 'PENDING'), row(SKU, REAL_SO, 'PENDING')];
+  scan = G._igScanRows(data, -1);
+  t('D15 ⭐ two plain copied rows STILL count twice',
+    scan.pairCounts[G._igSig(REAL_SO, SKU)], 2);
+  t('D16 …and still flag',
+    G._igVerdict(scan.rows[0], known(), scan.pairCounts).verdict, 'duplicate');
+
+  // (f) a human note that merely mentions a kit is NOT a component row
+  data = [row(SKU, REAL_SO, 'PENDING'),
+          row(SKU, REAL_SO, 'PENDING', 'customer asked about the kit')];
+  scan = G._igScanRows(data, -1);
+  t('D17 a note that is not a kit TAG does not earn the exemption',
+    scan.pairCounts[G._igSig(REAL_SO, SKU)], 2);
 });
 
 
@@ -356,6 +429,21 @@ soft('G', () => {
     /IDENTITY_GUARD\.deltaNoteToken/.test(body), true);
   t('G6 …and that token is the string ZohoPull actually writes',
     read('ZohoPull.js').indexOf(G.IDENTITY_GUARD.deltaNoteToken) !== -1, true);
+
+  // ── THE KIT TOKEN — same drift risk, one file over (2026-09-03) ────────────────────
+  // A CF formula cannot call a function, so the SHEET matches a wildcard while the
+  // SCRIPT uses kitComponentTag(). These two assertions are what keep them in step.
+  t('G6a ⭐ the kit token comes from IDENTITY_GUARD too, never a literal',
+    /IDENTITY_GUARD\.kitNoteToken/.test(body), true);
+  t('G6b …and BOTH tag shapes carry that token',
+    '\u21b3 from KIT-158679'.indexOf(G.IDENTITY_GUARD.kitNoteToken) !== -1 &&
+    '\u21b3 added to KIT-158679'.indexOf(G.IDENTITY_GUARD.kitNoteToken) !== -1, true);
+  t('G6c …and KitExpansion really writes a tag carrying it',
+    read('KitExpansion.js').indexOf('\u21b3 from KIT-') !== -1, true);
+  t('G6d ⚠ the script side uses kitComponentTag, NOT a raw prefix test',
+    /kitComponentTag\(note\)/.test(read('IdentityGuard.js')), true);
+  t('G6e ⭐ DUPLICATED subtracts BOTH twins — three COUNTIFS, two of them minus',
+    /pairCount \+ '-' \+ deltaCount \+ '-' \+ kitCount/.test(body.replace(/\s+/g, ' ')), true);
   const rulesFn = (bt.match(/function _buildIdentityRules\(sheet\)\s*\{[\s\S]*?\n\}/) || [''])[0];
   t('G7 it paints only the two identity columns',
     /Schema\.cols\.SKU/.test(rulesFn) && /Schema\.cols\.SALES_ORDER/.test(rulesFn) &&

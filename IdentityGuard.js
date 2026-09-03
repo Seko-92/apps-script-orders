@@ -108,6 +108,22 @@ var IDENTITY_GUARD = {
   // _buildIdentityRules. There is a drift test.
   deltaNoteToken: "delta from Zoho",
 
+  // The tag Kit Expansion writes on every component row it inserts. Serves exactly the
+  // same purpose as deltaNoteToken above: a LEGITIMATE second row carrying a pair that is
+  // already on the order, which DUPLICATED would otherwise accuse.
+  //
+  // ⚠ WHY THIS IS NEEDED. Component rows inherit the PARENT's sales order, so one order
+  //   legitimately carries the same pair twice whenever: the customer ordered two of the
+  //   same kit; two different kits on the order share a component; or a component SKU is
+  //   also a loose line on that order. All three are normal and all three went red.
+  //
+  // ⚠ MUST stay in step with the COUNTIFS criterion inside _buildIdentityRules
+  //   (BrandTheme.js) — a CF formula cannot call a function, so the sheet matches on this
+  //   wildcard while the script side uses kitComponentTag(). There is a drift test.
+  //   The token is deliberately loose ("KIT-") because it has to catch BOTH tag shapes,
+  //   `↳ from KIT-` and `↳ added to KIT-`.
+  kitNoteToken: "KIT-",
+
   alertedMax: 60,               // prune; a live-issue list, not a history
 
   // GONE · UNKNOWN · DUPLICATED · QTY. Kept here so the diagnostics cannot drift from
@@ -183,13 +199,38 @@ function _igIsDeltaRow(note) {
 
 
 /**
+ * Does this row's NOTE mark it as a kit-expansion component — the OTHER legitimate twin?
+ *
+ * ⚠ USES kitComponentTag(), NOT a raw prefix test. That is the single canonical parser
+ *   for this tag (Helpers.js). It reads BOTH shapes — `↳ from KIT-` and `↳ added to KIT-`
+ *   — and it survives a Zoho ⚠ flag line sitting above the tag. Matching only the first
+ *   shape is a documented live bug class in this codebase, found twice in two days:
+ *   a custom-added part vanished from the board's done/total, and _kitParentFollowUp
+ *   flipped a parent to SHIPPED with a component still open.
+ */
+function _igIsKitRow(note) {
+  try { return !!kitComponentTag(note); }
+  catch (e) { return false; }   // Helpers.js absent (a bare test sandbox) → judge normally
+}
+
+
+/**
  * Reduce a block of All Orders values to the rows worth judging, and count how many
  * times each identity pair appears. PURE.
  *
- * ⚠ DELTA ROWS ARE EXCLUDED FROM THE COUNT, NOT FROM THE SCAN. Zoho Pull's insert_delta
- *   legitimately creates a second row carrying the same pair, and the note it writes
- *   exists precisely to tell that apart from a duplicate. Counting only the non-delta
- *   rows means a delta twin reads 1 and stays quiet, while a copied row reads 2.
+ * ⚠ DELTA AND KIT ROWS ARE EXCLUDED FROM THE COUNT, NOT FROM THE SCAN. Both are cases
+ *   where a second row legitimately carries a pair already on the order, and both write a
+ *   note that exists precisely to say so. Counting only the un-noted rows means the twin
+ *   reads 1 and stays quiet, while a genuinely copied row reads 2.
+ *     · Zoho Pull's insert_delta  — the same line re-quantified
+ *     · Kit expansion             — components inherit the PARENT's sales order, so one
+ *       order carries a pair twice whenever the customer ordered two of the same kit, two
+ *       kits on the order share a component, or a component is also a loose line. All
+ *       three are normal, and all three went red before 2026-09-03.
+ *
+ * ⚠ THE ACCEPTED COST, same one the delta exemption already pays: an ACCIDENTAL double
+ *   expansion of one kit no longer reads as duplicated either. That case has its own
+ *   warning at expansion time — _countExistingKitComponents (KitExpansion.js).
  *
  * @returns {{rows: Array, pairCounts: Object}}
  */
@@ -214,7 +255,7 @@ function _igScanRows(data, boundary) {
                   qtySig: _igQtySig(so, sku, qty) };
     rows.push(entry);
 
-    if (sku && so && !_igIsDeltaRow(note)) {
+    if (sku && so && !_igIsDeltaRow(note) && !_igIsKitRow(note)) {
       pairCounts[entry.sig] = (pairCounts[entry.sig] || 0) + 1;
     }
   }

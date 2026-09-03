@@ -1,0 +1,701 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@200;300;500;600;700&family=Roboto+Mono:wght@400;500;700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+  <style>
+    /* =================================================================================
+       KIT BUILD — pick kits, review parts, print a gather sheet.
+
+       ONE DOCUMENT, TWO FACES. The selection UI and the printed sheet live in the same
+       page; @media print hides the controls. That buys a real print PREVIEW (the
+       customer pick list has none — it prints blind on load) and avoids the open
+       question of whether an HtmlService modal can replace itself with a second
+       showModalDialog.
+
+       ⚠ IT DOES NOT AUTO-PRINT. PrintFulfillment.html fires window.print() on load
+         because by then every decision is made. Here the picker is still choosing, so
+         printing is on the button and nowhere else.
+
+       Brand tokens and the @page rules are the SAME values PrintFulfillment.html uses —
+       one printed language across both sheets.
+       ================================================================================= */
+
+    :root {
+      --ink:        #1a1a1a;
+      --ink-soft:   #434343;
+      --paper:      #fdfcf6;
+      --paper-cool: #ffffff;
+      --paper-warm: #fff8e7;
+      --rule:       #d8d4c4;
+      --mute:       #6a6a64;
+      --yellow:     #ffd400;
+      --yellow-soft:#fff4b0;
+      --yellow-deep:#b88a00;
+      --red:        #b71c1c;
+      --red-soft:   #ffe5e5;
+      --slate:      #607d8b;
+      --slate-soft: #eceff1;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html, body { height: 100%; }
+    body {
+      font-family: 'Roboto', 'Segoe UI', system-ui, sans-serif;
+      color: var(--ink);
+      background: var(--paper);
+      font-size: 13px;
+      line-height: 1.45;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ── HEADER ─────────────────────────────────────────────────────────────────── */
+    .hdr {
+      background: var(--ink);
+      color: #fff;
+      padding: 10px 16px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      flex: none;
+    }
+    .hdr-title {
+      font-family: 'Oswald', sans-serif;
+      font-size: 16px; font-weight: 700;
+      letter-spacing: 0.14em; text-transform: uppercase;
+      color: var(--yellow);
+    }
+    .hdr-sub {
+      font-family: 'Roboto Mono', monospace;
+      font-size: 11px; color: #c9c5b6;
+    }
+    .hdr-spacer { flex: 1; }
+    .hdr-picker {
+      font-family: 'Oswald', sans-serif;
+      font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase;
+      color: #c9c5b6;
+    }
+    .hdr-picker b { color: #fff; }
+
+    /* ── BODY ───────────────────────────────────────────────────────────────────── */
+    .body { flex: 1; min-height: 0; overflow-y: auto; padding: 14px 16px 0; }
+
+    .panel {
+      border: 1px solid var(--rule);
+      border-radius: 5px;
+      background: var(--paper-cool);
+      padding: 12px 14px;
+      margin-bottom: 12px;
+    }
+    .panel-title {
+      font-family: 'Oswald', sans-serif;
+      font-size: 11px; font-weight: 700;
+      letter-spacing: 0.16em; text-transform: uppercase;
+      color: var(--ink-soft);
+      margin-bottom: 9px;
+    }
+
+    /* ── the kit picker ─────────────────────────────────────────────────────────── */
+    .add-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .add-sku {
+      flex: 1; min-width: 190px;
+      font-family: 'Roboto Mono', monospace; font-size: 13px;
+      padding: 7px 9px; border: 1px solid var(--rule); border-radius: 3px;
+      background: var(--paper-cool); color: var(--ink);
+    }
+    .add-qty {
+      width: 70px; text-align: center;
+      font-family: 'Roboto Mono', monospace; font-size: 14px; font-weight: 700;
+      padding: 7px 6px; border: 1px solid var(--rule); border-radius: 3px;
+    }
+    .add-sku:focus, .add-qty:focus {
+      outline: none; border-color: var(--yellow);
+      box-shadow: 0 0 0 2px rgba(255,212,0,0.35);
+    }
+    .qty-label {
+      font-family: 'Oswald', sans-serif; font-size: 10px;
+      letter-spacing: 0.12em; text-transform: uppercase; color: var(--mute);
+    }
+    .btn {
+      font-family: 'Oswald', sans-serif; font-size: 12px; font-weight: 600;
+      letter-spacing: 0.1em; text-transform: uppercase;
+      padding: 8px 14px; border-radius: 3px; cursor: pointer;
+      border: 1px solid var(--ink); background: var(--paper-cool); color: var(--ink);
+    }
+    .btn:hover { background: var(--paper-warm); }
+    .btn-primary { background: var(--yellow); border-color: var(--yellow-deep); }
+    .btn-primary:hover { background: #ffe14d; }
+    .btn-primary:disabled { background: #ececec; border-color: #d0d0d0; color: #9a9a9a; cursor: not-allowed; }
+    .btn-ghost { border-color: var(--rule); color: var(--ink-soft); }
+
+    .hint { font-size: 11.5px; color: var(--mute); margin-top: 8px; }
+
+    /* ── selected kit cards ─────────────────────────────────────────────────────── */
+    .kit-card {
+      border: 1px solid var(--rule); border-left: 3px solid var(--yellow);
+      border-radius: 4px; background: var(--paper-cool);
+      padding: 10px 12px; margin-bottom: 9px;
+    }
+    .kit-card.bad { border-left-color: var(--red); background: var(--red-soft); }
+    .kit-head { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
+    .kit-sku {
+      font-family: 'Roboto Mono', monospace; font-size: 14px; font-weight: 700;
+    }
+    .kit-name { font-size: 12.5px; color: var(--ink-soft); flex: 1; min-width: 120px; }
+    .kit-pill {
+      font-family: 'Oswald', sans-serif; font-size: 9px; font-weight: 700;
+      letter-spacing: 0.12em; padding: 2px 7px; border-radius: 2px;
+      background: var(--slate-soft); color: var(--slate);
+    }
+    .kit-pill.READY { background: var(--yellow-soft); color: var(--yellow-deep); }
+    .kit-qty {
+      width: 58px; text-align: center;
+      font-family: 'Roboto Mono', monospace; font-size: 13px; font-weight: 700;
+      padding: 4px; border: 1px solid var(--rule); border-radius: 3px;
+    }
+    .kit-drop {
+      border: none; background: none; color: var(--mute);
+      font-size: 16px; cursor: pointer; padding: 0 4px; line-height: 1;
+    }
+    .kit-drop:hover { color: var(--red); }
+    .kit-meta { font-size: 11px; color: var(--mute); margin-top: 3px; }
+
+    .comps { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 5px; }
+    .comp {
+      display: flex; align-items: center; gap: 6px;
+      border: 1px solid var(--rule); border-radius: 3px;
+      padding: 3px 8px; font-size: 11.5px; background: var(--paper);
+    }
+    .comp.off { opacity: 0.45; text-decoration: line-through; }
+    .comp.bundled { border-style: dashed; }
+    .comp code { font-family: 'Roboto Mono', monospace; font-weight: 700; }
+    .comp .loc { color: var(--mute); font-size: 10.5px; }
+    .comp .bq { color: var(--slate); font-size: 10px; font-style: italic; }
+
+    /* ── warnings ───────────────────────────────────────────────────────────────── */
+    .warn {
+      border-left: 3px solid var(--red); background: var(--red-soft);
+      padding: 9px 12px; border-radius: 3px; margin-bottom: 10px;
+    }
+    .warn-title {
+      font-family: 'Oswald', sans-serif; font-size: 11px; font-weight: 700;
+      letter-spacing: 0.1em; text-transform: uppercase; color: var(--red);
+    }
+    .warn-body { font-size: 11.5px; color: var(--ink-soft); margin-top: 3px; }
+    .warn-line { font-family: 'Roboto Mono', monospace; font-size: 11px; }
+
+    /* ── footer ─────────────────────────────────────────────────────────────────── */
+    .ftr {
+      flex: none; border-top: 1px solid var(--rule); background: var(--paper);
+      padding: 10px 16px; display: flex; align-items: center; gap: 12px;
+    }
+    .ftr-summary { flex: 1; font-size: 12px; color: var(--ink-soft); }
+    .ftr-summary b { font-family: 'Roboto Mono', monospace; }
+
+    /* ── the printed sheet, on screen a preview ─────────────────────────────────── */
+    .sheet { padding: 0 0 16px; }
+    .sheet-head {
+      display: flex; align-items: flex-end; gap: 14px;
+      border-bottom: 2px solid var(--ink); padding-bottom: 7px; margin-bottom: 4px;
+    }
+    .sheet-title {
+      font-family: 'Oswald', sans-serif; font-size: 20px; font-weight: 700;
+      letter-spacing: 0.1em; text-transform: uppercase;
+    }
+    .sheet-meta {
+      flex: 1; text-align: right;
+      font-family: 'Roboto Mono', monospace; font-size: 10.5px; color: var(--mute);
+    }
+    .sheet-kits {
+      font-size: 12px; margin: 7px 0 11px;
+      font-family: 'Roboto Mono', monospace;
+    }
+    .sheet-kits span { display: inline-block; margin-right: 14px; }
+
+    table { width: 100%; border-collapse: collapse; margin-bottom: 12px; }
+    thead tr { background: var(--ink); }
+    th {
+      padding: 6px 8px; text-align: left;
+      border-right: 1px solid #2a2a2a;
+      font-family: 'Oswald', sans-serif;
+      font-size: 9px; font-weight: 600;
+      letter-spacing: 0.16em; text-transform: uppercase;
+      color: var(--yellow);
+    }
+    td {
+      padding: 5px 8px; border-bottom: 1px solid var(--rule);
+      border-right: 1px solid #eceadf; font-size: 12px;
+    }
+    tbody tr:nth-child(even) { background: var(--paper-warm); }
+    .c-loc  { font-family: 'Roboto Mono', monospace; font-weight: 700; width: 12%; }
+    .c-sku  { font-family: 'Roboto Mono', monospace; font-weight: 700; width: 13%; }
+    .c-name { width: 40%; }
+    .c-qty  { font-family: 'Roboto Mono', monospace; font-weight: 700; text-align: center; width: 8%; }
+    .c-hand { font-family: 'Roboto Mono', monospace; text-align: center; width: 9%; }
+    .c-for  { font-size: 10.5px; color: var(--mute); width: 12%; }
+    .c-tick { width: 6%; text-align: center; }
+    .tickbox { display: inline-block; width: 13px; height: 13px; border: 1.4px solid var(--ink); }
+    .row-missing .c-loc { color: var(--red); }
+    .row-short  .c-hand { color: var(--red); font-weight: 700; }
+    .empty-row td { height: 22px; }
+
+    .asm-title {
+      font-family: 'Oswald', sans-serif; font-size: 12px; font-weight: 700;
+      letter-spacing: 0.14em; text-transform: uppercase;
+      background: var(--yellow); padding: 5px 9px; margin: 14px 0 0;
+      border-top: 2px solid var(--ink); border-bottom: 2px solid var(--ink);
+    }
+    .asm-parts {
+      font-family: 'Roboto Mono', monospace; font-size: 11.5px;
+      padding: 7px 9px; border-bottom: 1px solid var(--rule);
+    }
+    .asm-parts span { display: inline-block; margin-right: 16px; white-space: nowrap; }
+
+    .sheet-foot {
+      margin-top: 14px; padding-top: 7px; border-top: 1px solid var(--rule);
+      font-size: 10.5px; color: var(--mute); display: flex; gap: 20px;
+    }
+    .sign { flex: 1; }
+    .sign-line { border-bottom: 1px solid var(--ink); height: 20px; margin-top: 12px; }
+
+    .preview-tag {
+      font-family: 'Oswald', sans-serif; font-size: 10px; font-weight: 700;
+      letter-spacing: 0.14em; text-transform: uppercase;
+      color: var(--mute); border: 1px dashed var(--rule);
+      padding: 3px 8px; border-radius: 3px; display: inline-block; margin-bottom: 8px;
+    }
+
+    .empty-state {
+      text-align: center; color: var(--mute); font-size: 12.5px;
+      padding: 26px 10px; border: 1px dashed var(--rule); border-radius: 5px;
+    }
+
+    /* ── PRINT ──────────────────────────────────────────────────────────────────── */
+    @page {
+      margin: 0.6in 0.45in 0.5in 0.45in;
+      @top-left {
+        content: "KIT BUILD  ·  HQ MS";
+        font-family: 'Oswald', sans-serif; font-size: 8.5px; font-weight: 700;
+        letter-spacing: 0.18em; color: #6a6a64; vertical-align: middle;
+      }
+      @bottom-center {
+        content: "PAGE " counter(page) " / " counter(pages) "  ·  HQ  ·  INTERNAL USE";
+        font-family: 'Oswald', sans-serif; font-size: 8px; font-weight: 600;
+        letter-spacing: 0.16em; color: #8a8a84; vertical-align: middle;
+      }
+    }
+
+    @media print {
+      .no-print { display: none !important; }
+      body { background: #fff; font-size: 11px; display: block; height: auto; }
+      .body { overflow: visible; padding: 0; }
+      .sheet { padding: 0; }
+      thead { display: table-header-group; }
+      thead tr { background: #1a1a1a !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      th { color: #ffd400 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      tbody tr:nth-child(even) { background: #fff8e7 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      .asm-title { background: #ffd400 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      tr { page-break-inside: avoid; }
+      .asm-block { page-break-inside: avoid; }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="hdr no-print">
+    <div class="hdr-title">Build Kits</div>
+    <div class="hdr-sub">for stock — nothing is written to the sheet</div>
+    <div class="hdr-spacer"></div>
+    <div class="hdr-picker">picker <b id="hdrPicker"></b></div>
+  </div>
+
+  <div class="body">
+
+    <!-- ── SELECTION ───────────────────────────────────────────────────────────── -->
+    <div class="panel no-print">
+      <div class="panel-title">Which kits, and how many</div>
+      <div class="add-row">
+        <input type="text" class="add-sku" id="addSku" list="kitList" autocomplete="off"
+               spellcheck="false" placeholder="kit SKU or name…" onkeydown="onAddKey(event)">
+        <datalist id="kitList"></datalist>
+        <span class="qty-label">Build</span>
+        <input type="number" class="add-qty" id="addQty" min="1" max="99" value="1"
+               onkeydown="onAddKey(event)">
+        <button class="btn btn-primary" onclick="onAdd()">+ Add kit</button>
+      </div>
+      <div class="hint" id="addHint">
+        Add one kit or several. Shared components are merged into a single gather line,
+        so you walk to each shelf once.
+      </div>
+    </div>
+
+    <div id="warnHost" class="no-print"></div>
+    <div id="kitHost" class="no-print"></div>
+
+    <!-- ── THE SHEET (preview on screen, the document on paper) ────────────────── -->
+    <div id="sheetHost"></div>
+
+  </div>
+
+  <div class="ftr no-print">
+    <div class="ftr-summary" id="summary">Nothing selected yet.</div>
+    <button class="btn btn-ghost" onclick="google.script.host.close()">Close</button>
+    <button class="btn btn-primary" id="printBtn" onclick="onPrint()" disabled>🖨 Print build sheet</button>
+  </div>
+
+  <script>
+    /* ⚠⚠ NEVER WRITE SCRIPTLET SYNTAX IN A COMMENT IN THIS FILE — not even to explain
+       it. The Apps Script template engine scans the WHOLE file, comments included, and
+       evaluates anything that looks like a scriptlet. An explanatory one in a comment
+       is parsed as an empty scriptlet and template.evaluate() dies with "Unexpected
+       token ';'". It has cost this project a round twice. The injections below use the
+       force-unescaped form because the escaping form turns every quote into an entity
+       and the JSON silently fails to parse. Explain it on the SERVER side. */
+    var KITS      = <?!= kitListJson ?>;
+    var PICKER    = <?!= pickerNameJson ?>;
+    var MAX_KITS  = <?!= maxKitsJson ?>;
+
+    var selected = [];    // [{sku, qty}]
+    var excluded = {};    // { kitSku: { componentSkuLower: true } }
+    var plan     = null;  // last server response
+    var busy     = false;
+
+    document.getElementById('hdrPicker').textContent = PICKER || '—';
+
+    // Autocomplete over the registry — the picker knows the kit by name, not by digits.
+    (function fillDatalist() {
+      var dl = document.getElementById('kitList');
+      var html = '';
+      for (var i = 0; i < KITS.length; i++) {
+        html += '<option value="' + esc(KITS[i].sku) + '">'
+              + esc(KITS[i].sku + ' — ' + (KITS[i].name || '')) + '</option>';
+      }
+      dl.innerHTML = html;
+    })();
+
+    function kitMeta(sku) {
+      var s = String(sku).trim().toLowerCase();
+      for (var i = 0; i < KITS.length; i++) {
+        if (String(KITS[i].sku).toLowerCase() === s) return KITS[i];
+      }
+      return null;
+    }
+
+    function onAddKey(e) { if (e.key === 'Enter') { e.preventDefault(); onAdd(); } }
+
+    function onAdd() {
+      var el  = document.getElementById('addSku');
+      var qEl = document.getElementById('addQty');
+      var raw = String(el.value || '').trim();
+      if (!raw) { el.focus(); return; }
+
+      // Accept "158679" or the datalist's "158679 — Engine Overhaul Kit".
+      var sku = raw.split('—')[0].trim().split(/\s+/)[0];
+      var qty = parseInt(qEl.value); if (isNaN(qty) || qty < 1) qty = 1;
+
+      if (selected.length >= MAX_KITS) {
+        setHint('That is the limit for one sheet (' + MAX_KITS + ' kits).', true);
+        return;
+      }
+      // Already on the list → raise its quantity rather than adding a second line.
+      for (var i = 0; i < selected.length; i++) {
+        if (selected[i].sku.toLowerCase() === sku.toLowerCase()) {
+          selected[i].qty = Math.min(99, selected[i].qty + qty);
+          el.value = ''; qEl.value = 1; el.focus();
+          refresh();
+          return;
+        }
+      }
+      selected.push({ sku: sku, qty: qty });
+      el.value = ''; qEl.value = 1; el.focus();
+      refresh();
+    }
+
+    function onDrop(i) { selected.splice(i, 1); refresh(); }
+
+    function onQty(i, v) {
+      var q = parseInt(v); if (isNaN(q) || q < 1) q = 1; if (q > 99) q = 99;
+      selected[i].qty = q;
+      refresh();
+    }
+
+    function onToggleComp(kitSku, compSku, on) {
+      excluded[kitSku] = excluded[kitSku] || {};
+      if (on) delete excluded[kitSku][compSku];
+      else    excluded[kitSku][compSku] = true;
+      refresh();
+    }
+
+    function setHint(msg, bad) {
+      var h = document.getElementById('addHint');
+      h.textContent = msg;
+      h.style.color = bad ? '#b71c1c' : '';
+    }
+
+    // ── ask the server for the plan ────────────────────────────────────────────
+    function refresh() {
+      if (!selected.length) {
+        plan = null;
+        document.getElementById('kitHost').innerHTML = '';
+        document.getElementById('warnHost').innerHTML = '';
+        document.getElementById('sheetHost').innerHTML =
+          '<div class="empty-state no-print">Add a kit above to see the gather list.</div>';
+        document.getElementById('summary').textContent = 'Nothing selected yet.';
+        document.getElementById('printBtn').disabled = true;
+        return;
+      }
+      busy = true;
+      document.getElementById('printBtn').disabled = true;
+      document.getElementById('summary').textContent = 'Working out the parts…';
+
+      var payload = { kits: selected.slice(), excluded: {} };
+      Object.keys(excluded).forEach(function (k) {
+        var list = Object.keys(excluded[k] || {});
+        if (list.length) payload.excluded[k] = list;
+      });
+
+      google.script.run
+        .withSuccessHandler(onPlan)
+        .withFailureHandler(onPlanFail)
+        .getKitBuildPlan(payload);
+    }
+
+    function onPlanFail(err) {
+      busy = false;
+      document.getElementById('summary').textContent =
+        'Could not build the list — ' + (err && err.message ? err.message : err);
+    }
+
+    function onPlan(res) {
+      busy = false;
+      if (!res || !res.ok) {
+        onPlanFail({ message: (res && res.reason) || 'no response' });
+        return;
+      }
+      plan = res;
+      seedBundled(res);
+      renderWarnings(res);
+      renderKits(res);
+      renderSheet(res);
+
+      var t = res.totals;
+      document.getElementById('summary').innerHTML =
+        '<b>' + t.kitUnits + '</b> kit' + (t.kitUnits === 1 ? '' : 's') +
+        ' · <b>' + t.lines + '</b> line' + (t.lines === 1 ? '' : 's') +
+        ' · <b>' + t.pieces + '</b> piece' + (t.pieces === 1 ? '' : 's') +
+        ' · <b>' + t.shelves + '</b> ' + (t.shelves === 1 ? 'shelf' : 'shelves') +
+        (t.shared ? ' · <b>' + t.shared + '</b> shared' : '') +
+        (t.notFound ? ' · <b style="color:#b71c1c">' + t.notFound + '</b> with no shelf' : '');
+      document.getElementById('printBtn').disabled = (t.lines === 0);
+    }
+
+    /* ⚠⚠ SEED THE BUNDLED DEFAULT INTO OUR OWN STATE, ONCE PER KIT.
+       The server proposes bundled-parts-unchecked only while a kit has NO entry in
+       `excluded`. The moment we send any decision for that kit it stops proposing and
+       does exactly what it is told — so if we sent only the part the picker just
+       unticked, the bundled gasket would silently come back onto the walk on the very
+       first click. Recording the server's proposal as ours keeps the two in step. */
+    function seedBundled(res) {
+      (res.kits || []).forEach(function (k) {
+        if (!k.found) return;
+        if (excluded[k.kitSku]) return;            // already ours — never re-seed
+        var seed = null;
+        k.components.forEach(function (c) {
+          if (!c.excluded) return;
+          seed = seed || {};
+          seed[String(c.sku).toLowerCase()] = true;
+        });
+        if (seed) excluded[k.kitSku] = seed;
+      });
+    }
+
+    // ── warnings ──────────────────────────────────────────────────────────────
+    function renderWarnings(res) {
+      var host = document.getElementById('warnHost');
+      if (!res.warnings.length) { host.innerHTML = ''; return; }
+      var html = '';
+      res.warnings.forEach(function (w) {
+        html += '<div class="warn">'
+             +    '<div class="warn-title">'
+             +      (w.kind === 'unknown' ? '⚠ Not a kit we know' : '⚠ Incomplete checklist')
+             +      ' · ' + esc(w.kitSku) + '</div>'
+             +    '<div class="warn-body">' + esc(w.message) + '</div>';
+        (w.lines || []).forEach(function (l) {
+          html += '<div class="warn-line">' + esc(l) + '</div>';
+        });
+        html += '</div>';
+      });
+      host.innerHTML = html;
+    }
+
+    // ── the per-kit component review ──────────────────────────────────────────
+    function renderKits(res) {
+      var html = '';
+      res.kits.forEach(function (k, i) {
+        if (!k.found) {
+          html += '<div class="kit-card bad">'
+               +    '<div class="kit-head">'
+               +      '<span class="kit-sku">' + esc(k.kitSku) + '</span>'
+               +      '<span class="kit-name">' + esc(k.reason || 'not in the Kit Registry') + '</span>'
+               +      '<button class="kit-drop" onclick="onDrop(' + i + ')" title="Remove">✕</button>'
+               +    '</div>'
+               +  '</div>';
+          return;
+        }
+        html += '<div class="kit-card">'
+             +    '<div class="kit-head">'
+             +      '<span class="kit-sku">' + esc(k.kitSku) + '</span>'
+             +      '<span class="kit-name">' + esc(k.kitName) + '</span>'
+             +      '<span class="kit-pill ' + esc(k.kitType) + '">' + esc(k.kitType) + '</span>'
+             +      '<span class="qty-label">build</span>'
+             +      '<input type="number" class="kit-qty" min="1" max="99" value="' + k.qty + '" '
+             +        'onchange="onQty(' + i + ', this.value)">'
+             +      '<button class="kit-drop" onclick="onDrop(' + i + ')" title="Remove">✕</button>'
+             +    '</div>'
+             +    '<div class="kit-meta">'
+             +      esc(k.kitLocation) + (k.kitEngine ? ' · ' + esc(k.kitEngine) : '')
+             +      ' · ' + k.components.length + ' component'
+             +      (k.components.length === 1 ? '' : 's')
+             +    '</div>'
+             +    '<div class="comps">';
+        k.components.forEach(function (c) {
+          var cls = 'comp' + (c.excluded ? ' off' : '') + (c.bundled ? ' bundled' : '');
+          html += '<label class="' + cls + '">'
+               +    '<input type="checkbox" ' + (c.excluded ? '' : 'checked') + ' '
+               +      'onchange="onToggleComp(\'' + esc(k.kitSku) + '\', \''
+               +      esc(String(c.sku).toLowerCase()) + '\', this.checked)">'
+               +    '<code>' + esc(c.sku) + '</code>'
+               +    '<span>×' + c.qty + '</span>'
+               +    '<span class="loc">' + esc(c.location) + '</span>'
+               +    (c.bundled ? '<span class="bq">in ' + esc(c.bundledInto) + '</span>' : '')
+               +  '</label>';
+        });
+        html += '</div></div>';
+      });
+      document.getElementById('kitHost').innerHTML = html;
+    }
+
+    // ── the sheet ─────────────────────────────────────────────────────────────
+    function renderSheet(res) {
+      var multi = res.kits.filter(function (k) { return k.found; }).length > 1;
+      var kitLine = res.kits.filter(function (k) { return k.found; }).map(function (k) {
+        return '<span>' + k.qty + ' × ' + esc(k.kitSku) + '  ' + esc(k.kitName) + '</span>';
+      }).join('');
+
+      var html = ''
+        + '<div class="preview-tag no-print">Print preview — this is the page</div>'
+        + '<div class="sheet">'
+        +   '<div class="sheet-head">'
+        +     '<div class="sheet-title">Build Sheet</div>'
+        +     '<div class="sheet-meta">'
+        +       esc(res.builtAt) + '<br>picker ' + esc(res.picker || '—')
+        +     '</div>'
+        +   '</div>'
+        +   '<div class="sheet-kits">' + kitLine + '</div>';
+
+      // ── GATHER — one line per SKU, aisle order, shared parts merged
+      html += '<table id="gatherTable"><thead><tr>'
+           +    '<th>Loc</th><th>SKU</th><th>Part</th><th>Qty</th><th>Hand</th>'
+           +    (multi ? '<th>For</th>' : '') + '<th>✓</th>'
+           +  '</tr></thead><tbody>';
+      res.gather.forEach(function (g) {
+        var cls = (g.missing ? ' row-missing' : '')
+                + ((g.available != null && g.available < g.totalQty) ? ' row-short' : '');
+        html += '<tr class="' + cls.trim() + '">'
+             +    '<td class="c-loc">' + esc(g.location) + '</td>'
+             +    '<td class="c-sku">' + esc(g.sku) + '</td>'
+             +    '<td class="c-name">' + esc(g.name || '') + '</td>'
+             +    '<td class="c-qty">' + g.totalQty + '</td>'
+             +    '<td class="c-hand">' + (g.available == null ? '—' : g.available) + '</td>'
+             +    (multi ? '<td class="c-for">' + esc(g.usedBy.map(function (u) {
+                    return u.kitSku; }).join(', ')) + '</td>' : '')
+             +    '<td class="c-tick"><span class="tickbox"></span></td>'
+             +  '</tr>';
+      });
+      html += '</tbody></table>';
+
+      // ── ASSEMBLE — suppressed for a single kit, where it just repeats the list
+      if (multi) {
+        res.kits.forEach(function (k) {
+          if (!k.found) return;
+          var kept = k.components.filter(function (c) { return !c.excluded; });
+          if (!kept.length) return;
+          html += '<div class="asm-block">'
+               +    '<div class="asm-title">' + k.qty + ' × ' + esc(k.kitSku)
+               +      ' · ' + esc(k.kitName) + '</div>'
+               +    '<div class="asm-parts">'
+               +      kept.map(function (c) {
+                        return '<span>' + esc(c.sku) + ' ×' + c.qty
+                             + ' <span style="color:#6a6a64">' + esc(c.location) + '</span></span>';
+                      }).join('')
+               +    '</div>'
+               +  '</div>';
+        });
+      }
+
+      html += '<div class="sheet-foot">'
+           +    '<div class="sign">Gathered by<div class="sign-line"></div></div>'
+           +    '<div class="sign">Assembled by<div class="sign-line"></div></div>'
+           +    '<div class="sign">Adjusted in Zoho<div class="sign-line"></div></div>'
+           +  '</div>'
+           + '</div>';
+
+      document.getElementById('sheetHost').innerHTML = html;
+      fillTableToPage('gatherTable', multi ? 7 : 6);
+    }
+
+    /* Pad the last page with ruled empty rows so unused space is writable.
+       ⚠ Lifted from PrintFulfillment.html, capacities re-tuned for THIS sheet's
+         shorter header. Deliberately conservative — over-filling produces a
+         phantom thead-only page, which looks like a bug on the floor. */
+    function fillTableToPage(tableId, colCount) {
+      var table = document.getElementById(tableId);
+      if (!table) return;
+      var FIRST = 22, CONT = 30;
+      var data = table.querySelectorAll('tbody tr:not(.empty-row)').length;
+      var capUsed, lastCap;
+      if (data <= FIRST) { capUsed = data; lastCap = FIRST; }
+      else {
+        var overflow = data - FIRST;
+        capUsed = overflow % CONT;
+        if (capUsed === 0) capUsed = CONT;
+        lastCap = CONT;
+      }
+      var add = lastCap - capUsed;
+      if (add <= 0) return;
+      var tbody = table.querySelector('tbody');
+      for (var i = 0; i < add; i++) {
+        var tr = document.createElement('tr');
+        tr.className = 'empty-row';
+        for (var j = 0; j < colCount; j++) {
+          var td = document.createElement('td');
+          td.innerHTML = '&nbsp;';
+          tr.appendChild(td);
+        }
+        tbody.appendChild(tr);
+      }
+    }
+
+    // ⚠ ON THE BUTTON, NEVER ON LOAD. The picker is still choosing when this page
+    //   opens; PrintFulfillment.html can auto-print because by then every decision
+    //   has already been made.
+    function onPrint() {
+      if (busy || !plan) return;
+      window.print();
+    }
+
+    function esc(s) {
+      if (s == null) return '';
+      return String(s)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
+    refresh();
+    document.getElementById('addSku').focus();
+  </script>
+</body>
+</html>

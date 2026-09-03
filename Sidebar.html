@@ -2189,6 +2189,20 @@ body.dark-theme .zp-msg-loading { background: rgba(244,180,0,0.16); color: #ffd9
   border-color: var(--hq-yellow);
   box-shadow: 0 0 0 2px rgba(255, 217, 102, 0.22);
 }
+/* Build for Stock sits on its own row, so it is outside .kx-controls and misses that
+   rule's typography. The two are the Kits card's PAIRED primary actions and have to
+   read as a pair — borrowing the type here is smaller and safer than restyling the
+   button that already shipped. */
+.kb-build-btn {
+  min-height: 34px;
+  font-family: 'Oswald', sans-serif;
+  font-weight: 700;
+  font-size: var(--fs-sm);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #1d1d1b;
+}
+
 .kx-controls .kx-action-btn {
   width: auto;
   flex: 1 1 auto;
@@ -2530,6 +2544,16 @@ body.dark-theme .card-inline-btn { background: var(--bg-secondary); border-color
    buttons stay at the top of the body. Picker only sees the "More tools"
    chevron until they click — reduces visual noise on daily workflows.
    ═══════════════════════════════════════════════════════════════════════ */
+/* Separates the two halves of the Kits card — things that PRODUCE something
+   above, things you LOOK AT below. Lighter than .card-more's dashed rule, which
+   means "there is more, tucked away". */
+.zone-rule {
+  height: 0;
+  margin: 11px 0 9px;
+  border-top: 1px solid var(--border);
+  opacity: 0.7;
+}
+
 .card-more {
   margin-top: 10px;
   padding-top: 8px;
@@ -4104,18 +4128,34 @@ body.dark-theme .footer-version { border-color: #2c2c2c; }
   </div>
 
   <!--
-    Kit Expansion. Select kit rows in All Orders, click Expand Selected → to
-    open the interactive modal (Sales Description reference + per-component
-    exclusion + per-kit Spares input + commit). The modal is the single path;
-    the old inline bulk-Expand button was retired 2026-06-03.
+    KITS (2026-09-03) — one card for every kit tool.
+
+    It used to be three, in two different zones: Kit Expansion in TODAY'S WORK,
+    Kit Pricing and Kit Health in INVENTORY. Adding "Build for stock" would have
+    made a fourth on a panel already carrying 27 cards. Same move the Displays
+    card makes, for the same stated reason — they are the same KIND of thing, and
+    separate cards implied they were different.
+
+    Grouped by what you are DOING, which is this panel's own grammar:
+      · the two ACTIONS produce something — rows on the sheet, or a printed sheet
+      · the four LENSES are decision-support and write nothing
+
+    ⚠ ONE result panel (#kitResult), shared. Two panels in one card is ambiguous —
+      the reader cannot tell which button filled which.
+
+    applyZones puts it in TODAY'S WORK: expansion is the highest-frequency kit
+    action and it is shift work under time pressure. Kit Health is a weekly review
+    that mostly runs on a trigger, so it sits lower in the body.
   -->
-  <div class="card collapsed" data-id="kit-expand" draggable="true">
+  <div class="card collapsed" data-id="kits" draggable="true">
     <div class="card-header" onclick="toggleCollapse(this)">
       <div class="drag-handle" title="Drag to reorder">☰</div>
-      <div class="card-title"><div class="card-icon">📦</div><h3>Kit Expansion</h3></div>
+      <div class="card-title"><div class="card-icon">📦</div><h3>Kits</h3></div>
       <div class="card-toggle">▼</div>
     </div>
     <div class="card-body">
+
+      <!-- ACTIONS — the two things that produce something -->
       <div class="kx-controls">
         <div class="kx-deploy-wrap">
           <label>Spares for us</label>
@@ -4123,47 +4163,52 @@ body.dark-theme .footer-version { border-color: #2c2c2c; }
         </div>
         <button class="btn-primary kx-action-btn" onclick="previewKits()">📦 Expand Selected →</button>
       </div>
-      <div class="kx-result" id="kxResult"></div>
-      <div class="empty-hint">
-        Select kit rows in <strong>All Orders</strong> → <strong>Expand Selected →</strong> opens a popup modal with the Sales Description reference, per-component exclusion, and a per-kit Spares input, then commits from there. <strong>Spares for us</strong> is additive: 0 ships exactly the customer's row qty; N adds N extra kits per row. READY kits (K-* aisle) and already-expanded kits are refused with a reason.
+      <button class="btn-primary kb-build-btn" onclick="openKitBuildFromSidebar()">🔧 Build for Stock →</button>
+
+      <!-- ⚠ ONE shared result panel for every button on this card. -->
+      <div id="kitResult" class="empty-hint">
+        <strong>Expand Selected</strong> — pick kit rows in All Orders, review the
+        components in a popup, commit. <strong>Spares for us</strong> is additive: 0 ships
+        exactly the customer's row qty. The note on each component row is editable before
+        you commit.<br><br>
+        <strong>Build for Stock</strong> — kits nobody ordered. Pick one or several, and
+        shared components merge into a single gather line so you walk to each shelf once.
+        It writes <strong>nothing</strong> to the sheet: expand, print, done.
       </div>
+
+      <!-- LENSES — decision-support, no writes -->
+      <div class="zone-rule"></div>
+      <div class="btn-group">
+        <button class="btn-secondary" id="khRunBtn" onclick="runKitHealthNow()">🩺 Run Kit Health</button>
+        <button class="btn-secondary" onclick="openKitPriceCalc()">🧮 Price Calculator</button>
+      </div>
+      <div class="btn-group">
+        <button class="btn-secondary" id="rpBtn" onclick="showRippleNow()">🔗 Restock Ripple</button>
+        <button class="btn-secondary" id="kcBtn" onclick="showCriticalNow()">🏗 Kit Criticality</button>
+      </div>
+
       <details class="card-more">
         <summary>More tools</summary>
         <div class="card-more-content">
-          <!-- Refresh ▣ kit-SKU markers across All Orders. The marker is a per-cell
-               number-format glyph prefix; it doesn't auto-sync with new arrivals
-               or Kit Registry changes, so this button is the manual refresh path
-               until insert-path hooks land in v2. -->
-          <button class="btn-secondary" onclick="run('refreshKitSkuMarkers')" title="Re-scan All Orders and apply the ▣ glyph prefix to any SKU that's in the Kit Registry">
+          <!-- The ▣ marker is a per-cell number-format glyph prefix; it does not
+               auto-sync with Kit Registry changes, so this is the manual refresh. -->
+          <button class="btn-secondary" onclick="run('refreshKitSkuMarkers')" title="Re-scan All Orders and apply the ▣ glyph prefix to any SKU that is in the Kit Registry">
             ▣ Refresh Kit Markers
           </button>
+          <button class="btn-info" onclick="run('openKitHealth')">Open Kit Health sheet</button>
+          <button class="btn-info" onclick="run('setupKitHealthSheet')">Re-style Kit Health</button>
+          <div class="empty-hint" style="margin:0;">
+            Kit Health needs the <strong>Kit Registry</strong> imported and MI
+            <code>currentPrice</code> populated. Kits with unparsed PD or unpriced parts show
+            <strong>⚠ INCOMPLETE</strong> — computed left blank, never a wrong number — and
+            park at the bottom. A weekly Mon ~4am auto-run needs a one-time
+            <code>setupKitHealthTrigger()</code> from the editor.
+          </div>
         </div>
       </details>
     </div>
   </div>
 
-  <!--
-    Kit Pricing (2026-07-24). Opens the Kit Price Calculator modal:
-    Σ(component price × qty) × (1 − discount), rounded. eBay-first pricing,
-    unpriced parts flagged (never guessed). Decision-support only — no writes.
-    applyZones relocates this into the INVENTORY zone (next to Price Audit).
-  -->
-  <div class="card collapsed" data-id="kit-pricing" draggable="true">
-    <div class="card-header" onclick="toggleCollapse(this)">
-      <div class="drag-handle" title="Drag to reorder">☰</div>
-      <div class="card-title"><div class="card-icon">🧮</div><h3>Kit Pricing</h3></div>
-      <div class="card-toggle">▼</div>
-    </div>
-    <div class="card-body">
-      <button class="btn-primary" onclick="openKitPriceCalc()">🧮 Kit Price Calculator</button>
-      <div class="empty-hint">
-        Price a new kit before listing, or re-check an existing one:
-        <strong>Σ(component price × qty) × (1 − discount)</strong>, rounded to the nearest dollar.
-        eBay is the price source; unpriced parts are flagged, never guessed. Pick an existing kit
-        or paste a BOM. Decision-support only — nothing is written.
-      </div>
-    </div>
-  </div>
 
   <div class="card" data-id="ebay" draggable="true">
     <div class="card-header" onclick="toggleCollapse(this)">
@@ -4343,7 +4388,7 @@ body.dark-theme .footer-version { border-color: #2c2c2c; }
           <button class="btn-primary" onclick="run('warnOnIdentityEdits')">🛡 Warn on identity edits</button>
           <button class="btn-secondary" onclick="run('checkIdentityNow')">👁 Check identity now</button>
           <button class="btn-info" onclick="run('diagnoseIdentityFlags')">Explain the flags</button>
-          <button class="btn-info" onclick="run('clearIdentityFlags')">Clear identity flags</button>
+          <button class="btn-info" onclick="run('clearIdentityFlags')">Clear legacy marks</button>
           <button class="btn-danger" onclick="run('unwarnIdentityEdits')">↺ Remove warning</button>
           <p style="font-size:11px;color:#888;margin-top:8px;">
             A <em>confirm</em> dialog on <strong>SKU</strong>, <strong>QTY</strong> and
@@ -4353,10 +4398,18 @@ body.dark-theme .footer-version { border-color: #2c2c2c; }
             <br><br>
             Alongside it, every live row is checked against the <strong>Activity Log</strong>:
             an order&nbsp;+&nbsp;SKU pair that was never received is <strong>messaged to you
-            once</strong>. It is <strong>read-only</strong> — it never marks, paints or changes
-            anything on the sheet, so there is nothing to clear and nothing to go stale.
-            <em>Clear identity flags</em> is a one-time cleanup for marks left by earlier
-            versions.
+            once</strong>, and the row goes <strong>red</strong> on the sheet.
+            <br><br>
+            <strong>That red is conditional formatting, not a stored write.</strong> Sheets
+            recomputes it live and keeps nothing on the row, so <strong>fixing the cell clears
+            it in the same keystroke</strong> — there is no button for it and nothing to go
+            stale. Four rules share the same red: the identity is <em>half missing</em>, was
+            <em>never received</em>, is <em>on two rows</em>, or the <em>quantity</em> is not
+            one we received. <em>Explain the flags</em> says which one fired and why.
+            <br><br>
+            <em>Clear legacy marks</em> does <strong>not</strong> touch that red. It is a
+            one-time cleanup for the static fills left by the painting versions retired on
+            2026-08-29.
           </p>
         </div>
       </details>
@@ -4543,41 +4596,6 @@ body.dark-theme .footer-version { border-color: #2c2c2c; }
     </div>
   </div>
 
-  <!--
-    Kit Health (2026-07-25) — unified per-kit cockpit: price drift + buildability.
-    Runs computeKitPrice + the OOS buildable math over every registry kit. One row
-    answers "priced right AND can I build it now?". UNDERPRICED = money leak (sorted
-    top). Implied-discount column tells intentional-discount from stale-price drift.
-    Decision-support only — no writes. applyZones puts it in INVENTORY.
-  -->
-  <div class="card collapsed" data-id="kit-health" draggable="true">
-    <div class="card-header" onclick="toggleCollapse(this)">
-      <div class="drag-handle" title="Drag to reorder">☰</div>
-      <div class="card-title"><div class="card-icon">🩺</div><h3>Kit Health</h3></div>
-      <div class="card-toggle">▼</div>
-    </div>
-    <div class="card-body">
-      <button class="btn-primary" id="khRunBtn" onclick="runKitHealthNow()">🩺 Run Kit Health</button>
-      <div class="btn-group">
-        <button class="btn-secondary" onclick="run('openKitHealth')">Open Sheet</button>
-        <button class="btn-secondary" id="rpBtn" onclick="showRippleNow()">🔗 Restock Ripple</button>
-        <button class="btn-secondary" id="kcBtn" onclick="showCriticalNow()">🏗 Kit Criticality</button>
-      </div>
-      <div id="khResult" class="empty-hint">
-        One row per kit: <strong>computed</strong> price (Σ parts × 0.9) vs its <strong>listed</strong> price,
-        plus how many you can <strong>build now</strong> from component stock. UNDERPRICED kits sort to the top;
-        the <strong>DISC %</strong> column separates an intentional discount from a stale-part money leak.
-        Reuses the pricing + buildable engines — decision-support only, nothing written.
-      </div>
-      <details class="card-more">
-        <summary>More tools</summary>
-        <div class="card-more-content">
-          <button class="btn-info" onclick="run('setupKitHealthSheet')">Re-style Sheet</button>
-          <div class="empty-hint" style="margin:0;">Needs the <strong>Kit Registry</strong> imported + MI <code>currentPrice</code> populated. Kits with unparsed PD or unpriced parts show <strong>⚠ INCOMPLETE</strong> (computed left blank — never a wrong number) and park at the bottom. A weekly Mon ~4am auto-run needs a one-time <code>setupKitHealthTrigger()</code> from the editor.</div>
-        </div>
-      </details>
-    </div>
-  </div>
 
   <!--
     Part Console (2026-07-29) — one window for a SKU (part OR kit): stock · price ·
@@ -6827,7 +6845,7 @@ function runKitHealthNow() {
   if (typeof google === 'undefined' || !google.script) return;
 
   var btn  = document.getElementById('khRunBtn');
-  var slot = document.getElementById('khResult');
+  var slot = document.getElementById('kitResult');
 
   isKitHealthRunning = true;
   if (btn) { btn.classList.add('spinning'); btn.disabled = true; btn.textContent = '⏳ Checking kits…'; }
@@ -8114,7 +8132,7 @@ function previewKits() {
   // reference panel + per-component exclusion controls + commit-per-kit flow.
   // The sidebar's job here is just to fire the request and show status.
   var deployInput = document.getElementById('kxDeploy');
-  var panel = document.getElementById('kxResult');
+  var panel = document.getElementById('kitResult');
 
   var deploy = parseInt((deployInput && deployInput.value) || '1') || 1;
   if (deploy < 1) deploy = 1;
@@ -8259,6 +8277,33 @@ function openKitPriceCalc() {
       status.textContent = 'Open failed: ' + (err && err.message ? err.message : err);
     })
     .openKitPriceCalculator();
+}
+
+/* ---- Kit Build (2026-09-03) — build kits nobody ordered ----------------------
+   Opens a window that expands one or more kits, merges shared components into a
+   single aisle-sorted gather list, and prints. It writes NOTHING to the sheet, so
+   there is no confirm, no picker gate and nothing to undo — see KitBuild.js for
+   why that is the design rather than a shortcut. */
+function openKitBuildFromSidebar() {
+  if (typeof google === 'undefined' || !google.script) return;
+  status.className = 'running';
+  status.textContent = 'Opening Kit Build…';
+  google.script.run
+    .withSuccessHandler(function (res) {
+      if (res && res.ok) {
+        status.className = 'success';
+        status.textContent = 'Kit Build open · ' + (res.kits || 0) + ' kits loaded';
+      } else {
+        status.className = 'error';
+        status.textContent = 'Failed: ' + ((res && res.reason) || 'unknown');
+      }
+      setTimeout(function () { status.className = ''; status.textContent = 'Ready'; }, 1800);
+    })
+    .withFailureHandler(function (err) {
+      status.className = 'error';
+      status.textContent = 'Open failed: ' + (err && err.message ? err.message : err);
+    })
+    .openKitBuildModal();
 }
 
 /* ---- Weekly Digest (2026-07-31) — Preview (no send) / Send now / Arm weekly ---- */
@@ -8531,7 +8576,7 @@ function _khRunTextReport(btnId, label, working, done, invoke) {
     .withSuccessHandler(function (text) {
       restore();
       status.className = 'success'; status.textContent = done;
-      var el = document.getElementById('khResult');
+      var el = document.getElementById('kitResult');
       if (el) {
         el.className = '';
         el.style.whiteSpace = 'pre-wrap';
@@ -8855,9 +8900,9 @@ function applyZones() {
   // [zone-key, label, [card-ids]]
   // zone-key drives data-zone attribute → CSS accent
   const zones = [
-    ['today',        "TODAY'S WORK", ['alerts', 'order-lookup', 'investigations', 'zoho-pull', 'missing-line', 'kit-expand', 'fulfill', 'displays']],
+    ['today',        "TODAY'S WORK", ['alerts', 'order-lookup', 'investigations', 'zoho-pull', 'missing-line', 'kits', 'fulfill', 'displays']],
     ['table-tools',  'TABLE TOOLS',  ['ebay', 'direct', 'live', 'location-update']],
-    ['inventory',    'INVENTORY',    ['part-console', 'prep-queue', 'out-of-stock', 'low-stock', 'stock-highlight', 'price-audit', 'kit-pricing', 'kit-health']],
+    ['inventory',    'INVENTORY',    ['part-console', 'prep-queue', 'out-of-stock', 'low-stock', 'stock-highlight', 'price-audit']],
     ['diagnostics',  'DIAGNOSTICS',  ['weekly-digest', 'watchdog', 'order-archive', 'duplicates', 'sheet-protect', 'api-monitor', 'arcade']]
   ];
 
@@ -8970,9 +9015,9 @@ setTimeout(function() {
    never rebuilt: it holds a live count the alert poll writes into. */
 window.addEventListener('load',function(){
   var CARD={alerts:'m-alert','order-lookup':'m-look',investigations:'m-case',live:'m-sync',
-    'kit-expand':'m-kit','kit-pricing':'m-price','part-console':'m-part','weekly-digest':'m-digest',
+    'kits':'m-kit','part-console':'m-part','weekly-digest':'m-digest',
     'zoho-stock':'m-stock','sheet-protect':'m-shield','prep-queue':'m-prep','out-of-stock':'m-oos',
-    'price-push':'m-push','kit-health':'m-health','displays':'m-board',
+    'price-push':'m-push','displays':'m-board',
     'location-update':'m-loc',fulfill:'m-print','zoho-pull':'m-pull',ebay:'m-stock',
     direct:'m-case',duplicates:'m-alert','stock-highlight':'m-oos','api-monitor':'m-digest',
     arcade:'m-board',
@@ -9018,7 +9063,12 @@ window.addEventListener('load',function(){
     /* 🏗 shipped 2026-08-21 without a map entry, so it rendered as the only
        colour emoji left outside the arcade. m-alert, not m-kit: criticality
        is a RISK report — the structural sibling of the ripple. */
-    '🏗':'m-alert'};
+    '🏗':'m-alert',
+    /* 🔧 Build for Stock (2026-09-03). m-stock, NOT m-kit: the button beside it
+       already wears m-kit for Expand Selected, and two identical marks on one card
+       tell the picker nothing. This one puts stock ON the shelf — which is both what
+       m-stock draws and the whole point of the action. */
+    '🔧':'m-stock'};
   var RE=/^(\s*)(\S)(\uFE0F?)\s*/u;
   function mkSvg(id){ var w=document.createElement('span');
     w.innerHTML='<svg><use href="#'+id+'"/></svg>'; return w.firstChild; }

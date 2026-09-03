@@ -46,6 +46,13 @@
 // PUBLIC: expandKit(kitSku, deployQty)
 // =======================================================================================
 
+// ⚠ Cap on the picker-edited NOTE annotation. Column E is narrow and the note also
+//   carries the machine tag, any alteration segments and the parent row's own note —
+//   an unbounded paste would push all of that off the printed pick list. Trimmed and
+//   sliced server-side; the modal enforces the same number so the two agree.
+var KIT_NOTE_TEXT_MAX = 120;
+
+
 /**
  * Pure function over the Kit Registry. Returns the expansion plan for one
  * kit at a given deploy multiplier — does NOT touch the sheet.
@@ -1030,14 +1037,47 @@ function _commitOneKitForModal(queueItem, excludedSkus, multiplier, force, alter
              excludedSkus: capturedExclusions };
   }
 
-  // Base NOTE prefix + Activity Log detail. Per-component swap/qty/add
-  // annotations are appended per row below. (No "⚠ FORCED" note on READY
-  // force-expands — the kit's K-* LOCATION is the floor's tell; the override
-  // stays auditable via the Activity Log DETAIL "(READY · forced)".)
-  var notePrefix = "↳ from KIT-" + rowSku;
-  if (extras > 0) {
-    notePrefix += " · deploy " + totalKits + " total ("
-                + rowQty + " for customer + " + extras + " for us)";
+  // ── THE NOTE ────────────────────────────────────────────────────────────────────
+  // Composed as:  <locked tag> · <machine alters> · <note text> · <parent row note>
+  //
+  // ⚠ THE TAG IS LOCKED AND THE MODAL MUST NEVER MAKE IT EDITABLE. kitComponentTag()
+  //   reads it, and this codebase has TWICE shipped a live bug from that tag failing to
+  //   match: a custom-added part vanished from the board's done/total, and worse,
+  //   _kitParentFollowUp flipped a parent to SHIPPED with a component still open. One
+  //   keystroke on the prefix would break kit threading, parent auto-follow, board
+  //   grouping and the ▣ marker suppression at once.
+  //
+  // ⚠⚠ THE NOTE TEXT GOES AFTER THE ALTER SEGMENTS, AND THAT ORDER IS LOAD-BEARING.
+  //   FloorBoard.html walks the " · " segments left to right, drops the ones it
+  //   recognises as machine-written, and STOPS AT THE FIRST IT DOES NOT — keeping the
+  //   rest verbatim as a human note. Editable text sitting first (where the deploy
+  //   clause used to sit) would push "· custom add", "· swapped X → Y" and "· qty a→b"
+  //   onto the tablet as though a person had written them.
+  //
+  // (No "⚠ FORCED" note on READY force-expands — the kit's K-* LOCATION is the floor's
+  // tell; the override stays auditable via the Activity Log DETAIL "(READY · forced)".)
+  var tagFrom  = "↳ from KIT-" + rowSku;
+  var tagAdded = "↳ added to KIT-" + rowSku;
+
+  // The DEFAULT annotation. Wording deliberately unchanged — it is what the modal
+  // pre-fills, and leaving it untouched must produce exactly what shipped before.
+  var noteText = (extras > 0)
+    ? ("deploy " + totalKits + " total (" + rowQty + " for customer + " + extras + " for us)")
+    : "";
+
+  // ⭐ THE PICKER MAY HAVE REWRITTEN IT. On a stock build there is no customer, so the
+  //   default sentence is false and the picker used to delete it from every row by hand
+  //   AFTER the fact (2026-09-03). Now they edit it once, before the rows exist.
+  //
+  // ⚠ CARRIED IN `alterations`, NOT AS A NEW POSITIONAL ARGUMENT. The 3rd parameter of
+  //   this function is already a documented trap (it is SPARES, not total — passing a
+  //   total double-ships), and WebKits.js forwards `alterations || {}` unchanged, so the
+  //   Mini App keeps working and simply gets the default.
+  //
+  // No formula-injection guard is needed: the cell always begins with the locked "↳"
+  // tag, so it can never start with "=", "+" or "@".
+  if (alterations && alterations.noteText != null) {
+    noteText = String(alterations.noteText).trim().slice(0, KIT_NOTE_TEXT_MAX);
   }
   var baseDetail = "kit expansion from " + rowSku;
   if (isReadyForced) baseDetail += " (READY · forced)";
@@ -1064,8 +1104,13 @@ function _commitOneKitForModal(queueItem, excludedSkus, multiplier, force, alter
     if (comp.added)           alter += " · custom add";
     if (comp.swapFrom)        alter += " · swapped " + comp.swapFrom + " → " + comp.sku;
     if (comp.qtyFrom != null) alter += " · qty " + comp.qtyFrom + "→" + comp.qty;
-    var noteBase = comp.added ? ("↳ added to KIT-" + rowSku) : notePrefix;
-    var rowNoteFinal = noteBase + alter + (rowNote ? " · " + rowNote : "");
+    // ⭐ CUSTOM ADDS NOW CARRY THE NOTE TEXT TOO. Before 2026-09-03 the whole prefix was
+    //   swapped out for them, so an "↳ added to KIT-x" row silently lost the annotation
+    //   even when extras > 0. Only the TAG differs between the two shapes.
+    var noteBase = comp.added ? tagAdded : tagFrom;
+    var rowNoteFinal = noteBase + alter
+                     + (noteText ? " · " + noteText : "")
+                     + (rowNote  ? " · " + rowNote  : "");
 
     var row = new Array(Schema.dataWidth);
     row[Schema.idx("SKU")]         = comp.sku;

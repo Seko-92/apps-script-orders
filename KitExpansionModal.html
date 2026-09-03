@@ -280,6 +280,77 @@
       border-color: var(--brand-yellow);
     }
 
+    /* --- THE NOTE ROW (2026-09-03) ---
+       The tag is a LOCKED CHIP, never an input. kitComponentTag() reads it, and
+       this codebase has twice shipped a live bug from that tag failing to match.
+       Only the tail is editable. */
+    .note-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 6px;
+      padding: 5px 10px;
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      border-radius: 4px;
+    }
+    .note-row.edited {
+      background: rgba(255, 217, 102, 0.18);
+      border-color: var(--brand-yellow);
+    }
+    .note-label {
+      font-family: 'Oswald', sans-serif;
+      font-weight: 700;
+      font-size: 11px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--ink-soft);
+      white-space: nowrap;
+    }
+    .note-tag {
+      font-family: 'Roboto Mono', monospace;
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--ink-soft);
+      background: rgba(0, 0, 0, 0.05);
+      border: 1px dashed var(--rule);
+      border-radius: 3px;
+      padding: 3px 6px;
+      white-space: nowrap;
+      cursor: not-allowed;
+    }
+    .note-input {
+      flex: 1;
+      min-width: 0;
+      font-family: 'Roboto', sans-serif;
+      font-size: 12px;
+      padding: 4px 8px;
+      border: 1px solid var(--rule);
+      border-radius: 3px;
+      background: var(--paper);
+      color: var(--ink);
+    }
+    .note-input:focus {
+      outline: none;
+      border-color: var(--brand-yellow);
+      box-shadow: 0 0 0 2px rgba(255, 217, 102, 0.35);
+    }
+    .note-input::placeholder { color: #b9b9b9; font-style: italic; }
+    .note-reset {
+      font-family: 'Oswald', sans-serif;
+      font-size: 10px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--ink-soft);
+      background: none;
+      border: 1px solid var(--rule);
+      border-radius: 3px;
+      padding: 4px 7px;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .note-reset:hover { border-color: var(--brand-yellow); color: var(--ink); }
+
     /* --- BODY: two columns --- */
     .body {
       display: flex;
@@ -870,6 +941,31 @@
     var currentIndex = <?= kitIndex ?>;
     var excludedSkus = {};   // sku -> true (per-kit, reset on advance)
     var currentExtras = 0;   // spares-for-us count (additive, default 0 per kit)
+
+    /* THE NOTE the picker will commit (2026-09-03).
+       Before this, the annotation was composed server-side and could not be
+       changed: a STOCK BUILD got "1 for customer + 2 for us" on every inserted
+       row and the picker deleted it by hand afterwards, row by row.
+
+       ⚠ noteEdited is the same pattern the per-component qty override already
+         uses in this file — once the picker touches it, stop regenerating from
+         the spares count, or their words get wiped by a later keystroke. */
+    var currentNote = '';
+    var noteEdited  = false;
+
+    /* ⚠ MIRRORS KIT_NOTE_TEXT_MAX in KitExpansion.js. The server trims and slices
+       to the same number; this only stops the picker typing past it unnoticed. */
+    var NOTE_TEXT_MAX = 120;
+
+    /* THE ONE composer for the default annotation. The server has the identical
+       sentence (KitExpansion.js) — test-kit-note.js asserts the two agree across a
+       matrix of rowQty × extras, because a default that differs from what gets
+       written is worse than no default at all. */
+    function noteDefaultFor(rowQty, extras) {
+      var q = parseInt(rowQty) || 0, e = parseInt(extras) || 0;
+      if (e <= 0) return '';
+      return 'deploy ' + (q + e) + ' total (' + q + ' for customer + ' + e + ' for us)';
+    }
     var busy = false;
     // Per-kit alterations (customer customization) — all reset in renderKit.
     var compQty  = {};       // origSku -> override qty (final row qty)
@@ -899,6 +995,10 @@
       });
       compQty = {}; compSwap = {}; addedItems = [];   // reset alterations per kit
       currentExtras = 0;   // always reset per kit
+      // ⚠ The note resets per kit too — same ruling as extras. Carrying one kit's
+      //   wording onto the next is how a stock-build note lands on a customer order.
+      noteEdited = false;
+      currentNote = noteDefaultFor(kit.sourceQty, 0);
       busy = false;
 
       var isReady = (kit.kitType === 'READY');
@@ -931,6 +1031,21 @@
         +     '<strong>0 spares</strong> — ship exactly ' + kit.sourceQty + ' kit'
         +     (kit.sourceQty > 1 ? 's' : '') + ' to customer. Type N to add N extra for us.'
         +   '</span>'
+        + '</div>'
+        // THE NOTE ROW. The tag is a locked chip; only the tail is an input.
+        + '<div class="note-row" id="noteRow">'
+        +   '<span class="note-label">Note</span>'
+        +   '<span class="note-tag" id="noteTag" '
+        +     'title="Written on every component row. Not editable — the board, the kit '
+        +     'thread and the parent auto-follow all read this tag.">'
+        +     esc('↳ from KIT-' + kit.kitSku) + ' ·'
+        +   '</span>'
+        +   '<input type="text" class="note-input" id="noteInput" maxlength="' + NOTE_TEXT_MAX + '" '
+        +     'value="' + esc(currentNote) + '" '
+        +     'placeholder="no annotation — just the kit tag" '
+        +     'oninput="onNoteInput(this)">'
+        +   '<button type="button" class="note-reset" id="noteReset" '
+        +     'onclick="onNoteReset()" title="Put the automatic wording back">Reset</button>'
         + '</div>';
       var metaEl = document.getElementById('kitMeta');
       metaEl.innerHTML = metaHtml;
@@ -1207,8 +1322,45 @@
                        + ' to customer. Type N to add N extra for us.';
       }
 
+      // Keep the note's DEFAULT in step with the spares count — but never overwrite
+      // words the picker typed. Once noteEdited is true this stops entirely.
+      syncNoteDefault();
+
       renderComponents();
       updateSummary();
+    }
+
+    /* Recompose the default annotation from the current spares count and push it into
+       the field — unless the picker has taken it over. */
+    function syncNoteDefault() {
+      if (noteEdited) return;
+      var rowQty = parseInt(currentKit && currentKit.sourceQty) || 1;
+      currentNote = noteDefaultFor(rowQty, currentExtras);
+      var el = document.getElementById('noteInput');
+      if (el) el.value = currentNote;
+      paintNoteRow();
+    }
+
+    /* The picker typed. From here the field is theirs. */
+    function onNoteInput(el) {
+      noteEdited  = true;
+      currentNote = String(el.value || '').slice(0, NOTE_TEXT_MAX);
+      paintNoteRow();
+    }
+
+    /* Hand it back to the machine wording. */
+    function onNoteReset() {
+      noteEdited = false;
+      syncNoteDefault();
+      var el = document.getElementById('noteInput');
+      if (el) el.focus();
+    }
+
+    /* Yellow accent once the note is no longer the automatic one — the same visual
+       cue the spares row uses when it stops being the default. */
+    function paintNoteRow() {
+      var row = document.getElementById('noteRow');
+      if (row) row.classList.toggle('edited', noteEdited);
     }
 
     function onToggle(cb) {
@@ -1304,7 +1456,11 @@
         overrides[k].qty = compQty[s];
       });
       var added = addedItems.map(function(a) { return { sku: a.sku, name: a.name, qty: a.qty }; });
-      return { overrides: overrides, added: added };
+      // ⚠ noteText rides in `alterations`, NOT as a new positional argument to
+      //   commitKitFromModal — the 3rd parameter there is SPARES, and a codebase note
+      //   warns that passing anything else double-ships. Always sent, so the server
+      //   uses the picker's wording verbatim, including a deliberately EMPTY one.
+      return { overrides: overrides, added: added, noteText: currentNote };
     }
 
     function onSkip() {

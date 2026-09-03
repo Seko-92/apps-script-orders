@@ -99,7 +99,10 @@ var MASTHEAD = {
                        //   v4 faces against the served copy. Reversed, every face
                        //   becomes the text chip at once.
   ext:          "png",  // ⚠ NOT gif — Sheets shows only a GIF's first frame (see above)
-  imgH:         56,    // px — mode-4 explicit sizing, so nothing letterboxes
+  imgH:         68,    // px — mode-4 explicit sizing, so nothing letterboxes.
+                       // ⚠ MUST TRACK rowHeight. At 56 in a 68px row the =IMAGE() face
+                       //   under the loop would letterbox by 12px. Inert while the floating
+                       //   strip covers it; it matters again the moment strip=false.
   imgW:         280,   // px — EQUALS A1:C1 (107+70+103), asserted by setupMasthead
                        // ⚠ MEASURED, NOT READ OFF A COMMENT. Schema's layout note says
                        //   "A1:C1 (287px)" and the live sheet is 280 — the comment was
@@ -194,7 +197,14 @@ var MASTHEAD = {
   dialFace:     "dial",
   dialW:        280,   // = A1:C1 (107+70+103), asserted by setupMasthead
   dialH:        121,   // = row 1 (56) + row 2 (65), asserted by setupMasthead
-  rowHeight:    56,   // px — imgH matches, so the art fills the row edge to edge
+  /* ⚠⚠ WAS 56, AND THE SHEET SAID 68. Measured by diagnoseBanner() 2026-09-03: row1=68,
+        row2=65. Both image installs refused — correctly — because the art was built to the
+        CONSTANT rather than to the sheet. Set to 68 so the two agree again; the sheet is
+        already 68, so setupMasthead() now leaves row 1 exactly where it is instead of
+        snapping it back and breaking the art.
+     ⏭ If the 12px was an accidental drag rather than a choice, put this back to 56 and
+        re-render the art at 260x121 / 539x56 — one line and one render, no sheet write. */
+  rowHeight:    68,
   row2Height:   44,   // px — only applied once the pickers have moved off the banner
   // ---- ROW 2: THE DAY -----------------------------------------------------------------
   // ⭐ 826x65px of cream sat under the lit face doing nothing but holding a small logo —
@@ -3030,6 +3040,13 @@ function _identityFormulas(anchorRow) {
     'COUNTIFS($A$' + Schema.dataStartRow + ':$A,' + a +
     ',$D$' + Schema.dataStartRow + ':$D,' + d +
     ',$E$' + Schema.dataStartRow + ':$E,"*' + IDENTITY_GUARD.deltaNoteToken + '*")';
+  // The SECOND legitimate twin — a kit-expansion component. Same shape as deltaCount.
+  // ⚠ A CF formula cannot call a function, so the sheet matches this wildcard while
+  //   _igScanRows uses kitComponentTag(). Keep the two in step; there is a drift test.
+  var kitCount =
+    'COUNTIFS($A$' + Schema.dataStartRow + ':$A,' + a +
+    ',$D$' + Schema.dataStartRow + ':$D,' + d +
+    ',$E$' + Schema.dataStartRow + ':$E,"*' + IDENTITY_GUARD.kitNoteToken + '*")';
 
   return {
     established: '=' + established,
@@ -3048,13 +3065,16 @@ function _identityFormulas(anchorRow) {
 
     /* DUPLICATED — the copied-row case, which GONE and UNKNOWN are both blind to because
        the pair is complete AND was genuinely received, on the source row.
-       ⭐ The one legitimate twin identifies itself: Zoho Pull's insert_delta writes a note
-         that exists precisely to tell a delta row from a duplicate, so subtracting the
-         delta-noted rows means a delta pair reads 2-1=1 and stays quiet.
+       ⭐ BOTH legitimate twins identify themselves in the NOTE, so both are subtracted:
+         · Zoho Pull's insert_delta — the same line re-quantified. 2-1=1, stays quiet.
+         · Kit expansion — components inherit the PARENT's sales order, so one order
+           carries a pair twice whenever the customer ordered two of the same kit, two
+           kits share a component, or a component is also a loose line on that order.
+           All three are normal, and all three went red before 2026-09-03.
        ⚠ Open-ended $A$4:$A, never a bounded absolute range — n8n inserts at the top all
          day and a fixed end drifts. */
     duplicated: '=AND(' + established + ', ' + bothPresent + ', ' +
-                pairCount + '-' + deltaCount + '>1)',
+                pairCount + '-' + deltaCount + '-' + kitCount + '>1)',
 
     /* QTY — the identity is right and the quantity is not.
        ⚠ NOTHING in this codebase writes column B after insert (verified by grep), and Zoho
@@ -4354,11 +4374,37 @@ function diagnoseMasthead() {
 
 /** ⚠ VERSIONED FILENAME. Sheets and Google's fetcher both cache per URL, so replacing the
  *  art at the same name can serve the old bytes indefinitely. Bump to -v2 to change it. */
+/* ⭐⭐ v4 — THE BLEND. The ground is the sheet's own BRAND.ink #1a1a1a, FLAT, and the unlit
+      discs ARE that colour so they are never drawn. Row one therefore reads as one unbroken
+      band and the discs simply appear out of it; the image has no boundary to see.
+      ⚠ v3 and earlier used a GRADIENT ground (#26221c → #141210 → #100e0c) plus a right-edge
+        fade — three blacks the sheet has never had. That is what made the art read as a block
+        pasted onto the row.
+      ⚠⚠ rgb565 CANNOT REPRESENT #1a1a1a (0x1a lands on 24 or 27), so the quantised ground came
+        back #26251e on the block — twelve levels out, and the rectangle with it. dial/make-block.js
+        snaps the palette entry nearest the ground to the exact band colour AFTER quantising, and
+        every frame of both files was verified on the DECODED pixels, not on the encoder's word. */
 var BANNER = {
-  url:    MASTHEAD.baseUrl + 'banner-v3.gif',
-  width:  260,   // ⚠ INTRINSIC to the art — the GIF is drawn 260x121. Not derived from
-  height: 121    //   MASTHEAD, because MASTHEAD.dialW is 280 and THE SHEET DISAGREES.
+  url:    MASTHEAD.baseUrl + 'banner-v8.gif',
+  width:  260,   // ⚠ INTRINSIC to the art. Not derived from MASTHEAD, because MASTHEAD
+  height: 133    //   disagrees with the sheet on BOTH axes — see the drift note below.
 };
+
+/* ⚠⚠⚠ ROW 1 IS 68px ON THE SHEET AND MASTHEAD.rowHeight SAYS 56. MEASURED 2026-09-03 by
+       diagnoseBanner(): row1=68 row2=65, so A1:C2 is 260x133 and D1:E1 is 539x68 — NOT the
+       260x121 / 539x56 the v3/v1 art was built to. Both installs refused, correctly, rather
+       than overhang into D1. The art is now built to the SHEET.
+
+   ⚠⚠ SO DO NOT RUN setupMasthead() UNTIL THIS IS RECONCILED. It does
+      `sheet.setRowHeight(1, MASTHEAD.rowHeight)` — it would snap row 1 back to 56, and the
+      133-tall block would then overhang row 2 by 12px while the strip overhangs by 12 too.
+
+   ⏭ THE RECONCILIATION IS A DECISION, NOT A FIX, so it is deliberately not made here:
+      either MASTHEAD.rowHeight becomes 68 (the sheet wins; the strip gains 26 disc rows
+      instead of 21, which is materially more legible) or row 1 goes back to 56 and the art
+      is re-rendered at 121/56. Same class as the dialW 280-vs-260 drift: a constant stayed
+      right in code while the sheet moved underneath it, and nobody could see it because the
+      thing on top was a picture. */
 
 /* ⚠⚠ MEASURED 2026-09-02: A=103 B=70 C=87 = 260, NOT the 280 MASTHEAD.dialW claims
       ("107+70+103"). Columns A and C were narrowed at some point and the constant was never
@@ -4388,9 +4434,9 @@ var STRIP_MARK  = '/mast/strip-';    // the D1:E1 loop, same versioning rule
  *   trust this, because the 280-vs-260 drift is exactly what a constant hides.
  */
 var STRIP = {
-  url:    MASTHEAD.baseUrl + 'strip-v1.gif',
+  url:    MASTHEAD.baseUrl + 'strip-v6.gif',   // v6 — the bezel cut; same blend as banner-v8
   width:  539,
-  height: 56
+  height: 68     // ⚠ row 1 MEASURES 68, not the 56 MASTHEAD.rowHeight claims. See the note above.
 };
 
 function _bannerImages(sheet) {
@@ -4512,6 +4558,23 @@ function installRowOne() {
   return a + '\n\n' + b +
     '\n\n⚠ HARD-RELOAD THE TAB. Both images are in the model; neither repaints in a tab that ' +
     'was already open, and no Apps Script diagnostic can tell installed from visible.';
+}
+
+/**
+ * ⚠⚠ THE EDITOR'S RUN BUTTON DOES NOT DISPLAY RETURN VALUES, so installRowOne()'s verdict —
+ *    including a REFUSAL and the measured widths that explain it — is invisible when run that
+ *    way. On 2026-09-03 the block installed, the strip refused, and the log said only
+ *    "Execution started / Execution completed". Nothing was wrong except that nobody could
+ *    see the answer.
+ *
+ * ⭐ This is the third time this trap has cost a round here (checkPublishedTickNow and
+ *   auditBoardStockAdjustments exist for exactly the same reason). RUN THIS ONE, not
+ *   installRowOne — it does the same work and console.logs the verdict.
+ */
+function installRowOneNow() {
+  var out = installRowOne();
+  console.log(out);
+  return out;
 }
 
 /** The revert. The =IMAGE() dial underneath was never touched, so it is simply there again. */
