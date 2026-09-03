@@ -4002,56 +4002,48 @@ body.dark-theme .footer-version { border-color: #2c2c2c; }
   </div>
 
   <!--
-    Order Lookup (Phase C, 2026-05-15) — customer-service consolidated view.
-    Type an order ID → see All Orders rows + Activity Log timeline in one panel.
-    Click any row to jump to and select it on the All Orders sheet.
+    ORDER CASE (2026-09-03) — Order Lookup + Investigations, merged.
+
+    One object, one workflow, and they were already joined: Look Up OPENS the Order
+    Case console, and the console WRITES to the Investigations sheet this card opens.
+    Two cards for the two halves of one loop.
+
+    ⚠ Every lookup opens the roomy console (Investigation.js modal) — rows, full
+      timeline, one-click jumps to eBay/Zoho, an in-window search bar, and the
+      documentation form. The cramped inline sidebar timeline was retired
+      2026-07-28: 310px cannot hold a timeline.
   -->
-  <div class="card collapsed" data-id="order-lookup" draggable="true">
+  <div class="card collapsed" data-id="order-case" draggable="true">
     <div class="card-header" onclick="toggleCollapse(this)">
       <div class="drag-handle" title="Drag to reorder">☰</div>
-      <div class="card-title"><div class="card-icon">🔍</div><h3>Order Lookup</h3></div>
+      <div class="card-title"><div class="card-icon">🔍</div><h3>Order Case</h3></div>
       <div class="card-toggle">▼</div>
     </div>
     <div class="card-body">
-      <!-- Every lookup opens the roomy Order Case CONSOLE (Investigation.js modal):
-           rows + full timeline + one-click jumps to eBay/Zoho + an in-window
-           search bar (look up order after order) + documentation. The cramped
-           inline sidebar timeline was retired 2026-07-28 — 310px can't hold it. -->
       <div class="ol-search">
         <input type="text" id="olQuery" placeholder="Order ID or sales order…" autocomplete="off" spellcheck="false" />
         <button class="btn-primary ol-go" id="olCaseBtn" onclick="openOrderCaseFromSidebar()">🔍 Look Up →</button>
       </div>
-
       <div class="empty-hint">
-        Opens the <strong>Order Case console</strong> — the order's rows + full timeline + one-click jumps to eBay/Zoho, in a roomy window where you can <strong>search order after order</strong> and document findings (saved to the permanent Investigations sheet). Press <strong>Enter</strong> to open.
+        Opens the <strong>Order Case console</strong> — the order's rows + full timeline + one-click jumps to eBay/Zoho, in a roomy window where you can <strong>search order after order</strong> and document findings. Press <strong>Enter</strong> to open.
       </div>
-    </div>
-  </div>
 
-  <!--
-    Investigations (2026-07-28) — permanent case-note log for order investigations.
-    Written by the Order Case modal; opened here for review. applyZones puts it in
-    TODAY'S WORK next to Order Lookup.
-  -->
-  <div class="card collapsed" data-id="investigations" draggable="true">
-    <div class="card-header" onclick="toggleCollapse(this)">
-      <div class="drag-handle" title="Drag to reorder">☰</div>
-      <div class="card-title"><div class="card-icon">📁</div><h3>Investigations</h3></div>
-      <div class="card-toggle">▼</div>
-    </div>
-    <div class="card-body">
-      <button class="btn-secondary" onclick="run('openInvestigations')">Open Sheet</button>
+      <!-- The permanent side of the same loop -->
+      <div class="zone-rule"></div>
+      <button class="btn-secondary" onclick="run('openInvestigations')">📂 Open Investigations</button>
       <div class="empty-hint">
-        The permanent record of order investigations — Category · Findings · Resolution · Status · Investigator. Written from an order's <strong>Case</strong>; never purged. Open cases surface in the Alerts card.
+        The permanent record of what those cases found — Category · Findings · Resolution · Status · Investigator. Written from an order's Case above; <strong>never purged</strong>, unlike the 90-day Activity Log. Open cases surface in the Alerts card.
       </div>
+
       <details class="card-more">
         <summary>More tools</summary>
         <div class="card-more-content">
-          <button class="btn-info" onclick="run('setupInvestigationsSheet')">Setup / Re-style Sheet</button>
+          <button class="btn-info" onclick="run('setupInvestigationsSheet')">Setup / Re-style Investigations</button>
         </div>
       </details>
     </div>
   </div>
+
 
 
   <!--
@@ -4387,6 +4379,12 @@ body.dark-theme .footer-version { border-color: #2c2c2c; }
         <div class="card-more-content">
           <button class="btn-primary" onclick="run('warnOnIdentityEdits')">🛡 Warn on identity edits</button>
           <button class="btn-secondary" onclick="run('checkIdentityNow')">👁 Check identity now</button>
+          <!-- The INSTALLER, added 2026-09-03. It was the one identity control that still
+               needed the Apps Script editor — and applyBrandTheme() rebuilds these rules
+               from code, so any change to the formulas needs this run again. An editor
+               trip is the kind of step that gets skipped, which is how a fix sits in the
+               code doing nothing. Owner-gated inside the function itself. -->
+          <button class="btn-secondary" onclick="run('setupIdentityHighlighting')" title="Install or refresh the four row-identity rules on All Orders. Safe to re-run.">▣ Install identity rules</button>
           <button class="btn-info" onclick="run('diagnoseIdentityFlags')">Explain the flags</button>
           <button class="btn-info" onclick="run('clearIdentityFlags')">Clear legacy marks</button>
           <button class="btn-danger" onclick="run('unwarnIdentityEdits')">↺ Remove warning</button>
@@ -4549,23 +4547,54 @@ body.dark-theme .footer-version { border-color: #2c2c2c; }
     </div>
   </div>
 
-  <div class="card collapsed" data-id="out-of-stock" draggable="true">
+  <!--
+    RESTOCK (2026-09-03) — Out of Stock + Low Stock, merged.
+
+    They were already telling us they were the same thing: both cards carried the
+    SAME icon (📉). Both answer one question — what do I need to buy? — from two
+    directions. Out of Stock is ALREADY at zero. Low Stock is ABOUT to be, ranked
+    by days of cover so the most urgent reorder is first.
+
+    Same shape as the Kits card: the ACTIONS that open or refresh a surface above,
+    the LENS that reports on demand below. applyZones keeps it in INVENTORY.
+  -->
+  <div class="card collapsed" data-id="restock" draggable="true">
     <div class="card-header" onclick="toggleCollapse(this)">
       <div class="drag-handle" title="Drag to reorder">☰</div>
-      <div class="card-title"><div class="card-icon">📉</div><h3>Out of Stock</h3></div>
+      <div class="card-title"><div class="card-icon">📉</div><h3>Restock</h3></div>
       <div class="card-toggle">▼</div>
     </div>
     <div class="card-body">
-      <button class="btn-primary" onclick="run('openOutOfStock')">Open Sheet</button>
+
+      <!-- ALREADY AT ZERO — a maintained sheet -->
+      <button class="btn-primary" onclick="run('openOutOfStock')">Open Out of Stock</button>
       <button class="btn-secondary" onclick="run('refreshOutOfStock')">Refresh Now</button>
+      <div class="empty-hint">Two tables — the <strong>restock list</strong> (Active listings at zero or below) and <strong>OOS KITS</strong> with a live BUILDABLE count. Refreshes hourly, 6am–6pm Houston; the ⟳ chip on the sheet shows when. A gray struck-through row means Zoho already sees stock and MI has not caught up — it drops within the hour.</div>
+
+      <!-- ABOUT TO BE — computed on demand, never stored -->
+      <div class="zone-rule"></div>
+      <div class="empty-hint" style="margin-top:0;">What <b>sold</b> in the window and is now at or below the
+        quantity. Ranked by days of cover, so the most urgent reorder is first.</div>
       <div class="btn-group">
-        <button class="btn-secondary" onclick="run('sortOutOfStockMain')" title="Re-sort the top restock list by location (aisle walk order)">⇅ Sort Restock</button>
-        <button class="btn-secondary" onclick="run('sortOutOfStockKits')" title="Re-sort the OOS kits table by buildable count (most-openable first)">⇅ Sort Kits</button>
+        <label class="ls-lbl">Days
+          <input type="number" id="lsDays" class="ls-in" min="1" max="90" value="7">
+        </label>
+        <label class="ls-lbl">Qty &le;
+          <input type="number" id="lsQty" class="ls-in" min="0" max="999" value="5">
+        </label>
       </div>
-      <div class="empty-hint">Two tables: <strong>restock list</strong> on top (Active listings at zero or below), <strong>OOS KITS</strong> below the yellow divider with a live BUILDABLE count from components. <strong>Sort</strong> re-orders each table on demand (restock by location, kits by buildable). Auto-refreshes hourly during work hours (6am–6pm Houston) — the ⟳ chip on the sheet shows the last refresh. A row shown struck-through gray with "⟳ Zoho: N" means Zoho already sees stock — Master Inventory just hasn't caught up yet (drops within the hour).</div>
+      <button class="btn-secondary" id="lsPreviewBtn" onclick="previewLowStockNow()">👁 Preview low stock</button>
+      <div class="btn-group">
+        <button class="btn-secondary" id="lsPdfBtn" onclick="lowStockPdfNow()">📄 PDF</button>
+        <button class="btn-secondary" id="lsTgBtn" onclick="lowStockTgNow()">📄 → Telegram</button>
+      </div>
+      <div id="lsResult" class="wd-result" style="display:none;"></div>
+
       <details class="card-more">
         <summary>More tools</summary>
         <div class="card-more-content">
+          <button class="btn-secondary" onclick="run('sortOutOfStockMain')" title="Re-sort the top restock list by location (aisle walk order)">⇅ Sort Restock</button>
+          <button class="btn-secondary" onclick="run('sortOutOfStockKits')" title="Re-sort the OOS kits table by buildable count (most-openable first)">⇅ Sort Kits</button>
           <button class="btn-info" onclick="run('setupOutOfStockSheet')">Re-style Sheet</button>
         </div>
       </details>
@@ -4655,38 +4684,6 @@ body.dark-theme .footer-version { border-color: #2c2c2c; }
     </div>
   </div>
 
-  <!--
-    Weekly Digest (2026-07-31) — Monday ~8am ops digest to the admin Telegram
-    chat (roadmap #9). Reads snapshots (Kit Health / OOS / Investigations /
-    Price Audit) via WeeklyDigest.js. Preview = text only (no send); Send now =
-    posts once; Arm weekly = installs the Monday trigger (runs as the user, so
-    it can install the trigger without the editor). applyZones → DIAGNOSTICS.
-  -->
-  <div class="card collapsed" data-id="low-stock" draggable="true">
-    <div class="card-header" onclick="toggleCollapse(this)">
-      <div class="drag-handle" title="Drag to reorder">☰</div>
-      <div class="card-title"><div class="card-icon">📉</div><h3>Low Stock</h3></div>
-      <div class="card-toggle">▼</div>
-    </div>
-    <div class="card-body">
-      <div class="empty-hint">What <b>sold</b> in the window and is now at or below the
-        quantity. Ranked by days of cover, so the most urgent reorder is first.</div>
-      <div class="btn-group">
-        <label class="ls-lbl">Days
-          <input type="number" id="lsDays" class="ls-in" min="1" max="90" value="7">
-        </label>
-        <label class="ls-lbl">Qty &le;
-          <input type="number" id="lsQty" class="ls-in" min="0" max="999" value="5">
-        </label>
-      </div>
-      <button class="btn-primary" id="lsPreviewBtn" onclick="previewLowStockNow()">👁 Preview</button>
-      <div class="btn-group">
-        <button class="btn-secondary" id="lsPdfBtn" onclick="lowStockPdfNow()">📄 PDF</button>
-        <button class="btn-secondary" id="lsTgBtn" onclick="lowStockTgNow()">📄 → Telegram</button>
-      </div>
-      <div id="lsResult" class="wd-result" style="display:none;"></div>
-    </div>
-  </div>
 
   <div class="card collapsed" data-id="weekly-digest" draggable="true">
     <div class="card-header" onclick="toggleCollapse(this)">
@@ -4991,6 +4988,53 @@ body.dark-theme .footer-version { border-color: #2c2c2c; }
 // ═══════════════════════════════════════════════════════════════════════════════
 // HQ COMMAND CENTER v2.4.4 - JavaScript
 // ═══════════════════════════════════════════════════════════════════════════════
+
+/* ⚠⚠ HOUSTON, NEVER THE VIEWER'S CLOCK — reported from use 2026-09-03.
+   Order Lookup rendered every Activity Log timestamp with getHours()/getDate(), which
+   are LOCAL-timezone getters. Read from Riyadh that shifts every warehouse event by
+   8-9 hours, so a pick logged 9:01 AM Houston displayed as 5:01 PM and the whole
+   timeline read as though the day had happened in the evening.
+
+   Everything on this panel describes the FLOOR, and the floor is in Houston. The
+   resting panel already had this right (_rpNow — "Houston, because the floor is");
+   these helpers give the rest of the file the same thing.
+
+   ⚠ DURATIONS ARE TIMEZONE-INDEPENDENT and must not be "fixed" — the gap between two
+     instants is the same number in every zone. _olAgo is correct as written. */
+var HQ_TZ = 'America/Chicago';
+
+/** Houston date/time parts for an instant. Falls back to local only if Intl is absent. */
+function _hqParts(ms) {
+  var d = (ms instanceof Date) ? ms : new Date(ms);
+  try {
+    return new Intl.DateTimeFormat('en-US', {
+      timeZone: HQ_TZ, month: 'numeric', day: 'numeric',
+      hour: 'numeric', minute: '2-digit', hour12: true
+    }).formatToParts(d).reduce(function (o, x) { o[x.type] = x.value; return o; }, {});
+  } catch (e) {
+    return { month: String(d.getMonth() + 1), day: String(d.getDate()),
+             hour: String(((d.getHours() + 11) % 12) + 1),
+             minute: (d.getMinutes() < 10 ? '0' : '') + d.getMinutes(),
+             dayPeriod: d.getHours() >= 12 ? 'PM' : 'AM' };
+  }
+}
+
+/** Houston hour (0-23) right now — for anything describing the floor's state. */
+function _hqHour() {
+  try {
+    return parseInt(new Date().toLocaleString('en-US',
+      { timeZone: HQ_TZ, hour: '2-digit', hour12: false }), 10);
+  } catch (e) { return new Date().getHours(); }
+}
+
+/** Houston hour as a fraction, for plotting against a Chicago-based hour axis. */
+function _hqHourFrac() {
+  try {
+    var p = new Date().toLocaleString('en-US',
+      { timeZone: HQ_TZ, hour: '2-digit', minute: '2-digit', hour12: false }).split(':');
+    return parseInt(p[0], 10) + (parseInt(p[1], 10) / 60);
+  } catch (e) { var n = new Date(); return n.getHours() + n.getMinutes() / 60; }
+}
 
 const status = document.getElementById('status');
 const statusMessages = [
@@ -5316,11 +5360,12 @@ function _renderDayTape(events) {
     });
   }
 
-  // "Now" indicator — subtle bright vertical line at current Chicago time.
-  // Use the user's local time as a proxy (they're presumably in Houston too,
-  // but this is a visual cue, not a timestamp source).
-  var now = new Date();
-  var nowFrac = now.getHours() + (now.getMinutes() / 60);
+  // "Now" indicator — a bright vertical line at the current Chicago time.
+  // ⚠ WAS the viewer's local clock, on the stated assumption that they are
+  //   "presumably in Houston too". They are not — this panel is read from Riyadh,
+  //   and the tape plots HOUSTON events, so a local "now" line sat 8-9 hours away
+  //   from the dots it was marking.
+  var nowFrac = _hqHourFrac();
   if (nowFrac >= dayStart && nowFrac <= dayEnd) {
     var nowX = xFromHour(nowFrac);
     var nowLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
@@ -5685,7 +5730,10 @@ function _buildStatusWhispers() {
   var shipped = num('cockpitShipped');
   var pulseEl = document.getElementById('cockpitPulseText');
   var synced  = pulseEl ? (pulseEl.textContent || '').trim() : '';
-  var hr = new Date().getHours();
+  // ⚠ HOUSTON. Every line below is a statement about the FLOOR — "floor warming up",
+  //   "winding down · N shipped today", "standing watch". On the viewer's clock they
+  //   describe a warehouse that is asleep.
+  var hr = _hqHour();
 
   var w = [];
   if (hr < 5)        w.push('quiet hours · standing watch');
@@ -7701,15 +7749,11 @@ function _olAgo(ts) {
   return d + 'd ' + (hr % 24) + 'h ago';
 }
 function _olTime(ts) {
+  // ⚠ HOUSTON. These are warehouse events — when the pick actually happened on the
+  //   floor, not what the reader's wall clock said at that instant.
   if (!ts) return '—';
-  var dt = new Date(ts);
-  var month = dt.getMonth() + 1;
-  var day = dt.getDate();
-  var h24 = dt.getHours();
-  var ampm = h24 >= 12 ? 'PM' : 'AM';
-  var h12 = ((h24 + 11) % 12) + 1;
-  var m = dt.getMinutes() < 10 ? '0' + dt.getMinutes() : String(dt.getMinutes());
-  return month + '/' + day + ' ' + h12 + ':' + m + ampm;
+  var p = _hqParts(ts);
+  return p.month + '/' + p.day + ' ' + p.hour + ':' + p.minute + (p.dayPeriod || '');
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -8900,9 +8944,9 @@ function applyZones() {
   // [zone-key, label, [card-ids]]
   // zone-key drives data-zone attribute → CSS accent
   const zones = [
-    ['today',        "TODAY'S WORK", ['alerts', 'order-lookup', 'investigations', 'zoho-pull', 'missing-line', 'kits', 'fulfill', 'displays']],
+    ['today',        "TODAY'S WORK", ['alerts', 'order-case', 'zoho-pull', 'missing-line', 'kits', 'fulfill', 'displays']],
     ['table-tools',  'TABLE TOOLS',  ['ebay', 'direct', 'live', 'location-update']],
-    ['inventory',    'INVENTORY',    ['part-console', 'prep-queue', 'out-of-stock', 'low-stock', 'stock-highlight', 'price-audit']],
+    ['inventory',    'INVENTORY',    ['part-console', 'prep-queue', 'restock', 'stock-highlight', 'price-audit']],
     ['diagnostics',  'DIAGNOSTICS',  ['weekly-digest', 'watchdog', 'order-archive', 'duplicates', 'sheet-protect', 'api-monitor', 'arcade']]
   ];
 
@@ -9014,9 +9058,15 @@ setTimeout(function() {
    never take the panel down. ⚠ The bell's badge is detached and re-attached,
    never rebuilt: it holds a live count the alert poll writes into. */
 window.addEventListener('load',function(){
-  var CARD={alerts:'m-alert','order-lookup':'m-look',investigations:'m-case',live:'m-sync',
+  var CARD={alerts:'m-alert',live:'m-sync',
+    /* ORDER CASE keeps m-look — the card is entered by SEARCHING; the permanent
+       Investigations sheet is the second half of that same loop, not its own thing. */
+    'order-case':'m-look',
+    /* RESTOCK keeps m-oos. Out of Stock and Low Stock already shared one icon on the
+       sheet, which is what said they were one card. */
+    'restock':'m-oos',
     'kits':'m-kit','part-console':'m-part','weekly-digest':'m-digest',
-    'zoho-stock':'m-stock','sheet-protect':'m-shield','prep-queue':'m-prep','out-of-stock':'m-oos',
+    'zoho-stock':'m-stock','sheet-protect':'m-shield','prep-queue':'m-prep',
     'price-push':'m-push','displays':'m-board',
     'location-update':'m-loc',fulfill:'m-print','zoho-pull':'m-pull',ebay:'m-stock',
     direct:'m-case',duplicates:'m-alert','stock-highlight':'m-oos','api-monitor':'m-digest',

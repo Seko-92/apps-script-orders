@@ -161,15 +161,35 @@
   .oc-spin { width:40px; height:40px; border:4px solid #ffd400; border-top-color:transparent; border-radius:50%; animation: ocspin .8s linear infinite; }
   @keyframes ocspin { to { transform: rotate(360deg); } }
   .oc-overlay-txt { color:#ffd400; font-family:'Oswald',sans-serif; margin-top:12px; letter-spacing:.05em; }
+
+    /* ── DRAWN MARKS (v3.6) ──────────────────────────────────────────────────
+       An emoji is someone else's artwork — its weight, hue and shape decided by
+       whatever font the device happens to have. This project has already watched
+       a radio glyph land as tofu and a circle arrive as a yellow beach-ball on the
+       real warehouse tablet. A mark is a 1.55px stroke on a 24 grid that takes the
+       surrounding ink via currentColor, so it needs no per-state override.
+       ⚠ SPRITE IDS MATCH Sidebar.html's sheet — same name, same drawing. Change one,
+         change both, or two surfaces start disagreeing about what a symbol means. */
+    .mk {
+      width: 1em; height: 1em; flex: none;
+      fill: none; stroke: currentColor; stroke-width: 1.55;
+      stroke-linecap: round; stroke-linejoin: round;
+      vertical-align: -0.14em; margin-right: 0.42em;
+    }
 </style>
 </head>
 <body>
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+    <symbol id="m-look" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6"/><path d="M15 15l5 5"/></symbol>
+    <symbol id="m-user" viewBox="0 0 24 24"><circle cx="12" cy="8.2" r="3.6"/><path d="M5 20.2a7 7 0 0 1 14 0"/></symbol>
+    <symbol id="m-link" viewBox="0 0 24 24"><path d="M10.2 13.8a4.2 4.2 0 0 0 6.1.3l2.3-2.3a4.2 4.2 0 0 0-5.9-5.9l-1.3 1.3"/><path d="M13.8 10.2a4.2 4.2 0 0 0-6.1-.3l-2.3 2.3a4.2 4.2 0 0 0 5.9 5.9l1.3-1.3"/></symbol>
+  </defs></svg>
   <div class="oc-wrap">
     <div class="oc-head">
-      <h1>🔍 ORDER CASE</h1>
+      <h1><svg class="mk"><use href="#m-look"/></svg>ORDER CASE</h1>
       <div class="oc-searchwrap">
         <input type="text" id="ocSearch" placeholder="Look up an order ID or SO…" autocomplete="off" spellcheck="false" />
-        <button class="oc-searchbtn" id="ocSearchBtn" onclick="doSearch()">🔍 Look up</button>
+        <button class="oc-searchbtn" id="ocSearchBtn" onclick="doSearch()"><svg class="mk"><use href="#m-look"/></svg>Look up</button>
       </div>
     </div>
 
@@ -228,12 +248,29 @@
         .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
         .replace(/"/g,'&quot;');
     }
+    /* ⚠⚠ HOUSTON, NEVER THE VIEWER'S CLOCK — reported from use 2026-09-03.
+       This used getHours()/getDate(), which are LOCAL-timezone getters. Read from
+       Riyadh that shifted every warehouse event by 8-9 hours: a pick logged 9:01 AM
+       on the floor rendered as 5:01 PM, and the whole case timeline read as though
+       the day had happened in the evening.
+
+       These are FLOOR events. The floor is in Houston. */
+    var OC_TZ = 'America/Chicago';
     function fmtWhen(ms) {
       if (!ms) return '—';
       var d = new Date(ms);
-      var h = d.getHours(), m = d.getMinutes(), ap = h < 12 ? 'am' : 'pm';
-      h = h % 12; if (h === 0) h = 12;
-      return (d.getMonth()+1) + '/' + d.getDate() + ' ' + h + ':' + (m<10?'0':'') + m + ap;
+      try {
+        var p = new Intl.DateTimeFormat('en-US', {
+          timeZone: OC_TZ, month: 'numeric', day: 'numeric',
+          hour: 'numeric', minute: '2-digit', hour12: true
+        }).formatToParts(d).reduce(function (o, x) { o[x.type] = x.value; return o; }, {});
+        return p.month + '/' + p.day + ' ' + p.hour + ':' + p.minute +
+               String(p.dayPeriod || '').toLowerCase();
+      } catch (e) {
+        var h = d.getHours(), m = d.getMinutes(), ap = h < 12 ? 'am' : 'pm';
+        h = h % 12; if (h === 0) h = 12;
+        return (d.getMonth()+1) + '/' + d.getDate() + ' ' + h + ':' + (m<10?'0':'') + m + ap;
+      }
     }
 
     /* ---------- one-time: category/status selects + investigator ---------- */
@@ -266,7 +303,7 @@
         + '</div>'
         + '<div class="oc-note-find">' + esc(n.findings) + '</div>'
         + (n.resolution ? '<div class="oc-note-res"><b>Resolution:</b> ' + esc(n.resolution) + '</div>' : '')
-        + '<div class="oc-note-by">' + (n.investigator ? '👤 ' + esc(n.investigator) : '👤 —') + '</div>';
+        + '<div class="oc-note-by">' + (n.investigator ? '<svg class="mk"><use href="#m-user"/></svg>' + esc(n.investigator) : '<svg class="mk"><use href="#m-user"/></svg>—') + '</div>';
       if (prepend && host.firstChild) host.insertBefore(div, host.firstChild);
       else host.appendChild(div);
     }
@@ -292,7 +329,7 @@
         var zTitle = 'From the Pending Sales Orders mirror'
                    + (z.updatedMs ? ' · updated ' + fmtWhen(z.updatedMs) : '')
                    + (z.pulled ? ' · pulled' : ' · not pulled yet');
-        html += '<span class="oc-zoho" title="' + zTitle + '">🔗 Zoho: ' + (zp.join(' · ') || '—') + '</span>';
+        html += '<span class="oc-zoho" title="' + zTitle + '"><svg class="mk"><use href="#m-link"/></svg>Zoho: ' + (zp.join(' · ') || '—') + '</span>';
       }
       // open-case chip (notes are newest-first)
       if (D.notes && D.notes.length && String(D.notes[0].status).toLowerCase() === 'open') {
@@ -342,7 +379,7 @@
             +   '<span class="oc-ev-when">' + fmtWhen(e.timestamp) + '</span>'
             +   '<span class="oc-ev-type">' + esc(e.event) + '</span>'
             +   (e.source ? '<span class="oc-ev-src">' + esc(e.source) + '</span>' : '')
-            +   (e.picker ? '<span class="oc-ev-src">👤 ' + esc(e.picker) + '</span>' : '')
+            +   (e.picker ? '<span class="oc-ev-src"><svg class="mk"><use href="#m-user"/></svg>' + esc(e.picker) + '</span>' : '')
             + '</div>';
           var meta = [];
           if (e.sku)    meta.push('<span class="oc-ev-sku">' + esc(e.sku) + (e.qty ? ' ×' + esc(e.qty) : '') + '</span>');

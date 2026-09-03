@@ -360,6 +360,18 @@ body { background: var(--g0); color: var(--t1); font-family: var(--body); overfl
 @media (prefers-reduced-motion: reduce) {
   .beacon.show, .edge.show, .dial-bezel, .dial-sweep, .ember { animation: none !important; }
 }
+
+    /* ⚠⚠ TEXT PRESENTATION, NOT COLOUR. Every glyph on this surface renders as
+       monochrome text in the page's own ink, exactly like the ⋯ menu already did.
+       Two reasons it is the right mechanism HERE rather than drawn marks: these
+       glyphs live inside toast STRINGS and a CSS content: rule, where an SVG does
+       not fit; and on the real warehouse tablet an unpinned glyph is a coin toss —
+       this board has already had ⛶ come back as "::" and ◍ as a yellow beach-ball.
+       ⚠ The previous rule was scoped to `.menu-item .ftr-ico`, which covered SIX of
+         the surface's glyphs and left eleven rendering in full colour. */
+    body, body * {
+      font-variant-emoji: text;
+    }
 </style>
 </head>
 <body>
