@@ -77,7 +77,8 @@ logs/
 #   is excluded, so the blanket form would silently make every negation below a no-op.
 design-lab/*
 !design-lab/*.js
-!design-lab/*.xml   # captured API payloads used as test fixtures
+# captured API payloads used as test fixtures (real GetItem responses)
+!design-lab/*.xml
 !design-lab/*.sh
 !design-lab/*.html
 # ⚠ A directory must be un-excluded before anything inside it can be re-included, which

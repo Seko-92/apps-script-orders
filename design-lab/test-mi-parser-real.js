@@ -34,7 +34,8 @@ console.log('\n  REAL PAYLOAD — item 153244362081 / SKU 172827\n');
 
 // 0 lbs 4 oz. Both WeightMajor copies happen to agree on THIS item, so the
 // scoping is not exercised here — the trap is unproven on real data, not absent.
-ok('weight 0 lbs 4 oz → 0.25',              m.packageWeightLbs, '0.25');
+ok('weight 0 lbs 4 oz → 0.25 lb',           m.packageWeightLbs, '0.25');
+ok('…and 4 oz exactly — no 0.25 fraction', m.packageWeightOz,  '4');
 ok('dims 7 x 5 x 1 inches',
    [m.packageLengthIn, m.packageWidthIn, m.packageDepthIn, m.packageDimsUnit],
    ['7.00','5.00','1.00','inches']);
@@ -73,7 +74,7 @@ ok('pictures scoped to PictureDetails',      m.totalPictures, '2');
 
 // ⚠ SUB is the WEEKEND BACKFILL. If it drifts from MAIN, Saturday writes ~3,600
 // rows without these columns and the sheet fills only where MAIN happened to go.
-const KEYS = ['packageWeightLbs','packageLengthIn','packageWidthIn','packageDepthIn',
+const KEYS = ['packageWeightLbs','packageWeightOz','packageLengthIn','packageWidthIn','packageDepthIn',
  'packageDimsUnit','shippingIrregular','shippingPackage','dispatchTimeMax','shippingService',
  'shippingCost','freeShipping','shipToLocations','hideFromSearch','reasonHideFromSearch',
  'outOfStockControl','bestOfferEnabled','watchCount'];

@@ -49,6 +49,8 @@ ok('A6', 'dims unit captured',                m.packageDimsUnit, 'inches');
 ok('A7', 'shippingIrregular',                 m.shippingIrregular, 'false');
 ok('A8', 'shippingPackage',                   m.shippingPackage,   'None');
 ok('A9', 'lbs + oz/16 — 25 lbs 8 oz = 25.5',  mOz.packageWeightLbs, '25.5');
+ok('A9b','…and the EXACT integer: 25 lbs 8 oz = 408 oz', mOz.packageWeightOz, '408');
+ok('A9c','no parcel block → oz EMPTY, not 0',   mFlat.packageWeightOz, '');
 ok('A10','metric listing is VISIBLE, not silently mixed', mMetric.packageDimsUnit, 'centimeters');
 
 // ── B. NEGATIVE — flat-rate listing must yield EMPTY, never wrong ────────────
@@ -77,7 +79,7 @@ ok('C10','watchCount',           m.watchCount,        '47');
 ok('C11','SUB emits the same health verdict',    s.reasonHideFromSearch, 'OutOfStock');
 
 // ── D. THE DRIFT GUARD — MAIN and SUB must emit the SAME key set ────────────
-const SEVENTEEN = ['packageWeightLbs','packageLengthIn','packageWidthIn','packageDepthIn',
+const SEVENTEEN = ['packageWeightLbs','packageWeightOz','packageLengthIn','packageWidthIn','packageDepthIn',
   'packageDimsUnit','shippingIrregular','shippingPackage','dispatchTimeMax','shippingService',
   'shippingCost','freeShipping','shipToLocations','hideFromSearch','reasonHideFromSearch',
   'outOfStockControl','bestOfferEnabled','watchCount'];
