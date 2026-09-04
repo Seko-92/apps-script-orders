@@ -40,6 +40,9 @@
 /** How many distinct lastUpdated day-buckets to print, newest first. */
 var MI_AUDIT_TOP_DAYS = 14;
 
+/** Day key of the biggest lastUpdated bucket — set by the freshness pass, read by the photo pass. */
+var _miaLastFullDay = '';
+
 
 function auditMasterInventoryFreshness() {
   var out = [];
@@ -147,6 +150,7 @@ function auditMasterInventoryFreshness() {
       if (buckets[days[dd]] > bestN) { bestN = buckets[days[dd]]; bestDay = days[dd]; }
     }
     var bestPctNum = nRows ? (bestN / nRows) * 100 : 0;
+    _miaLastFullDay = bestDay;   // window the photo check below is measuring across
     var ageDays = bestDay ? _miaDaysAgo(bestDay) : -1;
     say('  biggest single day : ' + bestDay + ' ' + _miaWeekday(bestDay) +
         ' — ' + bestN + ' rows (' + bestPctNum.toFixed(1) + '%), ' + ageDays + ' day(s) ago');
@@ -193,30 +197,135 @@ function auditMasterInventoryFreshness() {
   // ── 4. PHOTO DIVERGENCE — the measured cost of picture1 vs pictureUrl1 ──────
   say('');
   say('── PHOTO KEY DIVERGENCE  (MAIN writes picture*, 4 readers want pictureUrl*) ─');
-  var pu1 = readCol('pictureUrl1');
-  var p1  = readCol('picture1');
-  if (!pu1 || !p1) {
-    say('  (need both "pictureUrl1" and "picture1" headers; one is missing)');
+  // ⚠ FIRST VERSION OF THIS CHECK COMPARED ONLY pictureUrl1 vs picture1 AND
+  // UNDERSTATED THE LAG. The Photo Queue does not care which image is first —
+  // it counts NON-EMPTY pictureUrl1..5 and flags <= 1. So the transition that
+  // matters is "logo only" -> "photographer uploaded 3 more", and on that row
+  // image #1 is still the logo. A first-image comparison calls that identical.
+  // Compare COUNTS, which is what the reader actually does.
+  var puCols = [], pCols = [];
+  for (var pi = 1; pi <= 5; pi++) {
+    puCols.push(readCol('pictureUrl' + pi));
+    pCols.push(readCol('picture' + pi));
+  }
+  if (puCols.indexOf(null) >= 0 || pCols.indexOf(null) >= 0) {
+    say('  (need all of pictureUrl1..5 and picture1..5; at least one header is missing)');
   } else {
-    var bothEmpty = 0, onlyOld = 0, onlyNew = 0, differ = 0, same = 0;
-    for (var q = 0; q < nRows; q++) {
-      var a = String(pu1[q][0] || '').trim();   // what the readers actually use
-      var b = String(p1[q][0]  || '').trim();   // what MAIN's hourly writes
-      if (!a && !b) { bothEmpty++; continue; }
-      if (!a && b)  { onlyOld++;   continue; }
-      if (a && !b)  { onlyNew++;   continue; }
-      if (a === b) same++; else differ++;
+    function countAt(cols, r) {
+      var n = 0;
+      for (var c = 0; c < 5; c++) if (String(cols[c][r][0] || '').trim()) n++;
+      return n;
     }
-    say('  both empty                      : ' + _miaPad(bothEmpty, 5));
-    say('  pictureUrl1 only (SUB reached)  : ' + _miaPad(onlyNew, 5));
-    say('  picture1 only  (MAIN-only row)  : ' + _miaPad(onlyOld, 5) + '   ← INVISIBLE to all 4 readers');
-    say('  both, identical                 : ' + _miaPad(same, 5));
-    say('  both, DIFFERENT                 : ' + _miaPad(differ, 5) + '   ← photo changed since the last Sunday');
-    if (onlyOld + differ > 0) {
-      say('  ⚠ ' + (onlyOld + differ) + ' row(s) where the hourly sync has fresher photo data than');
-      say('    the four consumers can see. Phase 1 step 3 closes exactly this gap.');
+    var MAXI = (typeof PREP_PHOTO !== 'undefined' && PREP_PHOTO.maxImages) ? PREP_PHOTO.maxImages : 1;
+    var agree = 0, mainAhead = 0, subAhead = 0, firstDiffers = 0;
+    var wouldLeaveQueue = 0, wouldEnterQueue = 0, queueNow = 0, queueTrue = 0;
+    for (var r2 = 0; r2 < nRows; r2++) {
+      var nSub  = countAt(puCols, r2);   // what the 4 readers see  (SUB, weekly)
+      var nMain = countAt(pCols,  r2);   // what eBay said most recently (MAIN, hourly)
+      if (nSub  <= MAXI) queueNow++;     // currently flagged "needs photos"
+      if (nMain <= MAXI) queueTrue++;    // actually still needs photos
+      if (nMain === nSub) agree++;
+      else if (nMain > nSub) { mainAhead++; if (nSub <= MAXI && nMain > MAXI) wouldLeaveQueue++; }
+      else { subAhead++; if (nSub > MAXI && nMain <= MAXI) wouldEnterQueue++; }
+      var a1 = String(puCols[0][r2][0] || '').trim();
+      var b1 = String(pCols[0][r2][0]  || '').trim();
+      if (a1 && b1 && a1 !== b1) firstDiffers++;
+    }
+    say('  image COUNTS agree              : ' + _miaPad(agree, 5) + '  (' + _miaPct(agree, nRows) + ')');
+    say('  MAIN (hourly) has MORE images   : ' + _miaPad(mainAhead, 5) + '   photos added since the last full sync');
+    say('  SUB  (weekly) has MORE images   : ' + _miaPad(subAhead, 5) + '   photos removed since');
+    say('  first image URL differs         : ' + _miaPad(firstDiffers, 5));
+    say('');
+    say('  ── what this costs the Photo Queue (flags <= ' + MAXI + ' image) ──');
+    say('  flagged today  (reads pictureUrl*) : ' + _miaPad(queueNow, 5));
+    say('  actually needs a photo (picture*)  : ' + _miaPad(queueTrue, 5));
+    say('  ⭐ FALSE "needs photos" — already shot : ' + _miaPad(wouldLeaveQueue, 5));
+    say('  ⭐ MISSED  — needs one, not flagged    : ' + _miaPad(wouldEnterQueue, 5));
+    if (wouldLeaveQueue + wouldEnterQueue === 0) {
+      say('  ✅ ZERO rows misclassified right now. The photo half of the Phase 1');
+      say('     argument is WEAK at this moment — judge it on the ' + _miaDaysAgo(_miaLastFullDay || '') );
+      say('     day(s) since the last full sync, and re-run just before the next one.');
     } else {
-      say('  ✅ no divergence right now (expected soon after a Sunday run).');
+      say('  ⚠ ' + (wouldLeaveQueue + wouldEnterQueue) + ' row(s) are misclassified by the key divergence alone.');
+    }
+  }
+
+  // ── 5. ITEM-SPECIFICS SHREDDING — the plan's headline claim, measured ───────
+  // MAIN takes the FIRST <Value> of a NameValueList; SUB joins ALL of them with
+  // ", ". Both write the same C: columns. So the two populations below were last
+  // written by different parsers, and the multi-value RATE between them is the
+  // shredding, in numbers rather than argument.
+  //   A = rows last written by SUB   (lastUpdated == the big full-sync day)
+  //   B = rows last written by MAIN  (lastUpdated  >  that day)
+  // ⚠ CAVEAT, stated because it matters: MAIN only touches items that CHANGED,
+  //   so B is not a random sample of the catalogue. Read the gap as strong
+  //   evidence of direction and rough size, not as a precise percentage.
+  say('');
+  say('── ITEM-SPECIFICS SHREDDING  (MAIN keeps 1 value, SUB keeps all) ─');
+  if (!_miaLastFullDay) {
+    say('  (no full-sync day identified above; skipped)');
+  } else {
+    var cCols = [];
+    for (var ci = 0; ci < headers.length; ci++) {
+      if (String(headers[ci] || '').indexOf('C:') === 0) cCols.push(ci);
+    }
+    var luIdx = colIdx('lastUpdated') - 1;
+    if (cCols.length === 0 || luIdx < 0) {
+      say('  (no C: columns or no lastUpdated; skipped)');
+    } else {
+      var all = mi.getRange(2, 1, nRows, lastCol).getValues();   // one read
+      var spotIdx = colIdx('C:Compatible Equipment Type') - 1;
+
+      var st = { A: { cells: 0, multi: 0, rows: 0, spot: 0, spotMulti: 0 },
+                 B: { cells: 0, multi: 0, rows: 0, spot: 0, spotMulti: 0 } };
+      for (var r3 = 0; r3 < nRows; r3++) {
+        var day = _miaDayKey(all[r3][luIdx]);
+        var pop = (day === _miaLastFullDay) ? 'A' : (day > _miaLastFullDay ? 'B' : null);
+        if (!pop) continue;                       // older rows: neither parser recently
+        st[pop].rows++;
+        for (var cc = 0; cc < cCols.length; cc++) {
+          var val = String(all[r3][cCols[cc]] || '').trim();
+          if (!val) continue;
+          st[pop].cells++;
+          if (val.indexOf(', ') >= 0) st[pop].multi++;
+        }
+        if (spotIdx >= 0) {
+          var sv = String(all[r3][spotIdx] || '').trim();
+          if (sv) { st[pop].spot++; if (sv.indexOf(', ') >= 0) st[pop].spotMulti++; }
+        }
+      }
+      function rate(o, k, kk) { return o[k] ? ((o[kk] / o[k]) * 100).toFixed(1) + '%' : 'n/a'; }
+      say('  C: columns scanned : ' + cCols.length);
+      say('');
+      say('  A · last written by SUB  (' + _miaLastFullDay + ')  rows ' + _miaPad(st.A.rows, 5));
+      say('      filled C: cells ' + _miaPad(st.A.cells, 7) + '   multi-value ' +
+          _miaPad(st.A.multi, 6) + '  = ' + rate(st.A, 'cells', 'multi'));
+      say('  B · last written by MAIN (since)        rows ' + _miaPad(st.B.rows, 5));
+      say('      filled C: cells ' + _miaPad(st.B.cells, 7) + '   multi-value ' +
+          _miaPad(st.B.multi, 6) + '  = ' + rate(st.B, 'cells', 'multi'));
+      if (spotIdx >= 0) {
+        say('');
+        say('  spotlight — C:Compatible Equipment Type');
+        say('      SUB-written  ' + _miaPad(st.A.spotMulti, 5) + ' / ' + _miaPad(st.A.spot, 5) +
+            ' carry >1 value  = ' + rate(st.A, 'spot', 'spotMulti'));
+        say('      MAIN-written ' + _miaPad(st.B.spotMulti, 5) + ' / ' + _miaPad(st.B.spot, 5) +
+            ' carry >1 value  = ' + rate(st.B, 'spot', 'spotMulti'));
+      }
+      say('');
+      var aR = st.A.cells ? st.A.multi / st.A.cells : 0;
+      var bR = st.B.cells ? st.B.multi / st.B.cells : 0;
+      if (aR > 0 && bR < aR * 0.5) {
+        say('  ⭐ CONFIRMED: MAIN-written rows carry roughly ' +
+            (aR / Math.max(bR, 0.0001)).toFixed(1) + '× fewer multi-value cells.');
+        say('     Every hourly touch flattens them; the weekend sync restores them.');
+        say('     ' + st.B.rows + ' row(s) are shredded RIGHT NOW.');
+      } else if (aR > 0) {
+        say('  ⚠ NOT confirmed at this sample size — the two rates are close (' +
+            rate(st.A, 'cells', 'multi') + ' vs ' + rate(st.B, 'cells', 'multi') + ').');
+        say('     Do not lead with this claim until it is re-measured later in the week.');
+      } else {
+        say('  (no multi-value cells found at all — nothing to shred)');
+      }
     }
   }
 
