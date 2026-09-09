@@ -85,4 +85,7 @@ var CLOCK_CELL              = "E1";
 var LIVE_UPDATE_TOGGLE_CELL = "B1";
 
 // Misc tunables (no Schema equivalent — internal behavior, not data structure)
-var MAX_EMPTY_ROWS_TO_KEEP = 5;
+// ⛔ REMOVED 2026-09-09 — MAX_EMPTY_ROWS_TO_KEEP = 5. Its only reader was deleteEmptyRows,
+//    which kept 5 blank rows below DIRECT while the eBay branch kept 3 from a separate
+//    literal, so the sheet's two tables disagreed and both quietly overrode
+//    TABLE_BUFFER_ROWS. Both now read that one constant (RowManagement.js).

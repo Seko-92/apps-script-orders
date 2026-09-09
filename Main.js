@@ -122,14 +122,14 @@ function autoEnableLiveSync() {
   toggleLiveUpdate('ON');
 }
 
-/**
- * onChange trigger - Updates stats when sheet changes
- * @param {Event} e - The change event
+/*
+ * ⛔ REMOVED 2026-09-09 — onChange(e). It called updateOrderStatsInSheet() (already an empty
+ *    no-op; G1 is a live COUNTIF formula) and ensureDirectTableBuffer(). NEITHER EVER RAN:
+ *    Apps Script's SIMPLE triggers are onOpen / onEdit / onInstall / onSelectionChange only —
+ *    there is no simple onChange — and the installed change trigger is onChangeInstallable,
+ *    below. Verified against the live Triggers list: 14 triggers, no plain onChange.
+ *    Its cost was that it read as live. See the tombstone in RowManagement.js.
  */
-function onChange(e) {
-  updateOrderStatsInSheet();
-  ensureDirectTableBuffer();
-}
 
 /**
  * INSTALLABLE onChange trigger - Handles row deletions, paste, structural changes.

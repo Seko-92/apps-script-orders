@@ -14,13 +14,29 @@ function deleteEmptyRows(t) {
   var end   = (t === 1) ? b - 1               : sheet.getMaxRows();
   var last  = findLastDataRowInSegment(start, end);
 
-  var delStart = (t === 1) ? last + 4 : last + MAX_EMPTY_ROWS_TO_KEEP + 1;
+  // ⚠⚠ ONE CONSTANT, NOT THREE. Until 2026-09-09 the buffer size was written down in three
+  //    places with three different answers: TABLE_BUFFER_ROWS, a literal `last + 4` here for
+  //    eBay (keep 3) and MAX_EMPTY_ROWS_TO_KEEP for DIRECT (keep 5). That asymmetry is what
+  //    the live sheet actually showed — 3 blank rows above the DIRECT band and 5 below — and
+  //    it is why these two buttons SILENTLY UNDID a change to TABLE_BUFFER_ROWS. The format-
+  //    drift class this project keeps paying for: one fact, several copies, the copies win.
+  //
+  // ⭐ AND IT CORRECTS AN ATTRIBUTION. balanceTableBuffers' note used to blame
+  //    ensureDirectTableBuffer for the eBay-3/DIRECT-6 drift observed 2026-08-31. That
+  //    function was DEAD (see its tombstone below); this hardcoded 3-vs-5 split is the cause.
+  //
+  // ⚠ Math.max(1, …) mirrors balanceTableBuffers' clamp, and it is a SAFETY property, not a
+  //   preference: delStart = last + keep + 1, so keep >= 1 guarantees delStart > last and this
+  //   function can never delete a row that holds data. Everything past findLastDataRowInSegment
+  //   is blank by definition. A keep of 0 would put delStart ON the last data row.
+  var keep = Math.max(1, TABLE_BUFFER_ROWS);
+  var delStart = last + keep + 1;
 
-  if (t === 1 && delStart >= b) return "ℹ️ 3-row buffer already exists.";
+  if (t === 1 && delStart >= b) return "ℹ️ " + keep + "-row buffer already exists.";
 
   if (delStart < end) {
     sheet.deleteRows(delStart, end - delStart + 1);
-    return "✅ Cleanup complete (3-row buffer preserved).";
+    return "✅ Cleanup complete (" + keep + "-row buffer preserved).";
   }
   return "ℹ️ Already clean.";
 }
@@ -38,43 +54,29 @@ function runDeleteEmptyRowsTableTwo() {
   if (!_obIsOwner()) return _asOwner('runDeleteEmptyRowsTableTwo', []);
  return deleteEmptyRows(2); }
 
-/**
- * Ensures the DIRECT table always has at least 3 empty buffer rows
- * with proper data formatting (not header formatting).
- * Called automatically via onChange when rows are deleted.
+/*
+ * ⛔ REMOVED 2026-09-09 — ensureDirectTableBuffer(). It topped the DIRECT table back up to a
+ *    hardcoded 3 blank rows and documented itself as "Called automatically via onChange when
+ *    rows are deleted." IT NEVER RAN. Apps Script has no SIMPLE onChange trigger (the simple
+ *    ones are onOpen / onEdit / onInstall / onSelectionChange), its only caller was Main.js's
+ *    onChange(), and the installed change trigger is onChangeInstallable. Verified against the
+ *    live Triggers list: 14 triggers, no plain onChange.
+ *
+ * ⚠ It read as LIVE, which is the cost — the same decoy shape as the 343-line
+ *   expandSelectedKits removed 2026-08-08. Anyone changing TABLE_BUFFER_ROWS would reasonably
+ *   conclude an automatic process was going to push DIRECT straight back to 3.
+ *
+ * ⚠⚠ AND IT COULD NOT HAVE BEEN SAFELY WIRED UP EITHER. It computed emptyCount from
+ *    sheet.getLastRow() where it meant getMaxRows(), so emptyStart was always lastRow + 1,
+ *    emptyCount was always 0, and it would have added 3 rows EVERY TIME IT FIRED — unbounded
+ *    row growth on the sheet n8n writes to all day. That is also independent evidence it never
+ *    ran: had it ever been on a trigger, this sheet would not be 33 rows.
+ *
+ * ⭐ Nothing needs replacing. The failure it was meant to guard — a 0-row DIRECT tail, which
+ *   makes _insertAddedItemsToDirect's insertRowsBefore(boundary + 2) address a row that does
+ *   not exist — is held by the Math.max(1, …) clamp in deleteEmptyRows and balanceTableBuffers.
+ *   Git history has the body.
  */
-function ensureDirectTableBuffer() {
-  var sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(MAIN_SHEET_NAME);
-  if (!sheet) return;
-
-  var boundary = getBoundaryRow();
-  if (boundary === -1) return;
-
-  var BUFFER_SIZE = 3;
-  var directDataStart = boundary + 2; // First data row after DIRECT header
-  var lastRow = sheet.getLastRow();
-
-  // Find last data row in DIRECT table
-  var lastDataRow = findLastDataRowInSegment(directDataStart, lastRow);
-
-  // Count empty rows after last data (or after header if no data)
-  var emptyStart = (lastDataRow >= directDataStart) ? lastDataRow + 1 : directDataStart;
-  var emptyCount = lastRow - emptyStart + 1;
-  if (emptyStart > lastRow) emptyCount = 0;
-
-  if (emptyCount >= BUFFER_SIZE) return; // Buffer already exists
-
-  var rowsToAdd = BUFFER_SIZE - emptyCount;
-
-  // Add rows at the end of the sheet
-  sheet.insertRowsAfter(lastRow, rowsToAdd);
-
-  // Copy formatting from eBay data row (which always has correct format)
-  var sourceRange = sheet.getRange(Schema.dataStartRow, 1, 1, Schema.dataWidth);
-  var targetRange = sheet.getRange(lastRow + 1, 1, rowsToAdd, Schema.dataWidth);
-  sourceRange.copyTo(targetRange, SpreadsheetApp.CopyPasteType.PASTE_FORMAT, false);
-  sheet.setRowHeights(lastRow + 1, rowsToAdd, 30);
-}
 
 /**
  * How many blank rows each table carries below its last row of data.
@@ -92,11 +94,10 @@ function ensureDirectTableBuffer() {
  *   confusing failure. balanceTableBuffers already clamps with Math.max(1, …); this
  *   comment is why that clamp is there.
  *
- * ⚠ Two OTHER buffer sizes are encoded elsewhere and were already out of step with this
- *   one before the change: `BUFFER_SIZE = 3` in ensureDirectTableBuffer (dead — its only
- *   caller is Main.js's onChange(), and Apps Script has no SIMPLE onChange trigger; the
- *   installed one is onChangeInstallable), and `last + 4` / MAX_EMPTY_ROWS_TO_KEEP in
- *   deleteEmptyRows. Deliberately untouched here — a look must not travel with a repair.
+ * ⭐ THIS IS NOW THE ONLY BUFFER SIZE IN THE PROJECT. It was one of three until 2026-09-09:
+ *   `BUFFER_SIZE = 3` in ensureDirectTableBuffer (dead, removed) and `last + 4` /
+ *   MAX_EMPTY_ROWS_TO_KEEP in deleteEmptyRows — whose two LIVE buttons therefore silently
+ *   undid any change made here. Both read this constant now. Change it in one place.
  */
 var TABLE_BUFFER_ROWS = 1;
 
@@ -104,8 +105,11 @@ var TABLE_BUFFER_ROWS = 1;
  * balanceTableBuffers(n) — give BOTH tables exactly the same number of trailing
  * blank rows. Owner-run, idempotent, reports what it did.
  *
- * ⚠⚠ WHY THE TWO DRIFTED APART. `ensureDirectTableBuffer` only ever ADDS — it tops the
- *    DIRECT table back up to 3 and has no path that removes anything. So every row
+ * ⚠⚠ WHY THE TWO DRIFTED APART. ⭐ CORRECTED 2026-09-09: this used to blame
+ *    `ensureDirectTableBuffer` for only ever ADDING. That function was DEAD and has been
+ *    removed — the real cause was `deleteEmptyRows`, whose two buttons kept 3 rows for eBay
+ *    and 5 for DIRECT from hardcoded literals. Both read TABLE_BUFFER_ROWS now. The original
+ *    reasoning is still right about the SHAPE, which is why the trim stays deliberate: So every row
  *    deleted from the middle, every n8n shipped-row sweep, every manual tidy leaves the
  *    tail one row longer than it found it, and the gap grows in one direction forever.
  *    Observed 2026-08-31: eBay 3, DIRECT 6. **Exactly the Prep Queue's buffer bug of
