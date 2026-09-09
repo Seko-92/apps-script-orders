@@ -103,24 +103,31 @@ if (sandbox.MASTHEAD.dial) {
   ok('⚠ and it is NOT .gif', !/\.gif"/.test(W.A1 || ''));
 }
 
-console.log('\nB · ⚠⚠ E1 still speaks the format the Floor Board parses');
-// the REAL regex, lifted out of the shipped ActivityLog.js — never retyped
-const alSrc = R('ActivityLog.js');
-// ⚠ Find the CODE line, not the comment above it — an assertion made against source
-//   text must never match documentation (the 2026-08-21 openById lesson).
-const heartLine = alSrc.split('\n').find(l =>
-  l.includes('AM|PM') && l.includes('.match(') && !/^\s*(\/\/|\*)/.test(l));
-const reLit = heartLine && heartLine.match(/\/.*\/i/);
-ok('extracted the heartbeat regex from ActivityLog.js', !!reLit, reLit && reLit[0]);
-const HEART = eval(reLit[0]);
+console.log('\nB · ⚠⚠ the heartbeat no longer depends on row 1');
+// ⭐⭐ REWRITTEN 2026-09-04, AND THE REWRITE IS THE POINT. This section used to lift the
+//    "h:mm AM/PM" regex out of ActivityLog.js and prove E1's formula fed it. THAT
+//    CONTRACT IS RETIRED. E1 was a DISPLAY cell doubling as a machine input, so the day
+//    row 1 was rearranged (D1/E1 → F1/H1, a perfectly reasonable edit — the loop covers
+//    D1:E1 and F1/H1 show the same thing) the Floor Board heartbeat, the sidebar pulse,
+//    /status and the published tick ALL went dark at once, silently, with the sheet
+//    looking perfect. Freshness now reads __SparkData!A4 via _sparkPulse().
+//    Replacement proof: design-lab/test-spark-pulse.js — 18 assertions, 15 of which
+//    fail against the old code, incl. the 24h-wrap bug the old parse carried.
+// ⚠ Comments are stripped before every source assertion — documentation describes the
+//   bug, which is exactly what these patterns hunt for (the 2026-08-21 openById lesson).
+const alSrc  = R('ActivityLog.js');
+const alCode = alSrc.split('\n').filter(l => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n');
+ok('ActivityLog no longer regex-parses a clock out of a cell', !alCode.includes('(AM|PM)'));
+ok('⚠ and no longer reads Schema.cellSyncTime at all',         !alCode.includes('Schema.cellSyncTime'));
+ok('freshness comes from _sparkPulse',                         /_sparkPulse\s*\(/.test(alCode));
+ok('_sparkPulse reads __SparkData in ONE round trip',          alCode.includes("getRange('A3:A13')"));
+// ⭐ E1 keeps its formula and its wording. Nothing PARSES it any more, but the operator
+//   still READS it, so the display assertions stay meaningful — they just no longer
+//   guard a contract.
 ok('E1 formula still calls TEXT(...,"h:mm AM/PM")', /TEXT\('__SparkData'!A3,"h:mm AM\/PM"\)/.test(W.E1 || ''));
-// the strings that formula can actually produce
-const LIVE    = '⏱ 🟢 ALIVE · 9:57 PM · 8m ago';
-const STALE   = '⏱ 🔴 STALE · 8:03 PM · 2h 14m ago';
-const OFFLINE = '⏱ OFFLINE · no activity logged';
-ok('a healthy pulse parses → heartbeat lives', HEART.test(LIVE), LIVE.match(HEART) && LIVE.match(HEART)[0]);
-ok('a stale pulse still parses',               HEART.test(STALE));
-ok('OFFLINE yields no time — unchanged from today', !HEART.test(OFFLINE));
+ok('E1 still names the three live tiers',
+   /ALIVE/.test(W.E1 || '') && /IDLE/.test(W.E1 || '') && /STALE/.test(W.E1 || ''));
+ok('E1 still has an OFFLINE branch', /OFFLINE/.test(W.E1 || ''));
 
 console.log('\nC · the verdict is computed ONCE and shared');
 const ss = { getSheetByName: () => sh, insertSheet: () => sh };
@@ -238,8 +245,8 @@ ok('⚠ and it outranks STALE inside E1 too',
    (W.E1 || '').indexOf('RESTING') < (W.E1 || '').indexOf('STALE'));
 ok('E1 still carries h:mm AM/PM after the change',
    /TEXT\('__SparkData'!A3,"h:mm AM\/PM"\)/.test(W.E1 || ''));
-ok('and the real heartbeat regex still parses a RESTING line',
-   HEART.test('⏱ ⚪ RESTING · 9:57 PM · 6h 0m ago'));
+ok('E1 renders RESTING with a readable clock beside it',
+   /RESTING/.test(W.E1 || '') && /TEXT\('__SparkData'!A3,"h:mm AM\/PM"\)/.test(W.E1 || ''));
 
 console.log('\nI · the resting curve wears yesterday, not an empty today');
 const curve = WCURVE.F1 || '', yRow = (S['R2C1+1x24'] || [[]])[0] || [];
@@ -423,7 +430,11 @@ console.log('\n── STRIP LAYOUT ──');
 
   // ⚠⚠ THE FLOOR-OUTAGE GUARD. F2:G2 and H2 hold the Pick ID dropdowns and a floating image
   //    swallows clicks as well as pixels, so the strip must never be taller than row 1.
-  ok('STRIP is row 1 tall only', sandbox.STRIP.height === 56, sandbox.STRIP.height);
+  // ⚠ DERIVE, DO NOT RESTATE. This pinned a literal 56 and so it failed the moment row 1
+  //   legitimately became 68 — restating a constant in a second place is the same drift the
+  //   guard exists to catch, one level up. The RELATIONSHIP is what protects the dropdowns.
+  ok('STRIP is row 1 tall only', sandbox.STRIP.height === sandbox.MASTHEAD.rowHeight,
+     'STRIP ' + sandbox.STRIP.height + ' vs rowHeight ' + sandbox.MASTHEAD.rowHeight);
   ok('STRIP width is the measured D+E', sandbox.STRIP.width === 539, sandbox.STRIP.width);
   ok('the strip art is versioned in its filename', /strip-v\d+\.gif$/.test(sandbox.STRIP.url),
      sandbox.STRIP.url);

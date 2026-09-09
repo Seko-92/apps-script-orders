@@ -190,11 +190,15 @@ var Schema = {
   //
   // To revert to default layout: change these three constants back to G1/G2/I2,
   // restore the original merges (G1:J1, G2:H2, I2:J2, A2:F2), and unhide cols I+J.
-  // ⚠⚠ cellSyncTime ("E1") MUST NOT MOVE. ActivityLog.js regex-parses "h:mm AM/PM"
-  // out of that cell into cockpit.lastSyncMinutes, which drives the Floor Board's
-  // heartbeat dot, the sidebar System Pulse, /status and the published tick.
-  // getDashboardSnapshot IS reachable from doPost, so relocating E1 needs a New
-  // Version AND breaks the heartbeat in the window either side of the cut.
+  // ⭐⭐ cellSyncTime ("E1") IS DISPLAY-ONLY SINCE 2026-09-04. Move it, restyle it,
+  // clear it — nothing reads it. THE PREVIOUS WARNING HERE SAID THE OPPOSITE, and
+  // it was load-bearing: ActivityLog.js regex-parsed "h:mm AM/PM" out of that cell
+  // into cockpit.lastSyncMinutes, so the day D1/E1 were rearranged into F1/H1 the
+  // Floor Board heartbeat, the sidebar pulse, /status and the published tick all
+  // went dark at once, silently, and the sheet looked perfect.
+  // Freshness now comes from __SparkData!A4 via _sparkPulse() — hidden, machine-
+  // owned, and a TRUE elapsed-minutes number instead of a wrapped clock diff.
+  // ⭐ NOTHING IN ROW 1 IS A CONTRACT ANY MORE. Rearrange it freely.
   //
   // MASTHEAD LAYOUT (2026-08-30). Row 1 is four zones, bounded by the data table's
   // own column edges — the widths are shared with the table below and cannot move:

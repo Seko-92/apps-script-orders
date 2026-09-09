@@ -580,6 +580,79 @@ function _floorOrderIsDirect(orderId) {
  */
 var DASH_LOG_TAIL_ROWS = 2500;
 
+/**
+ * Pipeline freshness, read from the hidden __SparkData helper sheet, which
+ * already computes every figure the banner needs:
+ *
+ *   A3   =IFERROR(MAX('Activity Log'!A:A),0)   last logged activity (a Date)
+ *   A4   =IF(A3>0,(NOW()-A3)*1440,-1)          minutes since; -1 = unreadable
+ *   A12  formatted "6m" / "2h 15m"             human duration
+ *
+ * ⭐⭐ THIS REPLACED A REGEX ON CELL E1, AND IT IS A CORRECTNESS FIX, NOT TIDYING.
+ *    The old parse pulled "h:mm AM/PM" out of the System Pulse's DISPLAY TEXT and
+ *    diffed minutes-of-day with a midnight wrap. That string carries NO DATE, so
+ *    the answer was capped at 1439 and wrapped: a pipeline dead for exactly 24h
+ *    read as 0 minutes — "🟢 ALIVE" — and one dead 25h read as 60. The longer the
+ *    outage, the healthier it looked, which is the reassuring-label-on-a-dangerous
+ *    -state bug this codebase rules against. A4 is true elapsed minutes; it cannot
+ *    wrap, and a three-day outage reads 4320.
+ *
+ * ⚠⚠ AND IT RETIRES A CELL CONTRACT. Row 1 is a DISPLAY surface people rearrange —
+ *    on 2026-09-04 D1/E1 were moved to F1/H1 (a reasonable edit: the loop covers
+ *    D1:E1 and F1/H1 show the same thing) and that silently killed the Floor Board
+ *    heartbeat, the sidebar pulse, /status and the published tick, because E1 was
+ *    ALSO a machine input. Same shape as the "DIRECT" divider, where the decorative
+ *    ▌ lives in a NUMBER FORMAT so the machine-read VALUE stays clean.
+ *    __SparkData is hidden and machine-owned, which is where a contract belongs.
+ *    NOTHING IN ROW 1 IS LOAD-BEARING ANY MORE.
+ *
+ * ⚠ minutes is null when unreadable — never a number. "I cannot tell" must not
+ *   render as "synced just now". Callers already treat null as unknown.
+ * ⚠ Date is duck-typed (.getTime), not instanceof — a VM-based Node harness has
+ *   its own Date realm and instanceof silently fails there (2026-08-28 lesson).
+ */
+function _sparkPulse(ss) {
+  var out = { minutes: null, at: null, ago: '' };
+  try {
+    var sheet = ss.getSheetByName('__SparkData');
+    if (!sheet) return out;
+    // ONE round trip — A3..A13 spans the timestamp, the minutes and the label.
+    var v = sheet.getRange('A3:A13').getValues();
+    var at = v[0][0], mins = v[1][0], ago = v[9][0];
+    out.ago = (ago === null || ago === undefined) ? '' : String(ago);
+
+    // ⭐⭐ MINUTES ARE COMPUTED FROM A3, NOT READ FROM A4 — and that is deliberate.
+    //    A4 is =IF(A3>0,(NOW()-A3)*1440,-1). Two things can make reading it fail, and
+    //    BOTH are silent:
+    //      1. Gotcha #16 — _ensureSparkData sets no number format on A4, so if that
+    //         cell ever inherits a date format getValues() hands back a Date and
+    //         parseFloat gives NaN. This codebase has been bitten by that exact class
+    //         three times (Zoho SELLING PRICE · OOS DAYS OUT · Kit Health AT RISK).
+    //      2. NOW() is volatile and only recalculates with the spreadsheet's
+    //         "on change and every minute" setting on. Off, A4 freezes.
+    //    A3 is MAX('Activity Log'!A:A) — a real Date, non-volatile, recalculated when
+    //    the log is written. Subtracting it here is immune to both.
+    // ⚠ Date is duck-typed (.getTime), never instanceof — a VM harness has its own
+    //   Date realm and instanceof silently fails there (2026-08-28 lesson).
+    if (at && typeof at.getTime === 'function' && !isNaN(at.getTime()) && at.getTime() > 0) {
+      out.at = at;
+      out.minutes = Math.max(0, Math.floor((Date.now() - at.getTime()) / 60000));
+    } else {
+      // A3 unusable — fall back to A4, tolerating a date-formatted cell the same way
+      // _kitRiskToNumber does. Sheets' epoch is 1899-12-30.
+      var n;
+      if (mins && typeof mins.getTime === 'function') {
+        n = Math.round((mins.getTime() - new Date(1899, 11, 30).getTime()) / 86400000);
+      } else {
+        n = parseFloat(mins);
+      }
+      if (!isNaN(n) && n >= 0) out.minutes = Math.floor(n);
+    }
+  } catch (e) {
+    console.error('_sparkPulse: ' + e);
+  }
+  return out;
+}
 function getDashboardSnapshot() {
   var result = {
     shippedToday: 0,
@@ -799,27 +872,12 @@ function getDashboardSnapshot() {
         }
       }
 
-      // Parse the human-readable last-sync cell (E1) into a freshness number.
-      var syncRaw = mainSheet.getRange(Schema.cellSyncTime).getValue();
-      var match = String(syncRaw || "").match(/(\d{1,2}):(\d{2})\s*(AM|PM)/i);
-      if (match) {
-        var hour = parseInt(match[1], 10);
-        var min = parseInt(match[2], 10);
-        var mer = match[3].toUpperCase();
-        if (mer === "PM" && hour < 12) hour += 12;
-        if (mer === "AM" && hour === 12) hour = 0;
-        // E1 is wall-clock time in the SPREADSHEET timezone (America/Chicago).
-        // Compare against "now" in the SAME timezone via formatDate — the old
-        // new Date()+setHours() ran in the SCRIPT timezone, and that mismatch
-        // produced bogus multi-hour "stale" readings (2026-06-02 fix). Pure
-        // minutes-of-day diff, midnight-wrapped.
-        var nowParts = Utilities.formatDate(new Date(), "America/Chicago", "H:m").split(":");
-        var nowMin = parseInt(nowParts[0], 10) * 60 + parseInt(nowParts[1], 10);
-        var syncMin = hour * 60 + min;
-        var diff = nowMin - syncMin;
-        if (diff < 0) diff += 1440;   // sync stamped before midnight, now after
-        result.lastSyncMinutes = diff;
-      }
+      // ⭐ FRESHNESS IS READ AS A NUMBER, NEVER PARSED OUT OF ROW 1.
+      // See _sparkPulse() for the two reasons: the old E1 regex wrapped at 24h
+      // (making a long outage look healthy), and it made a display cell that
+      // people rearrange into a load-bearing machine contract.
+      var pulse = _sparkPulse(ss);
+      if (pulse.minutes !== null) result.lastSyncMinutes = pulse.minutes;
     }
     // ---- Zoho pending + Prep Queue (defensive: silent 0 if helpers missing) ----
     // 2026-06-02: directPending is NO LONGER merged with the Pending-SO mirror.

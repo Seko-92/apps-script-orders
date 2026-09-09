@@ -1,18 +1,26 @@
 /**
- * Reads the last n8n sync timestamp from the banner cell on the All Orders sheet.
- * The sidebar calls this on load (and on every poll) so the displayed
- * "Last sync" reflects sheet truth, not a localStorage guess.
+ * The sidebar's "Last sync" line — the human-readable freshness string.
  *
- * Returns the raw cell text — e.g. "⏱ Last sync · 8:45 PM" — or empty string
- * if the cell is empty.
+ * ⚠ READS __SparkData, NOT CELL E1 (changed 2026-09-04). Row 1 is a DISPLAY
+ *   surface that gets rearranged; the day D1/E1 were moved to F1/H1 this
+ *   returned "" and the panel read "Last sync: never" while the pipeline was
+ *   perfectly healthy. See _sparkPulse() in ActivityLog.js for the full story.
+ *
+ * ⭐ The tier word (ALIVE / IDLE / STALE) is deliberately NOT repeated here.
+ *   The sidebar already renders it from lastSyncMinutes via _renderSystemPulse(),
+ *   so echoing it would put the 15/60-minute thresholds in two places — the
+ *   two-copies-of-one-rule drift class this project has paid for repeatedly.
+ *
+ * Returns e.g. "⏱ 4:45 PM · 6m ago", or the OFFLINE line when unreadable.
  */
 function getLastSyncFromSheet() {
   try {
     var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
-    var sheet = ss.getSheetByName(MAIN_SHEET_NAME);
-    if (!sheet) return "";
-    var v = sheet.getRange(Schema.cellSyncTime).getValue();
-    return v ? String(v) : "";
+    var p = _sparkPulse(ss);
+    if (p.minutes === null) return "⏱ OFFLINE · no activity logged";
+    // Houston, because the floor is — the same zone the banner formulas render in.
+    var t = p.at ? Utilities.formatDate(p.at, "America/Chicago", "h:mm a") : "";
+    return "⏱ " + (t ? t + " · " : "") + (p.ago ? p.ago + " ago" : "just now");
   } catch (e) {
     console.error("getLastSyncFromSheet error: " + e);
     return "";

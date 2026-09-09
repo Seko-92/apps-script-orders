@@ -78,7 +78,9 @@ var TABLE_TWO_IDENTIFIER = "DIRECT";
 
 // Banner cells — see Schema.cellSyncTime / Schema.cellStats / etc.
 // CLOCK_CELL is kept as a back-compat alias only. Live code references
-// Schema.cellSyncTime ("E1" — last n8n sync timestamp).
+// Schema.cellSyncTime ("E1" — the System Pulse).
+// ⚠ E1 is DISPLAY-ONLY since 2026-09-04 — freshness is read from __SparkData!A4
+//   by _sparkPulse(). No code reads E1.
 var CLOCK_CELL              = "E1";
 var LIVE_UPDATE_TOGGLE_CELL = "B1";
 
