@@ -76,8 +76,29 @@ function ensureDirectTableBuffer() {
   sheet.setRowHeights(lastRow + 1, rowsToAdd, 30);
 }
 
-/** How many blank rows each table carries below its last row of data. */
-var TABLE_BUFFER_ROWS = 3;
+/**
+ * How many blank rows each table carries below its last row of data.
+ *
+ * ⭐ 3 → 1 on 2026-09-09. The buffer existed for ONE reason: somewhere for a person to
+ *   type a new row. With the All Orders lock installed and hand-entry retired (every
+ *   arrival now comes through doPost, the Zoho pull, kit expansion or /replacement, and
+ *   all four INSERT their own rows), it had become pure dead space between the two
+ *   tables — 3 blank rows above the DIRECT band and, unbalanced, 5 below.
+ *
+ * ⚠⚠ NEVER 0, AND THE REASON IS STRUCTURAL, NOT COSMETIC. If DIRECT is empty and its
+ *   tail is 0, the sheet ENDS at the DIRECT header row — and _insertAddedItemsToDirect
+ *   does `insertRowsBefore(boundary + 2)`, a row that then does not exist. That throws,
+ *   on the Zoho pull path, only when DIRECT happens to be empty: a rare, delayed,
+ *   confusing failure. balanceTableBuffers already clamps with Math.max(1, …); this
+ *   comment is why that clamp is there.
+ *
+ * ⚠ Two OTHER buffer sizes are encoded elsewhere and were already out of step with this
+ *   one before the change: `BUFFER_SIZE = 3` in ensureDirectTableBuffer (dead — its only
+ *   caller is Main.js's onChange(), and Apps Script has no SIMPLE onChange trigger; the
+ *   installed one is onChangeInstallable), and `last + 4` / MAX_EMPTY_ROWS_TO_KEEP in
+ *   deleteEmptyRows. Deliberately untouched here — a look must not travel with a repair.
+ */
+var TABLE_BUFFER_ROWS = 1;
 
 /**
  * balanceTableBuffers(n) — give BOTH tables exactly the same number of trailing
