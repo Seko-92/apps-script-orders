@@ -88,6 +88,14 @@ design-lab/*
 #   memory, write once at the end, so a failed assertion costs nothing).
 !design-lab/port/
 
+# ⚠ Same directory rule again, and the same trap it exists to prevent: on 2026-09-04 a
+#   captured .xml fixture was silently dropped from a commit because only *.js/.sh/.html
+#   were negated — leaving its test committed and UNRUNNABLE on a fresh clone. A .json
+#   fixture in a SUBDIRECTORY needs the directory un-excluded first, exactly like port/.
+#   ⚠ Verify with `git ls-files` after adding, NOT `git check-ignore` — a check-ignore
+#     line naming the `!` negation means the file is NOT ignored, which reads backwards.
+!design-lab/fixtures/
+
 # ...but NOT the generated review artifacts. Each is its own *.template.html rendered with
 # every screenshot base64-embedded — 12-32K of source becomes 1.4-2.0M of output. The
 # template beside each one IS the source. Add any future one to this list.

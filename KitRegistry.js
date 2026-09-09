@@ -1102,23 +1102,31 @@ function _deleteKitRegistryRows(sheet, rowNumbers) {
  * Normalize to string-of-integer for reliable matching against the string SKUs
  * Zoho exports.
  *
- * Reads only the 4 columns we need (skip the 195-col-wide MI scan) — keeps
- * the read fast and memory tight.
+ * ⚠ THIS USED TO READ BY POSITION — `getRange(2, 2, lastRow-1, 39)` then
+ * `data[i][38]` for "col 40 = C:Model Year". That column number was an accident of
+ * the order n8n's autoMapInputData happened to create the `C:` columns, and the
+ * failure mode was SILENT: a shifted column feeds a neighbouring field into the
+ * /^K[-\s]/ aisle test below, every kit quietly classifies as MANUAL, and a READY
+ * kit gets expanded into components instead of shipping as its pre-assembled box.
+ *
+ * MiSchema.readColumns resolves by HEADER NAME and still issues one bounded read —
+ * it computes the span itself, so no width is hardcoded here any more.
  */
 function _buildMasterInventoryMap() {
   var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   var miSheet = ss.getSheetByName(DB_SHEET_NAME);
   if (!miSheet) return {};
 
-  var lastRow = miSheet.getLastRow();
-  if (lastRow < 2) return {};
+  var NEED = [DB_SKU_HEADER, DB_TITLE_HEADER, DB_QUANTITY_HEADER, DB_LOCATION_HEADER];
+  var mi = MiSchema.readColumns(miSheet, NEED);   // throws, loudly, if a column is gone
+  var iSku = mi.idx[DB_SKU_HEADER];
+  var iTitle = mi.idx[DB_TITLE_HEADER];
+  var iQty = mi.idx[DB_QUANTITY_HEADER];
+  var iLoc = mi.idx[DB_LOCATION_HEADER];
 
-  // We need: col 2 (sku), col 6 (quantity), col 3 (title), col 40 (C:Model Year = aisle).
-  // Read col 2-40 in one batch; cheaper than 4 separate reads on large MI.
-  var data = miSheet.getRange(2, 2, lastRow - 1, 39).getValues();
   var map = {};
-  for (var i = 0; i < data.length; i++) {
-    var raw = data[i][0];
+  for (var i = 0; i < mi.rows.length; i++) {
+    var raw = mi.rows[i][iSku];
     if (raw === "" || raw == null) continue;
     var skuStr;
     if (typeof raw === "number") {
@@ -1130,9 +1138,9 @@ function _buildMasterInventoryMap() {
     }
     if (!skuStr) continue;
     map[skuStr] = {
-      title: data[i][1],     // col 3
-      qty: data[i][4],     // col 6 (offset 4 within col-2-to-40 slice)
-      location: data[i][38]     // col 40 (offset 38 within slice) - C:Model Year = aisle
+      title: mi.rows[i][iTitle],
+      qty: mi.rows[i][iQty],
+      location: mi.rows[i][iLoc]     // C:Model Year = the aisle, resolved by NAME
     };
   }
   return map;
