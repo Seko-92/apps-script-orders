@@ -1,22 +1,13 @@
-#!/usr/bin/env node
-/**
- * build-review.js — renders the review page with every PNG base64-embedded.
- *
- * ⚠ The page is the ONLY preview the sheet gets. Same pattern the repo already uses for
- *   assessment-*.template.html: the template is the source, the rendered copy is disposable.
- */
+/** build-review.js — inline every 1:1 render into one page. The renders MUST ship at their
+ *  natural width (1136px, 799px, 579px): the whole argument is that row one is judged at the
+ *  size it lives at, and a page that scales them down repeats the 09-03 review mistake. */
 'use strict';
-const fs = require('fs');
-const path = require('path');
-const OUT = process.argv[2] || path.join(__dirname, 'renders', 'review.html');
-const R = path.join(__dirname, 'renders');
-const tpl = fs.readFileSync(path.join(__dirname, 'review.template.html'), 'utf8');
-const html = tpl.replace(/\{\{IMG:([a-z0-9@.\-]+)\}\}/gi, (_, f) => {
-  const p = path.join(R, f);
-  if (!fs.existsSync(p)) { console.error('MISSING RENDER: ' + f); return ''; }
-  return 'data:image/png;base64,' + fs.readFileSync(p).toString('base64');
-});
-const left = (html.match(/\{\{IMG:/g) || []).length;
-if (left) { console.error(`✗ ${left} placeholder(s) unresolved`); process.exit(1); }
-fs.writeFileSync(OUT, html);
-console.log(`${(html.length / 1024 / 1024).toFixed(2)} MB -> ${OUT}`);
+const fs=require('fs'),path=require('path');
+const R=(f)=>{const b=fs.readFileSync(path.join(__dirname,'renders',f));
+  const m=f.endsWith('.gif')?'image/gif':'image/png';
+  return `data:${m};base64,${b.toString('base64')}`;};
+const OUT=process.argv[2];
+let html=fs.readFileSync(path.join(__dirname,'review.tpl.html'),'utf8');
+html=html.replace(/\{\{IMG:([a-zA-Z0-9._-]+)\}\}/g,(_,f)=>R(f));
+fs.writeFileSync(OUT,html);
+console.log('  '+OUT+'  '+(fs.statSync(OUT).size/1048576).toFixed(2)+' MB');

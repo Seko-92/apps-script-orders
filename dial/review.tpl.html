@@ -1,0 +1,974 @@
+<title>Row One, Restructured</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Oswald:wght@300;400;500;600&family=Barlow:ital,wght@0,400;0,500;0,600;1,400&family=Roboto+Mono:wght@400;500&display=swap">
+
+<style>
+/* ─────────────────────────────────────────────────────────────────────────────
+   Tokens. The palette is the SHEET'S OWN — warm near-black, warm cream, #ffd400 —
+   because the page argues about that sheet and borrowing a neutral would break the
+   only continuity the reader has with the thing being judged.
+   ───────────────────────────────────────────────────────────────────────────── */
+:root{
+  --bg:#f4f1e8; --surface:#fffdf7; --raised:#ebe6d8;
+  --text:#1d1b17; --muted:#6f6a5f; --faint:#918b7d;
+  --rule:#ddd7c6; --rule-hard:#c5bda6;
+  --accent:#ffd400; --accent-text:#8a6d00; --accent-ink:#1d1b17;
+  --amber:#a8641d; --good:#3f7a4a; --board:#1a1a1a;
+  --shadow:0 1px 0 rgba(29,27,23,.06), 0 8px 24px -18px rgba(29,27,23,.4);
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --bg:#14120f; --surface:#1c1a15; --raised:#26231d;
+    --text:#ece8dd; --muted:#9a9386; --faint:#787266;
+    --rule:#2e2a22; --rule-hard:#413c31;
+    --accent:#ffd400; --accent-text:#ffd400; --accent-ink:#1d1b17;
+    --amber:#e0a97a; --good:#7ec98a; --board:#1a1a1a;
+    --shadow:0 1px 0 rgba(0,0,0,.4), 0 10px 28px -20px #000;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#14120f; --surface:#1c1a15; --raised:#26231d;
+  --text:#ece8dd; --muted:#9a9386; --faint:#787266;
+  --rule:#2e2a22; --rule-hard:#413c31;
+  --accent:#ffd400; --accent-text:#ffd400; --accent-ink:#1d1b17;
+  --amber:#e0a97a; --good:#7ec98a; --board:#1a1a1a;
+  --shadow:0 1px 0 rgba(0,0,0,.4), 0 10px 28px -20px #000;
+}
+
+*{box-sizing:border-box}
+body{
+  margin:0; background:var(--bg); color:var(--text);
+  font:400 16px/1.62 Barlow,"Segoe UI",system-ui,sans-serif;
+  -webkit-font-smoothing:antialiased;
+}
+.wrap{max-width:1176px; margin:0 auto; padding:0 20px 96px}
+.col{max-width:680px}
+
+/* type ─────────────────────────────────────────────────────────────────────── */
+h1,h2,h3{font-family:Oswald,"Arial Narrow",sans-serif; font-weight:500; text-wrap:balance; margin:0}
+h1{font-size:clamp(38px,6vw,58px); line-height:1.02; letter-spacing:.005em}
+h2{font-size:27px; line-height:1.14; margin:0 0 6px}
+h3{font-size:18px; line-height:1.2; letter-spacing:.01em}
+p{margin:0 0 15px}
+strong{font-weight:600}
+em{font-style:italic; color:var(--text)}
+a{color:var(--accent-text)}
+.eyebrow{
+  font-family:Oswald,sans-serif; font-weight:500; font-size:11px;
+  letter-spacing:.19em; text-transform:uppercase; color:var(--faint); margin:0 0 14px;
+}
+.lede{font-size:19px; line-height:1.55; color:var(--muted)}
+.mono{font-family:"Roboto Mono",ui-monospace,monospace; font-size:.86em; font-variant-numeric:tabular-nums}
+.num{font-variant-numeric:tabular-nums}
+
+/* section rhythm ───────────────────────────────────────────────────────────── */
+section{padding-top:58px}
+.shead{display:flex; align-items:baseline; gap:14px; margin-bottom:18px; flex-wrap:wrap}
+.shead .tag{
+  font-family:Oswald,sans-serif; font-size:11px; letter-spacing:.17em; text-transform:uppercase;
+  color:var(--faint); border:1px solid var(--rule-hard); border-radius:2px; padding:2px 7px;
+}
+hr.rule{border:0; border-top:1px solid var(--rule); margin:0}
+
+/* the header ───────────────────────────────────────────────────────────────── */
+header{padding:56px 0 6px}
+.finding{
+  margin-top:30px; border-left:3px solid var(--accent); padding:2px 0 2px 18px;
+  max-width:680px;
+}
+.finding p{margin:0 0 8px}
+.finding p:last-child{margin:0}
+
+/* full-width 1:1 plates ────────────────────────────────────────────────────── */
+figure{margin:0}
+.plate{
+  border:1px solid var(--rule-hard); border-radius:3px; background:var(--board);
+  overflow-x:auto; overflow-y:hidden; box-shadow:var(--shadow);
+}
+.plate img{display:block; border:0; image-rendering:auto}
+figcaption{
+  margin-top:9px; font-size:13.5px; line-height:1.5; color:var(--muted); max-width:820px;
+}
+figcaption b{color:var(--text); font-weight:600}
+.note{margin:10px 0 0; font-size:13.5px; line-height:1.5; color:var(--muted); max-width:820px}
+.note b{color:var(--text); font-weight:600}
+
+/* the option object — one shape, repeated ──────────────────────────────────── */
+.opt{border-top:1px solid var(--rule); padding:28px 0 0; margin-top:28px}
+#structure > .col + .opt{border-top:0; margin-top:0}
+.opt.pick{border-top:2px solid var(--accent)}
+.opt-head{display:flex; align-items:flex-start; gap:16px; margin-bottom:14px; flex-wrap:wrap}
+.letter{
+  flex:none; width:38px; height:38px; display:grid; place-items:center;
+  font-family:Oswald,sans-serif; font-weight:600; font-size:17px;
+  border:1px solid var(--rule-hard); border-radius:2px; color:var(--muted);
+}
+.opt.pick .letter{background:var(--accent); border-color:var(--accent); color:var(--accent-ink)}
+.opt-title{flex:1 1 320px; min-width:0}
+.opt-title h3{display:flex; align-items:center; gap:9px; flex-wrap:wrap}
+.opt-title p{margin:3px 0 0; font-size:14px; line-height:1.5; color:var(--muted)}
+.chip{
+  font-family:Oswald,sans-serif; font-size:10px; font-weight:500; letter-spacing:.15em;
+  text-transform:uppercase; padding:3px 7px; border-radius:2px; white-space:nowrap;
+}
+.chip.now{background:var(--raised); color:var(--muted)}
+.chip.pick{background:var(--accent); color:var(--accent-ink)}
+
+/* the proportion bar — real widths, at the real scale of row one */
+.bar{display:flex; height:20px; border-radius:2px; overflow:hidden; margin:14px 0 6px;
+     border:1px solid var(--rule-hard)}
+.bar span{
+  display:grid; place-items:center; font-family:Oswald,sans-serif; font-size:10px;
+  letter-spacing:.12em; text-transform:uppercase; white-space:nowrap; overflow:hidden;
+}
+.seg-board{background:var(--board); color:#a49d8c}
+.seg-info{background:var(--raised); color:var(--muted)}
+.bar-key{display:flex; gap:20px; font-size:12.5px; color:var(--faint); margin-bottom:14px;
+         flex-wrap:wrap}
+.bar-key b{color:var(--text); font-weight:600}
+
+.metrics{
+  display:flex; gap:26px; flex-wrap:wrap; margin-top:11px;
+  font-size:13px; color:var(--muted);
+}
+.metrics div{display:flex; flex-direction:column; gap:1px}
+.metrics dt{
+  font-family:Oswald,sans-serif; font-size:10px; letter-spacing:.15em;
+  text-transform:uppercase; color:var(--faint);
+}
+.metrics dd{margin:0; font-family:"Roboto Mono",monospace; font-size:13px;
+            font-variant-numeric:tabular-nums; color:var(--text)}
+.metrics dd.down{color:var(--good)}
+.metrics dd.warn{color:var(--amber)}
+
+/* the timeline — drawn to scale, 24s across */
+.tl{margin-top:20px; max-width:900px}
+.tl-row{display:flex; align-items:center; gap:12px; margin-bottom:7px}
+.tl-name{flex:none; width:46px; font-family:Oswald,sans-serif; font-size:11px;
+  letter-spacing:.13em; text-transform:uppercase; color:var(--faint); text-align:right}
+.tl-bar{flex:1; display:flex; height:26px; border:1px solid var(--rule-hard);
+  border-radius:2px; overflow:hidden}
+.tl-bar .seg{display:grid; place-items:center; font-family:Oswald,sans-serif; font-size:9.5px;
+  letter-spacing:.1em; text-transform:uppercase; overflow:hidden; white-space:nowrap;
+  border-right:1px solid var(--bg)}
+.tl-bar .seg:last-child{border-right:0}
+.seg.rest{background:var(--raised); color:var(--faint)}
+.seg.hold{background:color-mix(in srgb,var(--accent) 22%,var(--raised)); color:var(--text)}
+.seg.cut {background:var(--board); color:#a49d8c}
+.seg.run {background:var(--accent); color:var(--accent-ink)}
+.tl-axis{display:flex; justify-content:space-between; margin:2px 0 0 58px;
+  font-family:"Roboto Mono",monospace; font-size:10px; color:var(--faint)}
+.tl-key{display:flex; gap:18px; flex-wrap:wrap; margin:14px 0 0 58px;
+  font-size:12px; color:var(--muted)}
+.tl-key span{display:flex; align-items:center; gap:6px}
+.tl-key .sw{width:13px; height:13px; border-radius:2px; border:1px solid var(--rule-hard)}
+.sw.rest{background:var(--raised)}
+.sw.cut{background:var(--board)}
+.sw.hold{background:color-mix(in srgb,var(--accent) 22%,var(--raised))}
+.sw.run{background:var(--accent)}
+
+/* tables ───────────────────────────────────────────────────────────────────── */
+.tbl-wrap{overflow-x:auto; margin:18px 0 4px}
+table{border-collapse:collapse; font-size:14px; min-width:100%}
+th,td{text-align:left; padding:8px 16px 8px 0; border-bottom:1px solid var(--rule);
+      vertical-align:baseline}
+th{font-family:Oswald,sans-serif; font-weight:500; font-size:10.5px; letter-spacing:.15em;
+   text-transform:uppercase; color:var(--faint); border-bottom-color:var(--rule-hard)}
+td.n{font-family:"Roboto Mono",monospace; font-variant-numeric:tabular-nums; white-space:nowrap}
+tr.on td{background:color-mix(in srgb,var(--accent) 9%,transparent)}
+
+/* lists ────────────────────────────────────────────────────────────────────── */
+ol.steps{list-style:none; counter-reset:s; padding:0; margin:16px 0 0; max-width:680px}
+ol.steps li{
+  counter-increment:s; position:relative; padding:0 0 15px 38px; margin:0;
+}
+ol.steps li::before{
+  content:counter(s); position:absolute; left:0; top:1px;
+  font-family:Oswald,sans-serif; font-size:12px; font-weight:600; color:var(--accent-text);
+  width:24px; height:22px; display:grid; place-items:center;
+  border:1px solid var(--rule-hard); border-radius:2px;
+}
+ul.plain{margin:14px 0 0; padding:0 0 0 19px; max-width:680px}
+ul.plain li{margin:0 0 9px}
+
+.q{border:1px solid var(--rule-hard); border-radius:3px; background:var(--surface);
+   padding:18px 20px; margin-bottom:14px; max-width:820px; box-shadow:var(--shadow)}
+.q h3{font-size:16px; margin-bottom:6px}
+.q p{margin:0; font-size:14.5px; color:var(--muted)}
+.q p + p{margin-top:8px}
+
+footer{margin-top:64px; padding-top:22px; border-top:1px solid var(--rule);
+       font-size:13px; color:var(--faint)}
+
+@media (max-width:720px){
+  body{font-size:15.5px}
+  section{padding-top:44px}
+  .metrics{gap:18px}
+}
+@media (prefers-reduced-motion:reduce){*{animation:none!important; transition:none!important}}
+:focus-visible{outline:2px solid var(--accent-text); outline-offset:2px}
+</style>
+
+<div class="wrap">
+
+<header>
+  <p class="eyebrow">All Orders · row one · 3 Sep 2026 · <b style="color:var(--accent-text)">live on the sheet</b></p>
+  <h1>Row One,<br>Restructured</h1>
+  <div class="col" style="margin-top:22px">
+    <p class="lede">Seven structures for the masthead, every one rendered at
+    <b style="color:var(--text)">true 1:1</b> against the real table — because the last round
+    was reviewed at 2–3× and shipped at 1×, and that is exactly how a roundel that had already
+    been predicted to fail at 14 discs got shipped anyway.</p>
+  </div>
+
+  <div class="finding">
+    <p><strong>What I found before drawing anything:</strong> the current look has
+    <strong>two independent causes</strong>, and only one of them is about structure.</p>
+    <p>The board is composed at <em>grid</em> resolution — “MOTOR SERVICE” is set at 13px inside
+    a 14-row canvas, then one pixel per disc decides lit or unlit. And the OFF disc is
+    <span class="mono">#26221c</span> on a ground that <em>starts</em> at
+    <span class="mono">#26221c</span>, so the unlit discs are invisible and you never see a
+    board — only sparse dots on black.</p>
+    <p>Fix those two and row one improves a great deal without moving a single cell. Whether
+    that is <em>enough</em> is the question this page is for.</p>
+    <p style="margin-top:14px"><strong>And then you named the real one.</strong> The band is
+    <span class="mono">#1a1a1a</span> flat. The art's ground is a <em>gradient</em>
+    <span class="mono">#26221c → #141210 → #100e0c</span> — three blacks the sheet has never
+    had — with a fade only on its right edge. That is the pasted-on block you can see, and I
+    had it filed as a minor cohesion fix. It is the headline.</p>
+    <p style="margin-top:14px"><strong>One correction since the first draft.</strong> My first
+    renders stacked a small tracked label over a big number <em>inside one cell</em>. A cell
+    holding a formula cannot do that — rich text does not survive a recalc, and every readout
+    here has to update itself with no trigger. <strong>One size, weight and colour per
+    cell</strong>; two lines are fine, two sizes are not. Every render below now obeys that,
+    so what ships will look like what you are seeing.</p>
+  </div>
+</header>
+
+<section id="pick" style="padding-top:34px">
+  <div class="shead"><h2>Pick a direction</h2><span class="tag">Nothing built yet</span></div>
+  <div class="col">
+    <p>All of this is <strong>still frames</strong> — no GIF has been rendered and nothing is
+    installed. Agree the direction and I'll build only that.</p>
+    <p><strong>The brief I'm working to now:</strong> the mark is the hero. Professional, sleek.
+    The engine is out.</p>
+  </div>
+
+  <div class="col" style="margin-top:20px">
+    <p><strong>Two things I got wrong, before the options.</strong></p>
+    <p><b>1 · The wordmark.</b> Your logo says <b>HIGH QUALITY MOTOR SERVICE</b>. I have been
+    setting <span class="mono">HQ MOTOR SERVICE</span> — the initials, as if they were the
+    name. <b>C2</b> below is the correct one and it happens to fill the strip better.</p>
+    <p><b>2 · I suspected the mark was rendering badly and it isn't.</b> The logo is drawn for
+    a light ground — its outer ring and <span class="mono">HQ</span> are
+    <span class="mono">#1d1d1b</span>, which vanishes on our band — so the disc version has to
+    reverse it. I thought the thin yellow ring was being sampled away, rebuilt the renderer to
+    separate the colour classes, and measured: <b>137 accent discs the old way, 136 the new
+    way.</b> No difference. The mark's problem is resolution, not colour — see <b>A</b>.</p>
+  </div>
+
+  <figure style="margin-top:24px">
+    <div class="plate"><img src="{{IMG:concepts.png}}" width="1372" height="1467"
+      alt="Concept sheet: the mark at three disc pitches; four motion directions shown as key frames — bezel, scan, draw, scale; and three wordmark settings."></div>
+    <figcaption>Every tile at true 1:1, on the band.</figcaption>
+  </figure>
+
+  <div class="tbl-wrap" style="max-width:880px">
+    <table>
+      <thead><tr><th>Row</th><th>What I'd choose, and why</th></tr></thead>
+      <tbody>
+        <tr class="on"><td><b>A · pitch</b></td><td><b>2px.</b> 61 disc rows across the mark instead of 41. The ring stops being lumpy and the letterforms hold their shape. This is most of what "not very nice" was — it is resolution, not design. It costs frames nothing; only file size.</td></tr>
+        <tr class="on"><td><b>B4 · scale</b></td><td><b>The largest.</b> At 0.80 the mark floats in a lot of air. Filling the block reads as a nameplate rather than a sticker.</td></tr>
+        <tr class="on"><td><b>B1 · bezel</b></td><td><b>My pick for the motion.</b> An accent highlight rides around the ring and the mark never leaves. It is the most restrained thing here, it reads as an instrument, and it cannot go wrong because nothing is ever hidden.</td></tr>
+        <tr><td><b>B2 · scan</b></td><td>Also good, slightly more assertive. A band of light crosses and the mark answers it. Pairs naturally with the strip doing the same sweep a beat later.</td></tr>
+        <tr><td><b>B3 · draw</b></td><td>The most cinematic and the most risky — for the first second the board is nearly empty, which on a masthead can read as broken. Best used <em>rarely</em>, as an entrance, not every loop.</td></tr>
+        <tr class="on"><td><b>C2 · wordmark</b></td><td><b>HIGH QUALITY MOTOR SERVICE</b>, one line. C3's two lines lose too much height at 68px.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="col" style="margin-top:22px">
+    <p><strong>One idea I tried and ruled out, so nobody suggests it later:</strong> inverting
+    the board — lit becomes unlit — is impossible here. Unlit discs <em>are</em> the band
+    colour and are never drawn, so an inverted frame lights the whole rectangle and the blend
+    breaks for the length of the effect.</p>
+  </div>
+
+  <div class="shead" style="margin-top:38px"><h3 style="font-size:20px">What “pitch” means, and can a flag survive here</h3></div>
+  <div class="col">
+    <p><strong>Pitch is the gap between disc centres</strong> — so a smaller pitch means more,
+    smaller discs, and a finer mark. It is the only thing it changes. The magnified row below
+    is the whole idea: at 3px the discs are big and the letterforms come out stepped; at 2px
+    the curves close up. Nothing else about the design moves.</p>
+    <p><strong>And your flag idea — the instinct is right, the flag is the wrong vehicle.</strong>
+    A flag <em>is</em> its colours, and this board has one accent. Rendered in a single tone
+    the stars and stripes become a striped rectangle with a lighter block, and the Texas flag
+    loses the blue/white/red split that is the whole of its identity. Both are on the sheet so
+    you can judge rather than take my word.</p>
+    <p><strong>The lone star is the better version of your own idea.</strong> One shape,
+    unmistakable at any size, and it says Texas more elegantly than fifty stars can at 26 disc
+    rows.</p>
+  </div>
+  <figure style="margin-top:20px">
+    <div class="plate"><img src="{{IMG:pitch-flag.png}}" width="1122" height="965"
+      alt="The mark at 3px, 2.5px and 2px pitch at true size and magnified four times; the US flag and the Texas flag rendered in single-tone discs; and a lone star beside the words HOUSTON, TEXAS."></div>
+    <figcaption>Top two rows answer the pitch question. The bottom three answer the flag one —
+    <b>the star reads, the flags do not.</b></figcaption>
+  </figure>
+
+  <div class="shead" style="margin-top:38px"><h3 style="font-size:20px">And then 2px turned out to be impossible</h3></div>
+  <div class="col">
+    <p>I recommended 2px off the concept sheet. <strong>It does not survive encoding.</strong>
+    The concept tiles were PNGs; a GIF is quantised, and at 2px a disc is <b>1.62px across on a
+    1.73px row spacing</b> — adjacent discs merge under rasterisation and the board stops
+    reading as discs at all. It becomes solid streaks.</p>
+    <p><strong>And the limit is geometric, not the palette.</strong> I tested 6, 12 and 20
+    colours at 2px: identical failure, because the problem is that there is no gap left to
+    draw. That is worth writing down — it would be the obvious thing to try next.</p>
+    <p><strong>2.5px is the floor</strong>: 61 disc rows across the mark against 3px's 51, and
+    the discs still resolve. That is what shipped.</p>
+  </div>
+  <figure style="margin-top:20px">
+    <div class="plate"><img src="{{IMG:pitch-palette.png}}" width="1552" height="658"
+      alt="The mark magnified four times at pitch 3, 2.5 and 2 with palettes of 6, 10, 12 and 20 colours, showing that at 2px the discs merge into streaks regardless of palette size."></div>
+    <figcaption>Magnified 4×. Top-left is 3px; the two on the right of the top row and the whole
+    bottom row are 2px and finer — <b>the discs have merged, and more colours does not bring
+    them back.</b></figcaption>
+  </figure>
+  <figure style="margin-top:26px">
+    <div class="plate"><img src="{{IMG:hero-preview.png}}" width="1136" height="826"
+      alt="The shipped result in context: the mark at rest with HIGH QUALITY MOTOR SERVICE, and mid-loop with the highlight riding the ring while the strip shows a lone star beside HOUSTON, TEXAS."></div>
+    <figcaption>What shipped. <b>2.5px · the bezel · the logo's own words · the lone star.</b>
+    Both boards 19.0s, 425 KB together.</figcaption>
+  </figure>
+
+  <div class="shead" style="margin-top:38px"><h3 style="font-size:20px">Does any of this touch the quota?</h3></div>
+  <div class="col">
+    <p><strong>No.</strong> Not the Apps Script one, not eBay's, not Zoho's.</p>
+    <p>The art is a static file on your VPS, served by Caddy. Apps Script touches it exactly
+    once — when you run <span class="mono">installRowOneNow()</span>, it fetches the file and
+    hands it to Sheets. That is an editor action, not a trigger, so it never draws on the
+    ~90 minutes a day of trigger runtime. n8n, the Floor Board and the published tick never
+    see it at all.</p>
+    <p><strong>What it actually costs is two things.</strong> Sheets stores the image inside
+    the spreadsheet, so opening the sheet downloads it once per session — 0.62 MB is about a
+    second on decent wifi, then the browser caches it. And it costs a little device CPU while
+    it animates, which matters more on the warehouse tablet than the bytes do.</p>
+    <p><strong>So the number that matters is not the file size — it is how much of the loop is
+    moving.</strong> A GIF frame carries its own delay, so during a fifteen-second still the
+    browser decodes one frame and waits: near-zero cost. That is the real argument for the
+    resting board, and it means I can spend length on stillness almost for free and only pay
+    for the seconds that move.</p>
+  </div>
+</section>
+
+<section id="film" style="padding-top:34px">
+  <div class="shead"><h2>What is on the sheet now</h2><span class="tag">The version being replaced</span></div>
+  <div class="col">
+    <p>Two boards, one running time, and a rule that decides what each of them does:
+    <strong>a shape gets the content its proportions are for.</strong> The strip is 7:1 and
+    26 discs tall — that is a departure board and nothing else. The block is 2:1 and 51 tall —
+    the only object on row one with vertical room.</p>
+  </div>
+
+  <figure style="margin-top:24px">
+    <div class="plate" style="background:#1a1a1a; padding:0"><img src="{{IMG:banner-v7.gif}}"
+      width="260" height="133" style="display:block"
+      alt="The block: the HQ roundel resting, opening radially into the stacked wordmark, then a two-cylinder engine running in discs, then dissolving back to the mark."></div>
+    <figcaption><b>The block — the mark, and the business.</b> It rests on the roundel for
+    fourteen of the twenty-four seconds, opens <em>radially</em> because a round mark should
+    open from its own centre, shows the wordmark, then runs a two-cylinder engine — bores,
+    crowns, con-rods and cranks, all legible at 51 disc rows — and dissolves back.
+    260 × 133 · 143 frames · 276 KB.</figcaption>
+  </figure>
+
+  <figure style="margin-top:26px">
+    <div class="plate" style="background:#1a1a1a; padding:0"><img src="{{IMG:strip-v5.gif}}"
+      width="539" height="68" style="display:block"
+      alt="The strip: HQ MOTOR SERVICE flipping column by column into HOUSTON, TEXAS, back again, then the whole board riffling in place and landing on the same words."></div>
+    <figcaption><b>The strip — the marquee.</b> The name, the place, and then the board
+    <em>re-reading itself</em>: every disc riffles and lands on exactly what it was already
+    showing. That last beat is the one thing a Solari does that needs no new words, which is
+    why it is here — I am not putting a tagline I invented on your masthead.
+    539 × 68 · 118 frames · 363 KB.</figcaption>
+  </figure>
+
+  <div class="shead" style="margin-top:40px"><h3 style="font-size:20px">Where the twenty-four seconds go</h3></div>
+  <div class="col"><p style="font-size:14.5px">Drawn to scale. The still stretches are one
+  frame each — a GIF delay runs to 655 seconds, so a fourteen-second hold costs a single
+  frame and every byte in the file goes to the motion.</p></div>
+  <div class="tl">
+    <div class="tl-row">
+      <div class="tl-name">Block</div>
+      <div class="tl-bar">
+        <span class="seg rest"  style="width:59.7%">rest · the mark</span>
+        <span class="seg cut"   style="width:5.1%" title="radial cut, 1.2s">radial</span>
+        <span class="seg hold"  style="width:10.0%">wordmark</span>
+        <span class="seg cut"   style="width:4.2%" title="diagonal cut, 1.0s"></span>
+        <span class="seg run"   style="width:15.1%">engine</span>
+        <span class="seg cut"   style="width:5.9%" title="dissolve, 1.4s">dissolve</span>
+      </div>
+    </div>
+    <div class="tl-row">
+      <div class="tl-name">Strip</div>
+      <div class="tl-bar">
+        <span class="seg rest"  style="width:65.2%">rest · the name</span>
+        <span class="seg cut"   style="width:6.7%" title="columns, riffle 3">columns</span>
+        <span class="seg hold"  style="width:11.7%">Houston</span>
+        <span class="seg cut"   style="width:5.1%" title="diagonal cut"></span>
+        <span class="seg hold"  style="width:2.9%"></span>
+        <span class="seg cut"   style="width:8.4%" title="refresh in place, riffle 5">refresh</span>
+      </div>
+    </div>
+    <div class="tl-axis"><span>0s</span><span>6</span><span>12</span><span>18</span><span>24s</span></div>
+    <div class="tl-key">
+      <span><i class="sw rest"></i>still · one frame</span>
+      <span><i class="sw cut"></i>a cut</span>
+      <span><i class="sw hold"></i>held state</span>
+      <span><i class="sw run"></i>animated</span>
+    </div>
+  </div>
+
+  <div class="shead" style="margin-top:40px"><h3 style="font-size:20px">The two things that fixed “not smooth”</h3></div>
+  <div class="col">
+    <p><strong>1 · A disc now rotates instead of swapping.</strong> The old transition threw
+    each disc from one state to the other in a single frame — that is not a flip, it is a
+    swap. A real flip-disc turns about a horizontal axis: it passes through edge-on, where it
+    is a thin line, and shows its other face on the way out. Its projected height is
+    <span class="mono">|cos θ|</span> as θ sweeps to π, and the face changes at the quarter
+    turn. Frame rate went 10–12fps to <strong>24</strong>.</p>
+    <p><strong>2 · Only discs that change flip, and the front is staggered.</strong> A real
+    board leaves the rest alone — and an unchanged disc gives the encoder nothing to carry, so
+    it is cheaper as well as truer. Each disc takes its cue from the wave plus a deterministic
+    jitter, so the front reads as a board catching up with itself rather than a ruler being
+    dragged across it.</p>
+  </div>
+
+  <div class="tbl-wrap" style="max-width:860px">
+    <table>
+      <thead><tr><th>The cut</th><th>What decides a disc's turn</th><th>Used for</th></tr></thead>
+      <tbody>
+        <tr><td><b>columns</b></td><td>its distance from the left edge</td><td>The strip's name → place. A departure board updates in reading order.</td></tr>
+        <tr><td><b>radial</b></td><td>its distance from the centre</td><td>The block opening the roundel. A round mark should open from its own middle.</td></tr>
+        <tr><td><b>diagonal</b></td><td>a wave across the board</td><td>The general-purpose cut.</td></tr>
+        <tr><td><b>dissolve</b></td><td>nothing — every disc on its own clock</td><td>Letting the engine fade back to the mark.</td></tr>
+        <tr class="on"><td><b>riffle</b> <span style="font-weight:400">(a count, not a shape)</span></td><td>how many half-turns before it settles</td><td>A split-flap runs the whole alphabet before it lands. With two faces the equivalent is to flutter. <b>5</b> on the refresh, <b>3</b> on the name change, <b>1</b> is a plain flip.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="col" style="margin-top:26px">
+    <p><strong>On size, since you asked.</strong> It is not free — <span class="mono">insertImage</span>
+    stores the file <em>in the spreadsheet</em>, so it is weight every viewer carries on every
+    load, forever. I worked to about a megabyte, which is defensible for something people look
+    at all day. It came in at <strong>0.62 MB</strong> — still <strong>24% below</strong> the
+    811 KB you started with, for eleven times the film.</p>
+  </div>
+</section>
+
+<section id="diagnosis">
+  <div class="shead"><h2>Two causes, not one</h2><span class="tag">Measured</span></div>
+  <div class="col">
+    <p>Same content, same width, same 56px height in all four. Rows ① and ② are the shipped
+    renderer; ③ and ④ area-sample the composition at full pixel size, the way a real display
+    resolves an image.</p>
+  </div>
+  <figure style="margin-top:20px">
+    <div class="plate"><img src="{{IMG:diag-sampler.png}}" width="579" height="380"
+      alt="Four renders of the HQ roundel and MOTOR SERVICE wordmark in discs, comparing the shipped grid-resolution sampler at 4px and 3px pitch against area sampling at 4px and 3px hex."></div>
+    <figcaption><b>①</b> is what is on the sheet today — the roundel is a blob and the wordmark
+    has holes in it. <b>②</b> changes only the pitch. <b>③</b> changes only the sampler.
+    <b>④</b> is both, plus a visible off-disc. Each cause is worth about half.</figcaption>
+  </figure>
+</section>
+
+<section id="blend">
+  <div class="shead"><h2>Can you see where the image is?</h2><span class="tag">The brief</span></div>
+  <div class="col">
+    <p>Row one should read as <strong>one unbroken black band</strong>, and the discs should
+    simply appear out of it. That makes the test binary: put the art on the real band colour
+    and look for the rectangle. The caret above each strip marks where the image actually
+    starts and stops, so you can check your eye against the truth.</p>
+  </div>
+  <figure style="margin-top:20px">
+    <div class="plate"><img src="{{IMG:blend.png}}" width="1168" height="440"
+      alt="Four versions of the same flip-disc rail on the sheet's band colour: today's gradient ground shows a clear rectangle; a flat ground with visible unlit discs still shows one; barely-there unlit discs almost hide it; invisible unlit discs hide it completely."></div>
+    <figcaption><b>①</b> is today — the rectangle is unmistakable. <b>②</b> flattens the ground
+    but the unlit disc grid still draws its own boundary. <b>④</b> is the answer: the unlit discs
+    <em>are</em> the band colour, so they are never drawn at all. The file becomes the band,
+    plus light.</figcaption>
+  </figure>
+  <div class="col" style="margin-top:22px">
+    <p><strong>This reverses one of my own recommendations.</strong> I had argued for visible
+    unlit discs — they are what makes a flip-disc board read as a physical object. But a
+    physical object sitting on the sheet is exactly what you do not want, and the visible grid
+    is what draws the rectangle. Legibility turned out to come from <em>pitch and sampling</em>,
+    not from seeing the unlit discs, so nothing is lost by hiding them.</p>
+  </div>
+
+  <div class="shead" style="margin-top:34px"><h3 style="font-size:20px">The bug underneath it</h3></div>
+  <div class="col">
+    <p>Matching the ground is not enough on its own, because the encoder moves it.
+    <strong><span class="mono">rgb565</span> cannot represent <span class="mono">#1a1a1a</span></strong>
+    — it keeps five bits of red and blue, so <span class="mono">0x1a</span> (26) lands on 24 or
+    27. Measured on the decoded frames: the rail's ground came back
+    <span class="mono">#1b1b1b</span> and the block's came back
+    <span class="mono">#26251e</span> — twelve levels out, which is the pasted-on rectangle all
+    over again. Nothing reports it; only sampling a decoded frame finds it.</p>
+    <p>Fixed by snapping the palette entry nearest the ground to the exact band colour after
+    quantising. Verified across every file and every frame.</p>
+  </div>
+  <figure style="margin-top:20px">
+    <div class="plate"><img src="{{IMG:blend-real.png}}" width="1168" height="664"
+      alt="Real encoded GIF frames composited onto the sheet band for the block, the full board and the rail — in each the image boundary is invisible."></div>
+    <figcaption>The <b>real encoded GIF frames</b>, composited onto the band — not a canvas
+    render. Faint carets top and bottom mark where each image ends. Row two also shows why a
+    ticker is the wrong motion at 2:1: only six letters of the wordmark fit across 260px.</figcaption>
+  </figure>
+</section>
+
+<section id="style">
+  <div class="shead"><h2>What each style change buys</h2><span class="tag">Ladder</span></div>
+  <div class="col">
+    <p>Cumulative, top to bottom. Every step is free — no extra pixels, no extra cells, and
+    the 3px pitch is <em>cheaper</em> to encode than the 4px one it replaces.</p>
+  </div>
+  <figure style="margin-top:20px">
+    <div class="plate"><img src="{{IMG:diag-style.png}}" width="579" height="550"
+      alt="Six stacked renders of the same disc strip showing, in order: as shipped, visible off discs, hex lattice, 3px pitch, quieter on-tone, and a corner vignette."></div>
+    <figcaption>The vignette on the last row is the one that does <b>not</b> work — at 14:1 it
+    eats the ends of the wordmark. It is a block idea, not a strip idea, and I would drop it
+    unless the board becomes squarer.</figcaption>
+  </figure>
+  <div class="tbl-wrap col" style="max-width:820px">
+    <table>
+      <thead><tr><th>Change</th><th>What it actually does</th></tr></thead>
+      <tbody>
+        <tr><td>Visible off disc</td><td>You see a <em>board</em>, not dots. The single biggest character change.</td></tr>
+        <tr><td>Hex lattice</td><td>Kills the graph-paper grid, and 0.866 row spacing buys rows for free — 14 → 16 at the same pitch.</td></tr>
+        <tr><td>3px pitch</td><td>18–21 rows instead of 14. The mark becomes legible. Encodes smaller than 4px.</td></tr>
+        <tr><td>Area sampling</td><td>Real letterforms instead of a 13px font squeezed into a 14-row canvas.</td></tr>
+        <tr><td>Quiet on-tone</td><td><span class="mono">#f4f0e4</span> on black is an LED sign. Warm grey reads as an instrument.</td></tr>
+        <tr><td>One shared black</td><td>Art ground becomes the sheet's <span class="mono">#1a1a1a</span>, so the image stops having a visible edge.</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section id="rest">
+  <div class="shead"><h2>The board should rest</h2><span class="tag">Verified</span></div>
+  <div class="col">
+    <p>A real Solari board sits still and then flips — the charm is the <em>event</em>. Ours
+    never stops, which is most of why it reads as a screensaver rather than an instrument.</p>
+    <p>I assumed resting would be a trade against something. It is not. <strong>A long hold is
+    one frame.</strong> GIF carries a per-frame delay up to 655 seconds, so “rest for nine
+    seconds” costs a single frame, not seventy-two. Resting is the cheapest thing the format
+    can do.</p>
+  </div>
+  <figure style="margin-top:22px">
+    <div class="plate"><img src="{{IMG:rest-rail.gif}}" width="799" height="56"
+      alt="Animated flip-disc rail: the HQ roundel and HQ MOTOR SERVICE hold still for nine seconds, then a ticker travels across and the mark returns."></div>
+    <figcaption>Live, at true size. 799 × 56 · 43 frames · <b>148 KB</b> · rests nine seconds,
+    then a four-second ticker. The whole rest is frame 1.</figcaption>
+  </figure>
+  <div class="tbl-wrap" style="max-width:640px">
+    <table>
+      <thead><tr><th>Art on the sheet</th><th style="text-align:right">Size</th><th></th></tr></thead>
+      <tbody>
+        <tr><td>Today — block 352 KB + strip 459 KB</td><td class="n" style="text-align:right">811 KB</td><td></td></tr>
+        <tr class="on"><td>Resting, same two boards</td><td class="n" style="text-align:right">200 KB</td><td class="n" style="color:var(--good)">−75%</td></tr>
+        <tr class="on"><td>Resting, one rail</td><td class="n" style="text-align:right">148 KB</td><td class="n" style="color:var(--good)">−82%</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="col" style="margin-top:14px; font-size:14px; color:var(--muted)">That matters more
+  than it sounds: <span class="mono">insertImage</span> stores the file <em>in the
+  spreadsheet</em>, so it is weight every viewer carries on every load, forever.</p>
+</section>
+
+<section id="structure">
+  <div class="shead"><h2>The axis</h2><span class="tag">Seven structures, 1:1</span></div>
+  <div class="col">
+    <p>One question runs through all of these: <strong>how much of row one is decoration?</strong>
+    Row one is 1136px wide — the widest, most prominent real estate in the system — and today
+    799px of it is board and 337px is information set at 11.5px.</p>
+    <p>Live figures can never live inside the image. The moment art carries data its URL has to
+    change, and a changing URL is the flash we spent two sessions removing. So every pixel given
+    to the board is a pixel information cannot have, and that trade is the whole decision.</p>
+  </div>
+
+  <!-- A ─────────────────────────────────────────────────────────────────── -->
+  <div class="opt">
+    <div class="opt-head">
+      <div class="letter">A</div>
+      <div class="opt-title">
+        <h3>As is <span class="chip now">On the sheet now</span></h3>
+        <p>Block <span class="mono">A1:C2</span> + strip <span class="mono">D1:E1</span>. Shipped
+        renderer, shipped 4px square lattice.</p>
+      </div>
+    </div>
+    <div class="bar"><span class="seg-board" style="width:70.3%">Board · 799px</span><span class="seg-info" style="width:29.7%">Information · 337px</span></div>
+    <figure><div class="plate"><img src="{{IMG:opt-A.png}}" width="1136" height="281" alt="Row one as it is on the sheet today, above the real pick table."></div></figure>
+    <dl class="metrics">
+      <div><dt>Board art</dt><dd>811 KB</dd></dl>
+      <div><dt>Cells that move</dt><dd>—</dd></div>
+      <div><dt>Reads at 1:1</dt><dd class="warn">Roundel does not</dd></div>
+    </div>
+  </div>
+
+  <!-- A2 ────────────────────────────────────────────────────────────────── -->
+  <div class="opt">
+    <div class="opt-head">
+      <div class="letter">A2</div>
+      <div class="opt-title">
+        <h3>As is, refined <span class="chip now">No cells move</span></h3>
+        <p>Identical structure. Only the disc style changes: shared ground, no seam fade,
+        visible off discs, 3px hex, area sampling, quiet on-tone.</p>
+      </div>
+    </div>
+    <div class="bar"><span class="seg-board" style="width:70.3%">Board · 799px</span><span class="seg-info" style="width:29.7%">Information · 337px</span></div>
+    <figure><div class="plate"><img src="{{IMG:opt-A2.png}}" width="1136" height="281" alt="The same structure with the refined disc style: the roundel and wordmark are legible and the seam between the two boards has closed."></div></figure>
+    <dl class="metrics">
+      <div><dt>Board art</dt><dd>200 KB <span class="down">−75%</span></dd></dl>
+      <div><dt>Cells that move</dt><dd>None — art swap only</dd></div>
+      <div><dt>Build</dt><dd class="down">Smallest possible</dd></div>
+    </div>
+    <p class="note"><b>This is the honest floor.</b> If the structure is
+    right and it only looked wrong, this is the whole job — re-render, re-install, done. The
+    seam between the two boards has closed because they now share a ground and a pitch.</p>
+  </div>
+
+  <!-- B ─────────────────────────────────────────────────────────────────── -->
+  <div class="opt">
+    <div class="opt-head">
+      <div class="letter">B</div>
+      <div class="opt-title">
+        <h3>One rail</h3>
+        <p>A single image across <span class="mono">A1:E1</span> — 799 × 56. One pitch, one
+        composition, no internal seam because there is no internal boundary.</p>
+      </div>
+    </div>
+    <div class="bar"><span class="seg-board" style="width:70.3%">Board · 799px</span><span class="seg-info" style="width:29.7%">Information · 337px</span></div>
+    <figure><div class="plate"><img src="{{IMG:opt-B.png}}" width="1136" height="281" alt="Row one carrying one continuous flip-disc rail reading HQ MOTOR SERVICE."></div></figure>
+    <dl class="metrics">
+      <div><dt>Board art</dt><dd>148 KB <span class="down">−82%</span></dd></dl>
+      <div><dt>Cells that move</dt><dd>Logo zone back to A2:E2</dd></div>
+      <div><dt>Trade</dt><dd class="warn">Row 2 left half empties</dd></div>
+    </div>
+    <p class="note">The best-looking nameplate of the seven, and the one
+    object the plan asked for. It also does the least work — the floor's state is still 11.5px
+    grey in the corner, and row 2 is now 799px of black holding one eBay mark.</p>
+  </div>
+
+  <!-- C ─────────────────────────────────────────────────────────────────── -->
+  <div class="opt pick">
+    <div class="opt-head">
+      <div class="letter">C</div>
+      <div class="opt-title">
+        <h3>Block + panel <span class="chip pick">My recommendation</span></h3>
+        <p>Image <span class="mono">A1:C2</span> only — 260 × 121, the aspect a roundel actually
+        wants. <span class="mono">D1:H1</span> becomes an instrument row.</p>
+      </div>
+    </div>
+    <div class="bar"><span class="seg-board" style="width:22.9%">Board · 260</span><span class="seg-info" style="width:77.1%">Information · 876px</span></div>
+    <figure><div class="plate"><img src="{{IMG:opt-C.png}}" width="1136" height="281" alt="Row one with a square flip-disc block on the left and four readouts across the rest: to grab 14, system pulse, the floor, oldest."></div></figure>
+    <dl class="metrics">
+      <div><dt>Board art</dt><dd>82 KB <span class="down">−90%</span></dd></dl>
+      <div><dt>Cells that move</dt><dd>strip = false, F1:H1 split</dd></div>
+      <div><dt>Build</dt><dd class="down">Path already exists</dd></div>
+    </div>
+    <p class="note">Three reasons this is my pick, in order.
+    <b>One:</b> at 2:1 the roundel reads; at 10:1 it cannot, and that is measured, not taste.
+    <b>Two:</b> it turns 539px of illegible texture into live figures — including E1's System
+    Pulse, which the sheet already computes and the strip is currently covering up.
+    <b>Three:</b> <span class="mono">MASTHEAD.strip = false</span> is already written, already
+    tested, and already documented as the revert path. It is the cheapest structural change
+    available.</p>
+  </div>
+
+  <!-- D ─────────────────────────────────────────────────────────────────── -->
+  <div class="opt">
+    <div class="opt-head">
+      <div class="letter">D</div>
+      <div class="opt-title">
+        <h3>Badge</h3>
+        <p>Image <span class="mono">A1:C1</span> only — 260 × 56, roundel alone. Row 2 goes
+        entirely back to the eBay zone.</p>
+      </div>
+    </div>
+    <div class="bar"><span class="seg-board" style="width:22.9%">Board · 260</span><span class="seg-info" style="width:77.1%">Information · 876px</span></div>
+    <figure><div class="plate"><img src="{{IMG:opt-D.png}}" width="1136" height="281" alt="Row one with a small roundel badge on the left and the same four readouts across the rest."></div></figure>
+    <dl class="metrics">
+      <div><dt>Board art</dt><dd>64 KB <span class="down">−92%</span></dd></dl>
+      <div><dt>Cells that move</dt><dd>Same as C, plus A2:C2 frees</dd></div>
+      <div><dt>Trade</dt><dd class="warn">Mark loses half its height</dd></div>
+    </div>
+    <p class="note">Same instrument row as C for less brand. The roundel at
+    56px is a mark rather than an object, and row 2's left 799px goes flat black — which is why
+    I would take C over this unless you want row 2 back for something.</p>
+  </div>
+
+  <!-- F ─────────────────────────────────────────────────────────────────── -->
+  <div class="opt">
+    <div class="opt-head">
+      <div class="letter">F</div>
+      <div class="opt-title">
+        <h3>Panel up, nameplate down</h3>
+        <p>Row one carries <em>no</em> image — five readouts across all 1136px. The board moves
+        to <span class="mono">A2:E2</span> (799 × 65, taller than row 1) and the eBay mark
+        floats on it.</p>
+      </div>
+    </div>
+    <div class="bar"><span class="seg-info" style="width:100%">Row one · information · 1136px</span></div>
+    <div class="bar-key"><span>Row two: <b>board 799px</b> + Pick ID cells 337px</span></div>
+    <figure><div class="plate"><img src="{{IMG:opt-F.png}}" width="1136" height="281" alt="Row one as five readouts with no image, and the flip-disc nameplate moved down into row two beside the eBay mark."></div></figure>
+    <dl class="metrics">
+      <div><dt>Board art</dt><dd>164 KB <span class="down">−80%</span></dd></dl>
+      <div><dt>Cells that move</dt><dd class="warn">All of row 1 + row 2 zone</dd></div>
+      <div><dt>Argument</dt><dd>Identity sits with identity</dd></div>
+    </div>
+    <p class="note">Row 2 is already the identity row — it is where the eBay
+    mark lives — so putting the brand there groups like with like and leaves row one entirely to
+    “what is happening now”. It is also the biggest change here, and it is the one I would want
+    you to look at longest before saying yes.</p>
+  </div>
+
+  <!-- E ─────────────────────────────────────────────────────────────────── -->
+  <div class="opt">
+    <div class="opt-head">
+      <div class="letter">E</div>
+      <div class="opt-title">
+        <h3>Full board</h3>
+        <p>One image across <span class="mono">A1:E2</span> — 799 × 121. Covers the eBay cell.
+        1.6× the pixels of the current pair.</p>
+      </div>
+    </div>
+    <div class="bar"><span class="seg-board" style="width:70.3%">Board · 799px, both rows</span><span class="seg-info" style="width:29.7%">Information · 337px</span></div>
+    <figure><div class="plate"><img src="{{IMG:opt-E.png}}" width="1136" height="281" alt="One large flip-disc board filling both banner rows on the left, reading HQ MOTOR SERVICE at large size."></div></figure>
+    <dl class="metrics">
+      <div><dt>Board art</dt><dd>217 KB <span class="down">−73%</span></dd></dl>
+      <div><dt>Cells that move</dt><dd class="warn">eBay logo must float</dd></div>
+      <div><dt>Trade</dt><dd class="warn">Most brand, least instrument</dd></div>
+    </div>
+    <p class="note">Handsome, and the only version where the wordmark is
+    genuinely large. But it spends both banner rows and the whole eBay cell on a name the team
+    already knows, and leaves the floor's state exactly as quiet as it is today.</p>
+  </div>
+</section>
+
+<section id="shortlist">
+  <div class="shead"><h2>The shortlist, whole</h2><span class="tag">C · F · E</span></div>
+  <div class="col">
+    <p>Your three, each with the <em>entire</em> system applied and enough of the sheet in frame
+    to judge it — masthead, the eBay table's label, the DIRECT band, and real rows between them.
+    This is where “do the puzzles come together” becomes answerable.</p>
+    <p>The thing your question exposed: <strong>the eBay logo and the
+    <span class="mono">▌ DIRECT</span> band are the same kind of object.</strong> Both say
+    <em>the table below is this one</em>. One is a colour mark on black, the other is black
+    Oswald on brand yellow — they have never looked related, and that is a real part of why the
+    sheet does not feel like one thing.</p>
+  </div>
+
+  <div class="opt pick" style="margin-top:26px">
+    <div class="opt-head">
+      <div class="letter">C</div>
+      <div class="opt-title">
+        <h3>Block + panel <span class="chip pick">Still my pick</span></h3>
+        <p>Row 2 right of the block becomes eBay's own label band — motif, then mark. A direct
+        sibling of the DIRECT band below it.</p>
+      </div>
+    </div>
+    <figure><div class="plate"><img src="{{IMG:spirit-C.png}}" width="1136" height="377" alt="Option C with the whole system: disc block, four readouts, an eBay label band carrying four discs, and the DIRECT band carrying the same four discs."></div></figure>
+    <p class="note">Read the two bands against each other:
+    <span class="mono">●●●○ ebay</span> and <span class="mono">●●●○ DIRECT</span>. Same grammar,
+    different ground — and the ground is doing real work, because the yellow is a stop signal
+    readable across the warehouse. The logo stays a live cell image in full colour.</p>
+  </div>
+
+  <div class="opt">
+    <div class="opt-head">
+      <div class="letter">F</div>
+      <div class="opt-title"><h3>Panel up, nameplate down</h3>
+      <p>Most information of the three — row 1 is entirely readouts. But row 2 is now a
+      nameplate, so eBay's label has nowhere of its own to be.</p></div>
+    </div>
+    <figure><div class="plate"><img src="{{IMG:spirit-F.png}}" width="1136" height="377" alt="Option F with the whole system: five readouts across row one, a flip-disc nameplate in row two with the eBay mark at its right end, and the DIRECT band carrying discs."></div></figure>
+    <p class="note">The eBay mark sitting at the right end of a nameplate reads as a
+    <em>sponsor</em>, not as a label — and the DIRECT band's discs now have no sibling above
+    them. The information is excellent; the cohesion is weaker than it looks.</p>
+  </div>
+
+  <div class="opt">
+    <div class="opt-head">
+      <div class="letter">E</div>
+      <div class="opt-title"><h3>Full board</h3>
+      <p>The board covers both rows — so it takes row 2's job <em>inside itself</em>: nameplate
+      on top, eBay label strip below.</p></div>
+    </div>
+    <figure><div class="plate"><img src="{{IMG:spirit-E.png}}" width="1136" height="377" alt="Option E with the whole system: one large board whose top half is the nameplate and whose lower strip carries four discs and the eBay mark, with the DIRECT band matching below."></div></figure>
+    <p class="note">This surprised me — E keeps the parallel after all, because the board's lower
+    strip can carry the motif and the mark. It is the handsomest of the three and it leaves the
+    floor's state exactly as quiet as it is today: 11.5px grey in the corner.</p>
+  </div>
+</section>
+
+<section id="ebay">
+  <div class="shead"><h2>Does the eBay mark go in the GIF?</h2><span class="tag">Your question</span></div>
+  <div class="col">
+    <p><strong>No — float it on top, in every one of the three.</strong> Two images: the board
+    first, the mark second. Three reasons.</p>
+    <ul class="plain">
+      <li>Rendered into discs, the eBay mark goes <strong>monochrome</strong>. Those four colours
+      are the entire recognisability of that logo — a grey disc version of it is just a word.</li>
+      <li>Baked in, it is stuck. Floated, the cell keeps its formula and the mark can move,
+      resize or leave without re-rendering a 150 KB file.</li>
+      <li>A mark sitting <em>on</em> an object reads as a plate on a machine. Beside it, as a
+      neighbour. On is what you want.</li>
+    </ul>
+    <p style="margin-top:15px">The real cost of E and F is not the logo's <em>colour</em> — it is
+    that eBay's label stops having a band of its own. In C it keeps one. That is the whole
+    difference, and it is why I still land on C.</p>
+  </div>
+</section>
+
+<section id="direct">
+  <div class="shead"><h2>Should the DIRECT band be a GIF too?</h2><span class="tag">Your question</span></div>
+  <div class="col">
+    <p><strong>No — and the first reason is technical, not taste.</strong></p>
+    <ul class="plain">
+      <li><strong>That row moves.</strong> Every floating image in this project anchors at
+      <span class="mono">A1</span> or <span class="mono">D1</span> — inside the frozen pane, on a
+      row that can never shift. The DIRECT divider is found by <em>scanning column A for the
+      word</em> precisely because its row number changes: there are 21 insert and delete sites
+      that move it, including n8n's nightly sweep of shipped rows. An image anchored there drifts
+      off the band, or is orphaned when its row is deleted.</li>
+      <li><strong>Motion belongs where nobody is reading.</strong> The masthead sits above the
+      work. The DIRECT band sits <em>inside</em> it, directly over pick rows someone is scanning.</li>
+      <li><strong>One moving thing is what makes it special.</strong> If everything moves,
+      nothing does.</li>
+    </ul>
+    <p style="margin-top:15px">So the band gets the same <em>material</em> without being the same
+    <em>kind of object</em>: four discs as a <strong>number format</strong> —
+    <span class="mono">'"●●●○  "@'</span> — the identical trick that already puts
+    <span class="mono">▣</span> on a kit SKU and <span class="mono">▌</span> on that divider
+    today. Zero bytes, zero images, moves with its own row automatically, and survives every
+    insert and delete because it <em>is</em> the row.</p>
+  </div>
+</section>
+
+<section id="cohesion">
+  <div class="shead"><h2>One motif, repeated</h2><span class="tag">Free</span></div>
+  <div class="col">
+    <p>Whichever structure wins, the masthead will still read as a guest until its material
+    appears somewhere else. The nearest place is the loudest thing on the sheet: the
+    <span class="mono">▌ DIRECT</span> divider, which currently wears a block glyph that relates
+    to nothing.</p>
+    <p>It is a <strong>number-format change</strong>, not a rebuild — the same trick that already
+    puts <span class="mono">▣</span> on a kit SKU.</p>
+  </div>
+  <figure style="margin-top:20px">
+    <div class="plate" style="background:var(--surface)"><img src="{{IMG:direct-motif.png}}" width="1136" height="132" alt="The yellow DIRECT divider shown twice: once with the current block glyph, once with four discs in the band's own ink."></div>
+    <figcaption>Two ends of the sheet, visibly the same family. If it lands, the column-header
+    glyphs — <span class="mono">◆ SKU</span>, <span class="mono">◫ HAND</span>,
+    <span class="mono">◪ LEFT</span> — are the natural third place.</figcaption>
+  </figure>
+</section>
+
+<section id="ships">
+  <div class="shead"><h2>What ships</h2><span class="tag">C, decided</span></div>
+  <div class="col">
+    <p>Your calls: the eBay mark is ornament, so it keeps its cell and needs no band of its own;
+    <span class="mono">14 TO GRAB</span> leads row one; and the blend governs everything.</p>
+    <p>The block gets its own event rather than a ticker — the mark holds, a diagonal flip wave
+    crosses it, the stacked wordmark holds, and it flips back. Two states, one motion, and it
+    never needs to fit text across a narrow board.</p>
+  </div>
+  <figure style="margin-top:20px">
+    <div class="plate"><img src="{{IMG:block-film.png}}" width="2178" height="162"
+      alt="Filmstrip of the block animation: the HQ roundel, a diagonal flip wave, the stacked HQ MOTOR SERVICE wordmark, and the wave back."></div>
+    <figcaption>260 × 121 · 20 frames · <b>30 KB</b> · a 14-second loop that is still for ten of
+    them. The rest is frame 1.</figcaption>
+  </figure>
+  <figure style="margin-top:26px">
+    <div class="plate"><img src="{{IMG:final-C.png}}" width="1136" height="832"
+      alt="Option C as it would ship, in both animation states, with the real encoded GIF composited onto the sheet band above the real table."></div>
+    <figcaption>Both states, with the <b>real encoded GIF</b> on the band. There is no rectangle
+    in either — the mark is simply light on the row.</figcaption>
+  </figure>
+  <div class="tbl-wrap" style="max-width:660px">
+    <table>
+      <thead><tr><th>Art on the sheet</th><th style="text-align:right">Size</th><th></th></tr></thead>
+      <tbody>
+        <tr><td>Was — block + strip, gradient ground</td><td class="n" style="text-align:right">811 KB</td><td></td></tr>
+        <tr><td>First blended cut, two states</td><td class="n" style="text-align:right">165 KB</td><td class="n" style="color:var(--good)">−80%</td></tr>
+        <tr class="on"><td><b>The film</b> — 24s, six cuts, the engine</td><td class="n" style="text-align:right">639 KB</td><td class="n" style="color:var(--good)">−21%</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section id="plan">
+  <div class="shead"><h2>Build order</h2><span class="tag">Nothing applied yet</span></div>
+  <ol class="steps">
+    <li><strong>The art.</strong> <span class="mono">make-film.js</span> renders both boards:
+    flat <span class="mono">#1a1a1a</span> ground, unlit discs never drawn, 3px hex, area
+    sampled, ground snapped past the <span class="mono">rgb565</span> bug. Verified on the
+    decoded frames of every one of the 261, not on the encoder's word.</li>
+    <li><strong>Upload and look, before anything else moves.</strong> Byte-verify on the VPS,
+    re-install, then <em>hard-reload the tab</em> — a newly inserted over-grid image does not
+    repaint in an open one, and <span class="mono">getImages()</span> lists it whether or not
+    Sheets ever draws it. Only an eye can tell installed from visible.</li>
+    <li><strong><span class="mono">MASTHEAD.strip = false</span></strong>, push, re-run
+    <span class="mono">setupMasthead()</span>. That hands D1 and E1 back and returns the strip's
+    539px to circulation. Fully reversible — it is the documented revert path.</li>
+    <li><strong>Split <span class="mono">F1:H1</span></strong> into F1:G1 and H1, and write the
+    four readouts: <span class="mono">14 TO GRAB</span> at 19px in D1, then the pulse, the floor
+    and oldest at 11.5px. One size, weight and colour per cell.
+    ⚠ E1 keeps a value containing <span class="mono">h:mm AM/PM</span> —
+    <span class="mono">ActivityLog.js</span> regex-parses it for the board heartbeat, the
+    sidebar pulse and <span class="mono">/status</span>, and a test fails if that ever becomes
+    a move rather than a mirror.</li>
+    <li><strong>Then, separately, the discs on the DIRECT band</strong> — a number format, not
+    an image. Never bundle a look with a repair; that rule is why the 31 August round lost three
+    good fixes along with the design.</li>
+  </ol>
+  <div class="col" style="margin-top:8px">
+    <p style="font-size:14px;color:var(--muted)">Steps 1–2 change nothing on the sheet that
+    <span class="mono">removeBanner()</span> cannot undo. Step 3 is the first one that writes
+    cells, and its revert is the same switch in the other direction.</p>
+  </div>
+</section>
+
+<section id="questions">
+  <div class="shead"><h2>Settled</h2><span class="tag">This round</span></div>
+  <div class="col">
+    <p><strong>The blend is the brief.</strong> One unbroken band; the discs appear out of it.
+    Everything else follows from that, including reversing my own argument for visible unlit
+    discs.</p>
+    <p><strong>Structure: C.</strong> Block at <span class="mono">A1:C2</span>, instrument row
+    across <span class="mono">D1:H1</span>.</p>
+    <p><strong>Row one leads with <span class="mono">14 TO GRAB</span></strong> — what is
+    waiting, at 19px, the only yellow thing in the row.</p>
+    <p><strong>The eBay mark is ornament</strong>, so it keeps its cell in full colour and needs
+    no band of its own. It never enters the GIF.</p>
+    <p><strong>The DIRECT band takes the motif as a number format</strong>, not a second GIF —
+    that row moves, and every floating image here anchors inside the frozen pane for exactly
+    that reason.</p>
+    <p><strong>Motion: a 24-second film on each board</strong>, resting for roughly two thirds
+    of it. Six cuts, four cut shapes, one running engine. 0.62 MB — under the megabyte I set as
+    the budget, and still below where this started.</p>
+    <p><strong>Row 1 is 68px, not the 56 the code claimed.</strong> Reconciled to the sheet;
+    the art is built to the measured truth and a test now derives that relationship rather
+    than restating it.</p>
+  </div>
+</section>
+
+<footer>
+  Rendered from <span class="mono">dial/restructure.js</span>, <span class="mono">dial/discs.js</span>
+  and <span class="mono">dial/make-rest.js</span> at true 1:1 — measured column widths
+  A 103 · B 70 · C 87 · D 232 · E 307 · F 130 · G 100 · H 107, row 1 = 56px, row 2 = 65px.
+  Nothing on this page has been applied to the sheet.
+</footer>
+
+</div>

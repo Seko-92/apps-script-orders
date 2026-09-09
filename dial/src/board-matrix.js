@@ -19,8 +19,7 @@
 const { createCanvas } = require('@napi-rs/canvas');
 const B = require('./board');
 
-const PITCH = 4.0;          // px between disc centres — the plan's number
-const R     = 1.62;         // disc radius
+const PITCH_DEFAULT = 4.0;  // px between disc centres — the plan's number, block-sized
 
 const ON_HI  = '#f4f0e4', ON_LO = '#cdc7b6';
 const OFF_HI = '#26221c', OFF_LO = '#15120f';
@@ -34,8 +33,9 @@ const ACC_HI = '#ffdc00', ACC_LO = '#d9ab00';
  * @param compose  (c, cols, rows) — draw the composition at GRID resolution
  * @returns a cols x rows boolean field
  */
-function sample(w, h, compose) {
-  const cols = Math.floor(w / PITCH), rows = Math.floor(h / PITCH);
+function sample(w, h, compose, pitch) {
+  const P = pitch || PITCH_DEFAULT;
+  const cols = Math.floor(w / P), rows = Math.floor(h / P);
   const off = createCanvas(cols, rows);
   const c = off.getContext('2d');
   c.clearRect(0, 0, cols, rows);
@@ -54,12 +54,16 @@ function sample(w, h, compose) {
 }
 
 function drawMatrix(ctx, o) {
+  // ⭐ PITCH IS PER-BOARD NOW. 4px is right on the 121px-tall block (30 discs) and far too
+  //   coarse on the 56px strip, where it leaves only 14 rows — enough for a blob, not for a
+  //   mark. The strip asks for 3px (18 rows) and the two boards are different displays.
+  const PITCH = o.pitch || PITCH_DEFAULT, R = PITCH * 0.405;
   const s = o.scale || 1;
   const S = (v) => v * s;
   // A caller may hand in a ready-made field (the ambient loop computes its own per frame)
   // or a compose function to sample. Sampling text every frame would be wasteful and, worse,
   // would re-threshold antialiasing identically each time for no gain.
-  const field = o.field || sample(o.w, o.h, o.compose);
+  const field = o.field || sample(o.w, o.h, o.compose, PITCH);
   const rows = field.length, cols = field[0].length;
   const x0 = (o.w - cols * PITCH) / 2 + PITCH / 2;
   const y0 = (o.h - rows * PITCH) / 2 + PITCH / 2;
@@ -89,4 +93,4 @@ function drawMatrix(ctx, o) {
   return { cols, rows };
 }
 
-module.exports = { drawMatrix, sample, PITCH, R };
+module.exports = { drawMatrix, sample, PITCH: PITCH_DEFAULT, PITCH_DEFAULT };

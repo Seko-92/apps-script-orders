@@ -28,7 +28,8 @@ registerFonts();
 
 const E = process.env;
 const W = +(E.W||280), H = +(E.H||121);
-const { cols, rows } = A.gridSize(W, H);
+const PITCH = +(E.PITCH||4);
+const cols = Math.floor(W/PITCH), rows = Math.floor(H/PITCH);
 /**
  * ⭐⭐ THE REAL MARK, NOT A TYPESET STAND-IN. The brand moment used to be the letters "HQ" set
  *    in Oswald — the wordmark, not the logo. This rasterises fav-google.svg and thresholds it
@@ -163,7 +164,7 @@ function build(opts, mark) {
     const g = ctx.createLinearGradient(0, 0, 0, H);
     g.addColorStop(0, '#26221c'); g.addColorStop(0.14, '#141210'); g.addColorStop(1, '#100e0c');
     ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
-    M.drawMatrix(ctx, { scale: 1, w: W, h: H, field: field });
+    M.drawMatrix(ctx, { scale: 1, w: W, h: H, field: field, pitch: PITCH });
     const seam = ctx.createLinearGradient(W - 26, 0, W, 0);
     seam.addColorStop(0, 'rgba(26,26,26,0)'); seam.addColorStop(1, '#1a1a1a');
     ctx.fillStyle = seam; ctx.fillRect(W - 26, 0, 26, H);
@@ -192,7 +193,7 @@ function build(opts, mark) {
     const g = ctx.createLinearGradient(0, 0, 0, H);
     g.addColorStop(0, '#26221c'); g.addColorStop(0.14, '#141210'); g.addColorStop(1, '#100e0c');
     ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
-    M.drawMatrix(ctx, { scale: 1, w: W, h: H, field });
+    M.drawMatrix(ctx, { scale: 1, w: W, h: H, field, pitch: PITCH });
     const seam = ctx.createLinearGradient(W - 26, 0, W, 0);
     seam.addColorStop(0, 'rgba(26,26,26,0)'); seam.addColorStop(1, '#1a1a1a');
     ctx.fillStyle = seam; ctx.fillRect(W - 26, 0, 26, H);
