@@ -7,8 +7,10 @@
 //   Mon 6am) and manual sidebar buttons that workers forget to press. This
 //   file owns the FRESHNESS LAYER that replaces that:
 //
-//   1) runHourlyHousekeeping() — ONE hourly time trigger (work-hours gated,
-//      America/Chicago) that runs:
+//   1) runHourlyHousekeeping() — ONE hourly time trigger. It re-anchors the All
+//      Orders lock's carve-outs FIRST, ungated (a staff lockout has a deadline and
+//      is caused by the overnight sweep — see the note on the gate), then, inside
+//      Houston work hours, runs:
 //        · refreshOutOfStock(maps)         — smart-merge OOS from Master Inventory
 //        · refreshPrepQueueLocations(maps) — re-mirror Prep Queue LOCATION from MI
 //      Both share a single buildLocationAndInventoryMaps() read — one MI scan
@@ -98,6 +100,26 @@ var HOUSEKEEPING_END_HOUR   = 18;  // exclusive
  * deliberately ignored (this function takes no meaningful params).
  */
 function runHourlyHousekeeping() {
+  // ⚠⚠ ABOVE THE WORK-HOURS GATE, DELIBERATELY — and it is the only job here that is.
+  //   The gate exists to keep the HEAVY refreshes (a full MI read, an OOS rewrite) off
+  //   the clock overnight. This is two API calls and it repairs a STAFF LOCKOUT, so the
+  //   two reasons for the gate both point the other way:
+  //     · the drift that locks the floor out is caused by n8n's ~1 AM shipped-row sweep
+  //       and by arrivals — i.e. it happens precisely in the hours the gate skips;
+  //     · a lockout discovered at 6am is a lockout the first shift walks into.
+  //   Sizing a staleness budget for the slowest thing in the group and then dropping
+  //   something with a deadline into it is a mistake this system has already made twice
+  //   (the sidebar's held count, the Order Archive pulse chip).
+  //
+  // ⚠ Best-effort by contract. A failure here must never stop the freshness pass, and a
+  //   quiet run must stay quiet — it only logs when it actually repaired something.
+  try {
+    var lk = refreshAllOrdersLockCarveOuts();
+    if (lk && lk.changed) console.log("Housekeeping: " + lk.message);
+  } catch (e) {
+    console.log("Housekeeping: lock carve-out refresh failed: " + e);
+  }
+
   var hour = parseInt(Utilities.formatDate(new Date(), "America/Chicago", "H"), 10);
   if (hour < HOUSEKEEPING_START_HOUR || hour >= HOUSEKEEPING_END_HOUR) {
     console.log("Housekeeping: off-hours skip (Houston hour " + hour + ")");

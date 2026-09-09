@@ -639,41 +639,237 @@ var ALL_ORDERS_LOCK = {
  * Report the current lock state WITHOUT changing anything. Run this first, and
  * again after installing — the Run button shows no return value, so it logs.
  */
+// ---------------------------------------------------------------------------------------
+// THE CARVE-OUT GEOMETRY — one definition, because two would drift
+// ---------------------------------------------------------------------------------------
+//
+// ⚠⚠⚠ THE BUG THIS EXISTS TO KILL, AND IT COST THE FLOOR REPEATEDLY (2026-08-31,
+//     2026-09-09): A CARVE-OUT IS A MOVING TARGET AND APPS SCRIPT CANNOT PIN IT.
+//
+//   `sheet.getRange("E4:E")` LOOKS unbounded and is not. Apps Script has no unbounded
+//   Range object — it materialises the notation against the grid the instant you ask,
+//   so what actually reaches setUnprotectedRanges() is "E4:E<getMaxRows()>". The old
+//   comment here claimed "E4:E is still open-ended, so it follows the table forever".
+//   It never did. From then on Sheets adjusts that stored range like any other, and
+//   this table is edited structurally all day:
+//
+//   ⚠ THE FAST LEAK — the one reported 2026-09-09 as "the whole sheet locks after a
+//     few hours, even notes and status". doPost inserts arrivals with
+//     `insertRowsBefore(Schema.dataStartRow, n)` (OrderService.js) — that is
+//     immediately BEFORE the carve-out's first row. Sheets EXPANDS a range only when
+//     rows land strictly INSIDE it; at the top boundary it SHIFTS the range down
+//     instead. So every batch of new orders pushed the carve-out down by N and left
+//     those N rows — the newest orders, the exact rows the picker is working — locked.
+//     The band grows with every arrival until the working area is effectively all
+//     locked. Unlock-then-relock resets it, which is precisely the workaround the
+//     floor had been using.
+//
+//   ⚠ THE SLOW LEAK — `insertRowsAfter(maxRow, …)` in balanceTableBuffers grows the
+//     grid past the carve-out's stored end (so does adding rows by hand at the bottom
+//     of the sheet). Same shape as the 2026-08-31 low-water-mark incident.
+//
+// ⭐ THE FIX IS THE ANCHOR, NOT THE NOTATION. Start at the HEADER ROW, not at
+//   dataStartRow. Then `insertRowsBefore(dataStartRow)` lands strictly inside the range
+//   and Sheets EXPANDS it — the top boundary becomes structurally immune instead of
+//   being re-broken every ten minutes. The bottom cannot be made immune from Apps
+//   Script at all, so it is re-anchored hourly by refreshAllOrdersLockCarveOuts().
+//
+// ⚠ ACCEPTED COST: the header row's NOTE / STATUS / LEFT LABEL cells become editable.
+//   Same class as the DIRECT header row's labels, which have been inside the carve-out
+//   since the lock shipped: they are cosmetic, getBoundaryRow() reads only column A
+//   (locked), verifyAndRestoreHeaders() repairs the labels on every insert anyway, and
+//   protectSheetStructure()'s warning-only guard still covers rows 1-3.
+//
+// ⚠ ROWS 1 AND 2 STAY LOCKED, and that still matters — the reason is merges, not data:
+//     F1 anchors the F1:H1 merge, which columns F and H would each partially overlap,
+//        and a partial carve-out over a merge locks the WHOLE merge (c1aab9e).
+//     E2 sits inside the A2:E2 logo merge, same trap one row down.
+//   Anchoring at row 3 clears both by construction.
+
+/** Column letter → 1-based number. Inverse of _iwColumnLetter. */
+function _lockColNum(letters) {
+  var n = 0, s = String(letters || "").toUpperCase();
+  for (var i = 0; i < s.length; i++) n = n * 26 + (s.charCodeAt(i) - 64);
+  return n;
+}
+
+/** "E3:E1000" | "H2" | "F2:G2" → {c1,r1,c2,r2} in NUMBERS, or null. */
+function _lockA1Box(a1) {
+  var m = String(a1 || "").match(/^([A-Z]+)(\d+)(?::([A-Z]+)(\d+))?$/);
+  if (!m) return null;
+  return {
+    c1: _lockColNum(m[1]), r1: Number(m[2]),
+    c2: _lockColNum(m[3] || m[1]), r2: Number(m[4] || m[2])
+  };
+}
+
 /**
- * True when a lock is installed AND its carve-out no longer covers a Pick ID cell's
- * full merged range. Cheap enough to run at the end of every setupMasthead().
+ * THE carve-out set for the sheet as it is RIGHT NOW. The installer and the hourly
+ * self-heal both call this, so they cannot disagree about what "open" means — the
+ * format-drift class this codebase keeps paying for.
+ *
+ * ⚠ Built from Schema, never from A1 literals: a column move must not silently open
+ *   the wrong one. This is the file where a wrong range is a locked-out shift.
+ */
+function _lockOpenRanges(sheet) {
+  var lastRow = sheet.getMaxRows();
+
+  // ⚠ Schema.headerRow, NOT dataStartRow — see the block above. The bottom is written
+  //   out explicitly rather than as open-ended notation, because open-ended notation is
+  //   what made this look solved for a week while it was not.
+  var open = ["NOTE", "STATUS", "LEFT"].map(function (name) {
+    var L = _iwColumnLetter(Schema.cols[name]);
+    return sheet.getRange(L + Schema.headerRow + ":" + L + lastRow);
+  });
+
+  // The two Pick ID cells. ⚠ Pick ID for Shipping is a MERGE (F2:G2 today) and a merge
+  // is only editable through its WHOLE range, so resolve the merge rather than
+  // hardcoding the second column — which has already moved once (2026-05-19).
+  // ⚠ setupMasthead() rebuilds row 2, so this has to be re-resolved, not remembered.
+  [Schema.pickIdA1(), Schema.pickIdA1('adjustment')].forEach(function (a1) {
+    var cell = sheet.getRange(a1);
+    var merges = cell.getMergedRanges();
+    open.push(merges && merges.length ? merges[0] : cell);
+  });
+
+  return open;
+}
+
+/**
+ * What state is the lock's carve-out actually in? Returns a SHAPE, never prose:
+ *   { locked, prot, current[], want[], drifted, reasons[] }
+ *
+ * ⚠⚠ IT DOES NOT COMPARE NOTATION. Two range sets can describe the same open cells and
+ *   read differently (Sheets is free to normalise or coalesce adjacent ranges), and a
+ *   notation diff would then report drift forever and rewrite the protection every hour
+ *   for no reason. So it asks the only question that matters to a picker — IS THIS
+ *   COLUMN OPEN, FROM THE TOP OF THE TABLE TO THE BOTTOM OF THE SHEET — and every
+ *   `reason` names a real, currently-locked region. `drifted` is true only when there
+ *   is something concrete to repair.
+ */
+function _lockCarveOutState(sheet) {
+  var out = { locked: false, prot: null, current: [], want: [], drifted: false, reasons: [] };
+
+  var mine = sheet.getProtections(SpreadsheetApp.ProtectionType.SHEET)
+    .filter(function (p) {
+      return String(p.getDescription() || "").indexOf(ALL_ORDERS_LOCK.tag) === 0;
+    });
+  // ⚠ An ABSENT lock is not a stale one. Reporting drift on an unlocked sheet would
+  //   train the reader to skip the line, and would make the hourly self-heal install a
+  //   lock nobody asked for.
+  if (!mine.length) return out;
+
+  out.locked  = true;
+  out.prot    = mine[0];
+  out.current = mine[0].getUnprotectedRanges().map(function (r) { return r.getA1Notation(); });
+  out.want    = _lockOpenRanges(sheet).map(function (r) { return r.getA1Notation(); });
+
+  var boxes   = out.current.map(_lockA1Box).filter(function (b) { return !!b; });
+  var maxRows = sheet.getMaxRows();
+
+  ["NOTE", "STATUS", "LEFT"].forEach(function (name) {
+    var colN = Schema.cols[name];
+    var L    = _iwColumnLetter(colN);
+
+    // ⚠⚠ COVERAGE IS AN INTERVAL UNION, NOT A MIN/MAX. The first cut took the smallest
+    //   start and the largest end across every range touching the column — and the
+    //   Pick ID carve-out F2:G2 also touches column F, so a STATUS column pushed down
+    //   to row 9 reported a start of 2 and read as perfectly healthy. A detector that
+    //   is masked by another carve-out is exactly the silence this file keeps paying
+    //   for. Merge the intervals, then ask what is actually UNCOVERED.
+    var ivs = boxes
+      .filter(function (b) { return b.c1 <= colN && b.c2 >= colN; })
+      .map(function (b) { return [b.r1, b.r2]; })
+      .sort(function (a, b) { return a[0] - b[0]; });
+
+    var merged = [];
+    ivs.forEach(function (iv) {
+      var last = merged[merged.length - 1];
+      if (last && iv[0] <= last[1] + 1) last[1] = Math.max(last[1], iv[1]);
+      else merged.push([iv[0], iv[1]]);
+    });
+
+    // The only region the floor types in: first data row → last row of the sheet.
+    var gaps = [], cur = Schema.dataStartRow;
+    merged.forEach(function (iv) {
+      if (iv[1] < cur) return;
+      if (iv[0] > cur) gaps.push([cur, Math.min(iv[0] - 1, maxRows)]);
+      cur = Math.max(cur, iv[1] + 1);
+    });
+    if (cur <= maxRows) gaps.push([cur, maxRows]);
+
+    if (!merged.length) {
+      // ⚠ No coverage AT ALL. Say that, rather than attaching one of the drift
+      //   explanations below — a diagnostic that guesses a cause teaches the wrong fix.
+      out.reasons.push("column " + L + " (" + name + ") has NO carve-out at all \u2014 it is " +
+                       "LOCKED for staff top to bottom");
+      return;
+    }
+
+    gaps.forEach(function (g) {
+      if (g[0] > g[1]) return;
+      var why = (g[0] === Schema.dataStartRow)
+        // The 2026-09-09 shape: insertRowsBefore(dataStartRow) pushed the range down.
+        ? " (an insert at the first data row pushed the carve-out down)"
+        : (g[1] === maxRows
+            // The 2026-08-31 shape: the grid grew past a materialised bottom bound.
+            ? " (the sheet grew past where the carve-out ends)"
+            : "");
+      out.reasons.push("column " + L + " (" + name + ") is LOCKED for staff on rows " +
+                       g[0] + "\u2013" + g[1] + " of " + maxRows + why);
+    });
+
+    // Nothing is locked yet — but if the anchor sits ON the row arrivals insert at, the
+    // next batch of orders moves it. Report the hardening, not an incident.
+    if (!gaps.length) {
+      var holder = merged.filter(function (iv) {
+        return iv[0] <= Schema.dataStartRow && iv[1] >= Schema.dataStartRow;
+      })[0];
+      if (holder && holder[0] > Schema.headerRow) {
+        out.reasons.push("column " + L + " (" + name + ") is anchored at row " + holder[0] +
+                         " \u2014 re-anchoring to row " + Schema.headerRow +
+                         " so the next insert at row " + Schema.dataStartRow +
+                         " cannot push it down");
+      }
+    }
+  });
+
+  // ⚠⚠ A CARVE-OUT THAT NAMES ONLY PART OF A MERGE LOCKS THE WHOLE MERGE. Sheets needs
+  //   write access to the ENTIRE merged range, so an unprotected "F2" against a merged
+  //   F2:G2 leaves the Shipping picker unusable for staff — and perfectly usable for the
+  //   owner, because removeEditors() ignores the owner.
+  [Schema.pickIdA1(), Schema.pickIdA1('adjustment')].forEach(function (a1) {
+    try {
+      var mg   = sheet.getRange(a1).getMergedRanges();
+      var want = (mg && mg.length) ? mg[0].getA1Notation() : a1;
+      var wb   = _lockA1Box(want);
+      var ok   = !!wb && boxes.some(function (b) {
+        return b.c1 <= wb.c1 && b.c2 >= wb.c2 && b.r1 <= wb.r1 && b.r2 >= wb.r2;
+      });
+      if (!ok) {
+        out.reasons.push("Pick ID " + a1 + " is merged as " + want +
+                         " but the carve-out does not cover the whole merge — staff CANNOT set it");
+      }
+    } catch (e) { /* never let the reporter throw */ }
+  });
+
+  out.drifted = out.reasons.length > 0;
+  return out;
+}
+
+
+/**
+ * True when the installed lock's carve-out no longer matches what the floor needs.
+ * Cheap enough to run at the end of every setupMasthead().
  *
  * ⚠ Returns FALSE when nothing is locked — an absent lock is not a stale one, and a
  *   warning on an unlocked sheet would train the reader to skip the line.
+ *
+ * ⭐ One rule, three readers: this, describeAllOrdersLock() and the hourly self-heal all
+ *   ask _lockCarveOutState(). Three copies of "is it stale" is how they end up disagreeing.
  */
 function _lockNeedsRefresh(sheet) {
-  try {
-    var mine = sheet.getProtections(SpreadsheetApp.ProtectionType.SHEET)
-      .filter(function (p) {
-        return String(p.getDescription() || "").indexOf(ALL_ORDERS_LOCK.tag) === 0;
-      });
-    if (!mine.length) return false;
-    var open = mine[0].getUnprotectedRanges().map(function (r) { return r.getA1Notation(); });
-
-    // ⚠⚠ A ROW-BOUNDED CARVE-OUT IS A LOCKOUT WITH A DELAY ON IT. The columns are written
-    //    as unbounded "E:E" so they follow the table forever — but if that ever
-    //    materialises to a fixed range, it stops tracking and staff lose the rows below it
-    //    days later, on a shift, while it keeps working for the owner. So verify the
-    //    PROPERTY every time rather than trusting the notation: any single-column carve-out
-    //    whose last row is behind the sheet is already expired.
-    var maxNow = sheet.getMaxRows();
-    var expired = open.some(function (a1) {
-      var m = a1.match(/^([A-Z]+)(\d+):([A-Z]+)(\d+)$/);
-      return !!m && m[1] === m[3] && Number(m[4]) < maxNow;
-    });
-    if (expired) return true;
-
-    return [Schema.pickIdA1(), Schema.pickIdA1('adjustment')].some(function (a1) {
-      var mg = sheet.getRange(a1).getMergedRanges();
-      var want = (mg && mg.length) ? mg[0].getA1Notation() : a1;
-      return open.indexOf(want) === -1;
-    });
-  } catch (e) { return false; }
+  try { return _lockCarveOutState(sheet).drifted; } catch (e) { return false; }
 }
 
 function describeAllOrdersLock() {
@@ -696,47 +892,24 @@ function describeAllOrdersLock() {
     out.push("open cells: " + p.getUnprotectedRanges().map(function (r) { return r.getA1Notation(); }).join(" · "));
   }
 
-  // ⚠⚠ A CARVE-OUT THAT NAMES ONLY PART OF A MERGE LOCKS THE WHOLE MERGE.
-  //    Sheets requires write access to the ENTIRE merged range, so an unprotected "F2"
-  //    against a merged F2:G2 leaves the Shipping picker unusable for staff — and
-  //    perfectly usable for the owner, because removeEditors() ignores the owner. That
-  //    is this file's oldest trap wearing a new face.
-  //
-  // ⭐ IT IS A SEQUENCING BUG, WHICH IS WHY A DETECTOR BEATS AN INSTRUCTION.
-  //    protectAllOrdersSheet() resolves the merge correctly — but only the merge that
-  //    exists WHEN IT RUNS. Run it before setupMasthead() rebuilds row 2 and it carves a
-  //    lone cell, then the merge appears underneath it and nothing complains. Happened
-  //    2026-08-31: lock at 12:59:48, merge restored at 1:01:03.
+  // ⭐ ONE RULE, NOT A SECOND COPY. Every "is the carve-out still right?" question in
+  //    this file goes through _lockCarveOutState() — this reporter, _lockNeedsRefresh()
+  //    (setupMasthead's warning) and the hourly self-heal. Two copies of the rule is how
+  //    the reporter ends up green while the floor is locked out.
   if (mine.length) {
-    var openA1 = mine[0].getUnprotectedRanges().map(function (r) { return r.getA1Notation(); });
-    [Schema.pickIdA1(), Schema.pickIdA1('adjustment')].forEach(function (a1) {
-      try {
-        var mg = sheet.getRange(a1).getMergedRanges();
-        var want = (mg && mg.length) ? mg[0].getA1Notation() : a1;
-        if (openA1.indexOf(want) === -1) {
-          out.push("⚠⚠ PICKER " + a1 + " IS MERGED AS " + want + " BUT THE CARVE-OUT SAYS '" +
-                   (openA1.filter(function (x) { return x.indexOf(a1) === 0; })[0] || "nothing") +
-                   "' — staff CANNOT edit it. Re-run protectAllOrdersSheet().");
-        }
-      } catch (e) { /* never let the reporter throw */ }
-    });
-
-    // ⚠⚠ AND THE SAME CLASS ONE AXIS OVER: a ROW-BOUNDED carve-out. Installed off-hours
-    //    (correctly), getMaxRows() captures the sheet's low-water mark and every row the
-    //    week adds afterwards falls outside it — silently, for staff only. Bit the floor
-    //    2026-08-31 at row 51. The fix shipped the same day (unbounded whole columns);
-    //    this line is what makes a REGRESSION loud instead of a Monday morning.
     try {
-      var maxNow = sheet.getMaxRows();
-      openA1.forEach(function (a1) {
-        var m = a1.match(/^([A-Z]+)(\d+):([A-Z]+)(\d+)$/);
-        if (m && m[1] === m[3] && Number(m[4]) < maxNow) {
-          out.push("⚠⚠ CARVE-OUT " + a1 + " IS ROW-BOUNDED at " + m[4] + " but the sheet has " +
-                   maxNow + " rows — staff CANNOT edit column " + m[1] + " below row " + m[4] +
-                   ". Re-run protectAllOrdersSheet().");
-        }
-      });
-    } catch (e) { /* never let the reporter throw */ }
+      var st = _lockCarveOutState(sheet);
+      out.push("should be:  " + st.want.join(" · "));
+      if (st.drifted) {
+        out.push("carve-outs: ⚠⚠ DRIFTED — " + st.reasons.length + " finding(s):");
+        st.reasons.forEach(function (r) { out.push("            • " + r); });
+        out.push("            ↭ FIX: refreshAllOrdersLockCarveOutsNow(), or the sidebar's");
+        out.push("               \"Re-anchor carve-outs\" button — neither unlocks anything.");
+      } else {
+        out.push("carve-outs: ✅ correct — NOTE / STATUS / LEFT open from row " +
+                 Schema.headerRow + " to the last row, both Pick IDs covered whole.");
+      }
+    } catch (e) { out.push("carve-outs: ⚠ could not evaluate: " + e); }
   }
 
   var acct = "";
@@ -767,11 +940,18 @@ function describeAllOrdersLock() {
  * ⚠ LOCATION IS DELIBERATELY LOCKED (user's call 2026-08-29). It is auto-filled, and a
  *   correction goes in the NOTE. A real shelf change belongs on the Location Update sheet.
  *
- * ⚠ KNOWN AND ACCEPTED: the carve-outs are whole-column-from-dataStartRow, so the DIRECT
- *   header row's NOTE/STATUS/LEFT label cells fall inside them and stay editable.
- *   Excluding them would need ranges recomputed every time the boundary moves, which it
- *   does all day. The cells are cosmetic, getBoundaryRow() reads only column A (locked),
- *   and protectSheetStructure()'s warning-only protection still covers those rows.
+ * ⚠ KNOWN AND ACCEPTED: the carve-outs run from the HEADER ROW to the last row, so the
+ *   column-header labels and the DIRECT header row's NOTE/STATUS/LEFT labels fall inside
+ *   them and stay editable. Excluding them would need ranges recomputed every time the
+ *   boundary moves, which it does all day — and the header-row anchor is exactly what
+ *   makes the top boundary immune to insertRowsBefore (see _lockOpenRanges). The cells are
+ *   cosmetic, getBoundaryRow() reads only column A (locked), verifyAndRestoreHeaders()
+ *   repairs the labels on every insert, and protectSheetStructure()'s warning-only
+ *   protection still covers rows 1-3.
+ *
+ * ⚠⚠ THE CARVE-OUTS DRIFT ON THEIR OWN and this installer is not enough by itself.
+ *   refreshAllOrdersLockCarveOuts() re-anchors them hourly; that is not belt-and-braces,
+ *   it is load-bearing for the bottom bound. See _lockOpenRanges.
  */
 function protectAllOrdersSheet() {
   // ⚠ Owner-only, and deliberately NOT reachable through the owner bridge — see
@@ -827,62 +1007,17 @@ function protectAllOrdersSheet() {
   }
 
   // ---- 4. Carve out what the floor actually works in ----
-  // ⚠ Built from Schema, never from A1 literals, so a column move cannot silently
-  //   open the wrong one — this is the file where a wrong range is a locked-out shift.
-  // ⚠⚠ WHOLE COLUMNS, UNBOUNDED — NEVER getMaxRows(). 2026-08-31, reported from the
-  //    floor as "the entire sheet is locked except the Pick ID for Shipping". It was
-  //    installed at 21:53 on a Saturday with the floor closed, which is the CORRECT
-  //    practice and is precisely what caused it: that is when the sheet is SMALLEST,
-  //    because n8n's ~1 AM sweep has just deleted the shipped rows. getMaxRows()
-  //    captured a low-water mark of 51, so the carve-outs read E4:E51 · F4:F51 · H4:H51
-  //    and every row the week's orders added after that — including the whole DIRECT
-  //    segment — sat OUTSIDE them. STATUS, NOTE and LEFT were locked for staff down
-  //    there while working perfectly for the owner, because removeEditors() ignores
-  //    the owner. The Pick ID kept working only because F2:G2 is a fixed address.
+  // ⚠⚠ THE GEOMETRY IS NOT INLINE ANY MORE — see _lockOpenRanges(). It was inline twice
+  //    before and got it wrong twice: a bottom bound captured off-hours at the sheet's
+  //    low-water mark (2026-08-31, carve-outs read E4:E51 and the whole DIRECT segment
+  //    fell outside), then a top bound anchored at dataStartRow that every arrival's
+  //    insertRowsBefore pushed down (2026-09-09, "the whole sheet locks after a few
+  //    hours, even notes and status"). Both were SILENT and STAFF-ONLY, because
+  //    removeEditors() ignores the owner — so the person who could check never saw it.
   //
-  // ⭐ THE SIBLING IN THIS FILE ALREADY KNEW. IDENTITY_WARN.columns uses unbounded
-  //    "A:A" and spells out the reason: this table inserts and deletes rows all day
-  //    (n8n at the top, kit expansion mid-table, Zoho pull into DIRECT, the 1 AM sweep
-  //    removing them again), so any fixed row bound needs re-applying every time the
-  //    boundary moves. The lock never got that treatment. A row-bounded carve-out here
-  //    is not a bug that shows up on install — it is a SILENT, DELAYED lockout that
-  //    arrives days later, on a shift, for staff only.
-  //
-  // ⚠⚠ BOUNDED AT THE TOP, UNBOUNDED AT THE BOTTOM — "E4:E", not "E:E". The delayed
-  //    lockout above is caused by a bounded BOTTOM, so only the bottom has to be open;
-  //    starting at dataStartRow costs nothing and keeps rows 1-3 locked. That matters
-  //    more than it looks:
-  //
-  //      E1 is Schema.cellSyncTime — the System Pulse. ActivityLog.js READS that cell and
-  //         regex-parses it into cockpit.lastSyncMinutes, which drives the Floor Board
-  //         heartbeat, the sidebar pulse, /status and the published tick. A staff member
-  //         clearing it breaks four surfaces at once, silently. Not cosmetic.
-  //      F1 is Schema.cellDayCurve and the anchor of the F1:H1 MERGE, which both F and H
-  //         would partially overlap — and a partial carve-out over a merge locks the whole
-  //         merge (c1aab9e). An unintended interaction either way.
-  //
-  // ⭐ "E4:E" is still open-ended, so it follows the table forever exactly as intended —
-  //   the property that matters is an unbounded END, and this keeps it.
-  // ⚠ ACCEPTED COST, unchanged from before: the DIRECT header row's NOTE/STATUS/LEFT
-  //   labels stay editable. getBoundaryRow() reads only column A, which is locked.
-  var open = ["NOTE", "STATUS", "LEFT"].map(function (name) {
-    var L = _iwColumnLetter(Schema.cols[name]);
-    return sheet.getRange(L + Schema.dataStartRow + ":" + L);
-  });
-
-  // The two Pick ID cells. ⚠ Pick ID for Shipping is a MERGE (F2:G2 today), and a
-  // merge is only editable through its whole range — so resolve the merge rather
-  // than hardcoding the second column, which has already moved once (2026-05-19).
-  // ⚠ The carve-out must follow the pickers. A STALE one fails SILENTLY for staff
-  //   while working perfectly for you, because removeEditors() ignores the owner —
-  //   the 2026-08-29 "measured the wrong population" trap. Re-run
-  //   protectAllOrdersSheet() after any flip, and verify as a STAFF account.
-  [Schema.pickIdA1(), Schema.pickIdA1('adjustment')].forEach(function (a1) {
-    var cell = sheet.getRange(a1);
-    var merges = cell.getMergedRanges();
-    open.push(merges && merges.length ? merges[0] : cell);
-  });
-
+  // ⭐ The bottom bound is unavoidable in Apps Script, so it is re-anchored HOURLY by
+  //   refreshAllOrdersLockCarveOuts() instead of being trusted to hold.
+  var open = _lockOpenRanges(sheet);
   prot.setUnprotectedRanges(open);
   SpreadsheetApp.flush();
 
@@ -892,6 +1027,82 @@ function protectAllOrdersSheet() {
          "\n   n8n exception: " + granted +
          "\n\n⚠ Verify in an incognito window before trusting it: col D must refuse," +
          "\n   NOTE / STATUS / LEFT must accept, and both Pick ID dropdowns must work.";
+}
+
+
+/**
+ * THE SELF-HEAL. Re-anchor the lock's carve-outs to the sheet as it is right now.
+ *
+ * ⚠⚠ WHY THIS HAS TO EXIST AT ALL: Apps Script cannot create an unbounded protected
+ *   range. `getRange("E4:E")` materialises against the grid immediately, so what the
+ *   protection stores is always a fixed box — and this table inserts and deletes rows
+ *   all day. `_lockOpenRanges()` makes the TOP boundary structurally immune (it starts
+ *   at the header row, so an insert at the first data row lands strictly inside and
+ *   Sheets expands the range instead of pushing it down). The BOTTOM cannot be made
+ *   immune from Apps Script, so it is re-asserted here on a clock instead.
+ *
+ * ⭐ IT IS NOT A LOCK CONTROL, WHICH IS WHY IT IS NOT OWNER-GATED. It never creates,
+ *   removes or re-scopes a lock, never touches the editor list, and can only ever
+ *   restore the exact set the owner already chose. Sheets is the real gate — a caller
+ *   who cannot edit the protection simply gets an exception, which is swallowed. And
+ *   gating it would be actively harmful: it runs from the hourly trigger, and if
+ *   OWNER_BRIDGE's owner-email property were ever unset the self-heal would refuse
+ *   forever, silently, which is the failure this whole function exists to end.
+ *
+ * ⚠ A no-op when nothing is locked, and a no-op when nothing is wrong — it writes only
+ *   when _lockCarveOutState() has a NAMED, currently-locked region to repair. No lock,
+ *   no write; no finding, no write.
+ *
+ * @returns {{locked:boolean, changed:boolean, reasons:string[], before:string[],
+ *            after:string[], message:string}}  a SHAPE, never prose to be parsed.
+ */
+function refreshAllOrdersLockCarveOuts() {
+  var res = { locked: false, changed: false, reasons: [], before: [], after: [], message: "" };
+  try {
+    var sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(MAIN_SHEET_NAME);
+    if (!sheet) { res.message = "❌ Main sheet not found."; return res; }
+
+    var st = _lockCarveOutState(sheet);
+    res.locked  = st.locked;
+    res.before  = st.current;
+    res.reasons = st.reasons;
+
+    if (!st.locked)   { res.message = "– All Orders is not locked; nothing to re-anchor."; return res; }
+    if (!st.drifted)  { res.after = st.current;
+                        res.message = "✅ Carve-outs already correct: " + st.current.join(" · ");
+                        return res; }
+
+    st.prot.setUnprotectedRanges(_lockOpenRanges(sheet));
+    SpreadsheetApp.flush();
+
+    // ⚠ READ IT BACK. The point of the exercise is what Sheets STORED, not what we asked
+    //   for — the whole bug class is the gap between those two.
+    var after = _lockCarveOutState(sheet);
+    res.changed = true;
+    res.after   = after.current;
+    res.message = "🔧 Re-anchored the All Orders carve-outs.\n" +
+                  "   was:  " + st.current.join(" · ") + "\n" +
+                  "   now:  " + after.current.join(" · ") + "\n" +
+                  "   why:  " + st.reasons.join("\n         ") +
+                  (after.drifted
+                    ? "\n   ⚠⚠ STILL DRIFTED AFTER THE WRITE — " + after.reasons.join(" | ")
+                    : "");
+    return res;
+  } catch (e) {
+    res.message = "⚠ Carve-out refresh failed: " + e;
+    return res;
+  }
+}
+
+
+/**
+ * Editor / sidebar wrapper — the Run button shows no return value, so it logs.
+ * ⚠ Safe to hammer: it is a no-op unless something is genuinely locked that should not be.
+ */
+function refreshAllOrdersLockCarveOutsNow() {
+  var r = refreshAllOrdersLockCarveOuts();
+  console.log(r.message);
+  return r.message;
 }
 
 

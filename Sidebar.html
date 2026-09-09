@@ -2472,7 +2472,7 @@ body.dark-theme .card-inline-btn { background: var(--bg-secondary); border-color
 
    ⚠ It is a number, so it can rot. check-sidebar asserts NO expanded card body is
    clipped — that assertion is what makes this safe to leave, not the number. */
-.card[data-id="sheet-protect"] .card-body { max-height: 1400px; }
+.card[data-id="sheet-protect"] .card-body { max-height: 1560px; }
 
 .card.collapsed .card-body {
   max-height: 0;
@@ -4355,6 +4355,12 @@ body.dark-theme .footer-version { border-color: #2c2c2c; }
 
       <button class="btn-secondary" onclick="_lockRun('verifyOwnerBridge','Verifying the bridge')">🔗 Verify owner bridge</button>
       <button class="btn-primary" onclick="lockAllOrdersNow()">🛡 Lock All Orders</button>
+      <!-- ⚠ NO CONFIRM, DELIBERATELY. This is the button to reach for when a picker says
+           "everything is locked" — it only ever restores the carve-outs the lock already
+           has, never unlocks anything, and is a no-op when nothing is wrong. Friction on
+           a repair that cannot do harm just delays the floor. It also runs itself hourly;
+           this is the door for the minutes in between. -->
+      <button class="btn-secondary" onclick="_lockRun('refreshAllOrdersLockCarveOutsNow','Re-anchoring the carve-outs')">Re-anchor carve-outs</button>
       <button class="btn-info" onclick="_lockRun('describeAllOrdersLock','Reading lock status')">Lock status</button>
       <button class="btn-danger" onclick="unlockAllOrdersNow()">↺ Unlock</button>
       <p style="font-size:11px;color:#888;margin-top:8px;">
@@ -4369,6 +4375,9 @@ body.dark-theme .footer-version { border-color: #2c2c2c; }
         <br><br>
         ⚠ It cannot restrict <strong>you</strong> — Sheets silently ignores the owner — so the
         identity checks below stay on as the backstop for your own slips.
+        <br><br>
+        <strong>Floor says everything is locked?</strong> Tap <em>Re-anchor carve-outs</em> —
+        the lock is fine, the open ranges drifted. Runs hourly on its own; never unlocks anything.
       </p>
 
       <!-- ── ROW IDENTITY (2026-08-29) — a disclosure, because these are one-time or

@@ -60,9 +60,9 @@ function build(opts) {
     getA1Notation: () => name,
     getMergedRanges: () => merges || []
   });
-  const mkProt = (type, desc) => {
+  const mkProt = (type, desc, open) => {
     const p = {
-      _type: type, _desc: desc,
+      _type: type, _desc: desc, _open: (open || []),
       getDescription: () => p._desc,
       setDescription: d => { p._desc = d; return p; },
       getEditors: () => [{ getEmail: () => 'someone@else.com' }],
@@ -73,22 +73,40 @@ function build(opts) {
       },
       canDomainEdit: () => true,
       setDomainEdit: v => { log.domainEdit = v; return p; },
-      setUnprotectedRanges: rs => { log.unprotected = rs.map(r => r.getA1Notation()); return p; },
-      getUnprotectedRanges: () => [],
+      // ⚠ The protection must REMEMBER what was set on it. refreshAllOrdersLockCarveOuts
+      //   reads the state back after writing — the whole bug class is the gap between
+      //   what you asked for and what Sheets stored, so a stub that forgets proves nothing.
+      setUnprotectedRanges: rs => {
+        log.unprotected = rs.map(r => r.getA1Notation());
+        log.writes = (log.writes || 0) + 1;
+        p._open = log.unprotected.slice();
+        return p;
+      },
+      getUnprotectedRanges: () => p._open.map(a => ({ getA1Notation: () => a })),
       remove: () => { log.removed.push(p._desc); }
     };
     return p;
   };
-  const existing = (opts.existing || []).map(d => mkProt('SHEET', d));
+  const existing = (opts.existing || []).map((d, i) => mkProt('SHEET', d, i === 0 ? opts.existingOpen : null));
   const existingRange = (opts.existingRange || []).map(d => mkProt('RANGE', d));
 
+  const MAXROWS = opts.maxRows || 1000;
   const sheet = {
-    getMaxRows: () => 1000,
+    getMaxRows: () => MAXROWS,
     getProtections: type => (type === 'SHEET' ? existing : existingRange),
     protect: () => { const p = mkProt('SHEET', ''); log.protects.push(p); return p; },
     getRange: function () {
       if (arguments.length === 1) {
-        const n = arguments[0];
+        let n = String(arguments[0]);
+        // ⚠⚠ THE STUB USED TO BE HEALTHIER THAN THE REAL THING, AND THAT IS WHY THIS
+        //    SUITE WENT GREEN THROUGH TWO SEPARATE STAFF LOCKOUTS. It returned the
+        //    notation it was handed, so `getRange("E4:E")` came back as the string
+        //    "E4:E" and the assertions cheerfully proved an UNBOUNDED carve-out that
+        //    has never existed. Apps Script has no unbounded Range: open-ended notation
+        //    is materialised against the grid the instant you ask, so the protection
+        //    always stores a fixed box. Model that, or the harness cannot see the bug.
+        const openEnded = n.match(/^([A-Z]+)(\d+):([A-Z]+)$/);
+        if (openEnded) n = openEnded[1] + openEnded[2] + ':' + openEnded[3] + MAXROWS;
         // Pick ID for Shipping is a MERGE in the live layout.
         return mkRange(n, n === 'F2' ? [mkRange('F2:G2')] : []);
       }
@@ -187,10 +205,15 @@ section('C · a real account gets its exception', () => {
 section('D · ⭐ the carve-outs are EXACTLY the five the floor needs', () => {
   const { B, log } = build({ acct: 'none' });
   B.protectAllOrdersSheet();
-  // NOTE(E) · STATUS(F) · LEFT(H) from row 4 down, then both Pick ID cells.
+  // NOTE(E) · STATUS(F) · LEFT(H) from the HEADER ROW to the last row, then both Pick IDs.
   t('D1 exactly five open ranges', log.unprotected.length, 5);
-  t('D2 and they are the right five', log.unprotected,
-    ['E4:E', 'F4:F', 'H4:H', 'F2:G2', 'H2']);
+  // ⚠⚠ ANCHORED AT ROW 3, NOT ROW 4, AND THAT ONE ROW IS THE WHOLE 2026-09-09 FIX.
+  //    doPost inserts arrivals with insertRowsBefore(dataStartRow) — immediately BEFORE
+  //    row 4. Sheets expands a range only when rows land strictly INSIDE it; at the top
+  //    boundary it SHIFTS the range down instead, so a row-4 anchor was pushed down by
+  //    every batch of new orders and left the newest rows locked for staff.
+  t('D2 and they are the right five, anchored ABOVE the insert point', log.unprotected,
+    ['E3:E1000', 'F3:F1000', 'H3:H1000', 'F2:G2', 'H2']);
 
   const open = log.unprotected.join(' ');
   ['A', 'B', 'D', 'G'].forEach(function (c) {
@@ -322,6 +345,173 @@ section('J · the n8n account is settable from the sidebar, but only by the owne
     none.B.getN8nSheetsAccountState().isNone, true);
 
   t('J11 ⚠ state is a SHAPE, never prose the client must parse', typeof s1, 'object');
+});
+
+// The description the installer writes; sections K-O seed a lock that already exists.
+const LOCKED = 'HQ-LOCK: All Orders \u2014 identity columns locked (2026-08-29)';
+
+// ===============================================================================
+// ⚠⚠⚠ THE 2026-09-09 INCIDENT: "I lock the sheet and after a while the picker tells me
+//     the whole sheet is locked — even notes, even status." Hours sometimes, days
+//     others. Unlock-then-relock fixed it every time, which is the tell: the LOCK was
+//     fine, the CARVE-OUT had moved.
+//
+// THE MECHANISM. Apps Script has no unbounded Range — `getRange("E4:E")` is materialised
+// against the grid on the spot, so the protection stored "E4:E<maxRows>". From then on
+// Sheets adjusts it like any other range, and doPost inserts every arrival with
+// `insertRowsBefore(Schema.dataStartRow, n)` — immediately BEFORE the carve-out's first
+// row. A range EXPANDS only when rows land strictly INSIDE it; at the top boundary it
+// SHIFTS DOWN. So each batch of orders pushed the carve-out down by N and left those N
+// rows — the newest orders, the exact rows being picked — locked for staff and perfectly
+// fine for the owner, because removeEditors() ignores the owner.
+//
+// THE FIX IS ONE ROW: anchor at headerRow, so the insert lands strictly inside and Sheets
+// expands instead of shifting. Sections K–O are what makes that permanent.
+section('K · ⭐ THE ANCHOR SITS ABOVE THE INSERT POINT — the fix, as a property', () => {
+  const { B, log } = build({ acct: 'none' });
+  B.protectAllOrdersSheet();
+
+  const S = B.Schema;
+  log.unprotected.forEach(function (a1) {
+    const m = a1.match(/^([A-Z]+)(\d+):([A-Z]+)(\d+)$/);
+    if (!m || m[1] !== m[3]) return;                 // the Pick ID cells, not columns
+    t('K1 ' + a1 + ' starts strictly ABOVE the row doPost inserts at',
+      Number(m[2]) < S.dataStartRow, true);
+    t('K2 ' + a1 + ' reaches the last row of the sheet', Number(m[4]), 1000);
+  });
+
+  t('K3 ⚠ and the anchor IS the header row — one row higher is what makes an ' +
+    'insertRowsBefore(dataStartRow) land strictly inside',
+    S.dataStartRow - S.headerRow, 1);
+
+  // The bottom is materialised, so it MUST track the grid rather than a remembered number.
+  const big = build({ acct: 'none', maxRows: 4200 });
+  big.B.protectAllOrdersSheet();
+  t('K4 on a bigger sheet the carve-out reaches ITS last row, not a hardcoded one',
+    big.log.unprotected[0], 'E3:E4200');
+});
+
+// ===============================================================================
+section('L · ⚠⚠ THE DETECTOR NAMES A TOP-SHIFTED CARVE-OUT — the reported incident', () => {
+  // What the sheet looked like after ~5 rows of arrivals against a row-4 anchor.
+  const { B } = build({
+    acct: 'none',
+    existing: [LOCKED],
+    existingOpen: ['E9:E1000', 'F9:F1000', 'H9:H1000', 'F2:G2', 'H2']
+  });
+  const sheet = B.SpreadsheetApp.openById('x').getSheetByName('All orders');
+  const st = B._lockCarveOutState(sheet);
+
+  t('L1 it is seen as locked', st.locked, true);
+  t('L2 ⭐ and as DRIFTED', st.drifted, true);
+  const all = st.reasons.join(' | ');
+  has('L3 it names the LOCKED ROWS, not just "stale"', all, 'LOCKED for staff on rows 4\u20138');
+  has('L4 it names the mechanism so the next reader does not re-derive it', all,
+      'insert at the first data row pushed the carve-out down');
+  t('L5 all three floor columns are reported, not just the first',
+    ['E', 'F', 'H'].every(c => all.indexOf('column ' + c + ' ') !== -1), true);
+
+  // ⚠ THE HOLE IN THE OLD DETECTOR, PINNED: it only ever compared the END row, so a
+  //   carve-out that had been pushed DOWN read as perfectly healthy. That is why a
+  //   green `describeAllOrdersLock` sat next to a locked-out shift.
+  t('L6 ⚠⚠ the END row is intact here — an end-only check would have called this healthy',
+    st.reasons.some(r => r.indexOf('ends at row') !== -1), false);
+});
+
+// ===============================================================================
+section('M · the 2026-08-31 shape too — a carve-out short of the last row', () => {
+  const { B } = build({
+    acct: 'none',
+    existing: [LOCKED],
+    existingOpen: ['E4:E51', 'F4:F51', 'H4:H51', 'F2:G2', 'H2']
+  });
+  const sheet = B.SpreadsheetApp.openById('x').getSheetByName('All orders');
+  const st = B._lockCarveOutState(sheet);
+  t('M1 drifted', st.drifted, true);
+  has('M2 it says exactly where the floor stops being able to type', st.reasons.join(' | '),
+      'LOCKED for staff on rows 52\u20131000');
+  has('M2b ...and why the bottom ran out', st.reasons.join(' | '),
+      'the sheet grew past where the carve-out ends');
+
+  // A carve-out that is simply absent is the worst case and must not read as "fine".
+  const gone = build({ acct: 'none', existing: [LOCKED], existingOpen: ['F2:G2', 'H2'] });
+  const gs = gone.B._lockCarveOutState(
+    gone.B.SpreadsheetApp.openById('x').getSheetByName('All orders'));
+  t('M3 a MISSING column carve-out is drift, loudly', gs.drifted, true);
+  has('M4 ...and it says so in words', gs.reasons.join(' | '), 'has NO carve-out at all');
+
+  // A Pick ID carved as a lone cell against a live merge locks the whole merge.
+  const merge = build({
+    acct: 'none', existing: [LOCKED],
+    existingOpen: ['E3:E1000', 'F3:F1000', 'H3:H1000', 'F2', 'H2']
+  });
+  const ms = merge.B._lockCarveOutState(
+    merge.B.SpreadsheetApp.openById('x').getSheetByName('All orders'));
+  t('M5 a partial carve-out over the F2:G2 merge is caught', ms.drifted, true);
+  has('M6 ...and named as the merge problem it is', ms.reasons.join(' | '),
+      'does not cover the whole merge');
+});
+
+// ===============================================================================
+section('N · the self-heal repairs it, and reports what it repaired', () => {
+  const { B, log } = build({
+    acct: 'none',
+    existing: [LOCKED],
+    existingOpen: ['E9:E1000', 'F9:F1000', 'H9:H1000', 'F2:G2', 'H2']
+  });
+  const r = B.refreshAllOrdersLockCarveOuts();
+
+  t('N1 it changed something', r.changed, true);
+  t('N2 ⭐ and what it wrote is the canonical set', r.after,
+    ['E3:E1000', 'F3:F1000', 'H3:H1000', 'F2:G2', 'H2']);
+  has('N3 the message carries the BEFORE, so the log is the diagnosis', r.message, 'E9:E1000');
+  has('N4 ...and the reason, not just the fact', r.message, 'LOCKED for staff on rows 4\u20138');
+  t('N5 ⚠ it never creates a lock', log.protects.length, 0);
+  t('N6 ⚠⚠ and never touches the editor list — it is a repair, not a lock control',
+    [log.editorsRemoved, log.added], [0, []]);
+
+  // ⚠ A re-anchor that re-fires forever would rewrite the protection every hour for
+  //   nothing. Nothing wrong ⇒ nothing written.
+  const clean = build({
+    acct: 'none', existing: [LOCKED],
+    existingOpen: ['E3:E1000', 'F3:F1000', 'H3:H1000', 'F2:G2', 'H2']
+  });
+  const c = clean.B.refreshAllOrdersLockCarveOuts();
+  t('N7 ⭐ a healthy lock is a NO-OP', [c.changed, clean.log.writes || 0], [false, 0]);
+  has('N8 ...and says so', c.message, 'already correct');
+
+  // ⚠ An ABSENT lock is not a broken one. The self-heal must never install one.
+  const unlocked = build({ acct: 'none' });
+  const u = unlocked.B.refreshAllOrdersLockCarveOuts();
+  t('N9 ⚠⚠ an unlocked sheet is left alone', [u.locked, u.changed, unlocked.log.protects.length],
+    [false, false, 0]);
+});
+
+// ===============================================================================
+section('O · the reporter and the detector share ONE rule', () => {
+  const drift = {
+    acct: 'none', existing: [LOCKED],
+    existingOpen: ['E9:E1000', 'F9:F1000', 'H9:H1000', 'F2:G2', 'H2']
+  };
+  const { B } = build(drift);
+  const sheet = B.SpreadsheetApp.openById('x').getSheetByName('All orders');
+
+  // ⚠ setupMasthead's one-line warning and the full report must never disagree — a green
+  //   status line beside a locked-out floor is how this survived two incidents.
+  t('O1 _lockNeedsRefresh agrees with _lockCarveOutState', B._lockNeedsRefresh(sheet), true);
+
+  const rep = B.describeAllOrdersLock();
+  has('O2 the report says DRIFTED', rep, 'DRIFTED');
+  has('O3 ...prints what it SHOULD be', rep, 'E3:E1000');
+  has('O4 ...and names the one-tap fix', rep, 'Re-anchor carve-outs');
+
+  const clean = build({
+    acct: 'none', existing: [LOCKED],
+    existingOpen: ['E3:E1000', 'F3:F1000', 'H3:H1000', 'F2:G2', 'H2']
+  });
+  const cs = clean.B.SpreadsheetApp.openById('x').getSheetByName('All orders');
+  t('O5 and a healthy lock reads healthy in both', clean.B._lockNeedsRefresh(cs), false);
+  has('O6 ...in words', clean.B.describeAllOrdersLock(), 'carve-outs: ✅ correct');
 });
 
 console.log('\n' + (fail === 0 ? '✅' : '❌') +
