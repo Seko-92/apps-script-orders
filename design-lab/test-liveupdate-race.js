@@ -25,6 +25,9 @@ const vm = require('vm');
 
 const ROOT = process.env.SRC || path.join(__dirname, '..');
 let pass = 0, fail = 0;
+/** Boolean assertion — t() compares values, this one just wants truth. */
+function ok(name, cond) { return t(name, !!cond, true); }
+
 function t(name, got, want) {
   const ok = JSON.stringify(got) === JSON.stringify(want);
   ok ? (pass++, console.log('  ✓ ' + name))
@@ -70,6 +73,8 @@ FakeSheet.prototype.getRange   = function (row, col, nR, nC) {
   };
 };
 
+function blankRow() { return ['', '', '', '', '', '', '', '', '', '']; }
+
 /* A small realistic sheet: 3 banner rows, then eBay rows. */
 function makeRows() {
   const blank = () => ['', '', '', '', '', '', '', '', '', ''];
@@ -85,6 +90,12 @@ function makeEnv(opts) {
   opts = opts || {};
   const sheet = new FakeSheet(opts.rows || makeRows());
   const logs = [];
+  /* ⚠ A CONTROLLABLE CLOCK, opt-in via opts.clock so every existing section keeps the
+     real one. _liveMarks reads Date.now() only — no instanceof — so a plain override is
+     enough here. (Had it used instanceof, the vm realm's own Date would have to be
+     injected instead: the Order Archive lesson.) */
+  let fakeNow = 1000000;
+  const RealDate = Date;
   // ⚠ THE INJECTION POINT — this stands in for the ~2-5s map build, so mutating
   //   the sheet inside it reproduces exactly what n8n does during the real window.
   const slowMapBuilder = function () {
@@ -110,6 +121,11 @@ function makeEnv(opts) {
     resolveHandValue: (mi, zo, preferZoho) => (preferZoho ? (zo == null ? mi : zo) : (mi == null ? zo : mi)),
     updateOrderStatsInSheet: () => {}
   };
+  if (opts.clock) {
+    const D = function (a, b, c) { return new RealDate(a, b, c); };
+    D.now = () => fakeNow;
+    sandbox.Date = D;
+  }
   vm.createContext(sandbox);
   vm.runInContext(fs.readFileSync(path.join(ROOT, 'Schema.js'), 'utf8'), sandbox, { filename: 'Schema.js' });
   vm.runInContext(fs.readFileSync(path.join(ROOT, 'LiveSync.js'), 'utf8'), sandbox, { filename: 'LiveSync.js' });
@@ -122,6 +138,7 @@ function makeEnv(opts) {
 
   return {
     sheet, logs, sandbox,
+    advance: function (ms) { fakeNow += ms; },
     edit: function (row, skus) {
       const range = sheet.getRange(row, 1, skus.length, 1);
       // the event carries the values AS THEY WERE AT EDIT TIME
@@ -201,6 +218,64 @@ console.log('\nBOUNDARY + EMPTY SKU still behave (regression nets)');
   const e = makeEnv();
   const threw = e.edit(5, ['']);
   t('an emptied SKU writes blanks, not NOT FOUND', [threw, e.locOf(5)], [null, '']);
+}
+
+// =====================================================================================
+// ⏱ SLOW-RUN INSTRUMENTATION (added 2026-09-09)
+//
+// A run was killed at the 6-minute cap on 9/8 and the Executions panel had nothing to
+// read but a start and an end time — so "which phase was slow" was a guess. These marks
+// exist to make the NEXT one self-diagnosing.
+//
+// ⚠⚠ THE PROPERTY THAT MATTERS MOST IS THE SILENCE. This fires on every SKU edit all
+//    day; a trigger that narrates every run is a trigger whose log nobody reads. If the
+//    healthy path ever starts logging, the instrumentation has become the problem.
+{
+  console.log('\n⏱ slow-run instrumentation');
+
+  // --- healthy run: says NOTHING ---
+  const fast = makeEnv({ clock: true });
+  fast.edit(4, ['111111']);
+  t('a healthy run logs nothing at all', fast.logs.length, 0);
+  t('...and still did its job', fast.locOf(4), 'A-1');
+
+  // --- slow run: one line, with the phase breakdown ---
+  const slow = makeEnv({ clock: true, duringSlowWork: function () { slow.advance(45000); } });
+  slow.edit(4, ['111111']);
+  const line = slow.logs.join(' ');
+  t('a slow run logs exactly one line', slow.logs.length, 1);
+  ok('it says which trigger and that it was slow', /liveUpdateTrigger SLOW/.test(line));
+  ok('...the total', /45\d{3}ms total/.test(line));
+  ok('...and names the phase that ate it', /miMaps 45000ms/.test(line));
+  ['soRead', 'zohoMap', 'rowCheck', 'boundary', 'writes'].forEach(function (ph) {
+    ok('...' + ph + ' is broken out too', line.indexOf(ph + ' ') !== -1);
+  });
+  ok('⚠ it tells the reader a phase time may be QUEUEING, not that call being slow',
+     /queued behind another one/.test(line));
+  ok('...and where to look', /runHourlyHousekeeping/.test(line));
+
+  // --- the early return reports too, or the commonest abort is invisible ---
+  const moved = makeEnv({
+    clock: true,
+    duringSlowWork: function (sh) { moved.advance(45000); sh.rows.splice(3, 0, blankRow()); }
+  });
+  moved.edit(4, ['111111']);
+  const ml = moved.logs.join(' ');
+  ok('the rows-moved early return still reports', /liveUpdateTrigger SLOW/.test(ml));
+  ok('...and says why it aborted', /rows moved under us/.test(ml));
+
+  // --- a threshold that is actually a threshold ---
+  const edge = makeEnv({ clock: true, duringSlowWork: function () { edge.advance(19000); } });
+  edge.edit(4, ['111111']);
+  t('⭐ under the threshold stays silent', edge.logs.length, 0);
+
+  // --- instrumentation must never be able to break the trigger ---
+  const broken = makeEnv({ clock: true, duringSlowWork: function () { broken.advance(45000); } });
+  broken.sandbox.console = { log: () => { throw new Error('logging blew up'); },
+                             error: () => {} };
+  let threw = null;
+  try { broken.edit(4, ['111111']); } catch (e) { threw = e.message; }
+  t('⚠⚠ a failing logger does NOT take the trigger down', threw, null);
 }
 
 console.log('\n' + (fail ? '❌ ' : '✅ ') + pass + ' passed · ' + fail + ' failed');

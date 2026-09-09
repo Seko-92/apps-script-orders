@@ -8,6 +8,55 @@
  * Called automatically when cells are edited (requires onEdit trigger)
  * @param {Event} e - The edit event
  */
+/**
+ * ⏱ SLOW-RUN INSTRUMENTATION — silent unless something is actually wrong.
+ *
+ * WHY (2026-09-09): a `liveUpdateTrigger` run was killed at the 6-minute cap
+ * (9/8 7:56:34 PM → 8:02:38 PM). The function should take 3-6s. Diagnosing it
+ * meant a trip to the Executions panel with nothing to read there but a start
+ * and an end time — no phase breakdown, so "which part was slow" was a guess.
+ *
+ * ⭐ THE DESIGN IS THAT A HEALTHY RUN COSTS NOTHING AND SAYS NOTHING. Marks are
+ *   Date.now() calls; the log fires only past LIVE_SLOW_LOG_MS. A trigger that
+ *   narrates every fire is a trigger whose log nobody reads — and this one runs
+ *   on every SKU edit all day.
+ *
+ * ⚠ console.log, NEVER logDebug. logDebug writes a row to the Debug Log SHEET,
+ *   which is a network round trip — instrumentation that makes the thing it
+ *   measures slower, on the exact path being measured. This project already
+ *   ruled on that: sheet logging is for rare, audit-worthy events only.
+ *
+ * ⚠ It must not be able to break the function it watches. Everything here is
+ *   arithmetic on numbers already in hand, and the emit is wrapped.
+ */
+var LIVE_SLOW_LOG_MS = 20000;   // 20s — well past a healthy run, well under the 6-min cap
+
+function _liveMarks() {
+  var t0 = Date.now(), last = t0, out = [];
+  return {
+    at: function (label) {
+      var now = Date.now();
+      out.push(label + " " + (now - last) + "ms");
+      last = now;
+    },
+    total: function () { return Date.now() - t0; },
+    /** Emits ONLY if the run was slow. Returns nothing; never throws. */
+    report: function (note) {
+      try {
+        var total = Date.now() - t0;
+        if (total < LIVE_SLOW_LOG_MS) return;
+        console.log("⏱ liveUpdateTrigger SLOW — " + total + "ms total" +
+                    (note ? " · " + note : "") + "  ·  " + out.join(" · ") +
+                    "\n   ⚠ Phase timings are wall-clock, so a big number means EITHER that call " +
+                    "was slow OR this execution was queued behind another one. Check the " +
+                    "Executions panel for the same minute — runHourlyHousekeeping fires at ~:57 " +
+                    "and does its own full Master Inventory read.");
+      } catch (err) { /* instrumentation must never break the trigger */ }
+    }
+  };
+}
+
+
 function liveUpdateTrigger(e) {
   if (getLiveUpdateState() !== 'ON') return;
   
@@ -18,6 +67,7 @@ function liveUpdateTrigger(e) {
 
   // Only trigger when SKU column is edited
   if (range.getColumn() === Schema.cols.SKU) {
+    var mk = _liveMarks();
     var edits = range.getValues();
     var startRow = range.getRow();
     var locationResults = [];
@@ -32,6 +82,7 @@ function liveUpdateTrigger(e) {
     // SALES ORDER values for the edited rows — used to tell a manually-typed
     // eBay row (Zoho-first) from an automated eBay-order row (MI-first).
     var soVals = sheet.getRange(startRow, Schema.cols.SALES_ORDER, edits.length, 1).getValues();
+    mk.at("soRead");
 
     // Build maps once (MI for location + eBay stock, Zoho for direct/non-eBay
     // stock). This is cheaper than the old per-row single lookups, which each
@@ -40,7 +91,9 @@ function liveUpdateTrigger(e) {
     var maps = buildLocationAndInventoryMaps();
     var locationMap = maps.locationMap;
     var inventoryMap = maps.inventoryMap;
+    mk.at("miMaps");
     var zohoMap = buildZohoStockMap();
+    mk.at("zohoMap");
 
     // ⚠⚠ AND NOW RE-CHECK THAT THOSE ROWS STILL MEAN WHAT THEY MEANT.
     // This is the 2026-05-08 row-shift ruling applied here at last: never write
@@ -56,11 +109,15 @@ function liveUpdateTrigger(e) {
     if (!_liveRowsStillOurs(sheet, startRow, edits)) {
       console.log("liveUpdateTrigger: rows moved under us at row " + startRow +
                   " during the map build — skipped rather than writing to the wrong order.");
+      mk.at("rowCheck");
+      mk.report("rows moved under us — skipped");
       return;   // updateOrderStatsInSheet() below is a documented no-op, so nothing is lost
     }
 
     // Get boundary row to (a) protect divider/header and (b) route HAND source.
+    mk.at("rowCheck");
     var boundary = getBoundaryRow();
+    mk.at("boundary");
 
     for (var i = 0; i < edits.length; i++) {
       var currentRow = startRow + i;
@@ -103,6 +160,8 @@ function liveUpdateTrigger(e) {
     // Update HAND column — conditional formatting handles highlighting
     var handRange = sheet.getRange(startRow, Schema.cols.HAND, quantityResults.length, 1);
     handRange.setValues(quantityResults);
+    mk.at("writes");
+    mk.report(edits.length + " row(s)");
   }
 
   // Only update stats when a data cell is edited (SKU or status column)
