@@ -48,8 +48,14 @@ const B = PRODUCT_HEALTH.bands;
 
 /* A complete, Amazon-ready MI record — each test perturbs one field. */
 const MI = (o = {}) => Object.assign(
-  { title: 'Head Gasket', oz: 8, L: 7, W: 5, D: 1, photos: 3, sold: 40, onHand: 20, active: true }, o);
-const TR = (o = {}) => Object.assign({ pt: 'Cylinder Head Gasket', title: '', lb: '', oz: 8, dim: '7x5x1' }, o);
+  // ⚠ `brand: 'HQ'` is here ON PURPOSE and is NOT read by production today. It models the
+  //   state a future edit could create (someone adds C:Brand to _phReadMi), so that a
+  //   fallback `(m && m.brand)` in the BRAND column becomes VISIBLE to H3. Without it the
+  //   fixture cannot reach the bug and the assertion passes vacuously — the stub-cheaper-
+  //   than-the-real-thing trap. Verified by mutation 2026-09-10.
+  { title: 'Head Gasket', oz: 8, L: 7, W: 5, D: 1, photos: 3, sold: 40, onHand: 20,
+    active: true, brand: 'HQ' }, o);
+const TR = (o = {}) => Object.assign({ pt: 'Cylinder Head Gasket', title: '', lb: '', oz: 8, dim: '7x5x1', brand: 'Kubota' }, o);
 
 section('A · UNDER-CHARGING IS ITS OWN BAND  ⚠ the only one costing money', () => {
   t('A1 agreement → READY, no fix', (() => {
@@ -164,6 +170,55 @@ section('G · the sheet never writes to its sources', () => {
   t('G2 it does read the truth file', /openById\(BY_PART_TYPE_ID\)/.test(code), true);
   t('G3 ⚠ MI is resolved through MiSchema, never positionally',
     /MiSchema\.readColumns/.test(code), true);
+});
+
+// ============================================================================
+section('H · BRAND — display only, and it must NOT come from MI', () => {
+  const code = fs.readFileSync(path.join(SRC, 'ProductHealth.js'), 'utf8');
+
+  const truth = { '100': TR({ brand: 'Deutz' }), '200': TR({ brand: '' }) };
+  const mi = {
+    '100': MI({ oz: 8, sold: 5 }),
+    '200': MI({ oz: 8, sold: 5 }),
+    // ⚠ 300 exists on eBay ONLY. It has no By Part Type row, so it has no engine make.
+    //   If BRAND ever falls back to MI this row is where it shows up.
+    '300': MI({ oz: 8, sold: 5 })
+  };
+  const out = _phBuildRows(truth, mi, 'T');
+  const at = (sku, n) => {
+    const r = out.rows.find(x => x[PRODUCT_HEALTH.cols.SKU - 1] === sku);
+    return r ? r[PRODUCT_HEALTH.cols[n] - 1] : undefined;
+  };
+
+  t('H1 BRAND is carried from By Part Type', at('100', 'BRAND'), 'Deutz');
+  t('H2 a blank truth brand stays blank, never invented', at('200', 'BRAND'), '');
+  t('H3 ⚠⚠ an eBay-only SKU gets NO brand — it must not fall back to MI\'s C:Brand, ' +
+    'which is "HQ" on 3,624 of 3,633 rows (our manufacturer name, a different question)',
+    at('300', 'BRAND'), '');
+  t('H3b ⚠ _phReadMi does not read C:Brand at all — the structural guarantee behind H3',
+    /C:Brand/.test(code.replace(/\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '')), false);
+  t('H4 the reader actually resolves a `brand` header from By Part Type',
+    /iBrand = H\["brand"\]/.test(code), true);
+  t('H5 ⚠ BRAND carries no verdict — it is not compared against anything',
+    /C\.BRAND[^;]*(ebayFix|amazon|gaps|Delta)/.test(code), false);
+
+  // Schema integrity — the shift that adding a column causes
+  t('H6 every column fits inside dataWidth',
+    Math.max(...Object.values(PRODUCT_HEALTH.cols)) === PRODUCT_HEALTH.dataWidth, true);
+  t('H7 headers and dataWidth agree',
+    PRODUCT_HEALTH.headers.length, PRODUCT_HEALTH.dataWidth);
+  t('H8 every built row is exactly dataWidth wide',
+    out.rows.every(r => r.length === PRODUCT_HEALTH.dataWidth), true);
+  t('H9 no column number is used twice',
+    new Set(Object.values(PRODUCT_HEALTH.cols)).size, PRODUCT_HEALTH.dataWidth);
+
+  // ⚠⚠ The CF used to hardcode $M2/$N2. Adding BRAND shifted both right by one, and a
+  //    hardcoded letter would still MATCH -- silently painting the wrong column.
+  t('H10 ⚠⚠ CF derives its column letters from the schema, never hardcoded',
+    /_colLetter\(PRODUCT_HEALTH\.cols\.EBAY_FIX\)/.test(code) &&
+    /_colLetter\(PRODUCT_HEALTH\.cols\.AMAZON\)/.test(code), true);
+  t('H11 ⚠ no stale literal $M2/$N2 left in the CF rules',
+    /\$[MN]2/.test(code.replace(/\/\/.*$/gm, '')), false);
 });
 
 console.log('\n' + (fail === 0 ? '✅' : '❌') +

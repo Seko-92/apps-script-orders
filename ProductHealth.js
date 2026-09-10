@@ -42,29 +42,30 @@ var PRODUCT_HEALTH = {
 
   cols: {
     SKU:          1,   // A
-    PART_TYPE:    2,   // B
-    TITLE:        3,   // C
-    TRUTH_WT:     4,   // D — oz, from By Part Type (as-shipped)
-    EBAY_WT:      5,   // E — oz, from MI packageWeightOz
-    WT_DELTA:     6,   // F — eBay − truth
-    TRUTH_DIMS:   7,   // G — "LxWxD"
-    EBAY_DIMS:    8,   // H — "LxWxD"
-    PHOTOS:       9,   // I — counted from MI, never from a flag
-    SOLD:        10,   // J
-    ON_HAND:     11,   // K
-    GAPS:        12,   // L — what is missing, in words
-    EBAY_FIX:    13,   // M — the correction verdict
-    AMAZON:      14,   // N — READY, or why not
-    LAST_CHECKED:15    // O
+    BRAND:        2,   // B — the ENGINE make from By Part Type (Deutz/Kubota/…)
+    PART_TYPE:    3,   // C
+    TITLE:        4,   // D
+    TRUTH_WT:     5,   // E — oz, from By Part Type (as-shipped)
+    EBAY_WT:      6,   // F — oz, from MI packageWeightOz
+    WT_DELTA:     7,   // G — eBay − truth
+    TRUTH_DIMS:   8,   // H — "LxWxD"
+    EBAY_DIMS:    9,   // I — "LxWxD"
+    PHOTOS:      10,   // J — counted from MI, never from a flag
+    SOLD:        11,   // K
+    ON_HAND:     12,   // L
+    GAPS:        13,   // M — what is missing, in words
+    EBAY_FIX:    14,   // N — the correction verdict
+    AMAZON:      15,   // O — READY, or why not
+    LAST_CHECKED:16    // P
   },
 
   idx: function (n) { return PRODUCT_HEALTH.cols[n] - 1; },
 
-  dataWidth: 15,
+  dataWidth: 16,
   headerRow: 1,
   dataStartRow: 2,
 
-  headers: ["SKU", "PART TYPE", "TITLE",
+  headers: ["SKU", "BRAND", "PART TYPE", "TITLE",
             "◫ TRUTH WT", "◉ EBAY WT", "WT Δ",
             "◫ TRUTH DIMS", "◉ EBAY DIMS",
             "PHOTOS", "SOLD", "ON HAND",
@@ -286,7 +287,7 @@ function _phReadTruth() {
 
     // ⚠ "Wright(Oz)" is a live typo in the file. Match on "oz" appearing anywhere
     //   rather than an exact header, or every ounce value is silently dropped.
-    var iSku = H["sku"], iPt = H["part type"], iTitle = H["title"];
+    var iSku = H["sku"], iPt = H["part type"], iTitle = H["title"], iBrand = H["brand"];
     var iLb = H["weight (lb)"], iOz = null, iDim = null;
     for (var k in H) {
       if (iOz === null && k.indexOf("oz") !== -1) iOz = H[k];
@@ -302,6 +303,7 @@ function _phReadTruth() {
       // the spine is the same in both, only the type-specific tail differs.
       bySku[sku] = {
         pt:    iPt    !== undefined ? String(data[r][iPt]    || "").trim() : "",
+        brand: iBrand !== undefined ? String(data[r][iBrand] || "").trim() : "",
         title: iTitle !== undefined ? String(data[r][iTitle] || "").trim() : "",
         lb:    iLb    !== undefined ? data[r][iLb]  : "",
         oz:    iOz    !== null      ? data[r][iOz]  : "",
@@ -374,7 +376,7 @@ function setupProductDataHealthSheet() {
   sheet.setFrozenRows(1);
 
   var W = {};
-  W[C.SKU]=95; W[C.PART_TYPE]=150; W[C.TITLE]=300;
+  W[C.SKU]=95; W[C.BRAND]=110; W[C.PART_TYPE]=150; W[C.TITLE]=290;
   W[C.TRUTH_WT]=95; W[C.EBAY_WT]=95; W[C.WT_DELTA]=80;
   W[C.TRUTH_DIMS]=110; W[C.EBAY_DIMS]=110;
   W[C.PHOTOS]=70; W[C.SOLD]=70; W[C.ON_HAND]=80;
@@ -414,6 +416,14 @@ function setupProductDataHealthSheet() {
  *   the money band must precede the softer ones or it gets painted over.
  */
 function _phApplyConditionalFormatting(sheet) {
+  // ⚠⚠ DERIVE the column letters from the schema — NEVER hardcode them. These used to
+  //    read $M2 / $N2, which was correct only while EBAY_FIX sat at 13 and AMAZON at 14.
+  //    Adding the BRAND column on 2026-09-10 shifted both right by one, and a hardcoded
+  //    letter would have kept matching — silently painting the wrong column, with no
+  //    error and no wrong-looking number. Same class as the KitRegistry positional read
+  //    that MiSchema.js exists to prevent.
+  var FIXC = _colLetter(PRODUCT_HEALTH.cols.EBAY_FIX);
+  var AMZC = _colLetter(PRODUCT_HEALTH.cols.AMAZON);
   var C = PRODUCT_HEALTH.cols, B = PRODUCT_HEALTH.bands;
   var maxRow = 4200;
   var whole = sheet.getRange(PRODUCT_HEALTH.dataStartRow, 1, maxRow - 1, PRODUCT_HEALTH.dataWidth);
@@ -423,13 +433,13 @@ function _phApplyConditionalFormatting(sheet) {
 
   // 1 · UNDER-CHARGING — the only band costing money today. Loudest treatment.
   rules.push(SpreadsheetApp.newConditionalFormatRule()
-    .whenFormulaSatisfied('=REGEXMATCH(TO_TEXT($M2),"eBay LIGHT")')
+    .whenFormulaSatisfied('=REGEXMATCH(TO_TEXT($' + FIXC + '2),"eBay LIGHT")')
     .setBackground('#ffcdd2').setFontColor('#b71c1c').setBold(true)
     .setRanges([whole]).build());
 
   // 2 · any other eBay disagreement — amber, act on it but nothing is bleeding
   rules.push(SpreadsheetApp.newConditionalFormatRule()
-    .whenFormulaSatisfied('=AND($M2<>"",NOT(REGEXMATCH(TO_TEXT($M2),"eBay LIGHT")))')
+    .whenFormulaSatisfied('=AND($' + FIXC + '2<>"",NOT(REGEXMATCH(TO_TEXT($' + FIXC + '2),"eBay LIGHT")))')
     .setBackground('#fff4b0').setRanges([whole]).build());
 
   // 3 · READY — quiet green, so the Amazon shortlist reads at a glance
@@ -440,7 +450,7 @@ function _phApplyConditionalFormatting(sheet) {
 
   // 4 · every non-READY reason — muted, it is a worklist not an alarm
   rules.push(SpreadsheetApp.newConditionalFormatRule()
-    .whenFormulaSatisfied('=AND($N2<>"",$N2<>"READY")')
+    .whenFormulaSatisfied('=AND($' + AMZC + '2<>"",$' + AMZC + '2<>"READY")')
     .setFontColor('#8a7434').setRanges([amazonCol]).build());
 
   rules.push(SpreadsheetApp.newConditionalFormatRule()
@@ -529,6 +539,14 @@ function _phBuildRows(truthBySku, miBySku, now) {
       cells: (function () {
         var a = [];
         a[C.SKU - 1] = sku;
+        // ⚠ BRAND comes ONLY from By Part Type — it is the ENGINE MAKE the part fits.
+        // Do NOT fall back to MI's `C:Brand`: that is "HQ" on 3,624 of 3,633 rows (it is
+        // OUR manufacturer name, a different question wearing the same word). Measured
+        // 2026-09-10 — the two agree on 0.1% of rows, so a fallback would fill this
+        // column with noise. MI's real counterpart is `C:Compatible Equipment Make`
+        // (93.5% agreement), and it is a MACHINE make vs an ENGINE make, so it is not a
+        // mismatch worth reporting either — hence display only, no verdict.
+        a[C.BRAND - 1] = (t && t.brand) || "";
         a[C.PART_TYPE - 1] = (t && t.pt) || (m && m.pt) || "";
         a[C.TITLE - 1] = (m && m.title) || (t && t.title) || "";
         a[C.TRUTH_WT - 1] = v.truthOz === null ? "" : v.truthOz;
@@ -576,6 +594,22 @@ function refreshProductDataHealth() {
   var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   var sheet = ss.getSheetByName(PRODUCT_HEALTH.sheetName);
   if (!sheet) { setupProductDataHealthSheet(); sheet = ss.getSheetByName(PRODUCT_HEALTH.sheetName); }
+
+  // ⚠⚠ AUTO-MIGRATE A STALE LAYOUT. Adding a column (BRAND, 2026-09-10) makes every
+  //    EXISTING sheet the wrong shape, and this function would happily write 16-wide rows
+  //    under a 15-wide header — every label off by one from column B rightwards, and the
+  //    CF still painting the pre-shift columns. Nothing would throw; the sheet would just
+  //    quietly lie. A ONE-CELL probe on the header is enough to detect it, and setup is
+  //    idempotent, so re-running costs a few style writes and no data (the rows below are
+  //    cleared and rewritten by this function anyway).
+  //    Same pattern as runKitHealthAudit's A2 probe and the OOS title-band migrator —
+  //    it means the operator never has to remember to click "Re-style Sheet" first.
+  var probe = String(sheet.getRange(PRODUCT_HEALTH.headerRow, PRODUCT_HEALTH.cols.BRAND)
+                          .getValue() || "").trim();
+  if (probe !== PRODUCT_HEALTH.headers[PRODUCT_HEALTH.cols.BRAND - 1]) {
+    setupProductDataHealthSheet();
+    sheet = ss.getSheetByName(PRODUCT_HEALTH.sheetName);
+  }
 
   var truth;
   try {
