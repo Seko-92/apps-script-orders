@@ -93,16 +93,35 @@ function _ensurePhotoDivider(sheet) {
 /**
  * Scan Master Inventory for items that still need a real photo: ACTIVE listings
  * with <= PREP_PHOTO.maxImages non-empty pictureUrl1..5 (kits included — they're
- * MI rows). Returns [{sku, images, location, title, hand}].
+ * MI rows).
+ *
+ * ⚠⚠ RETURNS A VERDICT, NOT A BARE ARRAY — and that is the whole point.
+ * An empty list has TWO opposite meanings, and only one of them is safe to act on:
+ *
+ *   ok:true,  items:[]  → the backlog is CLEAR. The caller SHOULD rewrite the
+ *                         region empty; that is the happy ending.
+ *   ok:false, items:[]  → MI could not be READ (sheet missing/renamed, no data
+ *                         rows, `sku` header renamed, or the read threw). The
+ *                         caller MUST NOT touch the region: refreshPhotoQueue()
+ *                         clears it unconditionally, and the ✔ DONE ticks and
+ *                         FIRST SEEN dates it would destroy live NOWHERE ELSE.
+ *
+ * FIVE paths below produce an empty list and only ONE is the good one, so a
+ * caller holding just the array cannot tell them apart. Same ruling the stock
+ * audit already earned: never report "I could not read it" as "there is nothing
+ * there" — that is the most reassuring possible answer to the worst state.
+ *
+ * @return {{ok: boolean, items: Array<Object>, reason: string}}
+ *         items[] entries are {sku, images, location, title, hand}.
  */
 function _scanItemsNeedingPhotos() {
   var out = [];
   try {
     var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
     var mi = ss.getSheetByName(DB_SHEET_NAME);
-    if (!mi) return out;
+    if (!mi) return { ok: false, items: out, reason: DB_SHEET_NAME + " sheet not found" };
     var lastRow = mi.getLastRow(), lastCol = mi.getLastColumn();
-    if (lastRow < 2) return out;
+    if (lastRow < 2) return { ok: false, items: out, reason: DB_SHEET_NAME + " has no data rows" };
 
     var headers = mi.getRange(1, 1, 1, lastCol).getValues()[0];
     function col(name) {
@@ -113,7 +132,8 @@ function _scanItemsNeedingPhotos() {
       return -1;
     }
     var skuC = col(DB_SKU_HEADER);
-    if (skuC < 0) return out;
+    if (skuC < 0) return { ok: false, items: out,
+                           reason: "MI column '" + DB_SKU_HEADER + "' not found (renamed?)" };
     var titleC = col(DB_TITLE_HEADER), locC = col(DB_LOCATION_HEADER),
         statusC = col(DB_LISTING_STATUS_HEADER), qtyC = col(DB_QUANTITY_HEADER),
         soldC = col(DB_QUANTITY_SOLD_HEADER);
@@ -149,8 +169,15 @@ function _scanItemsNeedingPhotos() {
         hand:     qty - sold
       });
     }
-  } catch (e) { try { console.log("_scanItemsNeedingPhotos: " + e); } catch (_) {} }
-  return out;
+    return { ok: true, items: out, reason: "" };
+  } catch (e) {
+    try { console.log("_scanItemsNeedingPhotos: " + e); } catch (_) {}
+    // A throw MID-READ can leave `out` partially filled. Report the partial list
+    // for logging but flag it unusable — a half-scanned MI would drop every SKU
+    // after the throw point off the queue, which reads exactly like "those got
+    // photographed."
+    return { ok: false, items: out, reason: "MI read failed: " + e };
+  }
 }
 
 
@@ -196,7 +223,32 @@ function refreshPhotoQueue() {
     }
   }
 
-  var items = _scanItemsNeedingPhotos();
+  var scan = _scanItemsNeedingPhotos();
+
+  // ⚠⚠ REFUSE RATHER THAN WIPE. Everything from dataStart to the bottom of the
+  // sheet is machine-owned and gets cleared UNCONDITIONALLY ~40 lines below. So
+  // a scan that could not read MI would clear every ✔ DONE tick and FIRST SEEN
+  // date in the NEEDS PHOTOS table — state that exists in no other sheet, no
+  // backup, and no log. Losing it silently costs a photographer re-shooting work
+  // they already did.
+  //
+  // This mirrors the guard refreshOutOfStock() has always had:
+  //     if (maps.inventoryMap.size === 0) return "⚠️ Master Inventory empty…"
+  // (OutOfStock.js). The photo queue was the one machine-owned MI consumer
+  // without it — added 2026-09-10 after an MI-wipe question surfaced the gap.
+  //
+  // ⚠ A genuinely EMPTY backlog is ok:true and still clears correctly. That is
+  // precisely why the scan returns a verdict instead of an array — guarding on
+  // `items.length === 0` alone would refuse the one case we WANT to act on.
+  //
+  // The band + header restyle above deliberately runs BEFORE this bail: it is
+  // idempotent, touches no data, and repairs the header a prep "Re-style Sheet"
+  // flattens — worth doing even on a run that can't refresh the rows.
+  if (!scan.ok) {
+    return "⚠️ Photo queue NOT refreshed — " + scan.reason +
+           ". Existing rows left untouched (✔ DONE + FIRST SEEN preserved).";
+  }
+  var items = scan.items;
   items.sort(function(a, b) {
     var la = a.location || "", lb = b.location || "";
     var pa = (!la || la === "NOT FOUND") ? 1 : 0, pb = (!lb || lb === "NOT FOUND") ? 1 : 0;
