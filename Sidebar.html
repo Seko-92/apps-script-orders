@@ -4610,6 +4610,28 @@ body.dark-theme .footer-version { border-color: #2c2c2c; }
     </div>
   </div>
 
+  <div class="card collapsed" data-id="product-health" draggable="true">
+    <div class="card-header" onclick="toggleCollapse(this)">
+      <div class="drag-handle" title="Drag to reorder">☰</div>
+      <div class="card-title"><div class="card-icon">🩺</div><h3>Product Data Health</h3></div>
+      <div class="card-toggle">▼</div>
+    </div>
+    <div class="card-body">
+      <button class="btn-primary" id="phRunBtn" onclick="runProductHealthNow()">🩺 Run Health Check</button>
+      <button class="btn-secondary" onclick="run('openProductDataHealth')">Open Sheet</button>
+      <div id="phResult" class="empty-hint">Reconciles <strong>By Part Type</strong> (the source of truth for weight &amp; dimensions) against <strong>Master Inventory</strong> (what eBay believes). One sheet, three worklists.</div>
+      <div class="empty-hint" style="margin-top:0;">Filter <strong>EBAY FIX</strong> for the correction list &mdash; rows reading <em>eBay LIGHT</em> are under-charging shipping today. Filter <strong>AMAZON</strong> = READY for the launch shortlist. Everything else is the data-completion worklist, ranked by units sold.</div>
+      <details class="card-more">
+        <summary>More tools</summary>
+        <div class="card-more-content">
+          <button class="btn-info" onclick="run('probeByPartTypeRead')">Probe truth-file read</button>
+          <button class="btn-info" onclick="run('setupProductDataHealthSheet')">Re-style Sheet</button>
+          <div class="empty-hint" style="margin:0;">Run the probe <strong>once</strong> before scheduling anything &mdash; this is the first cross-spreadsheet read in the project, so the authorisation grant may never have been given, and a missing grant fails silently inside a trigger. It also reports how long the read takes.</div>
+        </div>
+      </details>
+    </div>
+  </div>
+
   <div class="card collapsed" data-id="price-audit" draggable="true">
     <div class="card-header" onclick="toggleCollapse(this)">
       <div class="drag-handle" title="Drag to reorder">☰</div>
@@ -6793,6 +6815,60 @@ function openPricePushFromSidebar() {
      Fail → "✗ <reason>"
 */
 var isPriceAuditing = false;
+/* runProductHealthNow() — fires ProductHealth.js → refreshProductDataHealth.
+   ⚠ Slower than the other cards because it reads a SECOND spreadsheet (By Part Type),
+     one round trip per part-type sheet. The copy says so, or the picker assumes it hung. */
+var isProductHealthRunning = false;
+function runProductHealthNow() {
+  if (isProductHealthRunning) {
+    status.className = 'error';
+    status.textContent = 'Health check already running…';
+    return;
+  }
+  if (typeof google === 'undefined' || !google.script) return;
+
+  var btn  = document.getElementById('phRunBtn');
+  var slot = document.getElementById('phResult');
+
+  isProductHealthRunning = true;
+  if (btn) { btn.classList.add('spinning'); btn.disabled = true; btn.textContent = '⏳ Checking…'; }
+  if (slot) {
+    slot.className = 'empty-hint';
+    slot.innerHTML = 'Reading By Part Type + Master Inventory, joining on SKU… <br/><span style="font-size:0.85em;color:var(--text-muted);">(reads a second spreadsheet — this one takes a while)</span>';
+  }
+  status.className = 'syncing';
+  status.textContent = 'Running product data health…';
+
+  google.script.run
+    .withSuccessHandler(function(msg) {
+      isProductHealthRunning = false;
+      if (btn) { btn.classList.remove('spinning'); btn.disabled = false; btn.textContent = '🩺 Run Health Check'; }
+      var text = String(msg || '');
+      var failed = text.indexOf('❌') === 0;
+      status.className = failed ? 'error' : 'success';
+      status.textContent = failed ? 'Health check failed' : 'Health check complete';
+      if (slot) {
+        slot.className = 'empty-hint';
+        slot.innerHTML = '<pre style="margin:0;white-space:pre-wrap;font-family:\'Roboto Mono\',monospace;font-size:11px;">' +
+          _phEsc(text) + '</pre>';
+      }
+      playSound(failed ? 'error' : 'syncDone');
+      setTimeout(refreshAlerts, 1500);
+    })
+    .withFailureHandler(function(err) {
+      isProductHealthRunning = false;
+      if (btn) { btn.classList.remove('spinning'); btn.disabled = false; btn.textContent = '🩺 Run Health Check'; }
+      status.className = 'error';
+      status.textContent = 'Health check failed';
+      if (slot) slot.textContent = String(err && err.message ? err.message : err);
+      playSound('error');
+    })
+    .refreshProductDataHealth();
+}
+function _phEsc(t) {
+  return String(t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
 function runPriceAuditNow() {
   if (isPriceAuditing) {
     status.className = 'error';
@@ -8955,7 +9031,7 @@ function applyZones() {
   const zones = [
     ['today',        "TODAY'S WORK", ['alerts', 'order-case', 'zoho-pull', 'missing-line', 'kits', 'fulfill', 'displays']],
     ['table-tools',  'TABLE TOOLS',  ['ebay', 'direct', 'live', 'location-update']],
-    ['inventory',    'INVENTORY',    ['part-console', 'prep-queue', 'restock', 'stock-highlight', 'price-audit']],
+    ['inventory',    'INVENTORY',    ['part-console', 'prep-queue', 'restock', 'stock-highlight', 'product-health', 'price-audit']],
     ['diagnostics',  'DIAGNOSTICS',  ['weekly-digest', 'watchdog', 'order-archive', 'duplicates', 'sheet-protect', 'api-monitor', 'arcade']]
   ];
 
@@ -9076,7 +9152,7 @@ window.addEventListener('load',function(){
     'restock':'m-oos',
     'kits':'m-kit','part-console':'m-part','weekly-digest':'m-digest',
     'zoho-stock':'m-stock','sheet-protect':'m-shield','prep-queue':'m-prep',
-    'price-push':'m-push','displays':'m-board',
+    'price-push':'m-push','displays':'m-board','product-health':'m-health',
     'location-update':'m-loc',fulfill:'m-print','zoho-pull':'m-pull',ebay:'m-stock',
     direct:'m-case',duplicates:'m-alert','stock-highlight':'m-oos','api-monitor':'m-digest',
     arcade:'m-board',

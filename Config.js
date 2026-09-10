@@ -26,6 +26,30 @@
 // ---------- ENVIRONMENT / INSTALLATION ----------
 var SPREADSHEET_ID = '1yCsQsRL5WPOwWPCFcUekZpVgsN-aSfh6Efx3GzQv8Pg';
 
+// ---------------------------------------------------------------------------------------
+// BY PART TYPE — a SEPARATE Google Spreadsheet, and the SOURCE OF TRUTH for a part's
+// physical facts: weight, dimensions, fitment, part numbers, per-type specs.
+//
+// ⚠⚠ IT IS DELIBERATELY NOT A TAB IN THIS FILE. Two reasons, both learned the hard way:
+//   1. Its 78 per-type sheets have DIFFERENT schemas — they do not flatten into one tab.
+//   2. Copying it in creates a second copy that drifts, and this project is already
+//      fighting sheet sprawl (the Photo Queue went INTO Prep Queue for exactly that reason).
+// The team edits it where they always have; we only ever READ it and report differences.
+//
+// ⭐ READ THE `All` TAB, not the 78 per-type sheets — it is already the flattened master
+//   (~3,407 rows × 41 cols: eBay ItemID, SKU, Title, Part Type, Brand, Compatible Brands,
+//   Model, Part Number, Replacement Part Numbers). The per-type sheets add the spine
+//   (Weight lb · Weight oz · Dimension "LxWxD"); their type-specific attributes are NOT
+//   reconcilable — MI has no equivalent field to compare them against.
+//
+// ⚠ Cross-file reads need the script to be authorised for BOTH spreadsheets. The first
+//   call from a trigger context is where a missing grant shows up (see LocationUpdate.js's
+//   note on openById + triggers failing silently).
+// ---------------------------------------------------------------------------------------
+var BY_PART_TYPE_ID = '1BPuvd2kQ_6YOA_SmOaJn5j7kk0I78pyq';
+var BY_PART_TYPE_FLAT_SHEET = 'All';        // the flattened master
+var BY_PART_TYPE_TAXONOMY_SHEET = 'Website'; // col 4 holds the 24-category vocabulary
+
 // Sheet Names
 var MAIN_SHEET_NAME       = "All orders";
 var DB_SHEET_NAME         = "Master Inventory";
