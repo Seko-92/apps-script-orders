@@ -61,8 +61,15 @@ var DOPOST_LOCK_FREE = {
    filter. A non-direct SO never reaches a sheet, a cache or a property.
 
    ⚠ FOUR THINGS THIS MUST NOT BREAK, each pinned by a test:
-     1. INVOICES still lock. They arrive on the same action with `invoice` rather
-        than `salesorder`, and they DO write (the INVOICE column).
+     1. DIRECT invoices still lock. They arrive on the same action with `invoice`
+        rather than `salesorder`, and they DO write (the INVOICE column).
+        ⚠ NARROWED 2026-09-11: a NON-DIRECT invoice skips the lock too, because
+        upsertInvoiceFromZoho opens exactly like upsertPendingSalesOrder — type
+        check, invoice_number read, channel filter, and only THEN openById. So the
+        safety argument above transfers verbatim. This was the live hole: the n8n
+        filter reads body.salesorder.sales_channel, an invoice payload has no
+        `salesorder` key, so EVERY eBay invoice reached here and took a lock slot
+        — 255 of them in 3 days, 68% of everything this proxy forwarded.
      2. A BLANK channel still locks — mirroring `if (channel && ...)` inside
         upsertPendingSalesOrder exactly. If Zoho ever stops sending the field,
         nothing silently disappears.
@@ -76,9 +83,14 @@ var DOPOST_LOCK_FREE = {
 function _doPostNeedsLock(action, payload) {
   if (DOPOST_LOCK_FREE[action]) return false;
 
-  if (action === 'zohoSalesOrder' && payload && payload.salesorder) {
-    var ch = String(payload.salesorder.sales_channel || '').trim().toLowerCase();
-    if (ch && ch !== 'direct_sales') return false;   // eBay/Amazon → discarded anyway
+  if (action === 'zohoSalesOrder' && payload) {
+    // Both shapes carry the channel, and both discard a non-direct one BEFORE the
+    // first shared touch — so neither needs the lock to be read safely.
+    var zoho = payload.salesorder || payload.invoice;
+    if (zoho) {
+      var ch = String(zoho.sales_channel || '').trim().toLowerCase();
+      if (ch && ch !== 'direct_sales') return false;   // eBay/Amazon → discarded anyway
+    }
   }
 
   return true;

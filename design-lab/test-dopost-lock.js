@@ -43,12 +43,20 @@ const section = (name, fn) => {
 };
 
 const so = (channel) => ({ action: 'zohoSalesOrder', salesorder: { salesorder_number: 'SO-25223', sales_channel: channel } });
+const inv = (channel) => ({ action: 'zohoSalesOrder', invoice: { invoice_number: 'INV-025236', salesorder_id: '3863697000031016162', sales_channel: channel } });
 
 section('A · THE SAVING — what this change is for', () => {
   // Verbatim from the live payloads captured 2026-08-28.
   t('ebay_us SO skips the lock',      needsLock('zohoSalesOrder', so('ebay_us')), false);
   t('any non-direct channel skips',   needsLock('zohoSalesOrder', so('amazon_us')), false);
   t('case and padding tolerated',     needsLock('zohoSalesOrder', so('  EBAY_US  ')), false);
+
+  // ⚠ ADDED 2026-09-11 — THE LIVE HOLE. The n8n filter reads
+  //   body.salesorder.sales_channel; an INVOICE payload has no `salesorder` key, so
+  //   it took the fail-open branch and EVERY eBay invoice was forwarded and locked.
+  //   255 of them in 3 days = 68% of everything the proxy forwarded. Captured
+  //   verbatim from execution 280401 (INV-025236, Michael Philpot).
+  t('ebay_us INVOICE skips the lock',  needsLock('zohoSalesOrder', inv('ebay_us')), false);
 });
 
 section('B · WHAT IT MUST NOT BREAK — the four guards', () => {
@@ -63,6 +71,10 @@ section('B · WHAT IT MUST NOT BREAK — the four guards', () => {
 
   // 3. INVOICES arrive on the same action and DO write (the INVOICE column)
   t('an INVOICE payload STILL locks', needsLock('zohoSalesOrder', { action: 'zohoSalesOrder', invoice: { invoice_number: 'INV-022496' } }), true);
+  //    ⚠ that one carries NO channel, so it rides the fail-open path. The case that
+  //    actually writes the INVOICE column is a DIRECT invoice — pin it explicitly,
+  //    or narrowing the rule could silently stop invoices serialising.
+  t('direct_sales INVOICE STILL locks', needsLock('zohoSalesOrder', inv('direct_sales')), true);
 
   // 4. an unparseable body leaves payload undefined → fail safe
   t('undefined payload STILL locks',  needsLock('zohoSalesOrder', undefined), true);
