@@ -673,3 +673,249 @@ function getProductHealthCounts() {
     return { under: 0, incomplete: 0, ready: 0 };
   }
 }
+
+// =============================================================================
+// BY PART TYPE — COLUMN PROBE
+// =============================================================================
+//
+// WHY THIS EXISTS
+// ---------------
+// `_phReadTruth` reads the PER-TYPE sheets capped at `Math.min(lastCol, 12)` and keeps six
+// fields (sku · part type · title · brand · weight · dimension). It also SKIPS the `All`
+// sheet entirely (it is in _PH_SKIP_SHEETS). But `All` is the flattened master — measured
+// 2026-09-09 at 3,407 rows x 41 columns, carrying Compatible Brands, Model, Part Number and
+// Replacement Part Numbers.
+//
+// ⭐ SO WE HOLD FITMENT AND IDENTIFIER DATA THAT NOTHING IN THIS PROJECT HAS EVER READ.
+//   Asked 2026-09-13 whether our data is sufficient for an Amazon listing, the honest answer
+//   was "unknown — most of it has never been looked at." This answers that.
+//
+// READ-ONLY. It writes one hidden diagnostic tab and touches nothing else.
+// ⚠ Zero-arg on purpose: the Apps Script Run button cannot pass arguments, and it does NOT
+//   display return values — hence console.log for the summary and a sheet for the detail.
+//
+// ⏭ AFTER RUNNING: put Amazon's flat-file `Data Definitions` required-field list beside the
+//   FILL % column. The gap between them is the actual Amazon data question.
+// =============================================================================
+
+var BPT_PROBE = {
+  sheetName: "__ByPartTypeProbe",
+  sampleLen:  46,
+  headerRow:  1,
+  // What _phReadTruth already consumes, matched the same loose way it matches.
+  consumedExact: ["sku", "part type", "title", "brand", "weight (lb)"],
+  consumedLoose: ["oz", "dimension"]
+};
+
+/** Classify a header so the output is scannable rather than 41 undifferentiated rows. */
+function _bptClassify(h) {
+  var k = String(h || "").trim().toLowerCase();
+  if (!k) return "";
+  if (/upc|ean|gtin|asin|barcode/.test(k))                       return "IDENTIFIER";
+  if (/part\s*num|part\s*no|mpn|oem|replacement|interchange/.test(k)) return "PART NUMBER";
+  if (/compat|fitment|application|fits|model|make|engine|brand/.test(k)) return "FITMENT";
+  if (/weight|dimension|length|width|height|size|bore/.test(k))  return "PHYSICAL";
+  if (/title|desc|name|note|remark/.test(k))                     return "DESCRIPTIVE";
+  if (/photo|image|picture|url|link/.test(k))                    return "MEDIA";
+  if (/price|cost|qty|quantity|stock|zoho|website/.test(k))      return "OTHER-SYSTEM";
+  return "UNCLASSIFIED";
+}
+
+/** True when _phReadTruth would already pick this header up. */
+function _bptIsConsumed(h) {
+  var k = String(h || "").trim().toLowerCase();
+  if (!k) return false;
+  if (BPT_PROBE.consumedExact.indexOf(k) !== -1) return true;
+  for (var i = 0; i < BPT_PROBE.consumedLoose.length; i++) {
+    // mirrors _phReadTruth: `k.indexOf("oz") !== -1` and `k.indexOf("dimension") === 0`
+    if (BPT_PROBE.consumedLoose[i] === "oz"        && k.indexOf("oz") !== -1)      return true;
+    if (BPT_PROBE.consumedLoose[i] === "dimension" && k.indexOf("dimension") === 0) return true;
+  }
+  return false;
+}
+
+function _bptTrim(v) {
+  var s = String(v === null || v === undefined ? "" : v).trim();
+  return s.length > BPT_PROBE.sampleLen ? s.slice(0, BPT_PROBE.sampleLen - 1) + "…" : s;
+}
+
+/**
+ * PART A — the `All` flat master, at FULL width.
+ * @return {Object} { rows, cols, fields: [{col,header,filled,pct,kind,consumed,samples}] }
+ */
+function _bptScanAll(ss) {
+  var sh = ss.getSheetByName(BY_PART_TYPE_FLAT_SHEET);
+  if (!sh) return { error: "sheet '" + BY_PART_TYPE_FLAT_SHEET + "' not found" };
+
+  var lastRow = sh.getLastRow(), lastCol = sh.getLastColumn();
+  if (lastRow < 2 || lastCol < 1) return { error: "'" + BY_PART_TYPE_FLAT_SHEET + "' is empty" };
+
+  var data = sh.getRange(1, 1, lastRow, lastCol).getValues();
+  var hdr  = data[BPT_PROBE.headerRow - 1];
+  var body = data.slice(BPT_PROBE.headerRow);
+  var fields = [];
+
+  for (var c = 0; c < lastCol; c++) {
+    var filled = 0, samples = [];
+    for (var r = 0; r < body.length; r++) {
+      var v = body[r][c];
+      if (v === null || v === undefined || String(v).trim() === "") continue;
+      filled++;
+      if (samples.length < 2) {
+        var t = _bptTrim(v);
+        if (t && samples.indexOf(t) === -1) samples.push(t);
+      }
+    }
+    fields.push({
+      col:      c + 1,
+      header:   String(hdr[c] === null ? "" : hdr[c]).trim(),
+      filled:   filled,
+      pct:      body.length ? (100 * filled / body.length) : 0,
+      kind:     _bptClassify(hdr[c]),
+      consumed: _bptIsConsumed(hdr[c]),
+      samples:  samples.join("  |  ")
+    });
+  }
+  return { rows: body.length, cols: lastCol, fields: fields };
+}
+
+/**
+ * PART B — header VOCABULARY across the per-type sheets.
+ * Reads row 1 only per sheet: cheap, and the point is which headers exist, not their values.
+ * ⚠ The cost here is the sheet COUNT (~78 round trips), not the width — same note as _phReadTruth.
+ */
+function _bptScanPerType(ss) {
+  var sheets = ss.getSheets(), vocab = {}, used = 0, widest = 0;
+  for (var s = 0; s < sheets.length; s++) {
+    var sh = sheets[s], name = sh.getName();
+    if (_PH_SKIP_SHEETS.indexOf(name) !== -1) continue;
+    var lastCol = sh.getLastColumn();
+    if (sh.getLastRow() < 2 || lastCol < 1) continue;
+    used++;
+    if (lastCol > widest) widest = lastCol;
+
+    var hdr = sh.getRange(BPT_PROBE.headerRow, 1, 1, lastCol).getValues()[0];
+    for (var c = 0; c < hdr.length; c++) {
+      var h = String(hdr[c] === null ? "" : hdr[c]).trim();
+      if (!h) continue;
+      var key = h.toLowerCase();
+      if (!vocab[key]) {
+        vocab[key] = { header: h, sheets: 0, minCol: c + 1, maxCol: c + 1,
+                       kind: _bptClassify(h), consumed: _bptIsConsumed(h) };
+      }
+      vocab[key].sheets++;
+      if (c + 1 < vocab[key].minCol) vocab[key].minCol = c + 1;
+      if (c + 1 > vocab[key].maxCol) vocab[key].maxCol = c + 1;
+    }
+  }
+  return { sheets: used, widest: widest, vocab: vocab };
+}
+
+/**
+ * Read-only probe of every column in By Part Type.
+ * Run this from the editor with no arguments. Output: console log + `__ByPartTypeProbe`.
+ */
+function probeByPartTypeColumns() {
+  var t0 = Date.now(), ss;
+  try {
+    ss = SpreadsheetApp.openById(BY_PART_TYPE_ID);
+  } catch (e) {
+    var msg = "❌ COULD NOT OPEN By Part Type: " + e.message +
+      "\n\nIf this is an authorisation error, open that spreadsheet once as this account, or " +
+      "re-run from the editor and accept the prompt. ⚠ A missing grant fails SILENTLY from a " +
+      "trigger, so always prove it from the editor first.";
+    console.log(msg);
+    return msg;
+  }
+
+  var A = _bptScanAll(ss);
+  var B = _bptScanPerType(ss);
+
+  // ---- write the detail tab -------------------------------------------------
+  var out = SpreadsheetApp.openById(SPREADSHEET_ID);
+  var sh  = out.getSheetByName(BPT_PROBE.sheetName);
+  if (!sh) sh = out.insertSheet(BPT_PROBE.sheetName);
+  sh.clear();
+
+  var rows = [["SOURCE", "COL", "HEADER", "KIND", "FILLED", "OF", "FILL %",
+               "READ TODAY?", "SHEETS", "SAMPLE VALUES"]];
+
+  if (A.error) {
+    rows.push(["All", "", "⚠ " + A.error, "", "", "", "", "", "", ""]);
+  } else {
+    for (var i = 0; i < A.fields.length; i++) {
+      var f = A.fields[i];
+      rows.push(["All", f.col, f.header || "(blank header)", f.kind, f.filled, A.rows,
+                 Math.round(f.pct * 10) / 10, f.consumed ? "yes" : "NO", "", f.samples]);
+    }
+  }
+
+  var keys = Object.keys(B.vocab).sort(function (a, b) {
+    return B.vocab[b].sheets - B.vocab[a].sheets || a.localeCompare(b);
+  });
+  for (var k = 0; k < keys.length; k++) {
+    var v = B.vocab[keys[k]];
+    rows.push(["per-type", v.minCol === v.maxCol ? v.minCol : (v.minCol + "-" + v.maxCol),
+               v.header, v.kind, "", "", "", v.consumed ? "yes" : "NO", v.sheets,
+               v.maxCol > 12 ? "⚠ sits past col 12 — invisible to _phReadTruth" : ""]);
+  }
+
+  sh.getRange(1, 1, rows.length, rows[0].length).setValues(rows);
+  sh.getRange(1, 1, 1, rows[0].length).setFontWeight("bold")
+    .setBackground("#1d1d1b").setFontColor("#ffffff");
+  sh.setFrozenRows(1);
+  for (var c2 = 1; c2 <= rows[0].length; c2++) sh.autoResizeColumn(c2);
+  sh.hideSheet();
+
+  // ---- console summary ------------------------------------------------------
+  var lines = ["✅ BY PART TYPE COLUMN PROBE — " +
+               ((Date.now() - t0) / 1000).toFixed(1) + "s",
+               "   detail written to hidden tab: " + BPT_PROBE.sheetName, ""];
+
+  if (!A.error) {
+    lines.push("── '" + BY_PART_TYPE_FLAT_SHEET + "' — " +
+               A.rows + " rows × " + A.cols + " columns");
+    var unread = 0;
+    for (var q = 0; q < A.fields.length; q++) if (!A.fields[q].consumed) unread++;
+    lines.push("   columns NOT read by ProductHealth today: " + unread + " of " + A.cols);
+    lines.push("");
+    lines.push("   " + _bptPad("HEADER", 30) + _bptPad("KIND", 14) + _bptPad("FILL %", 9) + "READ?");
+    for (var p = 0; p < A.fields.length; p++) {
+      var g = A.fields[p];
+      if (!g.header) continue;
+      lines.push("   " + _bptPad(g.header, 30) + _bptPad(g.kind, 14) +
+                 _bptPad(g.pct.toFixed(1) + "%", 9) + (g.consumed ? "yes" : "NO"));
+    }
+  } else {
+    lines.push("⚠ " + A.error);
+  }
+
+  lines.push("");
+  lines.push("── per-type sheets: " + B.sheets + " scanned, widest " + B.widest + " columns");
+  var past = 0;
+  for (var kk in B.vocab) if (B.vocab[kk].maxCol > 12) past++;
+  lines.push("   distinct headers: " + Object.keys(B.vocab).length +
+             "   ⚠ " + past + " of them sit past column 12 (invisible to _phReadTruth)");
+  lines.push("");
+  lines.push("⏭ NEXT: put Amazon's flat-file `Data Definitions` required-field list beside the");
+  lines.push("   FILL % column in " + BPT_PROBE.sheetName + ". That gap IS the Amazon data question.");
+
+  var text = lines.join("\n");
+  console.log(text);
+  return text;
+}
+
+function _bptPad(s, n) {
+  s = String(s === null || s === undefined ? "" : s);
+  if (s.length >= n) return s.slice(0, n - 1) + " ";
+  return s + new Array(n - s.length + 1).join(" ");
+}
+
+/** Removes the probe's diagnostic tab. */
+function removeByPartTypeProbe() {
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  var sh = ss.getSheetByName(BPT_PROBE.sheetName);
+  if (!sh) return "Nothing to remove.";
+  ss.deleteSheet(sh);
+  return "Removed " + BPT_PROBE.sheetName + ".";
+}
