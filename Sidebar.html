@@ -3008,6 +3008,13 @@ input[type="range"]::-moz-range-thumb:active { cursor: grabbing; transform: scal
   color: var(--text-muted);
 }
 
+/* THE ESC CHIP IS A BUTTON. It always looked like one - a yellow rounded
+   chip with a shadow, sitting beside a text input - and for its whole life it
+   did nothing when tapped, so the palette read as stuck. It keeps the word ESC
+   because that teaches the shortcut, but the click is the load-bearing half:
+   the sidebar is used on a TABLET in desktop mode, where there is no Escape
+   key at all, and the only other way out was a ~12px strip of backdrop beside
+   the box. */
 .palette-hint {
   font-size: var(--fs-xs);
   font-weight: 700;
@@ -3017,7 +3024,13 @@ input[type="range"]::-moz-range-thumb:active { cursor: grabbing; transform: scal
   border-radius: 3px;
   letter-spacing: 0.5px;
   box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+  cursor: pointer;
+  user-select: none;
+  transition: filter 120ms ease, transform 120ms ease;
 }
+
+.palette-hint:hover { filter: brightness(1.12); }
+.palette-hint:active { transform: translateY(1px); filter: brightness(0.94); }
 
 .card-header {
   cursor: pointer;
@@ -4944,7 +4957,7 @@ body.dark-theme .footer-version { border-color: #2c2c2c; }
     <div class="palette-header">
       <span class="palette-icon">⌘</span>
       <input class="palette-input" id="cmdInput" placeholder="Search commands...">
-      <span class="palette-hint">ESC</span>
+      <span class="palette-hint" id="cmdEsc" title="Close (Esc)">ESC</span>
     </div>
     <div id="cmdList"></div>
   </div>
@@ -7254,9 +7267,9 @@ var cmdIndex = 0;
 
 function openPalette() {
   palette.classList.add('active');
-  cmdInput.focus();
   cmdInput.value = '';
   renderCommands('');
+  cmdInput.focus();   // after the render, so the list is built before focus
 }
 
 function closePalette() {
@@ -7302,6 +7315,25 @@ document.addEventListener('keydown', function(e) {
 // Close palette when clicking backdrop
 palette.addEventListener('click', function(e) {
   if (e.target === palette) closePalette();
+});
+
+/* The ESC chip - see the CSS note. This is the only exit that works on a
+   touch device, and the only one that does not require hitting a thin strip
+   of backdrop beside the box. */
+document.getElementById('cmdEsc').addEventListener('click', function(e) {
+  e.stopPropagation();
+  closePalette();
+});
+
+/* FOCUS CAN LEAVE THE IFRAME, AND THEN NOTHING WE LISTEN FOR EVER FIRES.
+   The sidebar is a sandboxed iframe inside Sheets. Click the SHEET behind it
+   and focus moves to the parent document - so the document keydown below
+   never sees Escape, and the palette sits there looking stuck while every
+   listener is working correctly. Leaving the panel is a dismissal: treat it
+   as one. Safe against the command path because run() is only reached after
+   closePalette() has already fired. */
+window.addEventListener('blur', function() {
+  if (palette.classList.contains('active')) closePalette();
 });
 
 cmdInput.addEventListener('input', function() {
