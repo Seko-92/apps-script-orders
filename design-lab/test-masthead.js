@@ -209,7 +209,13 @@ ok('D1 still reports what is waiting overnight',
 ok('⚠ D1 is lowercase — the face does the shouting',
    // ⚠ Strip FUNCTION NAMES before judging the prose. TEXT( is four capitals and is not
    //   something anyone reads on the banner — the assertion is about the words, not the code.
-   !/[A-Z]{4,}/.test((W.D1 || '').replace(/'__SparkData'!A\d+|IFERROR|REGEXEXTRACT|VALUE|CHAR|TEXT|IF/g, '')));
+   // ⭐ The Direct band (2026-09-15) is exempt BY DESIGN and cut out first: it is the one
+   //   branch that exists to be noticed, the face it deferred to sits under the loop GIF,
+   //   and "▼ DIRECT · 2 WAITING" is the wording the user approved in the mockup.
+   !/[A-Z]{4,}/.test((W.D1 || '').replace(/IF\('__SparkData'!A26<>"",IFERROR\(.*?" WAITING"\),/, '')
+     .replace(/'__SparkData'!A\d+|IFERROR|REGEXEXTRACT|VALUE|CHAR|TEXT|IF/g, '')),
+   (W.D1 || '').replace(/IF\('__SparkData'!A26<>"",IFERROR\(.*?" WAITING"\),/, '')
+     .replace(/'__SparkData'!A\d+|IFERROR|REGEXEXTRACT|VALUE|CHAR|TEXT|IF/g, '').match(/[A-Z]{4,}/g));
 // ⚠ LET() threw "Formula parse error" on this live sheet (2026-06-05). It must never
 //   reappear in a banner formula, however tempting the repeated base expression is.
 ok('⚠ no LET() in any masthead formula',
@@ -459,6 +465,84 @@ console.log('\n── STRIP LAYOUT ──');
      sandbox.BANNER.url.indexOf(sandbox.BANNER_MARK) > -1);
 
   sandbox.MASTHEAD.strip = prev;
+}
+
+// ======================================================================================
+console.log('\nK · ⭐ the Direct band (2026-09-15)');
+// None of these formulas can run outside Google Sheets — diagnoseDirectBand() is the live
+// test. What CAN be proven here: the shape, the precedence, the insert-proofing, the
+// rollback, and that nothing is left with an unbalanced paren or quote (a malformed
+// formula is written without complaint and renders #ERROR! on the banner).
+{
+  const bal = f => { let d = 0, q = false; for (const ch of String(f)) {
+    if (ch === '"') q = !q; else if (!q) { if (ch === '(') d++; else if (ch === ')') { d--; if (d < 0) return 'close before open'; } } }
+    return q ? 'open quote' : d; };
+  const unbalanced = Object.keys(S).filter(k => typeof S[k] === 'string' && bal(S[k]) !== 0)
+    .concat(['D1', 'F1'].filter(k => bal(W[k]) !== 0));
+  ok('⚠ every helper and headline formula has balanced parens and quotes', unbalanced.length === 0, unbalanced);
+
+  ok('Z1 lists DIRECT orders with a PENDING line, through INDIRECT',
+     /^=IF\(A20="","",IFERROR\(UNIQUE\(FILTER\(INDIRECT\("'All orders'!D"&\(A20\+2\)&":D"\),INDIRECT\("'All orders'!F"&\(A20\+2\)&":F"\)="PENDING"/.test(S.Z1 || ''), S.Z1);
+  ok('⚠ PREPARING is not "waiting" — the list filters PENDING only', !/PREPARING/.test(S.Z1 || ''));
+  ok('AA1 takes arrival from RECEIVED events in the log tail',
+     /FILTER\(\{INDIRECT\("'Activity Log'!C"&A25&":C"\),INDIRECT\("'Activity Log'!A"&A25&":A"\)\},INDIRECT\("'Activity Log'!B"&A25&":B"\)="RECEIVED"\)/.test(S.AA1 || ''), S.AA1);
+  ok('A25 starts the tail DASH_LOG_TAIL_ROWS back, the snapshot\'s own window',
+     /^=MAX\(2,COUNTA\('Activity Log'!A:A\)-2499\)$/.test(S.A25 || ''), S.A25);
+  ok('AD1 names the customer from Pending Sales Orders', /VLOOKUP\(Z1:Z30,'Pending Sales Orders'!A:B,2,FALSE\)/.test(S.AD1 || ''));
+  ok('A24 uses MASTHEAD.lateMinutes', new RegExp('A22>' + sandbox.MASTHEAD.lateMinutes + '\\)$').test(S.A24 || ''), S.A24);
+  ok('⚠ A26 stays blank while resting or stale', /^=IF\(OR\(A13,A6="stale",NOT\(A21>0\)\),""/.test(S.A26 || ''), S.A26);
+  ok('A26 says late / wait', /IF\(A24,"late","wait"\)\)$/.test(S.A26 || ''));
+
+  const H = W.F1 || '';
+  const iRest = H.indexOf('A6="rest"'), iDir = H.indexOf("A26<>\"\""), iLate = H.indexOf('A6="late"');
+  ok('the headline has a Direct branch', iDir > -1);
+  ok('rest outranks the Direct branch, the Direct branch outranks late', iRest > -1 && iRest < iDir && iDir < iLate, [iRest, iDir, iLate]);
+  ok('⚠ a formula fault falls back to the bare count, never #ERROR', /IFERROR\("▼ DIRECT · "&/.test(H) && /,"▼ DIRECT · "&'__SparkData'!A21&" WAITING"\),/.test(H));
+  ok('it rotates through orders with A23', /INDEX\('__SparkData'!Z1:Z30,'__SparkData'!A23\)/.test(H));
+  ok('D1 and F1 carry the SAME headline', W.D1 === W.F1);
+
+  // rollback: the flag off gives the old headline back
+  const prevBand = sandbox.MASTHEAD.directBand;
+  sandbox.MASTHEAD.directBand = false;
+  const shOff = fakeSheet(); sandbox._setSystemPulseBannerFormulas(shOff);
+  sandbox.MASTHEAD.directBand = prevBand;
+  ok('⚠ ROLLBACK · directBand=false writes no Direct branch', shOff.writes.F1 && !/A26/.test(shOff.writes.F1), (shOff.writes.F1 || '').slice(0, 60));
+  ok('⚠ ROLLBACK · and its parens still balance', bal(shOff.writes.F1) === 0);
+
+  // the colour rules
+  const built = [];
+  const builder = () => { const r = { f: null, bg: null, fg: null, ranges: null };
+    const b = { whenFormulaSatisfied(f) { r.f = f; return b; }, setBackground(c) { r.bg = c; return b; },
+                setFontColor(c) { r.fg = c; return b; }, setRanges(x) { r.ranges = x; return b; },
+                build() { built.push(r); return { _r: r, getBooleanCondition: () => ({ getCriteriaValues: () => [r.f] }), getRanges: () => r.ranges }; } };
+    return b; };
+  sandbox.SpreadsheetApp.newConditionalFormatRule = builder;
+  const other = { getBooleanCondition: () => ({ getCriteriaValues: () => ['=$F4="PENDING"'] }), getRanges: () => [] };
+  const stale = { getBooleanCondition: () => ({ getCriteriaValues: () => ['=INDIRECT("\'__SparkData\'!A26")="wait"'] }), getRanges: () => [] };
+  let saved = null;
+  const cfSheet = rules => ({ getConditionalFormatRules: () => rules, getRange: a => ({ a }), setConditionalFormatRules: r => { saved = r; } });
+
+  // ⚠ FAIL SOFT: against an older BrandTheme the installer does not exist, and a throw here
+  //   would hide every assertion after it — the choosePicker lesson.
+  const install = typeof sandbox._installDirectBandRules === 'function' ? sandbox._installDirectBandRules : () => { saved = null; };
+  install(cfSheet([other, stale]));
+  ok('the installer keeps unrelated rules', saved && saved.indexOf(other) > -1);
+  ok('⚠ and removes its own previous rules (idempotent)', saved && saved.indexOf(stale) === -1);
+  const mine = (saved || []).filter(r => r._r);
+  ok('it adds exactly two rules', mine.length === 2, mine.length);
+  ok('red is first — Sheets applies the first match', mine[0] && /="late"$/.test(mine[0]._r.f) && mine[0]._r.bg === '#b71c1c');
+  ok('yellow is the DIRECT divider\'s own yellow', mine[1] && /="wait"$/.test(mine[1]._r.f) && mine[1]._r.bg === sandbox.BRAND.yellow);
+  ok('⚠ a CF formula cannot name another sheet — it goes through INDIRECT', mine.length === 2 && mine.every(r => /^=INDIRECT\("'__SparkData'!A26"\)/.test(r._r.f)));
+  ok('in strip mode it paints the headline + pulse the reader sees (F1:H1)',
+     mine.length === 2 && (sandbox.MASTHEAD.strip ? mine.every(r => r._r.ranges[0].a === 'F1:H1') : mine.every(r => r._r.ranges[0].a === 'D1:E1')));
+  ok('⚠ the rule spans three columns and names no status word, so no stripper matches it',
+     mine.length === 2 && !/PREPARING|SHIPPED|CANCELED/.test(mine.map(r => r._r.f).join('')));
+
+  sandbox.MASTHEAD.directBand = false;
+  install(cfSheet([other, stale]));
+  sandbox.MASTHEAD.directBand = prevBand;
+  ok('⚠ ROLLBACK · directBand=false removes the colour rules and adds none',
+     saved && saved.length === 1 && saved[0] === other, saved && saved.length);
 }
 
 console.log('\n' + (fail ? '✗ ' + fail + ' FAILED' : '✓ all') + ' · ' + pass + ' passed\n');

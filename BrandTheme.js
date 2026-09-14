@@ -121,6 +121,14 @@ var MASTHEAD = {
   //   ActivityLog.js keeps parsing it; H1 is a MIRROR reading the same __SparkData cells,
   //   never a relocation of the contract.
   strip:        true,
+  // ⭐ THE DIRECT BAND (2026-09-15). When a DIRECT order is PENDING the headline names it
+  //   (SO · customer · lines · wait) and the visible headline + pulse cells turn the
+  //   DIRECT divider's yellow — red once the oldest has waited past lateMinutes. Built
+  //   because a long eBay table pushes the DIRECT table below the fold. Formulas + one
+  //   conditional-format rule only: nothing to fetch, nothing that can go stale.
+  // ROLLBACK: false, clasp push, re-run repairLiveBannerFormulas(). The headline returns to
+  //   its old branches and the colour rules are removed.
+  directBand:   true,
   // ⚠ The neutral row-1 ink. D1 and E1 wear it so the face's state word is the ONLY
   //   coloured thing in the row. Three yellows meant nothing led.
   quietInk:     "#e8e8e8",
@@ -338,6 +346,7 @@ function applyBrandTheme(sheetName) {
     // ── LIVE BANNER FORMULAS ──
     _ensureSparkData(ss);            // hidden helper sheet for hourly counts + sync pulse
     _setSystemPulseBannerFormulas(sheet);
+    _installDirectBandRules(sheet);  // the Direct band's yellow/red — a 3-column rule, so no stripper touches it
 
     // ── BANDINGS ──
     if (sheetName) {
@@ -1516,10 +1525,103 @@ function repairLiveBannerFormulas() {
   if (!sheet) return "❌ Main sheet not found";
   _ensureSparkData(ss);
   _setSystemPulseBannerFormulas(sheet);
+  _installDirectBandRules(sheet);
   // ⚠ It writes A1/D1/E1/F1. The pre-masthead layout put the stats in G1 and this
   //   string was never updated — a report that names the wrong cells sends the next
   //   reader to the wrong place.
-  return "✅ Live banner formulas re-installed (A1 face · D1 headline · E1 pulse · F1 curve).";
+  return "✅ Live banner formulas re-installed (A1 face · D1/F1 headline · E1/H1 pulse · __SparkData)" +
+         (MASTHEAD.directBand ? " + the Direct band. Run diagnoseDirectBand() to see what it reads." : ".");
+}
+
+/** Where the band paints: the headline + pulse the reader actually SEES. In strip mode the
+ *  loop GIF covers D1:E1 and F1:G1 + H1 carry the mirror; otherwise D1 + E1 are visible. */
+function _directBandRange() {
+  return MASTHEAD.strip ? 'F1:H1' : 'D1:E1';
+}
+var DIRECT_BAND_SIGNATURE = "__SparkData'!A26";
+
+/**
+ * The Direct band's two colour rules (2026-09-15): red when A26 = "late", the DIRECT
+ * divider's yellow when A26 = "wait". Idempotent — strips its own rules by formula
+ * signature, then adds them back (or not, when MASTHEAD.directBand is off: that is the
+ * rollback).
+ *
+ * ⚠ A conditional-format formula cannot name another sheet directly, so it goes through
+ *   INDIRECT — the _buildKitSkuRule trick.
+ * ⚠⚠ SAFE FROM EVERY STRIPPER, CHECKED: all sixteen CF writers were read on 2026-09-15.
+ *    Each one strips only SINGLE-column rules on its own column (A, D, E, F, G, B, J) or
+ *    formulas naming PREPARING/SHIPPED/CANCELED (revertBrandTheme). This rule spans three
+ *    columns and names none of those words.
+ */
+function _installDirectBandRules(sheet) {
+  var rules = sheet.getConditionalFormatRules();
+  var keep = rules.filter(function (rule) {
+    var bc = rule.getBooleanCondition();
+    var f = bc ? String((bc.getCriteriaValues() || [''])[0] || '') : '';
+    return f.indexOf(DIRECT_BAND_SIGNATURE) === -1;
+  });
+  if (MASTHEAD.directBand) {
+    var range = sheet.getRange(_directBandRange());
+    var verdict = 'INDIRECT("\'__SparkData\'!A26")';
+    // Red first: Sheets applies the first matching rule per cell.
+    keep.push(SpreadsheetApp.newConditionalFormatRule()
+      .whenFormulaSatisfied('=' + verdict + '="late"')
+      .setBackground('#b71c1c').setFontColor('#fff3f0')
+      .setRanges([range]).build());
+    keep.push(SpreadsheetApp.newConditionalFormatRule()
+      .whenFormulaSatisfied('=' + verdict + '="wait"')
+      .setBackground(BRAND.yellow).setFontColor(BRAND.ink)
+      .setRanges([range]).build());
+  }
+  sheet.setConditionalFormatRules(keep);
+}
+
+/**
+ * diagnoseDirectBand — editor-run, zero args. Reads back what the band's formulas actually
+ * evaluate to in the live sheet. None of these formulas can run outside Google Sheets, so
+ * this is the only real test of them.
+ */
+function diagnoseDirectBand() {
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  var sd = ss.getSheetByName('__SparkData');
+  var main = ss.getSheetByName(MAIN_SHEET_NAME);
+  var L = [];
+  if (!sd || !main) { L.push('❌ __SparkData or ' + MAIN_SHEET_NAME + ' is missing — run repairLiveBannerFormulas() first.'); Logger.log(L.join('\n')); return L.join('\n'); }
+  var ERR = /^#(REF!|ERROR!|N\/A|VALUE!|NAME\?|DIV\/0!|NUM!)/;
+  var bad = 0;
+  var show = function (label, a1) {
+    var v = sd.getRange(a1).getDisplayValue();
+    if (ERR.test(v)) bad++;
+    L.push('  ' + (ERR.test(v) ? '❌ ' : '   ') + a1 + '  ' + label + ': ' + (v === '' ? '(blank)' : v));
+  };
+  L.push('DIRECT BAND — what the formulas read right now');
+  show('DIRECT marker row', 'A20');
+  show('eBay open (PENDING+PREPARING)', 'A17');
+  show('Direct open (PENDING+PREPARING)', 'A18');
+  show('queue, both tables', 'A8');
+  show('Direct orders waiting (PENDING)', 'A21');
+  show('oldest wait, minutes', 'A22');
+  show('showing order #', 'A23');
+  show('oldest past ' + MASTHEAD.lateMinutes + ' min', 'A24');
+  show('log tail starts at row', 'A25');
+  show('band verdict', 'A26');
+  var rows = sd.getRange('Z1:AD' + Math.min(DIRECT_BAND_LIST_ROWS, 8)).getDisplayValues();
+  L.push('  waiting list (SO · arrived · min · lines · customer):');
+  rows.forEach(function (r) {
+    if (r.join('') === '') return;
+    if (r.some(function (c) { return ERR.test(c); })) bad++;
+    L.push('     ' + r.join(' · '));
+  });
+  var headCell = MASTHEAD.strip ? 'F1' : Schema.cellStats;
+  L.push('  headline ' + headCell + ': ' + JSON.stringify(main.getRange(headCell).getDisplayValue()));
+  var n = main.getConditionalFormatRules().filter(function (rule) {
+    var bc = rule.getBooleanCondition();
+    return bc && String((bc.getCriteriaValues() || [''])[0] || '').indexOf(DIRECT_BAND_SIGNATURE) !== -1;
+  }).length;
+  L.push('  colour rules on ' + _directBandRange() + ': ' + n + ' of ' + (MASTHEAD.directBand ? 2 : 0));
+  L.push(bad ? '❌ ' + bad + ' cell(s) show a formula error — send me this log.' : '✅ No formula errors.');
+  Logger.log(L.join('\n'));
+  return L.join('\n');
 }
 
 /**
@@ -3700,7 +3802,77 @@ function _ensureSparkData(ss) {
      'IF(A8>0,"busy","clear"))))'
   );
 
+  _ensureDirectWaiting(sheet);
   return sheet;
+}
+
+/** The DIRECT-waiting block's list height. More waiting orders than this still COUNT
+ *  (A21 reads the whole spill), they just don't get named. */
+var DIRECT_BAND_LIST_ROWS = 30;
+
+/**
+ * THE DIRECT-WAITING BLOCK (2026-09-15) — what the headline's Direct band reads.
+ *
+ *   Z1:Z…   the DIRECT sales orders with at least one PENDING line, in table order
+ *   AA      when each arrived — its earliest RECEIVED in the Activity Log tail
+ *   AB      minutes waiting
+ *   AC      PENDING lines on that order
+ *   AD      customer, from Pending Sales Orders
+ *   A21     how many orders      A22  oldest wait (min, blank if unknown)
+ *   A23     which one to show this minute (rotates once a minute)
+ *   A24     oldest is past lateMinutes
+ *   A25     first Activity Log row of the tail
+ *   A26     the band's verdict: "" · "wait" · "late"
+ *
+ * ⭐ ARRIVAL USES THE SAME RULE AS getDashboardSnapshot — earliest RECEIVED within the last
+ *   DASH_LOG_TAIL_ROWS rows of the log — so the band, the sidebar and the Floor Board cannot
+ *   disagree about how long an order has waited. The log is append-only and chronological,
+ *   so VLOOKUP's first match IS the earliest. ⚠ An order older than the tail (or a
+ *   hand-typed row with no RECEIVED) gets no age: it still turns the band yellow, it just
+ *   cannot turn it red.
+ * ⚠ PENDING only. PREPARING means somebody has it; the band is for orders nobody has touched.
+ * ⚠ A26 is blank while the masthead RESTS or reads STALE — the same outranking the verdict
+ *   in A6 already applies. A dead pipeline must still say so; 3am must stay calm.
+ * ⚠⚠ All Orders is read through _sdAllOrders (INDIRECT) — see A17. And no LET/LAMBDA: LET
+ *    threw "Formula parse error" on this sheet on 2026-06-05.
+ */
+function _ensureDirectWaiting(sheet) {
+  var N = DIRECT_BAND_LIST_ROWS;
+  var col = function (c) { return c + '1:' + c + N; };
+  var D = _sdAllOrders('D', 'A20+2', 'D');
+  var F = _sdAllOrders('F', 'A20+2', 'F');
+  var tail = (typeof DASH_LOG_TAIL_ROWS === 'number') ? DASH_LOG_TAIL_ROWS : 2500;
+  var logSheet = (typeof ACTIVITY_LOG === 'object' && ACTIVITY_LOG.sheetName) ? ACTIVITY_LOG.sheetName : 'Activity Log';
+  var soSheet  = (typeof PENDING_SO === 'object' && PENDING_SO.sheetName) ? PENDING_SO.sheetName : 'Pending Sales Orders';
+  var log = function (c) { return 'INDIRECT("\'' + logSheet + '\'!' + c + '"&A25&":' + c + '")'; };
+
+  // A spill needs empty cells under it — clear whatever a previous version left there.
+  try { sheet.getRange('Z1:AD' + (N + 20)).clearContent(); } catch (e) {}
+
+  sheet.getRange('Z1').setFormula(
+    '=IF(A20="","",IFERROR(UNIQUE(FILTER(' + D + ',' + F + '="PENDING",' + D + '<>"")),""))'
+  );
+  sheet.getRange('AA1').setFormula(
+    '=ARRAYFORMULA(IF(LEN(' + col('Z') + ')=0,"",IFERROR(VLOOKUP(' + col('Z') +
+    ',FILTER({' + log('C') + ',' + log('A') + '},' + log('B') + '="RECEIVED"),2,FALSE),"")))'
+  );
+  sheet.getRange('AB1').setFormula(
+    '=ARRAYFORMULA(IF(ISNUMBER(' + col('AA') + '),ROUND((NOW()-' + col('AA') + ')*1440),""))'
+  );
+  sheet.getRange('AC1').setFormula(
+    '=ARRAYFORMULA(IF(LEN(' + col('Z') + ')=0,"",COUNTIFS(' + D + ',' + col('Z') + ',' + F + ',"PENDING")))'
+  );
+  sheet.getRange('AD1').setFormula(
+    '=ARRAYFORMULA(IF(LEN(' + col('Z') + ')=0,"",IFERROR(VLOOKUP(' + col('Z') +
+    ",'" + soSheet + "'!A:B,2,FALSE),\"\")))"
+  );
+
+  sheet.getRange('A21').setFormula('=SUMPRODUCT(--(LEN(' + col('Z') + ')>0))');
+  sheet.getRange('A22').setFormula('=IF(COUNT(' + col('AB') + ')=0,"",MAX(' + col('AB') + '))');
+  sheet.getRange('A23').setFormula('=IF(A21>0,MOD(MINUTE(NOW()),A21)+1,"")');
+  sheet.getRange('A24').setFormula('=AND(ISNUMBER(A22),A22>' + MASTHEAD.lateMinutes + ')');
+  sheet.getRange('A25').setFormula("=MAX(2,COUNTA('" + logSheet + "'!A:A)-" + (tail - 1) + ')');
+  sheet.getRange('A26').setFormula('=IF(OR(A13,A6="stale",NOT(A21>0)),"",IF(A24,"late","wait"))');
 }
 
 /**
@@ -3845,9 +4017,31 @@ function _setSystemPulseBannerFormulas(sheet) {
   // ⚠⚠ BUILT ONCE, WRITTEN TWICE. In strip mode F1:G1 shows the same headline while D1 sits
   //    under the loop — two cells computing one value is the drift class this project has
   //    paid for repeatedly, so there is exactly one source string.
+  // ⭐⭐ THE DIRECT BAND (2026-09-15). A DIRECT order nobody has touched outranks every
+  //    branch except rest — A26 is already blank while resting or stale, so a dead pipeline
+  //    still reads "pipeline quiet". ⚠ This branch DOES carry figures, against the rule
+  //    below, on purpose: the dial that rule protected sits under the loop GIF now, and the
+  //    whole point is that the reader learns WHICH order, not merely that one exists.
+  // ⚠ Three lines, rotating through waiting orders once a minute (A23). IFERROR falls back
+  //   to the bare count so a formula fault can never put #ERROR on the banner.
+  var directBranch = '';
+  if (MASTHEAD.directBand) {
+    var N = DIRECT_BAND_LIST_ROWS;
+    var at = function (c) { return 'INDEX(' + SD + c + '1:' + c + N + ',' + SD + 'A23)'; };
+    var directText =
+      '"▼ DIRECT · "&' + SD + 'A21&" WAITING"&CHAR(10)&' +
+      at('Z') + '&IF(' + at('AD') + '="",""," · "&LEFT(' + at('AD') + ',20)&' +
+        'IF(LEN(' + at('AD') + ')>20,"…",""))&CHAR(10)&' +
+      at('AC') + '&IF(' + at('AC') + '=1," line"," lines")&' +
+      'IF(ISNUMBER(' + at('AB') + ')," · waiting "&' + _fmtMinsExpr(at('AB')) + ',"")&' +
+      'IF(' + SD + 'A21>1,"   "&' + SD + 'A23&"/"&' + SD + 'A21,"")';
+    directBranch = 'IF(' + SD + 'A26<>"",IFERROR(' + directText + ',"▼ DIRECT · "&' +
+                   SD + 'A21&" WAITING"),';
+  }
   var headlineFormula =
     '=IF(' + SD + 'A6="rest","the floor is asleep"&' +
       'IF(' + SD + 'A8>0,CHAR(10)&"waiting: "&' + SD + 'A8,""),' +
+    directBranch +
     // ⚠⚠ NO NUMBER HERE. The first cut printed "3 past the 3h line" — and the dial's own
     //    flank already shows exactly that count on a 'late' verdict, 200px away. That is
     //    the duplication this whole rewrite existed to remove, reintroduced one branch
@@ -3860,7 +4054,7 @@ function _setSystemPulseBannerFormulas(sheet) {
     // ⚠ 'clear' is deliberately ONE quiet line. The dial already carries the day\'s
     //   figures, and a calm state that fills the banner is how a banner stops being read.
     'IF(' + SD + 'A6="busy","picking"&' + splitLine + ',' +
-    '"all caught up"))))';
+    '"all caught up"))))' + (directBranch ? ')' : '');
   sheet.getRange(Schema.cellStats).setFormula(headlineFormula);
 
   // ---- E1 — THE PULSE (cell deliberately UNMOVED) ------------------------------------
@@ -4245,6 +4439,7 @@ function setupMasthead(sheetName) {
   // 5 — the inputs, then the formulas that read them.
   _ensureSparkData(ss);
   _setSystemPulseBannerFormulas(sheet);
+  _installDirectBandRules(sheet);
 
   sheet.setRowHeight(1, MASTHEAD.rowHeight);
 
