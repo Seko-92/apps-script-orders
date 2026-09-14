@@ -52,7 +52,7 @@ function fakeSheet() {
 const sandbox = {
   console, Date, Math, String, Number, JSON, RegExp, Object, Array,
   SPREADSHEET_ID: 'x', MAIN_SHEET_NAME: 'All orders',
-  Schema: { dataStartRow: 4, dataWidth: 10, cellSyncTime: 'E1', cellMasthead: 'A1',
+  Schema: { dataStartRow: 4, dataWidth: 10, cellSyncTime: 'E1', cellMasthead: 'A1', boundaryMarker: 'DIRECT',
             cellStats: 'D1', cellDayCurve: 'F1',
             cellEmployeeId: 'F2', cellAdjustmentId: 'H2',
             pickIdA1: function (which) { return which === 'adjustment' ? 'H2' : 'F2'; } },
@@ -142,7 +142,21 @@ ok('the headline reads A6 too',    /'__SparkData'!A6/.test(W.D1 || ''));
 
 console.log('\nD · every published read degrades rather than throwing');
 ['A7','A9','A10'].forEach(r => ok(r + ' is IFERROR-wrapped', /^=IFERROR\(/.test(S[r] || '')));
-ok('A8 (queue) reads the sheet, not __Published', /COUNTIF\('All orders'!F4:F/.test(S.A8 || ''));
+ok('A8 (queue) reads the sheet, not __Published', /COUNTIF\(INDIRECT\("'All orders'!F4:F"\)/.test(S.A8 || ''), S.A8);
+
+// ⚠⚠ INSERT-PROOF (2026-09-15). doPost inserts at row 4, and Sheets slides a plain
+//    'All orders'!F4:F down one row per arrival — the newest orders drop out of the count.
+//    No helper formula may hold a reference to All Orders that Sheets maintains.
+const sparkAll = Object.keys(S).map(k => [k, String(Array.isArray(S[k]) ? JSON.stringify(S[k]) : S[k])]);
+const plainRefs = sparkAll.filter(([, f]) => /'All orders'!/.test(f.replace(/INDIRECT\("[^"]*"/g, '')));
+ok('⚠ no helper formula holds a plain All Orders reference', plainRefs.length === 0, plainRefs.map(p => p[0]));
+ok('A20 finds the DIRECT marker through INDIRECT', /^=IFERROR\(MATCH\("DIRECT",INDIRECT\("'All orders'!A:A"\),0\),""\)$/.test(S.A20 || ''), S.A20);
+ok('A17 (eBay open) counts the rows above the marker, not __Published',
+   /INDIRECT\("'All orders'!F4:F"&\(A20-1\)\)/.test(S.A17 || '') && !/__Published/.test(S.A17 || ''), S.A17);
+ok('A18 (Direct open) counts the rows below the DIRECT header, not __Published',
+   /INDIRECT\("'All orders'!F"&\(A20\+2\)&":F"\)/.test(S.A18 || '') && !/__Published/.test(S.A18 || ''), S.A18);
+ok('A17/A18 count PENDING + PREPARING', ['A17', 'A18'].every(r => /"PENDING"/.test(S[r] || '') && /"PREPARING"/.test(S[r] || '')));
+ok('⚠ A17/A18 stay BLANK, never 0, when the marker is missing', ['A17', 'A18'].every(r => /^=IF\(A20="",""/.test(S[r] || '')));
 ok('the face falls back to the text chip', /,"HQ"\)$/.test(W.A1 || ''));
 ok('the curve falls back to blank',        /,""\)$/.test(WCURVE.F1 || ''));
 

@@ -3541,6 +3541,24 @@ function _fmtMinsExpr(ref) {
          'INT(' + r + '/60)&"h "&MOD(' + r + ',60)&"m")';
 }
 
+/**
+ * An INDIRECT reference to All Orders, as a formula FRAGMENT (2026-09-15).
+ *
+ *   _sdAllOrders('A:A')               → INDIRECT("'All orders'!A:A")
+ *   _sdAllOrders('F4:F', 'A20-1')     → INDIRECT("'All orders'!F4:F"&(A20-1))
+ *   _sdAllOrders('F', 'A20+2', 'F')   → INDIRECT("'All orders'!F"&(A20+2)&":F")
+ *
+ * ⚠⚠ ANY formula reading All Orders from the helper sheet goes through this. A plain
+ *    'All orders'!F4:F is a reference Sheets maintains, and every arrival inserted at
+ *    row 4 pushes it down a row — the newest orders fall out of the count with no error.
+ *    Text inside INDIRECT is never rewritten.
+ */
+function _sdAllOrders(text, expr, suffix) {
+  return 'INDIRECT("\'' + MAIN_SHEET_NAME + '\'!' + text + '"' +
+         (expr ? '&(' + expr + ')' : '') +
+         (suffix ? '&":' + suffix + '"' : '') + ')';
+}
+
 function _ensureSparkData(ss) {
   var name = '__SparkData';
   var sheet = ss.getSheetByName(name);
@@ -3598,12 +3616,30 @@ function _ensureSparkData(ss) {
   var pubNumBlank = function (key) {
     return '=IFERROR(VALUE(REGEXEXTRACT(' + PUB + ',' + '\x22\x22\x22' + key + '\x22\x22:(\\d+)")),"")';
   };
-  // Both counts come from getDashboardSnapshot, which the sidebar's queue strip also
-  // reads -- so the nameplates and the strip cannot disagree. And the 2026-06-02 fix
-  // already un-merged the Zoho mirror out of directPending, so it counts DIRECT-table
-  // rows only. No boundary derivation anywhere.
-  sheet.getRange('A17').setFormula(pubNumBlank('ebayPending'));
-  sheet.getRange('A18').setFormula(pubNumBlank('directPending'));
+  // ⭐⭐ A17/A18 READ THE ROWS NOW, NOT __Published (2026-09-15). They used to come from
+  //    the published tick, which is rebuilt about a minute after a write and up to 8
+  //    minutes apart on a quiet sheet — so the headline's "eBay 6 · Direct 6" trailed the
+  //    table it describes. Counted here they change the moment a row lands.
+  // ⚠⚠ EVERY reference to All Orders goes through INDIRECT, and that is the whole fix.
+  //    doPost inserts arrivals with insertRowsBefore(dataStartRow), i.e. immediately
+  //    BEFORE a plain 'All orders'!F4:F — and Sheets SHIFTS a range down when rows land at
+  //    its top edge rather than growing it. So a plain reference walks F4 → F5 → F6 with
+  //    every arrival and silently drops the newest orders from the count: the 2026-06-06
+  //    F1 bug, and exactly what A8 was still doing. INDIRECT is text, so nothing rewrites it.
+  // ⚠ Same split rule as getDashboardSnapshot: PENDING + PREPARING, eBay above the
+  //   DIRECT marker, DIRECT below its header row. BLANK, never zero, when the marker
+  //   cannot be found — the table is then unreadable, not empty.
+  sheet.getRange('A20').setFormula(
+    '=IFERROR(MATCH("' + Schema.boundaryMarker + '",' + _sdAllOrders('A:A') + ',0),"")'
+  );
+  var ebayStatus   = _sdAllOrders('F' + Schema.dataStartRow + ':F', 'A20-1');
+  var directStatus = _sdAllOrders('F', 'A20+2', 'F');
+  sheet.getRange('A17').setFormula(
+    '=IF(A20="","",COUNTIF(' + ebayStatus + ',"PENDING")+COUNTIF(' + ebayStatus + ',"PREPARING"))'
+  );
+  sheet.getRange('A18').setFormula(
+    '=IF(A20="","",COUNTIF(' + directStatus + ',"PENDING")+COUNTIF(' + directStatus + ',"PREPARING"))'
+  );
 
   sheet.getRange('A7').setFormula(pubNum('oldestPendingMinutes'));
   // ⚠ A19 — how many orders are past the 3h line, not just how old the oldest is. A7 says
@@ -3616,8 +3652,9 @@ function _ensureSparkData(ss) {
   sheet.getRange('A10').setFormula(pubNum('shippedToday'));
 
   // The queue is read straight off the sheet — local, instant, and it keeps working
-  // when the publish cycle does not.
-  var qCol = "'" + MAIN_SHEET_NAME + "'!F" + Schema.dataStartRow + ":F";
+  // when the publish cycle does not. ⚠ Through INDIRECT, for the reason above A17: the
+  // plain 'All orders'!F4:F this used to be slid down one row per arrival.
+  var qCol = _sdAllOrders('F' + Schema.dataStartRow + ':F');
   sheet.getRange('A8').setFormula(
     '=IFERROR(COUNTIF(' + qCol + ',"PENDING")+COUNTIF(' + qCol + ',"PREPARING"),0)'
   );
