@@ -19,3 +19,8 @@ Canvas is 799x133 = A1:E2 (A–C 260 wide, row 1 68 + row 2 65). eBay logo is em
 URI because a file:// image taints the canvas and blocks export.
 Review pages: Six Moves https://claude.ai/artifact/Lnf6FjQQ1Sd548JfRr3fg6 ·
 Signature https://claude.ai/artifact/FXxs9CryVvxTy5hSMkFAE5 · Next level https://claude.ai/artifact/JM3oWYZsbHfSYYjE77VSpr
+
+**Size limit (2026-09-16):** Google refused the 10.5 MB / 1,911-frame movie ("Error retrieving image from URL
+or bad URL") while the server served it fine. `probe-ladder.py <movie.gif>` builds F (frames), B (bytes) and M
+(real-movie prefix) rungs; `probeMovieLimits()` in BrandTheme.js inserts each on a scratch tab and logs which
+Google accepts. ⚠ The "50 MB" figure in older notes was never measured.

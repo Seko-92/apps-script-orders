@@ -5423,3 +5423,77 @@ function installMovie() {
     return _movieSay('❌ installMovie failed: ' + e);
   }
 }
+
+/* ═════════════════════════════════════════════════════════════════════════════════════════
+   THE MOVIE LIMIT PROBE (2026-09-16) — why installMovieTest() threw.
+
+   Google refused banner-movie-v1.gif with "Error retrieving image from URL or bad URL" while
+   the server answers 200 · image/gif · 11,057,752 bytes (md5 matches the build). Every GIF that
+   has ever worked on this sheet was under 1 MB and at most 290 frames; the movie is 10.5 MB and
+   1,911 frames. Google publishes no limit for insertImage by URL, and the "50 MB" in the notes
+   was never measured. So this separates the two suspects in ONE run:
+     F rungs — frames grow, bytes stay tiny (a moving dot)
+     B rungs — bytes grow, frames stay few (noise)
+     M rungs — exact byte-prefixes of the real movie, pauses cut to 1.5 s
+   ⚠ Accepted is not the same as animating: Apps Script cannot see whether Sheets DRAWS a picture,
+     only whether it took it. The tab is brand new, so whatever was accepted shows at once — look.
+   All Orders is never touched. removeMovieProbe() deletes the tab; the probe files are harmless.
+═════════════════════════════════════════════════════════════════════════════════════════ */
+var MOVIE_PROBE = {
+  sheet: '__MovieProbe',
+  rungs: [       // smallest first, so a run that dies midway still reports the cheap answers
+    { id: 'f1', what: 'moving dot · 300 frames',          bytes: 28943 },
+    { id: 'f2', what: 'moving dot · 1,000 frames',        bytes: 95714 },
+    { id: 'f3', what: 'moving dot · 2,500 frames',        bytes: 238529 },
+    { id: 'b1', what: 'noise · 8 frames',                 bytes: 1175229 },
+    { id: 'm1', what: 'movie opening · 433 frames',       bytes: 1579534 },
+    { id: 'b2', what: 'noise · 18 frames',                bytes: 2644570 },
+    { id: 'm2', what: 'movie opening · 832 frames',       bytes: 3151290 },
+    { id: 'b3', what: 'noise · 36 frames',                bytes: 5288160 },
+    { id: 'm3', what: 'movie opening · 1,257 frames',     bytes: 6292134 },
+    { id: 'b4', what: 'noise · 58 frames',                bytes: 8520423 },
+    { id: 'full', what: 'THE WHOLE MOVIE · 1,911 frames', bytes: 11057752, url: 'movie' }
+  ]
+};
+
+function probeMovieLimits() {
+  var t0 = Date.now();
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  var old = ss.getSheetByName(MOVIE_PROBE.sheet);
+  if (old) ss.deleteSheet(old);                  // clean slate — never stack probes
+  var sh = ss.insertSheet(MOVIE_PROBE.sheet, ss.getNumSheets());
+  sh.setColumnWidth(1, 810);
+  sh.getRange('A1').setValue('MOVIE LIMIT PROBE — send Claude the execution log, then scroll down: which pictures MOVE? ' +
+                             'removeMovieProbe() deletes this tab.').setFontWeight('bold');
+  var row = 3, ok = 0, refused = 0;
+  for (var i = 0; i < MOVIE_PROBE.rungs.length; i++) {
+    var r = MOVIE_PROBE.rungs[i];
+    var label = r.id.toUpperCase() + ' · ' + r.what + ' · ' + (r.bytes / 1048576).toFixed(2) + ' MB';
+    if (Date.now() - t0 > 300000) { console.log(label + ' → SKIPPED (out of time)'); continue; }
+    var url = r.url === 'movie' ? MOVIE.url : MASTHEAD.baseUrl + 'probe-' + r.id + '.gif';
+    var t = Date.now(), verdict;
+    try {
+      sh.insertImage(url, 1, row + 1, 0, 0).setWidth(799).setHeight(133);
+      verdict = 'ACCEPTED'; ok++;
+    } catch (e) {
+      verdict = 'REFUSED — ' + String(e).replace(/^Exception:\s*/, ''); refused++;
+    }
+    var line = label + ' → ' + verdict + ' (' + ((Date.now() - t) / 1000).toFixed(1) + ' s)';
+    sh.getRange(row, 1).setValue(line).setFontWeight('bold');
+    console.log(line);
+    row += 9;                                    // 133 px of picture clears ~7 default rows
+  }
+  SpreadsheetApp.flush();
+  var msg = 'Done in ' + Math.round((Date.now() - t0) / 1000) + ' s · ' + ok + ' accepted · ' + refused +
+            ' refused. Open the "' + MOVIE_PROBE.sheet + '" tab and say which accepted ones actually move.';
+  console.log(msg);
+  return msg;
+}
+
+function removeMovieProbe() {
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  var sh = ss.getSheetByName(MOVIE_PROBE.sheet);
+  if (!sh) return _movieSay('Nothing to remove.');
+  ss.deleteSheet(sh);
+  return _movieSay('✅ "' + MOVIE_PROBE.sheet + '" deleted.');
+}
