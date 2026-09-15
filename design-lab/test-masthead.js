@@ -484,6 +484,29 @@ console.log('\nK · ⭐ the Direct band (2026-09-15)');
   ok('Z1 lists DIRECT orders with a PENDING line, through INDIRECT',
      /^=IF\(A20="","",IFERROR\(UNIQUE\(FILTER\(INDIRECT\("'All orders'!D"&\(A20\+2\)&":D"\),INDIRECT\("'All orders'!F"&\(A20\+2\)&":F"\)="PENDING"/.test(S.Z1 || ''), S.Z1);
   ok('⚠ PREPARING is not "waiting" — the list filters PENDING only', !/PREPARING/.test(S.Z1 || ''));
+
+  // ⭐ THE HOLD EXEMPTION (2026-09-16) — a deliberate wait must not turn the band red.
+  ok('HOLD · Y1 lists Direct orders whose NOTE carries HOLD, through INDIRECT',
+     /^=IF\(A20="","",IFERROR\(UNIQUE\(FILTER\(INDIRECT\("'All orders'!D"&\(A20\+2\)&":D"\)/.test(S.Y1 || '') &&
+     /REGEXMATCH\(INDIRECT\("'All orders'!E"&\(A20\+2\)&":E"\)&"",/.test(S.Y1 || ''), S.Y1);
+  ok('HOLD · ⚠ a CANCELED line does not hold the order (holdScanRows skips it too)',
+     /INDIRECT\("'All orders'!F"&\(A20\+2\)&":F"\)<>"CANCELED"/.test(S.Y1 || ''), S.Y1);
+  ok('HOLD · Z1 drops any order listed in Y — per ORDER, not per row',
+     /ISNA\(MATCH\(INDIRECT\("'All orders'!D"&\(A20\+2\)&":D"\),Y1:Y,0\)\)/.test(S.Z1 || ''), S.Z1);
+  {
+    // ⚠ The regex is EXECUTED, not just matched as text: Gotcha #15 (a single backslash
+    //   becomes a backspace) would pass a text check and never match a real note.
+    const m = /REGEXMATCH\([^,]+&"","\(\?i\)(.*?)"\)/.exec(S.Y1 || '');
+    const re = m ? new RegExp(m[1], 'i') : null;
+    const board = n => /\bHOLD\b/i.test(n);          // Holds.js holdNoteHasHold
+    const notes = ['HOLD', 'hold for payment', 'On Hold — call Miguel', 'waiting · HOLD · 2',
+                   'household goods', 'holder', 'withhold', 'Buyer Note: fragile', ''];
+    const agree = re && notes.every(n => re.test(n) === board(n));
+    ok('HOLD · the sheet\'s regex agrees with the board\'s on every note', !!agree,
+       re ? notes.map(n => n + '→' + re.test(n)) : 'no regex found in Y1');
+    ok('HOLD · "household" does not hold, "On Hold" does', !!re && !re.test('household goods') && re.test('On Hold — call Miguel'));
+  }
+  ok('HOLD · diagnoseDirectBand names what it skipped', /on HOLD, skipped by the band/.test(R('BrandTheme.js')));
   ok('AA1 takes arrival from RECEIVED events in the log tail',
      /FILTER\(\{INDIRECT\("'Activity Log'!C"&A25&":C"\),INDIRECT\("'Activity Log'!A"&A25&":A"\)\},INDIRECT\("'Activity Log'!B"&A25&":B"\)="RECEIVED"\)/.test(S.AA1 || ''), S.AA1);
   ok('A25 starts the tail DASH_LOG_TAIL_ROWS back, the snapshot\'s own window',

@@ -1606,6 +1606,9 @@ function diagnoseDirectBand() {
   show('log tail starts at row', 'A25');
   show('band verdict', 'A26');
   var rows = sd.getRange('Z1:AD' + Math.min(DIRECT_BAND_LIST_ROWS, 8)).getDisplayValues();
+  var held = sd.getRange('Y1:Y8').getDisplayValues().map(function (r) { return r[0]; })
+    .filter(function (v) { if (ERR.test(v)) bad++; return v !== ''; });
+  L.push('  on HOLD, skipped by the band: ' + (held.length ? held.join(' · ') : '(none)'));
   L.push('  waiting list (SO · arrived · min · lines · customer):');
   rows.forEach(function (r) {
     if (r.join('') === '') return;
@@ -3840,6 +3843,7 @@ function _ensureDirectWaiting(sheet) {
   var N = DIRECT_BAND_LIST_ROWS;
   var col = function (c) { return c + '1:' + c + N; };
   var D = _sdAllOrders('D', 'A20+2', 'D');
+  var E = _sdAllOrders('E', 'A20+2', 'E');
   var F = _sdAllOrders('F', 'A20+2', 'F');
   var tail = (typeof DASH_LOG_TAIL_ROWS === 'number') ? DASH_LOG_TAIL_ROWS : 2500;
   var logSheet = (typeof ACTIVITY_LOG === 'object' && ACTIVITY_LOG.sheetName) ? ACTIVITY_LOG.sheetName : 'Activity Log';
@@ -3847,15 +3851,31 @@ function _ensureDirectWaiting(sheet) {
   var log = function (c) { return 'INDIRECT("\'' + logSheet + '\'!' + c + '"&A25&":' + c + '")'; };
 
   // A spill needs empty cells under it — clear whatever a previous version left there.
-  try { sheet.getRange('Z1:AD' + (N + 20)).clearContent(); } catch (e) {}
+  try { sheet.getRange('Y1:AD' + (N + 20)).clearContent(); } catch (e) {}
 
+  // ⭐ THE HOLD EXEMPTION (2026-09-16). Y lists every Direct order that is deliberately
+  //   waiting — any live line whose NOTE carries the whole word HOLD, which is exactly
+  //   holdNoteHasHold()'s rule (Holds.js), so the band and the board cannot disagree.
+  //   ⚠ Per ORDER, not per row: one held line holds the box, the board's own scope.
+  //   ⚠ CANCELED lines don't count (holdScanRows skips them too — nothing left to stop).
+  //   ⚠ `E&""` because REGEXMATCH refuses a number cell, and one would error the whole
+  //     FILTER — the IFERROR would then quietly un-hold everything.
+  //   Why it exists: a deliberate wait (SO-25377, 10 days, "fine") would otherwise turn
+  //   the band red and keep it red all day, which is how an alarm gets tuned out.
+  sheet.getRange('Y1').setFormula(
+    '=IF(A20="","",IFERROR(UNIQUE(FILTER(' + D + ',' + D + '<>"",' + F + '<>"CANCELED",' +
+    'REGEXMATCH(' + E + '&"","(?i)\\bhold\\b"))),""))'
+  );
   sheet.getRange('Z1').setFormula(
-    '=IF(A20="","",IFERROR(UNIQUE(FILTER(' + D + ',' + F + '="PENDING",' + D + '<>"")),""))'
+    '=IF(A20="","",IFERROR(UNIQUE(FILTER(' + D + ',' + F + '="PENDING",' + D + '<>"",' +
+    'ISNA(MATCH(' + D + ',Y1:Y,0)))),""))'
   );
   sheet.getRange('AA1').setFormula(
     '=ARRAYFORMULA(IF(LEN(' + col('Z') + ')=0,"",IFERROR(VLOOKUP(' + col('Z') +
     ',FILTER({' + log('C') + ',' + log('A') + '},' + log('B') + '="RECEIVED"),2,FALSE),"")))'
   );
+  // Display only: the arrival reads as a time, not a serial. ISNUMBER below still sees it.
+  try { sheet.getRange(col('AA')).setNumberFormat('M/d h:mm AM/PM'); } catch (e) {}
   sheet.getRange('AB1').setFormula(
     '=ARRAYFORMULA(IF(ISNUMBER(' + col('AA') + '),ROUND((NOW()-' + col('AA') + ')*1440),""))'
   );

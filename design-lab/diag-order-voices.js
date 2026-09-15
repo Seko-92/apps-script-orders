@@ -18,6 +18,7 @@
  *   L  garbage in localStorage falls back to the defaults
  *   M  the resting panel cannot cover the alarm
  *   N  the strip survives the cockpit condensing
+ *   O  an order marked HOLD is waiting on purpose — no repeat, no strip (2026-09-16)
  *
  * ⚠ SIDEBAR_SRC runs it against an older revision to prove the assertions bite:
  *   git show HEAD:Sidebar.html > /tmp/old.html && SIDEBAR_SRC=/tmp/old.html node diag-order-voices.js
@@ -55,9 +56,10 @@ const HTML = fs.readFileSync(SRC, 'utf8').replace("'<?!= boardApiUrl ?>'", "''")
     if (typeof hqsPlay === 'function') window.hqsPlay = function (v, loud) { window.__plays.push((loud ? 'LOUD:' : '') + v); };
     if (typeof _hqsShopOpen === 'function') window._hqsShopOpen = function () { return window.__open; };
     window.__row = (ch, id, st) => ({ channel: ch, orderId: id, sku: 'X', status: st || 'PENDING' });
-    window.__tick = (rows, ages) => {
+    window.__tick = (rows, ages, held) => {
       window.__plays = [];
       const t = { openOrders: rows, cockpit: { orderAgeMin: ages || {} }, _publishedAt: new Date().toISOString() };
+      if (held) t.held = held;
       try { _hqsNoteTick(t); } catch (e) { window.__err = String(e); }
       const s = document.getElementById('hqsAlarm');
       return { plays: window.__plays.slice(), strip: !!(s && !s.hidden), head: s ? document.getElementById('hqsAlarmHead').textContent : null,
@@ -71,7 +73,8 @@ const HTML = fs.readFileSync(SRC, 'utf8').replace("'<?!= boardApiUrl ?>'", "''")
   const okRaw = ok;
   const okH = (n, c, got) => okRaw(n, has && c, got);
   const R = (ch, id, st) => ({ channel: ch, orderId: id, sku: 'X', status: st || 'PENDING' });
-  const tick = (rows, ages) => p.evaluate(([r, a]) => window.__tick(r, a), [rows, ages]);
+  const tick = (rows, ages, held) => p.evaluate(([r, a, h]) => window.__tick(r, a, h), [rows, ages, held || null]);
+  const RN = (ch, id, st, note, kitNote) => Object.assign(R(ch, id, st), note != null ? { note } : {}, kitNote != null ? { kitNote } : {});
 
   console.log('\nA · the first tick is history, not news');
   let s = await tick([R('DIRECT', 'SO-1'), R('EBAY', '11-1-1')], { 'SO-1': 3, '11-1-1': 2 });
@@ -202,6 +205,43 @@ const HTML = fs.readFileSync(SRC, 'utf8').replace("'<?!= boardApiUrl ?>'", "''")
   okH('the strip keeps its height when condensed', cond > 20 && cond2 > 20, [cond, cond2]);
   const outside = await p.evaluate(() => { const s = document.getElementById('hqsAlarm'); return !!s && !s.closest('#modules'); });
   okH('the strip sits outside #modules (never inside a collapsible card)', outside);
+  await tick([], {});
+
+  console.log('\nO · HOLD means waiting on purpose (2026-09-16)');
+  // The live case: SO-25377 sat PENDING 10 days, deliberately. Without this the band and the
+  // repeat would run all day, and an alarm that fires on a deliberate wait gets tuned out.
+  s = await tick([RN('DIRECT', 'SO-40', 'PENDING', 'HOLD — waiting on Miguel')], { 'SO-40': 600 });
+  okH('a note with HOLD: no strip and no repeat, 10 hours in', !s.strip && s.plays.length === 0, s);
+  s = await tick([RN('DIRECT', 'SO-41', 'PENDING', ''), RN('DIRECT', 'SO-41', 'PENDING', 'call first · on hold')], { 'SO-41': 90 });
+  okH('⚠ one held line holds the whole order (per ORDER, like the board)', !s.strip && s.plays.length === 0, s);
+  s = await tick([RN('DIRECT', 'SO-42', 'PENDING', '')], { 'SO-42': 90 }, [{ orderId: 'SO-42', channel: 'DIRECT' }]);
+  okH('the board\'s own hold list is honoured even when this row\'s note has no HOLD', !s.strip && s.plays.length === 0, s);
+  s = await tick([RN('DIRECT', 'SO-43', 'PENDING', '↳ from KIT-160029', 'HOLD until Friday')], { 'SO-43': 90 });
+  okH('a hold on a collapsed kit parent (kitNote) counts', !s.strip && s.plays.length === 0, s);
+  await tick([], {});
+  s = await tick([RN('DIRECT', 'SO-44', 'PENDING', 'household goods, fragile')], { 'SO-44': 40 });
+  okH('⚠ "household" is not HOLD — it still repeats (whole word only)', s.strip && s.plays[0] === 'LOUD:arp', s);
+  await tick([], {});
+  s = await tick([RN('DIRECT', 'SO-40', 'PENDING', 'HOLD — waiting on Miguel'), RN('DIRECT', 'SO-45', 'PENDING', '')], { 'SO-40': 600, 'SO-45': 35 });
+  okH('a held order does not hide a DIFFERENT unattended one', s.strip && /SO-45/.test(s.head || ''), s.head);
+  await tick([], {});
+  s = await tick([RN('DIRECT', 'SO-40', 'PENDING', 'waiting on Miguel')], { 'SO-40': 601 });
+  okH('delete the word HOLD and it repeats again at once', s.strip && /SO-40/.test(s.head || '') && s.plays[0] === 'LOUD:arp', s);
+  await tick([], {});
+  // ⚠ Section K left "you just clicked" set, and the quiet rule would (rightly) skip this.
+  await p.evaluate(() => { window._hqsLastHuman = 0; });
+  await tick([RN('DIRECT', 'SO-50', 'PENDING', '')], { 'SO-50': 2 });
+  await tick([RN('DIRECT', 'SO-50', 'PENDING', ''), RN('DIRECT', 'SO-51', 'PENDING', 'HOLD')], { 'SO-50': 2, 'SO-51': 1 });
+  await p.waitForTimeout(100);
+  plays = await p.evaluate(() => window.__plays);
+  okH('a NEW order already marked HOLD still plays its arrival sound once', plays.join() === 'arp', plays);
+  const drift = await p.evaluate(() => {
+    if (typeof _hqsNoteHasHold !== 'function') return null;
+    const board = n => /\bHOLD\b/i.test(String(n == null ? '' : n));   // Holds.js holdNoteHasHold
+    return ['HOLD', 'hold', 'On Hold', 'x·HOLD·y', 'household', 'holder', 'withhold', '', null, 42]
+      .every(n => _hqsNoteHasHold(n) === board(n));
+  });
+  okH('⚠ the sidebar\'s HOLD rule is the board\'s, word for word', drift === true, drift);
   await tick([], {});
 
   const err = await p.evaluate(() => window.__err || null);

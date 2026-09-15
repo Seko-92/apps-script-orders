@@ -5915,17 +5915,34 @@ var _hqsNagTimer = null;
 var _hqsNagWasActive = false;
 
 /* Group a tick's open rows into orders. Pure — no DOM, no sound. */
+/* ⭐ THE HOLD EXEMPTION (2026-09-16). An order someone marked HOLD is waiting ON PURPOSE,
+   so it never repeats and never takes the strip. ⚠ The rule is Holds.js holdNoteHasHold()
+   word for word — whole word, any case, anywhere in the note — so the sidebar, the board
+   and row 1 cannot disagree. Change one, change all three. */
+function _hqsNoteHasHold(note) {
+  return /\bHOLD\b/i.test(String(note == null ? '' : note));
+}
+
 function _hqsOrdersFromTick(full, now) {
   var pubMs = full && full._publishedAt ? new Date(full._publishedAt).getTime() : now;
   if (!(pubMs > 0) || pubMs > now) pubMs = now;
   var ages = (full && full.cockpit && full.cockpit.orderAgeMin) || {};
+  // The board's own hold list, when the tick carries it — uncapped, so it also covers a
+  // hold written on a line past the 60-row pick list.
+  var heldIds = {};
+  (full && Array.isArray(full.held) ? full.held : []).forEach(function (h) {
+    if (h && h.orderId) heldIds[String(h.orderId)] = true;
+  });
   var orders = {};
   (full.openOrders || []).forEach(function (r) {
     if (!r || !r.orderId || !_hqsChannel(r.channel)) return;
     var k = r.channel + '|' + r.orderId;
-    var o = orders[k] || (orders[k] = { key: k, channel: r.channel, orderId: r.orderId, lines: 0, pending: 0, prep: 0, age: null, arrivalMs: null });
+    var o = orders[k] || (orders[k] = { key: k, channel: r.channel, orderId: r.orderId, lines: 0, pending: 0, prep: 0, age: null, arrivalMs: null, held: false });
     o.lines++;
     if (String(r.status || '').toUpperCase() === 'PENDING') o.pending++; else o.prep++;
+    // ⚠ Per ORDER: one held line holds the whole box, the board's scope. kitNote is a
+    //   collapsed kit parent's note, carried down — a hold written there counts too.
+    if (heldIds[String(r.orderId)] || _hqsNoteHasHold(r.note) || _hqsNoteHasHold(r.kitNote)) o.held = true;
   });
   Object.keys(orders).forEach(function (k) {
     var o = orders[k], a = ages[o.orderId];
@@ -5961,6 +5978,7 @@ function _hqsNoteTick(full) {
   Object.keys(orders).forEach(function (k) {
     var o = orders[k], c = _hqsChannel(o.channel);
     if (!c || o.prep > 0 || o.pending === 0 || o.age === null) return;
+    if (o.held) return;   // HOLD = waiting on purpose; its arrival sound (above) is untouched
     var cfg = hqs.nag[c.key];
     if (cfg.on && o.age >= cfg.after) _hqsNagList.push(o);
   });
