@@ -5457,17 +5457,42 @@ var MOVIE_PROBE = {
 };
 
 function probeMovieLimits() {
+  return _runMovieProbe(MOVIE_PROBE.sheet, MOVIE_PROBE.rungs,
+    'MOVIE LIMIT PROBE — send Claude the execution log, then scroll down: which pictures MOVE? removeMovieProbe() deletes this tab.');
+}
+
+/*  ROUND 2 (2026-09-16). Round 1 answered: BYTES ARE NOT THE LIMIT (8.13 MB noise accepted). What it
+    could NOT answer: F3 (2,500 frames), M3 (1,257) and the movie (1,911) were refused, but each of them
+    also PLAYED longer than anything accepted (accepted ≤ 1,000 frames and ≤ 59 s). Frame count and play
+    time moved together. This round moves them apart — and the answer decides the rebuild:
+      frames → keep the 45 s pauses (a pause is ONE held frame), trim to ~1,000 frames
+      play time → no single file past ~1 minute can ship at all                                  */
+MOVIE_PROBE.sheet2 = '__MovieProbe2';
+MOVIE_PROBE.rungs2 = [
+  { id: 'd1', what: 'dot · 100 frames · plays 70 s',                bytes: 10135 },
+  { id: 'd2', what: 'dot · 100 frames · plays 5 min',               bytes: 10135 },
+  { id: 'd3', what: 'dot · 100 frames · plays 11.7 min',            bytes: 10135 },
+  { id: 'g1', what: 'dot · 1,100 frames · plays 44 s',              bytes: 108436 },
+  { id: 'g2', what: 'dot · 1,200 frames · plays 48 s',              bytes: 118370 },
+  { id: 'r1', what: 'movie opening · 832 frames · REAL pauses · plays 5.3 min', bytes: 3151290 }
+];
+
+function probeMovieLimits2() {
+  return _runMovieProbe(MOVIE_PROBE.sheet2, MOVIE_PROBE.rungs2,
+    'MOVIE LIMIT PROBE · ROUND 2 — send Claude the execution log. R1 opens with a 45-second still, then moves. removeMovieProbe() deletes both probe tabs.');
+}
+
+function _runMovieProbe(sheetName, rungs, banner) {
   var t0 = Date.now();
   var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
-  var old = ss.getSheetByName(MOVIE_PROBE.sheet);
+  var old = ss.getSheetByName(sheetName);
   if (old) ss.deleteSheet(old);                  // clean slate — never stack probes
-  var sh = ss.insertSheet(MOVIE_PROBE.sheet, ss.getNumSheets());
+  var sh = ss.insertSheet(sheetName, ss.getNumSheets());
   sh.setColumnWidth(1, 810);
-  sh.getRange('A1').setValue('MOVIE LIMIT PROBE — send Claude the execution log, then scroll down: which pictures MOVE? ' +
-                             'removeMovieProbe() deletes this tab.').setFontWeight('bold');
+  sh.getRange('A1').setValue(banner).setFontWeight('bold');
   var row = 3, ok = 0, refused = 0;
-  for (var i = 0; i < MOVIE_PROBE.rungs.length; i++) {
-    var r = MOVIE_PROBE.rungs[i];
+  for (var i = 0; i < rungs.length; i++) {
+    var r = rungs[i];
     var label = r.id.toUpperCase() + ' · ' + r.what + ' · ' + (r.bytes / 1048576).toFixed(2) + ' MB';
     if (Date.now() - t0 > 300000) { console.log(label + ' → SKIPPED (out of time)'); continue; }
     var url = r.url === 'movie' ? MOVIE.url : MASTHEAD.baseUrl + 'probe-' + r.id + '.gif';
@@ -5485,15 +5510,16 @@ function probeMovieLimits() {
   }
   SpreadsheetApp.flush();
   var msg = 'Done in ' + Math.round((Date.now() - t0) / 1000) + ' s · ' + ok + ' accepted · ' + refused +
-            ' refused. Open the "' + MOVIE_PROBE.sheet + '" tab and say which accepted ones actually move.';
+            ' refused. Open the "' + sheetName + '" tab and say which accepted ones actually move.';
   console.log(msg);
   return msg;
 }
 
 function removeMovieProbe() {
-  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
-  var sh = ss.getSheetByName(MOVIE_PROBE.sheet);
-  if (!sh) return _movieSay('Nothing to remove.');
-  ss.deleteSheet(sh);
-  return _movieSay('✅ "' + MOVIE_PROBE.sheet + '" deleted.');
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID), gone = [];
+  [MOVIE_PROBE.sheet, MOVIE_PROBE.sheet2].forEach(function (n) {
+    var sh = ss.getSheetByName(n);
+    if (sh) { ss.deleteSheet(sh); gone.push(n); }
+  });
+  return _movieSay(gone.length ? '✅ Deleted ' + gone.join(' + ') + '.' : 'Nothing to remove.');
 }
