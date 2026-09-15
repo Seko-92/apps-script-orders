@@ -105,7 +105,8 @@ const HTML=fs.readFileSync(SRC,'utf8').replace("'<?!= boardApiUrl ?>'","''");
   // 27 → 25 on 2026-09-03: Kit Expansion + Kit Pricing + Kit Health merged into one
   // "Kits" card, which also carries the new Build-for-Stock action. Adding a fourth
   // kit card to a 27-card panel was the wrong direction.
-  ok('24 cards', r.cards===24, r.cards);
+  // 24 → 25 on 2026-09-15: the Sound card (a voice per channel + the unattended repeat).
+  ok('25 cards', r.cards===25, r.cards);
   ok('Displays card exists', r.displays);
   ok('Displays is in TODAY\'S WORK', r.displaysZone==='today', r.displaysZone);
   ok('missing-line card exists', r.mlCard);
@@ -128,7 +129,7 @@ const HTML=fs.readFileSync(SRC,'utf8').replace("'<?!= boardApiUrl ?>'","''");
   // 29 → 27 on 2026-09-03: two card merges (Out of Stock+Low Stock → Restock,
   // Order Lookup+Investigations → Order Case) each removed one card head mark.
   ok('marks rendered', r.marks>=28, r.marks);
-  ok('all card titles uppercase', r.upper===24, r.upper);
+  ok('all card titles uppercase', r.upper===25, r.upper);
   ok('Snake gone from the palette', !r.snakeInPalette);
   // ── the last two emoji surfaces inside the sidebar
   ok('palette renders its commands', r.cmdRows>=17, r.cmdRows);

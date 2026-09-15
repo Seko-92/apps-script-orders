@@ -1074,6 +1074,74 @@ body {
   margin-left: auto;
   font-size: var(--fs-sm);
 }
+/* ═══ ORDER VOICES (2026-09-15) — the alarm strip + the Sound card ═══════════════
+   ⚠ The strip sits OUTSIDE #modules and deliberately has NO condense rule: the cockpit
+   folds the picker banner away on scroll, and an alarm that folds away is not an alarm. */
+.hqs-alarm {
+  flex-shrink: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 2px 10px;
+  align-items: center;
+  padding: 9px 14px;
+  background: #b71c1c;
+  color: #ffffff;
+  border-bottom: 1px solid #7f1414;
+  font-family: 'Roboto Mono', 'Courier New', monospace;
+}
+.hqs-alarm[hidden] { display: none; }
+.hqs-alarm b {
+  font-family: 'Oswald', sans-serif; font-weight: 600; letter-spacing: 0.06em;
+  text-transform: uppercase; font-size: var(--fs-sm);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0;
+}
+.hqs-alarm span {
+  grid-column: 1; font-size: var(--fs-2xs); opacity: 0.92;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0;
+}
+.hqs-alarm button {
+  grid-row: 1 / 3; grid-column: 2; width: auto; margin: 0; padding: 7px 10px;
+  background: #ffffff; color: #b71c1c; border-color: #ffffff;
+  font-family: 'Oswald', sans-serif; letter-spacing: 0.06em; text-transform: uppercase;
+  font-size: var(--fs-xs);
+}
+.hqs-sec { display: grid; gap: 7px; margin-bottom: 12px; }
+.hqs-cap {
+  font-family: 'Oswald', sans-serif; font-size: var(--fs-2xs); font-weight: 600;
+  letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-muted);
+}
+.hqs-ev { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 8px; align-items: center; }
+.hqs-ev-main { display: grid; gap: 3px; min-width: 0; }
+.hqs-ev-name { font-size: var(--fs-sm); font-weight: 600; color: var(--text-primary); }
+.hqs-ev-line { display: flex; align-items: center; gap: 6px; font-size: var(--fs-xs); color: var(--text-secondary); }
+.hqs-ev.off .hqs-ev-main { opacity: 0.45; }
+.card-body select.hqs-select {
+  font-size: var(--fs-xs); color: var(--text-primary); background: var(--bg-card);
+  border: 1px solid var(--border); border-radius: 4px; padding: 2px 4px; max-width: 100%;
+}
+.card-body button.hqs-play { width: 30px; height: 28px; margin: 0; padding: 0; font-size: 10px; flex: none; }
+.hqs-sw {
+  appearance: none; -webkit-appearance: none; width: 30px; height: 17px; border-radius: 9px;
+  background: var(--border); border: 1px solid var(--border); position: relative;
+  cursor: pointer; margin: 0; flex: none;
+}
+.hqs-sw::after {
+  content: ""; position: absolute; top: 2px; left: 2px; width: 11px; height: 11px;
+  border-radius: 50%; background: var(--text-muted); transition: transform 0.15s ease;
+}
+.hqs-sw:checked { background: var(--hq-yellow); border-color: var(--hq-gold); }
+.hqs-sw:checked::after { transform: translateX(13px); background: #1d1d1b; }
+.hqs-row {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: center;
+  font-size: var(--fs-sm); color: var(--text-primary); margin-bottom: 8px;
+}
+.hqs-row small { display: block; color: var(--text-muted); font-size: var(--fs-2xs); }
+.hqs-fixed {
+  margin: 0 0 12px; font-size: var(--fs-2xs); line-height: 1.45; color: var(--text-secondary);
+  border-left: 2px solid var(--border); padding-left: 8px;
+}
+@media (prefers-reduced-motion: reduce) { .hqs-sw::after { transition: none; } }
+
 /* Set state — brand yellow on dark */
 .picker-banner.picker-set {
   background: #1d1d1b;
@@ -3920,6 +3988,14 @@ body.dark-theme .footer-version { border-color: #2c2c2c; }
   <span class="picker-value" id="pickerValue">No picker set — required before printing</span>
 </div>
 
+<!-- ORDER VOICES ALARM (2026-09-15) — shown only while an order sits PENDING past its
+     channel's wait with nobody on it, Mon–Fri 9–5 Houston. Filled by _hqsNagSync(). -->
+<div class="hqs-alarm" id="hqsAlarm" role="alert" hidden>
+  <b id="hqsAlarmHead">Nobody has this order</b>
+  <span id="hqsAlarmSub"></span>
+  <button type="button" id="hqsOnIt" onclick="hqsOnIt()">I'm on it</button>
+</div>
+
 <div id="modules">
 
   <!-- ALERTS — what needs attention right now. Always visible at the top. -->
@@ -4781,6 +4857,45 @@ body.dark-theme .footer-version { border-color: #2c2c2c; }
     </div>
   </div>
 
+  <!-- SOUND (2026-09-15) — a voice per sales channel + the unattended repeat. Settings
+       are saved in THIS browser only; built by hqsBuildCard(). -->
+  <div class="card collapsed" data-id="sound" draggable="true">
+    <div class="card-header" onclick="toggleCollapse(this)">
+      <div class="drag-handle" title="Drag to reorder">☰</div>
+      <div class="card-title"><div class="card-icon">🔔</div><h3>Sound</h3></div>
+      <div class="card-toggle">▼</div>
+    </div>
+    <div class="card-body">
+      <div class="hqs-sec">
+        <label class="hqs-cap" for="hqsVol">Volume</label>
+        <input type="range" id="hqsVol" min="0" max="100" step="5" value="85">
+      </div>
+      <div class="hqs-sec" id="hqsArrive"><span class="hqs-cap">When an order arrives</span></div>
+      <div class="hqs-sec" id="hqsNag"><span class="hqs-cap">If nobody picks it up</span></div>
+      <div class="hqs-row">
+        <label for="hqsEvery">Repeat every</label>
+        <select class="hqs-select" id="hqsEvery">
+          <option value="30">30 seconds</option>
+          <option value="60">1 minute</option>
+          <option value="120">2 minutes</option>
+        </select>
+      </div>
+      <p class="hqs-fixed">Repeats that order's own sound, a step louder, Monday–Friday 9 AM–5 PM Houston time only. Stops when the order moves to PREPARING, or for 10 minutes after "I'm on it". The bell button at the top does not silence repeats — switch them off here.</p>
+      <div class="hqs-sec">
+        <span class="hqs-cap">Also</span>
+        <div class="hqs-row">
+          <label for="hqsQuiet">Stay quiet while I'm clicking<small>Arrival sounds only — never a repeat</small></label>
+          <input class="hqs-sw" type="checkbox" id="hqsQuiet">
+        </div>
+        <div class="hqs-row">
+          <label for="hqsHours">Arrival sounds only in shop hours<small>9 AM–5 PM Houston time</small></label>
+          <input class="hqs-sw" type="checkbox" id="hqsHours">
+        </div>
+      </div>
+      <div class="empty-hint">Saved in this browser only — each tablet or PC keeps its own.</div>
+    </div>
+  </div>
+
   <div class="card collapsed" data-id="order-archive" draggable="true">
     <div class="card-header" onclick="toggleCollapse(this)">
       <div class="drag-handle" title="Drag to reorder">☰</div>
@@ -5208,14 +5323,12 @@ function _paintCockpit(snap) {
   _setQueuePill('cockpitQueuePrep',  'cockpitQueuePrepPill',  snap.prepQueueCount);
   _setZohoDot(snap.zohoPending);
 
-  // ---- New-order detection (preserves legacy sound + badge logic) ----
+  // ---- New-order detection MOVED (2026-09-15) → _hqsNoteTick ----
+  // ⚠ This used to chime when the total PENDING count rose. That cannot tell eBay from
+  //   Direct, chimes when a pick is undone, and misses an arrival when another order
+  //   leaves PENDING in the same beat. Arrivals are now detected by SO number, per
+  //   channel, in _hqsNoteTick. The count is still remembered for anything reading it.
   var currentPending = parseInt(snap.pendingCount) || 0;
-  if (currentPending > lastPendingCount && lastPendingCount >= 0) {
-    var newOrders = currentPending - lastPendingCount;
-    newOrderCount += newOrders;
-    if (!isMuted) playNotificationSound();
-    updateBadge();
-  }
   lastPendingCount = currentPending;
   try { localStorage.setItem('lastPendingCount', currentPending); } catch (e) {}
 }
@@ -5542,18 +5655,18 @@ if (!SOUND_PRESETS[currentSoundPreset]) currentSoundPreset = 'chime';
  */
 function playSound(kind) {
   if (isMuted) return;
-  var ctx = _getAudioContext();
-  if (!ctx) return;
-  if (ctx.state === 'suspended') {
-    try { ctx.resume(); } catch (e) {}
-  }
-
   var preset = SOUND_PRESETS[currentSoundPreset] || SOUND_PRESETS.chime;
   var notes = preset[kind];
   if (!notes) return;
-
-  notes.forEach(function(n) {
-    _shapedTone(ctx, preset.osc, n.f, n.d, n.len);
+  // ⚠⚠ WAIT FOR THE CONTEXT TO RUN (2026-09-15). resume() is async, and a suspended
+  //    context's clock is FROZEN — notes scheduled before it runs land in the past and
+  //    play as silence. That lost the first sound after every panel load; the Floor Board
+  //    fixed the same bug on 2026-08-21.
+  _hqsReady().then(function (ctx) {
+    if (!ctx) return;
+    notes.forEach(function(n) {
+      _shapedTone(ctx, preset.osc, n.f, n.d, n.len);
+    });
   });
 }
 
@@ -5648,6 +5761,348 @@ function updateBadge() {
 }
 
 updateMuteBtn();
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ORDER VOICES (2026-09-15) — a sound per sales channel, and a repeat for an order
+// nobody has picked up.
+// ═══════════════════════════════════════════════════════════════════════════════
+// ⭐ ARRIVALS ARE DETECTED BY SO NUMBER, NOT BY A RISING COUNT, and only for an order
+//   whose logged age is under HQS_ARRIVAL_MAX_AGE_MIN. The age guard is what makes this
+//   safe: the open-order list is capped at 60 rows, so an old order scrolling INTO the
+//   list is not an arrival, and neither is anything already open when the panel loads.
+// ⭐ "NOBODY HAS IT" = every open line of the order is still PENDING. One PREPARING line
+//   means somebody started — no repeat.
+// ⭐ AGE = the tick's cockpit.orderAgeMin (earliest RECEIVED in the log tail) carried
+//   forward by the local clock from the moment the tick was published — the same age the
+//   Floor Board and the sheet's Direct band use, so the three cannot disagree.
+// ⚠⚠ REPEATS IGNORE THE HEADER BELL, ON PURPOSE. A bell muted three weeks ago must not
+//    silently disable the one sound that exists because nobody is looking. They have their
+//    own switches in the Sound card, and they never play outside Mon–Fri 9–5 Houston.
+// ⚠ Settings are per BROWSER (localStorage), not per Google account: several people share
+//   one company login, and a per-account setting would let one person change it for all.
+var HQS_KEY = 'hqSoundSettings.v1';
+var HQS_SEEN_TTL_MS = 45 * 60 * 1000;
+var HQS_ARRIVAL_MAX_AGE_MIN = 20;
+var HQS_SNOOZE_MS = 10 * 60 * 1000;
+var HQS_QUIET_MS = 60 * 1000;
+var HQS_VOICES = {
+  arp:    { label: 'Warm arpeggio', notes: [[392.00, 0, 0.70], [523.25, 0.17, 0.70], [659.25, 0.34, 1.05]] },
+  bright: { label: 'Bright rise',   notes: [[659.25, 0, 0.55], [987.77, 0.11, 0.80]] },
+  chord:  { label: 'Soft chord',    notes: [[698.46, 0, 1.05, 0.13], [1046.50, 0.03, 1.05, 0.085]] },
+  toll:   { label: 'Low toll',      notes: [[146.83, 0, 1.50, 0.18]] },
+  beeps:  { label: 'Two beeps',     notes: [[800, 0, 0.20], [1000, 0.16, 0.22]] }
+};
+var HQS_CHANNELS = [
+  { ch: 'DIRECT', key: 'direct', name: 'Direct', nagOpts: [15, 30, 45, 60] },
+  { ch: 'EBAY',   key: 'ebay',   name: 'eBay',   nagOpts: [30, 60, 90, 120] }
+];
+var HQS_EVERY_OPTS = [30, 60, 120];
+// Defaults: two voices you can tell apart without looking (three low notes = Direct,
+// two high = eBay), a bit louder than the old chime, and Direct repeats sooner because
+// it has no Telegram card — the table is its only signal.
+var HQS_DEFAULTS = {
+  vol: 85, every: 60, quiet: true, hours: true,
+  arrive: { direct: { on: true, voice: 'arp' }, ebay: { on: true, voice: 'bright' } },
+  nag:    { direct: { on: true, after: 30 },   ebay: { on: true, after: 60 } }
+};
+
+function _hqsLoad() {
+  var d = JSON.parse(JSON.stringify(HQS_DEFAULTS));
+  var s = null;
+  try { s = JSON.parse(localStorage.getItem(HQS_KEY) || 'null'); } catch (e) { s = null; }
+  if (!s || typeof s !== 'object') return d;
+  if (typeof s.vol === 'number' && s.vol >= 0 && s.vol <= 100) d.vol = s.vol;
+  if (HQS_EVERY_OPTS.indexOf(s.every) > -1) d.every = s.every;
+  if (typeof s.quiet === 'boolean') d.quiet = s.quiet;
+  if (typeof s.hours === 'boolean') d.hours = s.hours;
+  HQS_CHANNELS.forEach(function (c) {
+    var a = s.arrive && s.arrive[c.key], n = s.nag && s.nag[c.key];
+    if (a && typeof a.on === 'boolean') d.arrive[c.key].on = a.on;
+    if (a && HQS_VOICES[a.voice]) d.arrive[c.key].voice = a.voice;
+    if (n && typeof n.on === 'boolean') d.nag[c.key].on = n.on;
+    if (n && c.nagOpts.indexOf(n.after) > -1) d.nag[c.key].after = n.after;
+  });
+  return d;
+}
+var hqs = _hqsLoad();
+function _hqsSave() { try { localStorage.setItem(HQS_KEY, JSON.stringify(hqs)); } catch (e) {} }
+function _hqsChannel(ch) {
+  for (var i = 0; i < HQS_CHANNELS.length; i++) if (HQS_CHANNELS[i].ch === ch) return HQS_CHANNELS[i];
+  return null;
+}
+
+/* The audio context, RUNNING — or null. Every sound goes through this. */
+function _hqsReady() {
+  var ctx = _getAudioContext();
+  if (!ctx) return Promise.resolve(null);
+  if (ctx.state === 'running') return Promise.resolve(ctx);
+  try {
+    return Promise.resolve(ctx.resume()).then(
+      function () { return ctx.state === 'running' ? ctx : null; },
+      function () { return null; });
+  } catch (e) { return Promise.resolve(null); }
+}
+
+// ⚠ A panel nobody has touched since it opened cannot play sound (browser rule). Unlock on
+//   the first gesture so a later alarm is not the first thing to try.
+var _hqsLastHuman = 0;
+(function () {
+  function unlock() {
+    _hqsReady();
+    document.removeEventListener('pointerdown', unlock, true);
+    document.removeEventListener('keydown', unlock, true);
+  }
+  document.addEventListener('pointerdown', unlock, true);
+  document.addEventListener('keydown', unlock, true);
+  function human() { _hqsLastHuman = Date.now(); }
+  document.addEventListener('pointerdown', human, true);
+  document.addEventListener('keydown', human, true);
+})();
+
+function _hqsBell(ctx, freq, delay, dur, peak) {
+  var t0 = ctx.currentTime + delay + 0.02;
+  var osc = ctx.createOscillator(), gain = ctx.createGain(), filt = ctx.createBiquadFilter();
+  filt.type = 'lowpass'; filt.frequency.value = 2600;
+  osc.type = 'sine'; osc.frequency.value = freq;
+  gain.gain.setValueAtTime(0, t0);
+  gain.gain.linearRampToValueAtTime(peak, t0 + 0.016);
+  gain.gain.exponentialRampToValueAtTime(0.0005, t0 + dur);
+  osc.connect(filt); filt.connect(gain); gain.connect(ctx.destination);
+  osc.start(t0); osc.stop(t0 + dur + 0.05);
+  var o2 = ctx.createOscillator(), g2 = ctx.createGain();
+  o2.type = 'sine'; o2.frequency.value = freq * 2.001;
+  g2.gain.setValueAtTime(0, t0);
+  g2.gain.linearRampToValueAtTime(peak * 0.18, t0 + 0.02);
+  g2.gain.exponentialRampToValueAtTime(0.0004, t0 + dur * 0.6);
+  o2.connect(g2); g2.connect(ctx.destination);
+  o2.start(t0); o2.stop(t0 + dur);
+}
+
+/* loud = a repeat: the same voice, a step louder. */
+function hqsPlay(voice, loud) {
+  var v = HQS_VOICES[voice]; if (!v) return;
+  var vol = hqs.vol / 100; if (vol <= 0) return;
+  _hqsReady().then(function (ctx) {
+    if (!ctx) return;
+    v.notes.forEach(function (n) {
+      var peak = Math.min(0.32, (n[3] || 0.14) * vol * 1.9 * (loud ? 1.35 : 1));
+      _hqsBell(ctx, n[0], n[1], n[2], peak);
+    });
+  });
+}
+
+/* Mon–Fri, 9 AM–5 PM Houston. ⚠ Weekends included — _isOffHoursHouston omits them. */
+function _hqsShopOpen(when) {
+  try {
+    var d = when ? new Date(when) : new Date();
+    var wd = new Intl.DateTimeFormat('en-US', { timeZone: 'America/Chicago', weekday: 'short' }).format(d);
+    var h = parseInt(new Intl.DateTimeFormat('en-US', { timeZone: 'America/Chicago', hour: 'numeric', hour12: false }).format(d), 10) % 24;
+    return wd !== 'Sat' && wd !== 'Sun' && h >= 9 && h < 17;
+  } catch (e) { return true; }
+}
+
+function _hqsFmtMins(m) {
+  m = Math.max(0, Math.round(m));
+  if (m < 60) return m + ' min';
+  var mm = m % 60;
+  return Math.floor(m / 60) + 'h ' + (mm < 10 ? '0' : '') + mm + 'm';
+}
+
+var _hqsSeen = null;          // "CHANNEL|orderId" → last seen (ms); null until the first tick
+var _hqsNagList = [];         // unattended orders, oldest first
+var _hqsSnooze = {};          // "CHANNEL|orderId" → quiet until (ms)
+var _hqsNagTimer = null;
+var _hqsNagWasActive = false;
+
+/* Group a tick's open rows into orders. Pure — no DOM, no sound. */
+function _hqsOrdersFromTick(full, now) {
+  var pubMs = full && full._publishedAt ? new Date(full._publishedAt).getTime() : now;
+  if (!(pubMs > 0) || pubMs > now) pubMs = now;
+  var ages = (full && full.cockpit && full.cockpit.orderAgeMin) || {};
+  var orders = {};
+  (full.openOrders || []).forEach(function (r) {
+    if (!r || !r.orderId || !_hqsChannel(r.channel)) return;
+    var k = r.channel + '|' + r.orderId;
+    var o = orders[k] || (orders[k] = { key: k, channel: r.channel, orderId: r.orderId, lines: 0, pending: 0, prep: 0, age: null, arrivalMs: null });
+    o.lines++;
+    if (String(r.status || '').toUpperCase() === 'PENDING') o.pending++; else o.prep++;
+  });
+  Object.keys(orders).forEach(function (k) {
+    var o = orders[k], a = ages[o.orderId];
+    if (typeof a === 'number' && a >= 0) {
+      o.age = a + (now - pubMs) / 60000;
+      o.arrivalMs = now - o.age * 60000;
+    }
+  });
+  return orders;
+}
+
+function _hqsNoteTick(full) {
+  if (!full || !Array.isArray(full.openOrders)) return;     // live fallback carries no list
+  var now = Date.now();
+  var orders = _hqsOrdersFromTick(full, now);
+
+  // arrivals — an SO number not seen before, still PENDING, and genuinely new
+  var cold = (_hqsSeen === null);
+  if (cold) _hqsSeen = {};
+  var arrivals = { DIRECT: 0, EBAY: 0 };
+  Object.keys(orders).forEach(function (k) {
+    var o = orders[k];
+    if (!cold && !_hqsSeen[k] && o.pending > 0 && o.age !== null && o.age <= HQS_ARRIVAL_MAX_AGE_MIN) {
+      arrivals[o.channel]++;
+    }
+    _hqsSeen[k] = now;
+  });
+  Object.keys(_hqsSeen).forEach(function (k) { if (now - _hqsSeen[k] > HQS_SEEN_TTL_MS) delete _hqsSeen[k]; });
+  _hqsArrivals(arrivals);
+
+  // unattended — nobody has started it, and it has waited past its channel's line
+  _hqsNagList = [];
+  Object.keys(orders).forEach(function (k) {
+    var o = orders[k], c = _hqsChannel(o.channel);
+    if (!c || o.prep > 0 || o.pending === 0 || o.age === null) return;
+    var cfg = hqs.nag[c.key];
+    if (cfg.on && o.age >= cfg.after) _hqsNagList.push(o);
+  });
+  _hqsNagList.sort(function (a, b) { return a.arrivalMs - b.arrivalMs; });
+  Object.keys(_hqsSnooze).forEach(function (k) { if (!orders[k] || _hqsSnooze[k] < now) delete _hqsSnooze[k]; });
+  _hqsNagSync();
+}
+
+function _hqsArrivals(n) {
+  var total = n.DIRECT + n.EBAY;
+  if (!total) return;
+  newOrderCount += total;
+  updateBadge();
+  if (isMuted) return;
+  if (hqs.quiet && Date.now() - _hqsLastHuman < HQS_QUIET_MS) return;
+  if (hqs.hours && !_hqsShopOpen()) return;
+  var delay = 0;
+  HQS_CHANNELS.forEach(function (c) {
+    if (!n[c.ch] || !hqs.arrive[c.key].on) return;
+    var voice = hqs.arrive[c.key].voice;
+    setTimeout(function () { hqsPlay(voice); }, delay);
+    delay += 1400;
+  });
+}
+
+function _hqsNagActive() {
+  var now = Date.now();
+  return _hqsNagList.filter(function (o) { return !(_hqsSnooze[o.key] > now); });
+}
+
+function _hqsNagSync() {
+  var active = _hqsShopOpen() ? _hqsNagActive() : [];
+  var strip = document.getElementById('hqsAlarm');
+  if (!active.length) {
+    if (_hqsNagTimer) { clearInterval(_hqsNagTimer); _hqsNagTimer = null; }
+    if (strip) strip.hidden = true;
+    document.body.classList.remove('hq-nagging');
+    _hqsNagWasActive = false;
+    return;
+  }
+  _hqsPaintAlarm(active);
+  document.body.classList.add('hq-nagging');
+  try { _rpHide(); } catch (e) {}
+  if (!_hqsNagWasActive) _hqsNagBeat();          // the first repeat plays at once
+  _hqsNagWasActive = true;
+  if (!_hqsNagTimer) _hqsNagTimer = setInterval(_hqsNagBeat, hqs.every * 1000);
+}
+
+function _hqsNagBeat() {
+  var active = _hqsShopOpen() ? _hqsNagActive() : [];
+  if (!active.length) { _hqsNagSync(); return; }
+  _hqsPaintAlarm(active);
+  var c = _hqsChannel(active[0].channel);
+  if (c) hqsPlay(hqs.arrive[c.key].voice, true);
+}
+
+function _hqsPaintAlarm(active) {
+  var o = active[0], c = _hqsChannel(o.channel);
+  var head = document.getElementById('hqsAlarmHead');
+  var sub = document.getElementById('hqsAlarmSub');
+  var strip = document.getElementById('hqsAlarm');
+  if (!head || !sub || !strip) return;
+  head.textContent = 'Nobody has ' + o.orderId;
+  // ⚠ Short on purpose: at 310px beside the button, "waiting" pushed "+1 more" off the end.
+  //   The headline already says nobody has it; the minutes say for how long.
+  sub.textContent = (c ? c.name : o.channel) + ' · ' + o.lines + (o.lines === 1 ? ' line' : ' lines') +
+    ' · ' + _hqsFmtMins((Date.now() - o.arrivalMs) / 60000) +
+    (active.length > 1 ? ' · +' + (active.length - 1) + ' more' : '');
+  strip.hidden = false;
+}
+
+/* "I'm on it" — quiet for 10 minutes for every order currently repeating. */
+function hqsOnIt() {
+  var until = Date.now() + HQS_SNOOZE_MS;
+  _hqsNagActive().forEach(function (o) { _hqsSnooze[o.key] = until; });
+  _hqsNagSync();
+  try {
+    status.className = 'success';
+    status.textContent = 'Quiet for 10 minutes';
+    setTimeout(function () { status.className = ''; status.textContent = 'Ready'; }, 1800);
+  } catch (e) {}
+}
+
+function _hqsRestartNag() {
+  if (_hqsNagTimer) { clearInterval(_hqsNagTimer); _hqsNagTimer = null; }
+  // a settings change must not replay at once, but a strip already showing keeps showing
+  _hqsNagWasActive = document.body.classList.contains('hq-nagging');
+  _hqsNagSync();
+}
+
+function hqsBuildCard() {
+  var arrive = document.getElementById('hqsArrive'), nag = document.getElementById('hqsNag');
+  if (!arrive || !nag || arrive.getAttribute('data-built')) return;
+  arrive.setAttribute('data-built', '1');
+  var voiceOpts = Object.keys(HQS_VOICES).map(function (k) {
+    return '<option value="' + k + '">' + HQS_VOICES[k].label + '</option>';
+  }).join('');
+
+  HQS_CHANNELS.forEach(function (c) {
+    var id = c.key.charAt(0).toUpperCase() + c.key.slice(1);
+    var row = document.createElement('div');
+    row.className = 'hqs-ev';
+    row.innerHTML =
+      '<input class="hqs-sw" type="checkbox" id="hqsArr' + id + 'On" aria-label="Sound when a ' + c.name + ' order arrives">' +
+      '<div class="hqs-ev-main"><span class="hqs-ev-name">' + c.name + ' order</span>' +
+      '<select class="hqs-select" id="hqsArr' + id + 'Voice" aria-label="Sound for a ' + c.name + ' order">' + voiceOpts + '</select></div>' +
+      '<button type="button" class="hqs-play" id="hqsArr' + id + 'Test" aria-label="Play the ' + c.name + ' sound">▶</button>';
+    arrive.appendChild(row);
+    var on = row.querySelector('.hqs-sw'), sel = row.querySelector('select'), btn = row.querySelector('button');
+    on.checked = hqs.arrive[c.key].on; sel.value = hqs.arrive[c.key].voice;
+    row.classList.toggle('off', !on.checked);
+    on.addEventListener('change', function () { hqs.arrive[c.key].on = on.checked; row.classList.toggle('off', !on.checked); _hqsSave(); });
+    sel.addEventListener('change', function () { hqs.arrive[c.key].voice = sel.value; _hqsSave(); hqsPlay(sel.value); });
+    btn.addEventListener('click', function () { hqsPlay(sel.value); });
+
+    var nrow = document.createElement('div');
+    nrow.className = 'hqs-ev';
+    nrow.innerHTML =
+      '<input class="hqs-sw" type="checkbox" id="hqsNag' + id + 'On" aria-label="Repeat when nobody picks up a ' + c.name + ' order">' +
+      '<div class="hqs-ev-main"><span class="hqs-ev-name">' + c.name + ' order</span>' +
+      '<span class="hqs-ev-line"><label for="hqsNag' + id + 'After">start after</label>' +
+      '<select class="hqs-select" id="hqsNag' + id + 'After">' +
+      c.nagOpts.map(function (m) { return '<option value="' + m + '">' + m + ' min</option>'; }).join('') +
+      '</select></span></div>' +
+      '<button type="button" class="hqs-play" id="hqsNag' + id + 'Test" aria-label="Play the ' + c.name + ' repeat">▶</button>';
+    nag.appendChild(nrow);
+    var non = nrow.querySelector('.hqs-sw'), nsel = nrow.querySelector('select'), nbtn = nrow.querySelector('button');
+    non.checked = hqs.nag[c.key].on; nsel.value = String(hqs.nag[c.key].after);
+    nrow.classList.toggle('off', !non.checked);
+    non.addEventListener('change', function () { hqs.nag[c.key].on = non.checked; nrow.classList.toggle('off', !non.checked); _hqsSave(); });
+    nsel.addEventListener('change', function () { hqs.nag[c.key].after = parseInt(nsel.value, 10); _hqsSave(); });
+    nbtn.addEventListener('click', function () { hqsPlay(hqs.arrive[c.key].voice, true); });
+  });
+
+  var vol = document.getElementById('hqsVol'), every = document.getElementById('hqsEvery');
+  var quiet = document.getElementById('hqsQuiet'), hours = document.getElementById('hqsHours');
+  if (vol) { vol.value = hqs.vol; vol.addEventListener('change', function () { hqs.vol = parseInt(vol.value, 10) || 0; _hqsSave(); hqsPlay(hqs.arrive.direct.voice); }); }
+  if (every) { every.value = String(hqs.every); every.addEventListener('change', function () { hqs.every = parseInt(every.value, 10) || 60; _hqsSave(); _hqsRestartNag(); }); }
+  if (quiet) { quiet.checked = hqs.quiet; quiet.addEventListener('change', function () { hqs.quiet = quiet.checked; _hqsSave(); }); }
+  if (hours) { hours.checked = hqs.hours; hours.addEventListener('change', function () { hqs.hours = hours.checked; _hqsSave(); }); }
+}
+hqsBuildCard();
 
 // Initialize Ops Cockpit + API metrics + last-sync + alerts + picker.
 // All polls share the same 30s tick so we don't fire multiple timers.
@@ -5906,6 +6361,8 @@ function _sidebarPaint(cockpit, lastSync, api, alerts, picker, full) {
   _paintPicker(picker, full && full.pickers);
   // The resting panel reads the same tick — it never calls the server itself.
   try { _rpNoteTick(cockpit, alerts, full); } catch (e) {}
+  // Order voices read the same tick — arrivals by SO number, the unattended repeat.
+  try { _hqsNoteTick(full); } catch (e) { console.warn('order voices: ' + e); }
   dismissBootSplash();     // panel is populated — drop the splash
 }
 
@@ -9064,7 +9521,7 @@ function applyZones() {
     ['today',        "TODAY'S WORK", ['alerts', 'order-case', 'zoho-pull', 'missing-line', 'kits', 'fulfill', 'displays']],
     ['table-tools',  'TABLE TOOLS',  ['ebay', 'direct', 'live', 'location-update']],
     ['inventory',    'INVENTORY',    ['part-console', 'prep-queue', 'restock', 'stock-highlight', 'product-health', 'price-audit']],
-    ['diagnostics',  'DIAGNOSTICS',  ['weekly-digest', 'watchdog', 'order-archive', 'duplicates', 'sheet-protect', 'api-monitor', 'arcade']]
+    ['diagnostics',  'DIAGNOSTICS',  ['weekly-digest', 'watchdog', 'sound', 'order-archive', 'duplicates', 'sheet-protect', 'api-monitor', 'arcade']]
   ];
 
   // Snapshot all cards by id before we move anything
@@ -9190,6 +9647,8 @@ window.addEventListener('load',function(){
     arcade:'m-board',
     /* the archive is a RECORD — m-doc, the same mark the PDF report wears. */
     'order-archive':'m-doc',
+    /* the Sound card (2026-09-15) wears the same bell as the mute button. */
+    'sound':'m-bell',
     /* m-case, the same mark Investigations and the DIRECT table wear: a missing
        or replacement line IS a case about an order that went wrong. ⚠ An
        unmapped data-id falls back to the generic m-board card icon rather than
@@ -9617,6 +10076,8 @@ function _rpHide() {
 function _rpMayShow() {
   try {
     if (document.hidden) return false;
+    // ⚠ Never rest over an order nobody has picked up — the alarm strip must stay visible.
+    if (document.body.classList.contains('hq-nagging')) return false;
     var splash = document.getElementById('bootSplash');
     if (splash && getComputedStyle(splash).display !== 'none'
                && parseFloat(getComputedStyle(splash).opacity) > 0.02) return false;
