@@ -5303,3 +5303,111 @@ function removeBannerProbe() {
   ss.deleteSheet(sh);
   return '✅ Probe sheet deleted.';
 }
+
+/* ═════════════════════════════════════════════════════════════════════════════════════════
+   THE ROW-1 MOVIE (2026-09-16) — one GIF over A1:E2, replacing the two loops.
+
+   799x133: the HQ roundel, the wordmark AND the eBay logo, drawn as one picture. Eleven moves
+   back to back, 45 s of stillness between each, "the logo is a kit" as the finale, and a soft
+   light over the eBay logo in some pauses. Plays 10.8 min, 10.5 MB. Sources + pipeline:
+   dial/motion-lab/ (README there).
+
+   ⭐ THE REVERT STILL WORKS. The filename starts "banner-", so _bannerImages() treats it as ours
+     and removeBanner() takes it down. installBanner() + installStrip() bring the old loops back.
+   ⚠ It covers D2:E2, so the eBay logo on screen is the one inside the GIF. The cell's own
+     =IMAGE logo stays underneath, untouched. F2:H2 (both Pick ID dropdowns) are never covered.
+   ⚠ It carries no data, so its URL never changes and it can never flash (see THE BANNER LOOP).
+   ⚠ A GIF restarts from its first frame on every load, and this one opens with a 45 s pause.
+   ⚠⚠ Sheets does not repaint an image newly inserted on a tab you already have open — hard-
+      reload after installMovie(). The test builds a brand-new tab precisely so it shows at once.
+═════════════════════════════════════════════════════════════════════════════════════════ */
+var MOVIE = {
+  url: MASTHEAD.baseUrl + 'banner-movie-v1.gif',
+  width: 799,     // A+B+C+D+E, MEASURED 2026-09-03 (260 + 539)
+  height: 133,    // row 1 (68) + row 2 (65)
+  testSheet: '__MovieTest'
+};
+
+function _movieFit(sheet) {
+  var m = _rowOneWidths(sheet);
+  var w = m.a + m.b + m.c + m.d + m.e, h = sheet.getRowHeight(1) + sheet.getRowHeight(2);
+  return {
+    ok: w === MOVIE.width && h === MOVIE.height, w: w, h: h,
+    detail: 'A=' + m.a + ' B=' + m.b + ' C=' + m.c + ' D=' + m.d + ' E=' + m.e +
+            ' · rows ' + sheet.getRowHeight(1) + '+' + sheet.getRowHeight(2)
+  };
+}
+
+function _movieSay(msg) { console.log(msg); return msg; }
+
+/**
+ * installMovieTest — editor-run, zero args. Builds a fresh "__MovieTest" tab with All Orders'
+ * row 1–3 (widths, heights, formulas, formats, both Pick ID dropdowns) and hangs the movie on
+ * it. All Orders is not touched. Open the tab, watch, then removeMovieTest().
+ */
+function installMovieTest() {
+  try {
+    var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    var main = ss.getSheetByName(MAIN_SHEET_NAME);
+    if (!main) return _movieSay('❌ Main sheet not found.');
+    var old = ss.getSheetByName(MOVIE.testSheet);
+    if (old) ss.deleteSheet(old);               // a tab the browser has never painted shows a new image at once
+    var t = ss.insertSheet(MOVIE.testSheet, ss.getNumSheets());
+    for (var c = 1; c <= 8; c++) t.setColumnWidth(c, main.getColumnWidth(c));
+    for (var r = 1; r <= 3; r++) t.setRowHeight(r, main.getRowHeight(r));
+    main.getRange('A1:H3').copyTo(t.getRange('A1:H3'));   // banner + headers only, never order rows
+    t.setFrozenRows(3);
+    t.getRange('A6').setValue('TEST COPY — the movie opens with a 45-second pause, then Scan. ' +
+                              'Check: it plays · it stays put when you scroll · both Pick ID dropdowns (F2, H2) still open.')
+      .setFontWeight('bold');
+    var fit = _movieFit(t);
+    if (!fit.ok) {
+      return _movieSay('❌ A1:E2 measures ' + fit.w + 'x' + fit.h + ', the movie is ' + MOVIE.width + 'x' +
+                       MOVIE.height + '.\n   ' + fit.detail + '\n   Refusing — it would overhang F1/F2.');
+    }
+    var img = t.insertImage(MOVIE.url, 1, 1, 0, 0);
+    img.setWidth(MOVIE.width).setHeight(MOVIE.height);
+    SpreadsheetApp.flush();
+    return _movieSay('✅ Movie hung on the "' + MOVIE.testSheet + '" tab (' + fit.detail + ').\n' +
+                     '   ' + MOVIE.url + '\n   All Orders untouched. removeMovieTest() deletes the tab.');
+  } catch (e) {
+    return _movieSay('❌ installMovieTest failed: ' + e);
+  }
+}
+
+function removeMovieTest() {
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  var t = ss.getSheetByName(MOVIE.testSheet);
+  if (!t) return _movieSay('Nothing to remove.');
+  ss.deleteSheet(t);
+  return _movieSay('✅ "' + MOVIE.testSheet + '" deleted.');
+}
+
+/**
+ * installMovie — editor-run, zero args. ⚠ ONLY AFTER THE TEST TAB LOOKED RIGHT.
+ * Hangs the movie on All Orders over A1:E2, then takes down the old roundel + strip loops.
+ * Same shape as installBanner: measure and refuse, insert first, remove the old after.
+ */
+function installMovie() {
+  try {
+    var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    var sheet = ss.getSheetByName(MAIN_SHEET_NAME);
+    if (!sheet) return _movieSay('❌ Main sheet not found.');
+    var fit = _movieFit(sheet);
+    if (!fit.ok) {
+      return _movieSay('❌ A1:E2 measures ' + fit.w + 'x' + fit.h + ', the movie is ' + MOVIE.width + 'x' +
+                       MOVIE.height + '.\n   ' + fit.detail + '\n   Refusing — it would overhang F1/F2.');
+    }
+    var stale = _bannerImages(sheet);             // snapshot BEFORE inserting
+    var img = sheet.insertImage(MOVIE.url, 1, 1, 0, 0);
+    img.setWidth(MOVIE.width).setHeight(MOVIE.height);
+    SpreadsheetApp.flush();
+    for (var i = 0; i < stale.length; i++) { try { stale[i].remove(); } catch (e) {} }
+    SpreadsheetApp.flush();
+    return _movieSay('✅ Movie hung over A1:E2 on All Orders' + (stale.length ? ' (took down ' + stale.length + ' old image(s))' : '') + '.\n' +
+                     '   ⚠ HARD-RELOAD the tab — Sheets does not repaint an image inserted on a tab you have open.\n' +
+                     '   Revert: removeBanner(), then installBanner() and installStrip().');
+  } catch (e) {
+    return _movieSay('❌ installMovie failed: ' + e);
+  }
+}
