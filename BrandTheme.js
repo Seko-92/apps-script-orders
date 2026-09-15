@@ -5323,7 +5323,8 @@ function removeBannerProbe() {
 ═════════════════════════════════════════════════════════════════════════════════════════ */
 var MOVIE = {
   url: MASTHEAD.baseUrl + 'banner-movie-v1.gif',
-  width: 799,     // A+B+C+D+E, MEASURED 2026-09-03 (260 + 539)
+  width: 799,     // A+B+C+D+E as of 2026-09-03. ⚠ The live sheet drifted to 798 by 09-16 (E=306) —
+                  //   the installers measure and refuse, and the refusal says which column to resize.
   height: 133,    // row 1 (68) + row 2 (65)
   testSheet: '__MovieTest'
 };
@@ -5332,13 +5333,26 @@ function _movieFit(sheet) {
   var m = _rowOneWidths(sheet);
   var w = m.a + m.b + m.c + m.d + m.e, h = sheet.getRowHeight(1) + sheet.getRowHeight(2);
   return {
-    ok: w === MOVIE.width && h === MOVIE.height, w: w, h: h,
+    ok: w === MOVIE.width && h === MOVIE.height, w: w, h: h, e: m.e,
     detail: 'A=' + m.a + ' B=' + m.b + ' C=' + m.c + ' D=' + m.d + ' E=' + m.e +
             ' · rows ' + sheet.getRowHeight(1) + '+' + sheet.getRowHeight(2)
   };
 }
 
 function _movieSay(msg) { console.log(msg); return msg; }
+
+/** A refusal that names the fix. Merges play no part — only column widths and row heights. */
+function _movieRefusal(fit) {
+  var msg = '❌ A1:E2 measures ' + fit.w + 'x' + fit.h + ', the movie is ' + MOVIE.width + 'x' + MOVIE.height + '.\n   ' +
+            fit.detail + '\n   Refusing — it has to match A1:E2 exactly (too wide covers F1/F2, too narrow leaves a gap).';
+  var dw = MOVIE.width - fit.w;
+  if (dw !== 0 && fit.e + dw > 0) {
+    msg += '\n   FIX: on All Orders, right-click the column E header → Resize column → ' + (fit.e + dw) +
+           ' → OK, then run this again. (Merges don\'t matter here — only widths.)';
+  }
+  if (fit.h !== MOVIE.height) msg += '\n   Rows 1+2 must total ' + MOVIE.height + ' px.';
+  return _movieSay(msg);
+}
 
 /**
  * installMovieTest — editor-run, zero args. Builds a fresh "__MovieTest" tab with All Orders'
@@ -5362,8 +5376,7 @@ function installMovieTest() {
       .setFontWeight('bold');
     var fit = _movieFit(t);
     if (!fit.ok) {
-      return _movieSay('❌ A1:E2 measures ' + fit.w + 'x' + fit.h + ', the movie is ' + MOVIE.width + 'x' +
-                       MOVIE.height + '.\n   ' + fit.detail + '\n   Refusing — it would overhang F1/F2.');
+      return _movieRefusal(fit);
     }
     var img = t.insertImage(MOVIE.url, 1, 1, 0, 0);
     img.setWidth(MOVIE.width).setHeight(MOVIE.height);
@@ -5395,8 +5408,7 @@ function installMovie() {
     if (!sheet) return _movieSay('❌ Main sheet not found.');
     var fit = _movieFit(sheet);
     if (!fit.ok) {
-      return _movieSay('❌ A1:E2 measures ' + fit.w + 'x' + fit.h + ', the movie is ' + MOVIE.width + 'x' +
-                       MOVIE.height + '.\n   ' + fit.detail + '\n   Refusing — it would overhang F1/F2.');
+      return _movieRefusal(fit);
     }
     var stale = _bannerImages(sheet);             // snapshot BEFORE inserting
     var img = sheet.insertImage(MOVIE.url, 1, 1, 0, 0);
