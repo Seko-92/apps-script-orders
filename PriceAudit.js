@@ -449,6 +449,23 @@ function runPriceAudit() {
 
     SpreadsheetApp.flush();
 
+    /* ⚠ THE BADGE MUST MOVE NOW, NOT IN FIFTEEN MINUTES (2026-09-16).
+       The Alerts card's "Price Diffs" row is built inside _sidebarSlowParts' 900s
+       half, and this function never invalidated it — so the operator pressed Run
+       Audit, the sheet was rewritten right here, and the panel kept showing the
+       PREVIOUS count for up to a quarter of an hour. That is the reported "it
+       stalls and I have to click it".
+       Best-effort: a cache failure must never fail an audit that has already
+       written its rows. See bustSidebarSlowCache() in UIService.js for the class. */
+    try { if (typeof bustSidebarSlowCache === "function") bustSidebarSlowCache(); }
+    catch (e) { try { console.log("runPriceAudit: cache bust failed: " + e); } catch (_) {} }
+
+    /* Stamp "the audit last SUCCEEDED at" — deliberately in the success path, after
+       the rows are written. A failed run must leave the previous stamp alone, or the
+       badge would claim to be fresh on the strength of a run that wrote nothing. */
+    try { PropertiesService.getScriptProperties().setProperty(PRICE_AUDIT_RAN_PROP, String(Date.now())); }
+    catch (e) { try { console.log("runPriceAudit: stamp failed: " + e); } catch (_) {} }
+
     var durationSec = ((Date.now() - start) / 1000).toFixed(1);
     var sign = totalDelta >= 0 ? "+" : "";
     var driftCount    = driftRows.length;
@@ -517,6 +534,90 @@ function getPriceDriftCount() {
     console.log("getPriceDriftCount error: " + e);
     return 0;
   }
+}
+
+
+// =======================================================================================
+// HOW OLD IS THAT NUMBER? (2026-09-16)
+// =======================================================================================
+//
+// ⚠⚠ THE BADGE COULD NOT SAY WHEN IT WAS COMPUTED, AND THAT IS THE ACTUAL DEFECT.
+// getPriceDriftCount() counts rows on a sheet that only changes when runPriceAudit()
+// runs — the Monday ~5am trigger, or the manual button. So a bare "1" reads exactly
+// the same whether it was computed two minutes or six days ago, and a price changed
+// on Wednesday cannot appear until Monday. The count is not wrong; it is UNDATED,
+// which is the reassuring-label-on-a-stale-state shape this codebase rules against
+// everywhere else (OOS BUILDABLE, Kit Health's blank computed price, the -1 pulse
+// sentinel). Showing the age turns a mystery into a fact the operator can act on:
+// "checked 6d ago" tells them whether pressing Run Audit is worth it.
+//
+// ⭐ THE PROPERTY IS AUTHORITATIVE, THE SHEET IS THE FALLBACK. A Script Property
+// stamped by the audit answers "when did the audit last RUN", which survives the
+// case where a run legitimately produces no rows. Reading a row's LAST_CHECKED
+// answers only "when was this row written" — it cannot distinguish "never audited"
+// from "audited, found nothing". The sheet read is kept ONLY so installs that
+// predate this stamp still show a real age instead of "never" until their next run.
+//
+// Returns ms epoch, or null for genuinely unknown. ⚠ null MUST render as "never
+// checked", never as "just now" — an unknown age is the dangerous direction here.
+// =======================================================================================
+
+var PRICE_AUDIT_RAN_PROP = 'hqPriceAuditRanAt';
+
+function getPriceAuditCheckedAt() {
+  // 1. The stamp the audit writes — authoritative.
+  try {
+    var raw = PropertiesService.getScriptProperties().getProperty(PRICE_AUDIT_RAN_PROP);
+    var ms  = raw ? parseInt(raw, 10) : NaN;
+    if (!isNaN(ms) && ms > 0) return ms;
+  } catch (e) {
+    try { console.log("getPriceAuditCheckedAt prop: " + e); } catch (_) {}
+  }
+
+  // 2. Fallback: the first data row's LAST_CHECKED, for installs predating the stamp.
+  try {
+    var ss = SpreadsheetApp.getActive() || SpreadsheetApp.openById(SPREADSHEET_ID);
+    var sheet = ss.getSheetByName(PRICE_AUDIT.sheetName);
+    if (!sheet) return null;
+    if (sheet.getLastRow() < PRICE_AUDIT.dataStartRow) return null;
+    return _priceAuditCellToMs(
+      sheet.getRange(PRICE_AUDIT.dataStartRow, PRICE_AUDIT.cols.LAST_CHECKED).getValue()
+    );
+  } catch (e) {
+    try { console.log("getPriceAuditCheckedAt sheet: " + e); } catch (_) {}
+    return null;
+  }
+}
+
+/**
+ * Coerce a LAST_CHECKED cell to ms epoch, tolerantly.
+ *
+ * ⚠ GOTCHA #16 LIVES HERE. The column is written as a Date with an explicit
+ * 'M/d/yy h:mm am/pm' format, so getValue() returns a Date today. But a crossed
+ * number format silently changes the TYPE that comes back — that is exactly how
+ * Kit Health's AT_RISK column returned Dates for integers (2026-08-21) and how the
+ * Zoho Stock price column rendered as 1900 dates (2026-05-28). Handle all three
+ * shapes rather than assume one, and refuse anything implausible instead of
+ * inventing a timestamp.
+ */
+function _priceAuditCellToMs(v) {
+  if (v instanceof Date) {
+    var t = v.getTime();
+    return isNaN(t) ? null : t;
+  }
+  if (typeof v === 'number' && isFinite(v)) {
+    // Sheets serial: days since 1899-12-30. Guard the range so a stray count
+    // (e.g. a drift total that landed in the wrong column) is refused, not read
+    // as a date in 1900. 25000 ≈ 1968; 80000 ≈ 2119.
+    if (v < 25000 || v > 80000) return null;
+    return new Date(1899, 11, 30).getTime() + Math.round(v * 86400000);
+  }
+  if (typeof v === 'string' && v.trim()) {
+    var d = new Date(v.trim());
+    var ts = d.getTime();
+    return isNaN(ts) ? null : ts;
+  }
+  return null;
 }
 
 

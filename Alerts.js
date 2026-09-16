@@ -211,8 +211,15 @@ function getActionableAlerts() {
       queueSize:    { count: _getPrepQueueSize(),        rows: [] },
       outOfStock:   { count: getOutOfStockCount(),       rows: [] },
       newFromZoho:  { count: _safeZohoCount(),           rows: [] },
-      priceDrift:   { count: _safePriceDriftCount(),     rows: [] },
-      kitPriceDrift:{ count: _safeKitPriceDriftCount(),  rows: [] },
+      /* ⚠ checkedAt CARRIES THE AGE, AND IT IS A TIMESTAMP, NOT A FORMATTED STRING.
+         These two counts are snapshots of WEEKLY-rewritten sheets, so the number
+         alone cannot say whether it is two minutes or six days old. The client
+         formats it, deliberately: this whole object rides a 900-second cache, and a
+         pre-formatted "checked 12m ago" baked in here would itself go stale inside
+         the cache and start lying by up to a quarter of an hour. Send the instant,
+         let the browser subtract. null = genuinely unknown → "never checked". */
+      priceDrift:   { count: _safePriceDriftCount(),     rows: [], checkedAt: _safePriceAuditCheckedAt() },
+      kitPriceDrift:{ count: _safeKitPriceDriftCount(),  rows: [], checkedAt: _safeKitHealthCheckedAt() },
       openCases:    { count: _safeOpenCaseCount(),       rows: [] },
       needPhotos:   { count: _safePhotoCount(),          rows: [] },
       // ⏸ UNACKNOWLEDGED HOLDS. Rows come free from the scan above, so clicking
@@ -233,8 +240,8 @@ function getActionableAlerts() {
       queueSize:    { count: 0, rows: [] },
       outOfStock:   { count: 0, rows: [] },
       newFromZoho:  { count: 0, rows: [] },
-      priceDrift:   { count: 0, rows: [] },
-      kitPriceDrift:{ count: 0, rows: [] },
+      priceDrift:   { count: 0, rows: [], checkedAt: null },
+      kitPriceDrift:{ count: 0, rows: [], checkedAt: null },
       openCases:    { count: 0, rows: [] },
       needPhotos:   { count: 0, rows: [] },
       heldOrders:   { count: 0, rows: [] },
@@ -264,6 +271,28 @@ function _safePriceDriftCount() {
     return (typeof getPriceDriftCount === "function") ? getPriceDriftCount() : 0;
   } catch (e) {
     return 0;
+  }
+}
+
+/** Defensive wrapper — getPriceAuditCheckedAt lives in PriceAudit.js. ms epoch of
+ *  the last SUCCESSFUL price audit, or null if unknown. One Script Property read
+ *  (with a one-cell sheet fallback), so it is safe alongside the count on the same
+ *  slow-half rebuild. ⚠ null means unknown and MUST reach the client as null — a
+ *  0 here would render as 1970, i.e. "impossibly stale", which is a different lie. */
+function _safePriceAuditCheckedAt() {
+  try {
+    return (typeof getPriceAuditCheckedAt === "function") ? getPriceAuditCheckedAt() : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+/** Defensive wrapper — getKitHealthCheckedAt lives in KitHealth.js. Same contract. */
+function _safeKitHealthCheckedAt() {
+  try {
+    return (typeof getKitHealthCheckedAt === "function") ? getKitHealthCheckedAt() : null;
+  } catch (e) {
+    return null;
   }
 }
 

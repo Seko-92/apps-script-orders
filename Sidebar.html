@@ -1546,6 +1546,33 @@ body.dark-theme .zone-header::after {
   color: var(--text-secondary);
 }
 
+/* ⏱ HOW OLD IS THAT NUMBER (2026-09-16). Only the two audit-snapshot rows wear
+   this — Price Diffs and Kit Price Diffs both count a sheet that is rewritten
+   WEEKLY, so their bare count reads identically at two minutes and six days old.
+   ⚠ DELIBERATELY MUTED AND NEVER ALARM-COLOURED. Those audits are weekly BY
+   DESIGN, so "6d ago" is the healthy state — painting it red would cry wolf on
+   the normal case and teach the operator to ignore the one row that is telling
+   the truth. It is a fact, not a fault. Lowercase on purpose: the label above it
+   is uppercase-tracked, so this reads as an annotation rather than a second label. */
+.alert-age {
+  display: block;
+  margin-top: 2px;
+  font-family: 'Roboto', sans-serif;
+  font-size: 9.5px;
+  font-weight: 400;
+  letter-spacing: 0.02em;
+  text-transform: none;
+  /* ⚠ INHERIT THE LABEL'S INK, do not pick a muted token. Size and weight already
+     make this recede; muting it as well would make it near-invisible once the
+     empty-row rule dims the whole row (0.55 dark / 0.34 light) — and "0 · checked
+     6d ago" is exactly the case where the operator needs the age, because it is
+     what says whether the zero can be trusted. Inheriting also means neither theme
+     needs its own rule: the light block restyles .alert-label and this follows. */
+  color: inherit;
+  opacity: 0.72;
+}
+.alert-age:empty { display: none; }
+
 .alert-arrow {
   color: var(--hq-yellow);
   font-size: var(--fs-md);
@@ -4069,14 +4096,14 @@ body.dark-theme .footer-version { border-color: #2c2c2c; }
              ambient "there's drift to look at sometime" nudge, not urgent. -->
         <div class="alert-row empty" id="alertPriceDrift" onclick="jumpToAlert('priceDrift')">
           <span class="alert-count" id="alertCountPriceDrift">0</span>
-          <span class="alert-label">Price Diffs</span>
+          <span class="alert-label">Price Diffs<span class="alert-age" id="alertAgePriceDrift"></span></span>
           <span class="alert-arrow">›</span>
         </div>
         <!-- Kit Price Diffs: subtle count of UNDERPRICED/OVERPRICED kits from the
              weekly Kit Health audit. Same non-hero treatment as Price Diffs. -->
         <div class="alert-row empty" id="alertKitPriceDrift" onclick="jumpToAlert('kitPriceDrift')">
           <span class="alert-count" id="alertCountKitPriceDrift">0</span>
-          <span class="alert-label">Kit Price Diffs</span>
+          <span class="alert-label">Kit Price Diffs<span class="alert-age" id="alertAgeKitPriceDrift"></span></span>
           <span class="alert-arrow">›</span>
         </div>
         <!-- Open Cases: orders with an unresolved investigation. Non-hero (not a
@@ -6830,6 +6857,14 @@ function _paintAlerts(alerts, full) {
   // Only flash when something actually changed — silent polls stay silent.
   if (anyChanged) _flashCard('alerts');
 
+  /* ⏱ THE AGE ON THE TWO AUDIT-SNAPSHOT ROWS (2026-09-16).
+     ⚠ DELIBERATELY OUTSIDE the anyChanged accounting above. This text ticks every
+     minute by construction, so folding it into the change detection would flash the
+     card on every poll forever — which is how a signal that means "something moved"
+     stops meaning anything. The age is ambient; the count is the event. */
+  _paintAlertAge('PriceDrift',    alerts.priceDrift    && alerts.priceDrift.checkedAt);
+  _paintAlertAge('KitPriceDrift', alerts.kitPriceDrift && alerts.kitPriceDrift.checkedAt);
+
   /* ⏸ The acknowledge control exists only while there is something to answer
      for — the same grammar as the rest of this panel, where a healthy state
      shows nothing rather than a disabled control.
@@ -6865,6 +6900,47 @@ function _paintAlerts(alerts, full) {
   });
   var alertsCard = document.querySelector('.card[data-id="alerts"]');
   if (alertsCard) alertsCard.classList.toggle('has-attention', heroAlert);
+}
+
+/**
+ * ⏱ "checked 6d ago" under an audit-snapshot badge.
+ *
+ * ⚠⚠ THE AGE IS COMPUTED ON THE CLIENT, FROM A TIMESTAMP, ON PURPOSE. The alerts
+ * object rides a 900-SECOND server cache, so a string formatted server-side would
+ * itself go stale inside that cache and could be wrong by up to a quarter of an
+ * hour — a staleness indicator that is itself stale is worse than none, because it
+ * is the one field the operator is trusting to tell them whether to trust the rest.
+ * Subtracting here means the text is right on every repaint regardless of cache age.
+ *
+ * ⚠ null → "never checked", never "just now". An unknown age must not read as a
+ * fresh one; that is the reassuring-label-on-a-dangerous-state shape.
+ *
+ * ⚠ A future timestamp (clock skew between the script's zone and the browser's)
+ * degrades to "just now" rather than rendering a negative — we never claim an audit
+ * ran in the future, but we also never show "-3m ago", which just looks broken.
+ */
+function _alertAgeText(ts) {
+  if (!ts) return 'never checked';
+  var min = Math.floor((Date.now() - ts) / 60000);
+  if (min < 1)  return 'checked just now';
+  if (min < 60) return 'checked ' + min + 'm ago';
+  var hr = Math.floor(min / 60);
+  if (hr < 24)  return 'checked ' + hr + 'h ago';
+  return 'checked ' + Math.floor(hr / 24) + 'd ago';
+}
+
+function _paintAlertAge(suffix, ts) {
+  var el = document.getElementById('alertAge' + suffix);
+  if (!el) return;
+  el.textContent = _alertAgeText(ts);
+  /* Exact instant on hover — in HOUSTON time via the shared helper, never the
+     reader's clock. This panel is read from Riyadh most evenings, and the standing
+     UI rule is that every screen shows the floor's time only. */
+  try {
+    el.title = ts && typeof _olTime === 'function'
+      ? 'Last audit: ' + _olTime(ts) + ' Houston'
+      : 'This audit has not run yet';
+  } catch (e) { /* tooltip is decoration — never let it break the paint */ }
 }
 
 function _paintAlert(suffix, count) {

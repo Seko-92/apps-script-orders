@@ -430,6 +430,36 @@ function _sidebarSlowParts() {
 }
 
 /**
+ * Drop the sidebar's slow-half cache so the next tick rebuilds it.
+ *
+ * ⚠⚠ WHY THIS EXISTS (2026-09-16). getActionableAlerts opens EIGHT sheets, so it
+ * lives in _sidebarSlowParts' 900-SECOND half. That is the right home for the
+ * BACKLOG rows in that card — out of stock, needs photos, prep queue — where a
+ * quarter of an hour means nothing. It is WRONG the moment a HUMAN does the thing
+ * the badge counts: you press Run Audit, the sheet is rewritten under you, and the
+ * panel sits there showing the old number for up to fifteen minutes. The human did
+ * the work and the panel did not react — which reads as the feature being broken.
+ *
+ * ⭐ THIRD INSTANCE OF THIS EXACT CLASS. setBoardPicker not busting the tick cache
+ * (2026-08-14), and the held count riding this same slow half (2026-08-21). Both are
+ * written up at length in Sidebar.html's _paintAlerts. The rule they produce:
+ *
+ *     ANY action that changes a number this card displays must invalidate the
+ *     cache that holds it — at the action, not on a timer.
+ *
+ * ⚠ BEST-EFFORT BY CONTRACT. A cache miss is not a failure, and a failure here must
+ * never fail the audit that called it. Callers do not check the return.
+ */
+function bustSidebarSlowCache() {
+  try {
+    var cache = CacheService.getScriptCache();
+    if (cache) cache.remove(SIDEBAR_SLOW_CACHE_KEY);
+  } catch (e) {
+    try { console.log('bustSidebarSlowCache: ' + e); } catch (_) {}
+  }
+}
+
+/**
  * One round-trip for the sidebar heartbeat.
  * @param {boolean} [force] - skip the cache (used after an action changes state)
  */

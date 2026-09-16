@@ -765,6 +765,18 @@ function runKitHealthAudit() {
 
     SpreadsheetApp.flush();
 
+    /* ⚠ SAME DEFECT AS THE PRICE AUDIT, SAME ONE-LINE FIX (2026-09-16).
+       The Alerts card's "Kit Price Diffs" row is the TWIN of "Price Diffs": both are
+       counts of a weekly-rewritten sheet, both are built inside _sidebarSlowParts'
+       900s half, and neither audit invalidated it. Fixing one and leaving the other
+       is the enumerate-every-writer failure this project has paid for repeatedly
+       (the CF strippers, 2026-08-30). Stamp + bust here too.
+       Best-effort — never fail an audit whose rows are already written. */
+    try { if (typeof bustSidebarSlowCache === "function") bustSidebarSlowCache(); }
+    catch (e) { try { console.log("runKitHealthAudit: cache bust failed: " + e); } catch (_) {} }
+    try { PropertiesService.getScriptProperties().setProperty(KIT_HEALTH_RAN_PROP, String(Date.now())); }
+    catch (e) { try { console.log("runKitHealthAudit: stamp failed: " + e); } catch (_) {} }
+
     return {
       ok:             true,
       message:        "calibrated " + medPct + "% · " + underN + " underpriced (" + underByStr + ") · "
@@ -831,6 +843,47 @@ function getKitPriceDriftCount() {
   } catch (e) {
     console.log("getKitPriceDriftCount error: " + e);
     return 0;
+  }
+}
+
+
+/**
+ * When did Kit Health last audit successfully? ms epoch, or null for unknown.
+ *
+ * Twin of getPriceAuditCheckedAt() in PriceAudit.js — read the long note there for
+ * the reasoning. Short version: this sheet is rewritten weekly (Monday ~4am) or on
+ * the button, so the badge's number is undated, and an undated count reads the same
+ * at two minutes old as at six days. ⚠ null MUST render as "never checked".
+ *
+ * ⭐ THE TIMESTAMP FORMATTER IS DELIBERATELY SHARED — _priceAuditCellToMs lives in
+ * PriceAudit.js and both audits stamp Dates into a LAST_CHECKED column with the same
+ * Gotcha-#16 exposure. Two copies of a type-coercion rule is precisely the drift
+ * class this codebase keeps paying for. Guarded by typeof so a missing file degrades
+ * to the property alone rather than throwing.
+ */
+var KIT_HEALTH_RAN_PROP = 'hqKitHealthRanAt';
+
+function getKitHealthCheckedAt() {
+  try {
+    var raw = PropertiesService.getScriptProperties().getProperty(KIT_HEALTH_RAN_PROP);
+    var ms  = raw ? parseInt(raw, 10) : NaN;
+    if (!isNaN(ms) && ms > 0) return ms;
+  } catch (e) {
+    try { console.log("getKitHealthCheckedAt prop: " + e); } catch (_) {}
+  }
+
+  try {
+    if (typeof _priceAuditCellToMs !== "function") return null;
+    var ss = SpreadsheetApp.getActive() || SpreadsheetApp.openById(SPREADSHEET_ID);
+    var sheet = ss.getSheetByName(KIT_HEALTH.sheetName);
+    if (!sheet) return null;
+    if (sheet.getLastRow() < KIT_HEALTH.dataStartRow) return null;
+    return _priceAuditCellToMs(
+      sheet.getRange(KIT_HEALTH.dataStartRow, KIT_HEALTH.cols.LAST_CHECKED).getValue()
+    );
+  } catch (e) {
+    try { console.log("getKitHealthCheckedAt sheet: " + e); } catch (_) {}
+    return null;
   }
 }
 
