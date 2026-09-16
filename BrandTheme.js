@@ -5307,22 +5307,29 @@ function removeBannerProbe() {
 /* ═════════════════════════════════════════════════════════════════════════════════════════
    THE ROW-1 MOVIE (2026-09-16) — one GIF over A1:E2, replacing the two loops.
 
-   799x133: the HQ roundel, the wordmark AND the eBay logo, drawn as one picture. Eleven moves
-   back to back, 45 s of stillness between each, "the logo is a kit" as the finale, and a soft
-   light over the eBay logo in some pauses. Plays 10.8 min, 10.5 MB. Sources + pipeline:
-   dial/motion-lab/ (README there).
+   799x133: the HQ roundel, the wordmark AND the eBay logo, drawn as one picture.
+   v2 (the cut that ships): scan · firing order · torque sequence · on loan · "the logo is a kit"
+   finale, 24 fps, 45 s of stillness between each, a soft light over the eBay logo before firing
+   and before the kit. Taglines alternate HOUSTON · ENGINE · HOUSTON · ENGINE. 967 frames, 4.1 MB,
+   plays 4.6 min. It starts moving 8 s after a load; the other 37 s of that pause sit at the end.
+   ⚠⚠ GOOGLE REFUSES AN INSERTED GIF PAST 1,000–1,099 STORED FRAMES ("Error retrieving image from
+     URL or bad URL"). Measured 2026-09-16 by probeMovieLimits / probeMovieLimits2: 8 MB and an
+     11.7-min play time were both fine; 1,000 frames accepted, 1,100 refused. v1 (all 11 moves,
+     1,911 frames, 10.5 MB) was refused for exactly this. Pauses are free — one held frame each.
+     dial/motion-lab/cutmovie.py refuses to build a cut over 1,000 frames.
+   Sources + pipeline: dial/motion-lab/ (README there).
 
    ⭐ THE REVERT STILL WORKS. The filename starts "banner-", so _bannerImages() treats it as ours
      and removeBanner() takes it down. installBanner() + installStrip() bring the old loops back.
    ⚠ It covers D2:E2, so the eBay logo on screen is the one inside the GIF. The cell's own
      =IMAGE logo stays underneath, untouched. F2:H2 (both Pick ID dropdowns) are never covered.
    ⚠ It carries no data, so its URL never changes and it can never flash (see THE BANNER LOOP).
-   ⚠ A GIF restarts from its first frame on every load, and this one opens with a 45 s pause.
+   ⚠ A GIF restarts from its first frame on every load — hence the short 8 s opening pause.
    ⚠⚠ Sheets does not repaint an image newly inserted on a tab you already have open — hard-
       reload after installMovie(). The test builds a brand-new tab precisely so it shows at once.
 ═════════════════════════════════════════════════════════════════════════════════════════ */
 var MOVIE = {
-  url: MASTHEAD.baseUrl + 'banner-movie-v1.gif',
+  url: MASTHEAD.baseUrl + 'banner-movie-v2.gif',   // v1 (1,911 frames) was refused by Google — see above
   width: 799,     // A+B+C+D+E as of 2026-09-03. ⚠ The live sheet drifted to 798 by 09-16 (E=306) —
                   //   the installers measure and refuse, and the refusal says which column to resize.
   height: 133,    // row 1 (68) + row 2 (65)
@@ -5371,7 +5378,7 @@ function installMovieTest() {
     for (var r = 1; r <= 3; r++) t.setRowHeight(r, main.getRowHeight(r));
     main.getRange('A1:H3').copyTo(t.getRange('A1:H3'));   // banner + headers only, never order rows
     t.setFrozenRows(3);
-    t.getRange('A6').setValue('TEST COPY — the movie opens with a 45-second pause, then Scan. ' +
+    t.getRange('A6').setValue('TEST COPY — the movie starts 8 seconds after the tab loads (Scan), then one move every 45 s; the kit is last, about 4 min in. ' +
                               'Check: it plays · it stays put when you scroll · both Pick ID dropdowns (F2, H2) still open.')
       .setFontWeight('bold');
     var fit = _movieFit(t);
@@ -5452,7 +5459,7 @@ var MOVIE_PROBE = {
     { id: 'b3', what: 'noise · 36 frames',                bytes: 5288160 },
     { id: 'm3', what: 'movie opening · 1,257 frames',     bytes: 6292134 },
     { id: 'b4', what: 'noise · 58 frames',                bytes: 8520423 },
-    { id: 'full', what: 'THE WHOLE MOVIE · 1,911 frames', bytes: 11057752, url: 'movie' }
+    { id: 'full', what: 'THE WHOLE MOVIE v1 · 1,911 frames', bytes: 11057752, url: 'movie-v1' }
   ]
 };
 
@@ -5495,7 +5502,7 @@ function _runMovieProbe(sheetName, rungs, banner) {
     var r = rungs[i];
     var label = r.id.toUpperCase() + ' · ' + r.what + ' · ' + (r.bytes / 1048576).toFixed(2) + ' MB';
     if (Date.now() - t0 > 300000) { console.log(label + ' → SKIPPED (out of time)'); continue; }
-    var url = r.url === 'movie' ? MOVIE.url : MASTHEAD.baseUrl + 'probe-' + r.id + '.gif';
+    var url = r.url === 'movie-v1' ? MASTHEAD.baseUrl + 'banner-movie-v1.gif' : MASTHEAD.baseUrl + 'probe-' + r.id + '.gif';
     var t = Date.now(), verdict;
     try {
       sh.insertImage(url, 1, row + 1, 0, 0).setWidth(799).setHeight(133);
