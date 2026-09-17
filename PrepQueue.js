@@ -1002,6 +1002,37 @@ function _sortCompactPrepSegment(sheet, segStart, blockCount, bufferBelow) {
   var SKU_I = PREP_QUEUE.idx('SKU');
 
   var values = sheet.getRange(segStart, 1, blockCount, W).getValues();
+
+  // ⚠⚠ STRUCTURAL GUARD (2026-09-17, after the INCOMING corruption incident).
+  // This function treats every non-blank col-A cell as a data row: it sorts it by
+  // LOCATION and rewrites it. A DIVIDER or HEADER row caught inside the block is
+  // therefore sorted like an item — and the incident left the photo header parked
+  // at row 418, sorted there by its own literal "LOCATION" text, with 466 photo
+  // rows dragged into the INCOMING table behind it.
+  //
+  // A structural row inside the block ALWAYS means the caller's boundaries are
+  // wrong (a marker helper returned -1, or a divider moved between the two reads).
+  // Sorting anyway is how a bad boundary becomes lost data, so refuse loudly and
+  // leave the sheet exactly as it is — the boundary is the bug, not the order.
+  var STRUCT = {};
+  STRUCT[PREP_QUEUE.boundaryMarker] = "the INCOMING divider";
+  STRUCT[PREP_PHOTO.marker]         = "the NEEDS PHOTOS divider";
+  PREP_QUEUE.headers.concat(PREP_PHOTO.headers).forEach(function (h) {
+    var k = String(h).trim().toUpperCase();
+    if (k) STRUCT[k] = "a column-header row";
+  });
+  for (var g = 0; g < blockCount; g++) {
+    var aVal = String(values[g][SKU_I] || "").trim();
+    var hit  = STRUCT[aVal.toUpperCase()];
+    if (hit) {
+      throw new Error(
+        "Sort REFUSED — row " + (segStart + g) + ' holds "' + aVal + '" (' + hit +
+        "), which is inside the block this sort was told to reorder (rows " +
+        segStart + "-" + (segStart + blockCount - 1) + "). The table boundaries are " +
+        "wrong, so nothing was changed. Run diagnosePrepQueue() to see the sheet map.");
+    }
+  }
+
   var reals = [];
   for (var i = 0; i < blockCount; i++) {
     if (String(values[i][SKU_I]).trim() !== "") reals.push(values[i]);
