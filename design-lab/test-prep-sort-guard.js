@@ -65,11 +65,16 @@ const sandbox = {
   console,
   SpreadsheetApp: {
     newDataValidation: () => ({ requireCheckbox: () => ({ build: () => ({}) }) }),
+    BorderStyle: { SOLID_THICK: 'SOLID_THICK', SOLID_MEDIUM: 'SOLID_MEDIUM', SOLID: 'SOLID' },
     flush: () => {}
   },
   applySkuLinksToColumn: () => {},
   buildSkuEnrichmentMap: () => new Map(),
   _refreshPrepQueueDuplicates: () => {},
+  stampSheetPulse: () => {},
+  SHEET_PULSE: { prepQueue: {}, outOfStock: {} },
+  _installPulseChip: () => {},
+  getSinglePhotoCount: () => 0,
   Utilities: { formatDate: () => '' },
   Session: { getScriptTimeZone: () => 'UTC' }
 };
@@ -138,6 +143,56 @@ console.log('\nE · a real SKU that merely looks odd is NOT structural');
   const r = run('odd skus', [item('Timing Belt', 'NOT FOUND'), item('N/A', 'NOT FOUND'), item('111111', 'A-1')]);
   ok('does not throw', r.threw, false);
   ok('keeps all three', r.n, 3);
+}
+
+console.log('\nF · refreshPhotoQueue refuses to write above the INCOMING table');
+{
+  // The photo write covers ~466 rows from divider+2 to the bottom of the sheet.
+  // If the divider ever resolved above INCOMING, that lands squarely in the
+  // picker's prep list — the shape of damage the 2026-09-17 incident left.
+  let wrote = false;
+  // Chainable range: every Sheets call returns the range, so the healthy path
+  // can run to completion without the stub having to enumerate the API.
+  const range = new Proxy({}, {
+    get: (_, k) => {
+      if (k === 'getValues')          return () => [['', '', '', '', '', '', '']];
+      if (k === 'getDataValidation')  return () => null;
+      if (k === 'setValues' || k === 'setValue') return () => { wrote = true; return range; };
+      return () => range;
+    }
+  });
+  const fakeSheet = {
+    getRange: () => range, getLastRow: () => 500, getMaxRows: () => 500,
+    setRowHeight: () => {}, insertRowsAfter: () => {}, getParent: () => ({})
+  };
+  sandbox.SPREADSHEET_ID = 'x';
+  sandbox.SpreadsheetApp.openById = () => ({ getSheetByName: () => fakeSheet });
+  sandbox._scanItemsNeedingPhotos = () => ({ ok: true, items: [], reason: '' });
+  sandbox.compareLocations = sandbox.compareLocations || (() => 0);
+
+  const call = (photoDiv, incDiv) => {
+    wrote = false;
+    sandbox._ensurePhotoDivider = () => photoDiv;
+    sandbox._getPrepBoundaryRow = () => incDiv;
+    let msg = '';
+    try { msg = String(sandbox.refreshPhotoQueue() || ''); }
+    catch (e) { msg = 'THREW: ' + e.message; if(process.env.DBG) console.log('        (throw: ' + e.message + ')'); }
+    return { msg, wrote };
+  };
+  const refused = m => /not below the INCOMING table/.test(m);
+
+  let r = call(10, 16);              // photo divider ABOVE the INCOMING divider
+  ok('refuses when the photo divider is above INCOMING', refused(r.msg), true);
+  ok('names both rows', /row 10/.test(r.msg) && /row 16/.test(r.msg), true);
+  ok('writes nothing', r.wrote, false);
+
+  r = call(17, 16);                  // landing on the INCOMING header row
+  ok('refuses when it lands on the INCOMING header', refused(r.msg), true);
+  ok('writes nothing', r.wrote, false);
+
+  r = call(42, 16);                  // the healthy layout — must NOT be blocked
+  ok('a correct layout is not refused', refused(r.msg), false);
+  ok('and it does not throw', /^THREW/.test(r.msg), false);
 }
 
 console.log(`\n${fail === 0 ? '✅' : '❌'}  ${pass} passed, ${fail} failed\n`);

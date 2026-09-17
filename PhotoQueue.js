@@ -194,6 +194,25 @@ function refreshPhotoQueue() {
   if (!sheet) return "ℹ️ Prep Queue sheet not found.";
 
   var divider   = _ensurePhotoDivider(sheet);
+
+  // ⚠⚠ ORDERING GUARD (2026-09-17, after the INCOMING corruption incident).
+  // This function writes ~466 rows from dataStart to the bottom of the sheet. If
+  // `divider` were ever resolved ABOVE the INCOMING table, that write would land
+  // squarely inside the picker's prep list — which is the shape of damage the
+  // incident left behind (466 photo rows sitting in INCOMING).
+  //
+  // The layout invariant is absolute: CURRENT, then INCOMING, then NEEDS PHOTOS.
+  // So the photo divider must sit at least 2 rows below the INCOMING divider (its
+  // divider + header). If it does not, the marker resolved somewhere impossible —
+  // refuse and say so rather than write a few hundred rows over a human's work.
+  // Refusing costs one stale refresh; writing costs the prep list.
+  var incDiv = _getPrepBoundaryRow(sheet);
+  if (incDiv > 0 && divider <= incDiv + 1) {
+    return "⚠️ Photo queue NOT refreshed — the NEEDS PHOTOS divider resolved to row " +
+           divider + ", which is not below the INCOMING table (divider row " + incDiv +
+           "). Refusing to write into the prep list. Run diagnosePrepQueue() for the map.";
+  }
+
   var headerRow = divider + 1;
   var dataStart = divider + 2;
 
