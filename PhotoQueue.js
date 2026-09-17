@@ -20,6 +20,10 @@
 //     preserves the ✔ DONE check + FIRST SEEN by SKU, like the OOS sheet).
 //   • The prep walkers get one guard — _prepWalkEnd() — so counting/clearing stops at
 //     the divider and never touches the photo section.
+//   • refreshPhotoQueue() REFUSES to write unless the photo divider sits below the
+//     INCOMING table (2026-09-17 incident — see CLAUDE.md). The write covers a few
+//     hundred rows to the bottom of the sheet; landing it above INCOMING would bury
+//     the picker's prep list.
 //
 // PINNED /exec NOTE: refreshPrepQueueHand runs on the pinned /exec every 2 min. Its
 // bounding (via _prepWalkEnd) only takes effect there after a New Version — until then
