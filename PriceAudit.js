@@ -347,6 +347,20 @@ function runPriceAudit() {
     // bulk-fetch version.
     zohoMap.forEach(function(rec, skuLower) {
       var sku = rec.skuOriginal;          // case-preserved for sheet display
+
+      // ⚠⚠ INTERNAL PACKING SUPPLIES ARE NOT PART OF THIS AUDIT'S UNIVERSE (2026-09-16).
+      //   This forEach is the ONLY place in the codebase that iterates the whole Zoho
+      //   map — everything else does a keyed .get(skuLower), which is why ~60 extra
+      //   rows are otherwise inert. A supply has no eBay listing by definition, so it
+      //   would fall into the INACTIVE CANDIDATE branch below and sit there forever:
+      //   60 permanent rows on a worklist whose whole job is to be actionable.
+      //
+      //   Supplies are created purchase-only (no selling price), so `zohoPrice <= 0`
+      //   a few lines down would ALSO drop them — but that escape is INCIDENTAL, not a
+      //   contract. One person typing a price on a box would silently re-introduce the
+      //   pollution. This skip is the deliberate version and survives that mistake.
+      if (typeof SUPPLIES !== 'undefined' && SUPPLIES.isSupplySku(sku)) return;
+
       seenSkus[skuLower] = true;
 
       var zohoPrice = rec.sellingPrice || 0;

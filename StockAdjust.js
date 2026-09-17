@@ -64,7 +64,8 @@ var STOCK_ADJUST = {
  *
  * @param {string} sku          the SKU to correct
  * @param {number} targetOnHand what Zoho's on-hand SHOULD be
- * @param {Object} [opts]       { force: true } to allow a delta beyond maxDelta
+ * @param {Object} [opts]       { force: true } to allow a delta beyond maxDelta,
+ *                              or { maxDelta: n } to set an explicit ceiling
  * @returns {Object} { ok, message, sku, itemId, before, target, delta, adjustmentId }
  */
 function pushSingleStockAdjustBySku(sku, targetOnHand, opts) {
@@ -102,7 +103,13 @@ function pushSingleStockAdjustBySku(sku, targetOnHand, opts) {
     item_id:   z.itemId,
     sku:       sku,
     target:    target,
-    max_delta: opts.force ? STOCK_ADJUST.maxQty : STOCK_ADJUST.maxDelta,
+    // opts.maxDelta (2026-09-16) lets a caller set its OWN ceiling instead of the
+    // binary force/default. Supplies uses it: packing materials legitimately move
+    // in packs — a bundle of 25 boxes, a bag of 500 poly bags, an opening count
+    // from 0 — all of which the ±50 part-correction guard would refuse, while
+    // force:true would remove the guard entirely. Purely additive: no existing
+    // caller passes it, so the original behaviour is untouched.
+    max_delta: opts.maxDelta || (opts.force ? STOCK_ADJUST.maxQty : STOCK_ADJUST.maxDelta),
     reason:    opts.reason || STOCK_ADJUST.reason,
     // Free-text only — the proxy folds this into the adjustment's DESCRIPTION,
     // never its reason. See the note in boardAdjustStock for why that

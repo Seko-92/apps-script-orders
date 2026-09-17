@@ -262,6 +262,14 @@ function onEditInstallable(e) {
     Logger.log("outOfStockOnEdit (installable) error: " + err);
   }
 
+  // Supplies SKU lookup (auto-fill ITEM + ON HAND + STATUS from the Zoho mirror).
+  // Same openById-via-buildZohoStockMap pattern as the two above, same containment.
+  try {
+    suppliesOnEdit(e);
+  } catch (err) {
+    Logger.log("suppliesOnEdit (installable) error: " + err);
+  }
+
   // Location Update SKU lookup (auto-fill COUNTER + LOCATION + TIMESTAMP).
   // Same pattern as Prep Queue / Out of Stock — runs in INSTALLABLE because
   // location lookup goes through openById. Replaces the orphaned simple-trigger

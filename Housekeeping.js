@@ -80,7 +80,12 @@ var SHEET_PULSE = {
   // so the DISPLAY cell can move freely without a New Version.
   // setupPrepQueueSheet's chip migration cleans the older homes
   // (G1/H1 → H1/I1 → H2/I2 → H1 dark → F1 in-band).
-  prepQueue:  { sheetName: "Prep Queue",   chip: "F1", stamp: "I1", inBand: true }
+  prepQueue:  { sheetName: "Prep Queue",   chip: "F1", stamp: "I1", inBand: true },
+  // Supplies (2026-09-16) — packing consumables. Born with the in-band style, so
+  // there is no chip migration to carry: J1 is the right edge of the row-1
+  // ▌ SUPPLIES band (dataWidth 10, so J is the band's last column), and the stamp
+  // sits at L1, one clear column past the table, hidden by the installer.
+  supplies:   { sheetName: "Supplies",     chip: "J1", stamp: "L1", inBand: true }
 };
 
 // Work-hours gate (America/Chicago). 6am start so the sheets are fresh
@@ -177,6 +182,19 @@ function _housekeepingPass() {
   try { parts.push(refreshPrepQueueLocations(maps)); }
   catch (e) { parts.push("❌ Prep locations: " + e); console.log("Housekeeping Prep error: " + e); }
 
+  // PACKING SUPPLIES (2026-09-16) — pull ON HAND for the ~60 internal consumables
+  // from the Zoho mirror, derive OUT/LOW/OK, and auto-discover any SUP- item added
+  // in Zoho that is not on the sheet yet.
+  //
+  // ⚠ It reads the Zoho Stock SHEET, not Master Inventory, so it takes nothing from
+  //   `maps` — but it accepts the argument anyway to match every other job here, and
+  //   because a future version reading MI would otherwise be a signature change.
+  // ⚠ Cheap by construction: one mirror read plus a per-row write for ~60 rows. It
+  //   bails without touching the sheet when the mirror is unreadable, so a Zoho sync
+  //   gap can never blank a shelf count (the Photo Queue's guard, applied here).
+  try { parts.push(refreshSupplies(maps)); }
+  catch (e) { parts.push("❌ Supplies: " + e); console.log("Housekeeping Supplies error: " + e); }
+
   // ⚠ NEEDS PHOTOS IS NOT HERE ANY MORE (2026-08-19). It ran ~334s of this
   // pass's measured 352.7s — 95% of a 360s ceiling — for a backlog that moves in
   // single digits per day. It now has its OWN daily trigger at 5am Houston with
@@ -266,6 +284,9 @@ function setupHousekeeping() {
 
   try { setupPrepQueueSheet(); msgs.push("Prep Queue re-styled + chip"); }
   catch (e) { msgs.push("⚠ Prep Queue setup: " + e); console.log("setupHousekeeping Prep setup error: " + e); }
+
+  try { setupSuppliesSheet(); msgs.push("Supplies re-styled + chip"); }
+  catch (e) { msgs.push("⚠ Supplies setup: " + e); console.log("setupHousekeeping Supplies setup error: " + e); }
 
   // ⚠ No pulse chip on this one, deliberately — see the note on _oaPaintStatus.
   //   The shared chip's tiers go RED past 26h, and the archive is swept ONCE A DAY

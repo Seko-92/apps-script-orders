@@ -4726,6 +4726,50 @@ body.dark-theme .footer-version { border-color: #2c2c2c; }
     </div>
   </div>
 
+  <div class="card collapsed" data-id="supplies" draggable="true">
+    <div class="card-header" onclick="toggleCollapse(this)">
+      <div class="drag-handle" title="Drag to reorder">☰</div>
+      <div class="card-title"><div class="card-icon">📦</div><h3>Packing Supplies</h3></div>
+      <div class="card-toggle">▼</div>
+    </div>
+    <div class="card-body">
+
+      <button class="btn-primary" onclick="run('openSupplies')">Open Supplies</button>
+      <button class="btn-secondary" onclick="run('refreshSupplies')">Refresh Now</button>
+      <div class="empty-hint">Boxes, bags, tape and labels &mdash; the materials used to <strong>pack</strong> orders, not to sell. The count lives in <strong>Zoho</strong>, so the tablet, this sheet and Zoho itself are three windows onto one number. ON HAND refreshes hourly from the Zoho mirror; you set <strong>REORDER AT</strong> by hand and that is what fires the alert.</div>
+
+      <!-- Record a count — the guarded write. Same numpad the tablet uses. -->
+      <div class="zone-rule"></div>
+      <div class="quick-add">
+        <div class="quick-add-title">⚡ Record a count</div>
+
+        <div class="qa-row">
+          <div class="qa-field">
+            <label>Supply SKU</label>
+            <input type="text" id="supSku" placeholder="SUP-104" autocomplete="off" />
+          </div>
+          <div class="qa-field qa-qty">
+            <label>Count</label>
+            <input type="number" id="supCount" min="0" placeholder="0" />
+          </div>
+        </div>
+
+        <button class="btn-success qa-submit" id="supRecordBtn" onclick="recordSupplyCountNow()">
+          Record count
+        </button>
+      </div>
+      <div id="supResult" class="wd-result" style="display:none;"></div>
+      <div class="empty-hint" style="margin-top:0;">Sets Zoho's on-hand to the number you type &mdash; use it for the opening sweep, after a pack runs out, or for a recount. Only <strong>SUP-</strong> SKUs already on the sheet are accepted, so this can never reach real stock.</div>
+
+      <details class="card-more">
+        <summary>More tools</summary>
+        <div class="card-more-content">
+          <button class="btn-info" onclick="run('setupSuppliesSheet')">Re-style Sheet</button>
+        </div>
+      </details>
+    </div>
+  </div>
+
   <div class="card collapsed" data-id="product-health" draggable="true">
     <div class="card-header" onclick="toggleCollapse(this)">
       <div class="drag-handle" title="Drag to reorder">☰</div>
@@ -9361,6 +9405,72 @@ function _lsBtn(id, on, busyLabel, idleLabel) {
   b.textContent = on ? busyLabel : idleLabel;
 }
 
+/* ---------------- PACKING SUPPLIES (2026-09-16) ----------------
+   Records a physical count straight into Zoho through adjustSupplyCount, which
+   refuses anything that is not a SUP- SKU already declared on the Supplies sheet.
+   No picker gate here, deliberately: the sidebar is the owner's surface, and the
+   server records WHICH DOOR the count came through rather than inventing a name. */
+var isSupplyBusy = false;
+
+function _supPaint(msg, ok) {
+  var el = document.getElementById('supResult');
+  if (!el) return;
+  el.style.display = 'block';
+  el.style.color = ok ? '' : '#c62828';
+  el.textContent = msg;
+}
+
+function recordSupplyCountNow() {
+  if (isSupplyBusy || typeof google === 'undefined' || !google.script) return;
+
+  var skuEl = document.getElementById('supSku');
+  var cntEl = document.getElementById('supCount');
+  var sku = skuEl ? String(skuEl.value || '').trim() : '';
+  var raw = cntEl ? String(cntEl.value || '').trim() : '';
+
+  if (!sku) { _supPaint('Type the supply SKU first.', false); if (skuEl) skuEl.focus(); return; }
+  if (raw === '' || isNaN(parseFloat(raw))) {
+    _supPaint('Type the count you just made.', false); if (cntEl) cntEl.focus(); return;
+  }
+  var count = parseFloat(raw);
+
+  var btn = document.getElementById('supRecordBtn');
+  isSupplyBusy = true;
+  if (btn) { btn.disabled = true; btn.textContent = 'Sending to Zoho…'; }
+  status.className = 'syncing';
+  status.textContent = 'Setting ' + sku + ' to ' + count + ' in Zoho…';
+
+  google.script.run
+    .withSuccessHandler(function (r) {
+      isSupplyBusy = false;
+      if (btn) { btn.disabled = false; btn.textContent = 'Record count'; }
+      if (r && r.ok) {
+        status.className = 'success';
+        status.textContent = '\u2713 ' + sku + ' recorded';
+        _supPaint(r.message || ('\u2713 ' + sku + ' set to ' + count), true);
+        if (cntEl) cntEl.value = '';
+        if (skuEl) { skuEl.value = ''; skuEl.focus(); }
+        playSound('syncDone');
+      } else {
+        /* A refusal is the SERVER answering clearly, not a transport fault \u2014
+           show its own words rather than a generic failure. */
+        status.className = 'error';
+        status.textContent = 'Refused';
+        _supPaint('\u2715 ' + ((r && r.error) ? r.error : 'Refused.'), false);
+        playSound('error');
+      }
+    })
+    .withFailureHandler(function (err) {
+      isSupplyBusy = false;
+      if (btn) { btn.disabled = false; btn.textContent = 'Record count'; }
+      status.className = 'error';
+      status.textContent = 'Could not reach the sheet';
+      _supPaint('\u2715 Could not reach the sheet \u2014 nothing was sent. ' + err, false);
+      playSound('error');
+    })
+    .adjustSupplyCount(sku, count);
+}
+
 function previewLowStockNow() {
   if (isLowStockBusy || typeof google === 'undefined' || !google.script) return;
   var o = _lsOpts();
@@ -9614,7 +9724,7 @@ function applyZones() {
   const zones = [
     ['today',        "TODAY'S WORK", ['alerts', 'order-case', 'zoho-pull', 'missing-line', 'kits', 'fulfill', 'displays']],
     ['table-tools',  'TABLE TOOLS',  ['ebay', 'direct', 'live', 'location-update']],
-    ['inventory',    'INVENTORY',    ['part-console', 'prep-queue', 'restock', 'stock-highlight', 'product-health', 'price-audit']],
+    ['inventory',    'INVENTORY',    ['part-console', 'prep-queue', 'restock', 'supplies', 'stock-highlight', 'product-health', 'price-audit']],
     ['diagnostics',  'DIAGNOSTICS',  ['weekly-digest', 'watchdog', 'sound', 'order-archive', 'duplicates', 'sheet-protect', 'api-monitor', 'arcade']]
   ];
 
@@ -9743,6 +9853,10 @@ window.addEventListener('load',function(){
     'order-archive':'m-doc',
     /* the Sound card (2026-09-15) wears the same bell as the mute button. */
     'sound':'m-bell',
+    /* PACKING SUPPLIES (2026-09-16) wears m-stock — it is a stock of materials,
+       and the mark is already shared by the eBay and Zoho Stock cards for the
+       same reason. Reuse is the norm in this map, not an oversight. */
+    'supplies':'m-stock',
     /* m-case, the same mark Investigations and the DIRECT table wear: a missing
        or replacement line IS a case about an order that went wrong. ⚠ An
        unmapped data-id falls back to the generic m-board card icon rather than
