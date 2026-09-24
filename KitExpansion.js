@@ -484,7 +484,7 @@ function _collectSelectedRows(sheet) {
 // causes. The cached row number is only a hint for tie-breaking when multiple
 // rows of the same kit exist on the same SO.
 //
-// SESSION STATE (CacheService.getUserCache)
+// SESSION STATE (CacheService.getScriptCache — NOT getUserCache, see below)
 //   key: KitExpansionModal:<sessionId>
 //   value: JSON.stringify({
 //     queue: [{kitSku, sourceSalesOrder, originalRow, userMultiplier, sourceQty,
@@ -493,6 +493,14 @@ function _collectSelectedRows(sheet) {
 //     results: { committed: [], skipped: [], failed: [] }
 //   })
 //   TTL: 1800s (30 min) — modal abandonment cleans itself up on its own.
+//
+//   ⚠⚠ SCRIPT cache, never USER cache (fixed 2026-09-24). The modal is OPENED
+//   as the invoking user, but the COMMIT hops to the owner through /exec
+//   (OwnerBridge, since @296). A user cache is private to whoever runs the
+//   code, so a STAFF-opened session was written to the staff's cache and read
+//   from the owner's — always a miss, always "Modal session expired". The
+//   owner never saw it because the owner never hops. The session id is a
+//   random UUID, so a shared script cache is as private as it needs to be.
 //
 // PUBLIC API
 //   openKitExpansionModal(deployQty)              — sidebar entry point
@@ -611,7 +619,7 @@ function openKitExpansionModal(deployQty) {
       currentIndex: 0,
       results:      { committed: [], skipped: [], failed: [] }
     };
-    var cache = CacheService.getUserCache();
+    var cache = CacheService.getScriptCache();
     cache.put(KIT_MODAL_CACHE_PREFIX + sessionId, JSON.stringify(state), KIT_MODAL_CACHE_TTL);
 
     // --- Open the modal (HtmlService template, body passes session + first kit) ---
@@ -857,7 +865,7 @@ function skipKitFromModal(sessionId) {
  */
 function closeKitExpansionSession(sessionId) {
   try {
-    CacheService.getUserCache().remove(KIT_MODAL_CACHE_PREFIX + sessionId);
+    CacheService.getScriptCache().remove(KIT_MODAL_CACHE_PREFIX + sessionId);
   } catch (_) {}
   return { ok: true };
 }
@@ -870,7 +878,7 @@ function closeKitExpansionSession(sessionId) {
 function _loadKitModalSession(sessionId) {
   if (!sessionId) return null;
   try {
-    var raw = CacheService.getUserCache().get(KIT_MODAL_CACHE_PREFIX + sessionId);
+    var raw = CacheService.getScriptCache().get(KIT_MODAL_CACHE_PREFIX + sessionId);
     if (!raw) return null;
     return JSON.parse(raw);
   } catch (_) { return null; }
@@ -878,7 +886,7 @@ function _loadKitModalSession(sessionId) {
 
 function _saveKitModalSession(sessionId, state) {
   try {
-    CacheService.getUserCache().put(
+    CacheService.getScriptCache().put(
       KIT_MODAL_CACHE_PREFIX + sessionId,
       JSON.stringify(state),
       KIT_MODAL_CACHE_TTL
