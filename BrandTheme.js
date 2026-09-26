@@ -163,6 +163,7 @@ var MASTHEAD = {
   namePrefix:   "HQMS",
   nameEbay:     "EBAY ORDERS",
   nameDirect:   "DIRECT ORDERS",
+  nameAmazon:   "AMAZON ORDERS",   // ⭐ 2026-09-26 — the third table's nameplate
   // ⭐ THE FACE KEEPS THE HOUR. It cannot MOVE (a floating image scrolls off the frozen
   //    banner; =IMAGE() shows a GIF's first frame only) — but it can be LIT. Light is the
   //    one thing that reads correctly at ~1 frame per minute, because a day changes
@@ -334,6 +335,13 @@ function applyBrandTheme(sheetName) {
       _styleDirectDivider(sheet, boundary);     // sets row height 40 internally
       _styleHeaderRow(sheet, boundary + 1);
       sheet.setRowHeight(boundary + 1, 36);     // DIRECT header row — same as eBay header
+    }
+    // ⭐ 2026-09-26 — the AMAZON divider + header, same treatment (third table).
+    var amzRow = getTableLayout(sheet).amazon;
+    if (amzRow > 0) {
+      _styleAmazonDivider(sheet, amzRow);
+      _styleHeaderRow(sheet, amzRow + 1);
+      sheet.setRowHeight(amzRow + 1, 36);
     }
 
     // ── CONDITIONAL FORMATTING (v6 — all in one wipe-and-rebuild pass) ──
@@ -559,6 +567,17 @@ function protectSheetStructure() {
   } else {
     boundaryNote = " · ⚠️ no DIRECT divider found anywhere in column A — " +
                    "manually verify the divider row exists and re-run.";
+  }
+
+  // ⭐ 2026-09-26 — the AMAZON divider + header get the same warning-only guard.
+  var amzP = getTableLayout(sheet).amazon;
+  if (amzP > 0) {
+    sheet.getRange(amzP, 1, 2, Schema.dataWidth)
+      .protect()
+      .setDescription("HQ-STRUCTURE: AMAZON divider + header (rows " +
+                      amzP + "-" + (amzP + 1) + ") — accidental-edit guard")
+      .setWarningOnly(true);
+    boundaryNote += " · AMAZON divider at row " + amzP;
   }
 
   return "✅ Sheet structure protected (warning-only)" + boundaryNote +
@@ -1432,15 +1451,27 @@ function refreshDynamicBandings() {
             .setSecondRowColor(BRAND.paperWarm);
   }
 
-  // DIRECT banding: DIRECT header (boundary + 1) + data rows to maxRow
+  // DIRECT banding: DIRECT header (boundary + 1) + data rows to maxRow — or, with the
+  // Amazon table below (⭐ 2026-09-26), only down to the row above the AMAZON divider,
+  // which then gets its own banding (header + rows to the end of the sheet).
+  var amzRowB = getTableLayout(sheet).amazon;
   var directHeaderRow = boundary + 1;
-  if (directHeaderRow <= maxRow) {
-    var directHeight = maxRow - directHeaderRow + 1;
+  var directLast = amzRowB > 0 ? amzRowB - 1 : maxRow;
+  if (directHeaderRow <= directLast) {
+    var directHeight = directLast - directHeaderRow + 1;
     var directRange  = sheet.getRange(directHeaderRow, 1, directHeight, Schema.dataWidth);
     var directBand   = directRange.applyRowBanding(SpreadsheetApp.BandingTheme.LIGHT_GREY, true, false);
     directBand.setHeaderRowColor(BRAND.ink)
               .setFirstRowColor(BRAND.paper)
               .setSecondRowColor(BRAND.paperWarm);
+  }
+
+  if (amzRowB > 0 && amzRowB + 1 <= maxRow) {
+    var amzBand = sheet.getRange(amzRowB + 1, 1, maxRow - amzRowB, Schema.dataWidth)
+                       .applyRowBanding(SpreadsheetApp.BandingTheme.LIGHT_GREY, true, false);
+    amzBand.setHeaderRowColor(BRAND.ink)
+           .setFirstRowColor(BRAND.paper)
+           .setSecondRowColor(BRAND.paperWarm);
   }
 }
 
@@ -1598,6 +1629,8 @@ function diagnoseDirectBand() {
   show('DIRECT marker row', 'A20');
   show('eBay open (PENDING+PREPARING)', 'A17');
   show('Direct open (PENDING+PREPARING)', 'A18');
+  show('AMAZON marker row', 'A27');
+  show('Amazon open (PENDING+PREPARING)', 'A28');
   show('queue, both tables', 'A8');
   show('Direct orders waiting (PENDING)', 'A21');
   show('oldest wait, minutes', 'A22');
@@ -2557,7 +2590,19 @@ function _nameplateFormula(label, sparkCell) {
          '" \u00b7 "&' + SD + sparkCell + '&" waiting")';
 }
 
-function _styleDirectDivider(sheet, boundary) {
+/**
+ * ⭐ 2026-09-26 — the AMAZON divider wears the same band as DIRECT (same brand yellow,
+ * same geometry) so the sheet reads as three peer tables. Only the marker and the
+ * nameplate differ. The marker value MUST stay exactly Schema.amazonMarker.
+ */
+function _styleAmazonDivider(sheet, row) {
+  return _styleDirectDivider(sheet, row, Schema.amazonMarker, MASTHEAD.nameAmazon, 'A28');
+}
+
+function _styleDirectDivider(sheet, boundary, marker, nameLabel, sparkCell) {
+  marker    = marker    || Schema.boundaryMarker;
+  nameLabel = nameLabel || MASTHEAD.nameDirect;
+  sparkCell = sparkCell || 'A18';
   // Service Bay v6 divider — full-row brand-yellow band, the loudest section
   // break in the sheet. Reads from across the warehouse.
   //
@@ -2576,7 +2621,7 @@ function _styleDirectDivider(sheet, boundary) {
   var leftMerge  = sheet.getRange(boundary, 1, 1, Schema.boundaryLeftWidth);                             // A:F
   var rightMerge = sheet.getRange(boundary, Schema.boundaryLeftWidth + 1, 1, Schema.boundaryRightWidth); // G:J
 
-  leftMerge.setValue(Schema.boundaryMarker)      // ← Underlying value MUST be exactly this
+  leftMerge.setValue(marker)                     // ← Underlying value MUST be exactly this
            .setNumberFormat('"▌  "@')             // ← DISPLAY prepends the bar glyph; underlying value untouched
            .setBackground(BRAND.yellow)
            .setFontColor(BRAND.ink)
@@ -2591,7 +2636,7 @@ function _styleDirectDivider(sheet, boundary) {
   // displayed render. Sheets persists number formats per-cell, so the prefix
   // survives re-runs of this function.
 
-  rightMerge.setFormula(_nameplateFormula(MASTHEAD.nameDirect, 'A18'))
+  rightMerge.setFormula(_nameplateFormula(nameLabel, sparkCell))
             .setBackground(BRAND.yellow)
             .setFontColor(BRAND.ink)
             .setFontFamily(BRAND.fontDisplay)
@@ -2881,7 +2926,7 @@ function refreshKitSkuMarkers() {
     var raw = String(values[i][0] || "").trim();
     var upper = raw.toUpperCase();
     var isEmpty = !raw;
-    var isBoundary = upper === Schema.boundaryMarker;
+    var isBoundary = Schema.isStructuralMarker(upper);
     var isHeader = raw.charAt(0) === "◈";
     var noteRaw = String(notes[i][0] || "").trim();
     var isExpansionComponent = noteRaw.indexOf("↳ from KIT-") === 0;
@@ -2977,7 +3022,7 @@ function kitSkuOnEdit(e) {
     var raw        = String(values[i][0] || "").trim();
     var upper      = raw.toUpperCase();
     var isEmpty    = !raw;
-    var isBoundary = upper === Schema.boundaryMarker;
+    var isBoundary = Schema.isStructuralMarker(upper);
     var isHeader   = raw.charAt(0) === "◈";
     var noteRaw    = String(notes[i][0] || "").trim();
     var isExpansionComponent = noteRaw.indexOf("↳ from KIT-") === 0;
@@ -3658,6 +3703,15 @@ function _fmtMinsExpr(ref) {
  *    row 4 pushes it down a row — the newest orders fall out of the count with no error.
  *    Text inside INDIRECT is never rewritten.
  */
+/**
+ * ⭐ 2026-09-26 — one column of the DIRECT table only: from DIRECT+2 down to the row
+ * above the AMAZON divider (A27), or open-ended when there is no Amazon table.
+ *   → INDIRECT("'All orders'!F"&(A20+2)&":F"&IF(A27="","",A27-1))
+ */
+function _sdDirectCol(c) {
+  return 'INDIRECT("\'' + MAIN_SHEET_NAME + '\'!' + c + '"&(A20+2)&":' + c + '"&IF(A27="","",A27-1))';
+}
+
 function _sdAllOrders(text, expr, suffix) {
   return 'INDIRECT("\'' + MAIN_SHEET_NAME + '\'!' + text + '"' +
          (expr ? '&(' + expr + ')' : '') +
@@ -3738,12 +3792,23 @@ function _ensureSparkData(ss) {
     '=IFERROR(MATCH("' + Schema.boundaryMarker + '",' + _sdAllOrders('A:A') + ',0),"")'
   );
   var ebayStatus   = _sdAllOrders('F' + Schema.dataStartRow + ':F', 'A20-1');
-  var directStatus = _sdAllOrders('F', 'A20+2', 'F');
+  var directStatus = _sdDirectCol('F');
   sheet.getRange('A17').setFormula(
     '=IF(A20="","",COUNTIF(' + ebayStatus + ',"PENDING")+COUNTIF(' + ebayStatus + ',"PREPARING"))'
   );
   sheet.getRange('A18').setFormula(
     '=IF(A20="","",COUNTIF(' + directStatus + ',"PENDING")+COUNTIF(' + directStatus + ',"PREPARING"))'
+  );
+  // ⭐ 2026-09-26 — THE THIRD TABLE. A27 finds the AMAZON divider (blank when there is
+  //   none), and the Direct ranges above now STOP there (see _sdDirectEnd) so an Amazon
+  //   order is never counted, named or alarmed on as Direct. A28 = Amazon's open count,
+  //   blank (never 0) when the table is absent.
+  sheet.getRange('A27').setFormula(
+    '=IFERROR(MATCH("' + Schema.amazonMarker + '",' + _sdAllOrders('A:A') + ',0),"")'
+  );
+  var amazonStatus = _sdAllOrders('F', 'A27+2', 'F');
+  sheet.getRange('A28').setFormula(
+    '=IF(A27="","",COUNTIF(' + amazonStatus + ',"PENDING")+COUNTIF(' + amazonStatus + ',"PREPARING"))'
   );
 
   sheet.getRange('A7').setFormula(pubNum('oldestPendingMinutes'));
@@ -3842,9 +3907,11 @@ var DIRECT_BAND_LIST_ROWS = 30;
 function _ensureDirectWaiting(sheet) {
   var N = DIRECT_BAND_LIST_ROWS;
   var col = function (c) { return c + '1:' + c + N; };
-  var D = _sdAllOrders('D', 'A20+2', 'D');
-  var E = _sdAllOrders('E', 'A20+2', 'E');
-  var F = _sdAllOrders('F', 'A20+2', 'F');
+  // ⭐ 2026-09-26: Direct only — stops at the AMAZON divider, so the band never names an
+  //   Amazon order as a Direct one waiting.
+  var D = _sdDirectCol('D');
+  var E = _sdDirectCol('E');
+  var F = _sdDirectCol('F');
   var tail = (typeof DASH_LOG_TAIL_ROWS === 'number') ? DASH_LOG_TAIL_ROWS : 2500;
   var logSheet = (typeof ACTIVITY_LOG === 'object' && ACTIVITY_LOG.sheetName) ? ACTIVITY_LOG.sheetName : 'Activity Log';
   var soSheet  = (typeof PENDING_SO === 'object' && PENDING_SO.sheetName) ? PENDING_SO.sheetName : 'Pending Sales Orders';
@@ -4033,7 +4100,7 @@ function _setSystemPulseBannerFormulas(sheet) {
   // ⚠ The newline lives INSIDE the conditional, or a suppressed split leaves a trailing
   //   CHAR(10) and the cell grows an empty second line.
   var splitLine = 'IF(' + SD + 'A17="","",CHAR(10)&"eBay "&' + SD + 'A17&" · Direct "&' +
-                  SD + 'A18)';
+                  SD + 'A18&IF(' + SD + 'A28="",""," · Amazon "&' + SD + 'A28))';
   // ⚠⚠ BUILT ONCE, WRITTEN TWICE. In strip mode F1:G1 shows the same headline while D1 sits
   //    under the loop — two cells computing one value is the drift class this project has
   //    paid for repeatedly, so there is exactly one source string.

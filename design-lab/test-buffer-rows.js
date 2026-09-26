@@ -78,6 +78,11 @@ function build(colA) {
   };
   vm.createContext(sandbox);
   vm.runInContext(CODE, sandbox, { filename: 'RowManagement.js' });
+  // ⭐ 2026-09-26: the real three-table layout helpers, driven off the SAME model column A.
+  try {
+    const LS = require('./_layout-stub');
+    LS.injectLayout(sandbox, () => LS.layoutFromColA(rows), SRC);
+  } catch (e) { /* HEAD predates getTableLayout */ }
   return { B: sandbox, rows };
 }
 

@@ -9,9 +9,14 @@
  */
 function deleteEmptyRows(t) {
   var sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(MAIN_SHEET_NAME);
-  var b = getBoundaryRow();
-  var start = (t === 1) ? Schema.dataStartRow : b + 2;
-  var end   = (t === 1) ? b - 1               : sheet.getMaxRows();
+  // ⭐ 2026-09-26: three tables. Direct used to run "DIRECT+2 → end of sheet"; with the
+  //   Amazon table below it that range would reach into Amazon and delete ITS buffer.
+  //   The segment comes from getTableLayout(), which stops Direct at the Amazon divider.
+  var L = getTableLayout(sheet);
+  var seg = _tableSegment(t, L);
+  if (!seg) return "ℹ️ That table is not on the sheet.";
+  var start = seg.start;
+  var end   = seg.end;
   var last  = findLastDataRowInSegment(start, end);
 
   // ⚠⚠ ONE CONSTANT, NOT THREE. Until 2026-09-09 the buffer size was written down in three
@@ -32,7 +37,9 @@ function deleteEmptyRows(t) {
   var keep = Math.max(1, TABLE_BUFFER_ROWS);
   var delStart = last + keep + 1;
 
-  if (t === 1 && delStart >= b) return "ℹ️ " + keep + "-row buffer already exists.";
+  // A table with another divider BELOW it (eBay always; Direct when Amazon exists) must
+  // never let the delete reach that divider.
+  if (!seg.last && delStart > end) return "ℹ️ " + keep + "-row buffer already exists.";
 
   if (delStart < end) {
     sheet.deleteRows(delStart, end - delStart + 1);
@@ -53,6 +60,9 @@ function runDeleteEmptyRowsTableTwo() {
   //   where doPost executes as the OWNER — see OwnerBridge.js.
   if (!_obIsOwner()) return _asOwner('runDeleteEmptyRowsTableTwo', []);
  return deleteEmptyRows(2); }
+function runDeleteEmptyRowsTableThree() {
+  if (!_obIsOwner()) return _asOwner('runDeleteEmptyRowsTableThree', []);
+  return deleteEmptyRows(3); }
 
 /*
  * ⛔ REMOVED 2026-09-09 — ensureDirectTableBuffer(). It topped the DIRECT table back up to a
@@ -144,64 +154,53 @@ function balanceTableBuffers(n) {
 
   var out = ["── BALANCE TABLE BUFFERS · target " + want + " blank row(s) each ──"];
 
-  // ---- eBay: the tail between its last data row and the DIRECT divider ----------------
-  var b = getBoundaryRow();
-  if (b === -1) {
+  // ⭐ 2026-09-26: ONE LOOP OVER THE TABLES, top to bottom. A table with a divider below
+  //   it (eBay; Direct when Amazon exists) grows by inserting BEFORE that divider; the
+  //   bottom table grows at the end of the sheet. The layout is RE-READ for every table,
+  //   because any insert or delete above invalidates every row number below.
+  var L0 = getTableLayout(sheet);
+  if (L0.direct === -1) {
     var msg = "❌ DIRECT divider not found — refusing to touch row structure.\n" +
               "   getBoundaryRow() is strict equality on \"DIRECT\" in column A.";
     console.log(msg); return msg;
   }
-  var eLast = findLastDataRowInSegment(Schema.dataStartRow, b - 1);
-  var eHave = (b - 1) - eLast;
-  out.push("eBay:   last data row " + (eLast < Schema.dataStartRow ? "(none)" : eLast) +
-           " · " + eHave + " blank → " + want);
-
-  if (eHave > want) {
-    var cut = eHave - want;
-    sheet.deleteRows(eLast + want + 1, cut);
-    out.push("        ✓ removed " + cut + " blank row(s)");
-  } else if (eHave < want) {
-    var add = want - eHave;
-    // ⚠ insertRowsBefore on this sheet can corrupt the header text — a documented
-    //   Sheets bug (gotcha #4). Restore immediately, before anything reads the columns.
-    sheet.insertRowsBefore(b, add);
-    try { verifyAndRestoreHeaders(); } catch (e) { out.push("        ⚠ header restore: " + e); }
-    // Format from a real data row, never from whatever sat above the insert point.
-    sheet.getRange(Schema.dataStartRow, 1, 1, Schema.dataWidth)
-         .copyTo(sheet.getRange(b, 1, add, Schema.dataWidth),
-                 SpreadsheetApp.CopyPasteType.PASTE_FORMAT, false);
-    sheet.setRowHeights(b, add, 30);
-    out.push("        ✓ added " + add + " blank row(s)");
-  } else {
-    out.push("        – already right");
-  }
-
-  // ---- DIRECT: the tail between its last data row and the end of the sheet ------------
-  // ⚠ RE-READ THE BOUNDARY. The edit above moved it.
-  SpreadsheetApp.flush();
-  b = getBoundaryRow();
-  var dStart = b + 2;
-  var maxRow = sheet.getMaxRows();
-  var dLast  = findLastDataRowInSegment(dStart, maxRow);
-  var dHave  = maxRow - dLast;
-  out.push("DIRECT: last data row " + (dLast < dStart ? "(none)" : dLast) +
-           " · " + dHave + " blank → " + want);
-
-  if (dHave > want) {
-    var dcut = dHave - want;
-    sheet.deleteRows(dLast + want + 1, dcut);
-    out.push("        ✓ removed " + dcut + " blank row(s)");
-  } else if (dHave < want) {
-    var dadd = want - dHave;
-    sheet.insertRowsAfter(maxRow, dadd);
-    sheet.getRange(Schema.dataStartRow, 1, 1, Schema.dataWidth)
-         .copyTo(sheet.getRange(maxRow + 1, 1, dadd, Schema.dataWidth),
-                 SpreadsheetApp.CopyPasteType.PASTE_FORMAT, false);
-    sheet.setRowHeights(maxRow + 1, dadd, 30);
-    out.push("        ✓ added " + dadd + " blank row(s)");
-  } else {
-    out.push("        – already right");
-  }
+  var names = { 1: "eBay:  ", 2: "DIRECT:", 3: "AMAZON:" };
+  [1, 2, 3].forEach(function (t) {
+    SpreadsheetApp.flush();
+    var L = getTableLayout(sheet);
+    var seg = _tableSegment(t, L);
+    if (!seg) return;
+    var tLast = findLastDataRowInSegment(seg.start, seg.end);
+    var have  = seg.end - tLast;
+    out.push(names[t] + " last data row " + (tLast < seg.start ? "(none)" : tLast) +
+             " · " + have + " blank → " + want);
+    if (have > want) {
+      var cut = have - want;
+      sheet.deleteRows(tLast + want + 1, cut);
+      out.push("        ✓ removed " + cut + " blank row(s)");
+    } else if (have < want) {
+      var add = want - have;
+      var at;
+      if (!seg.last) {
+        // ⚠ insertRowsBefore on this sheet can corrupt the header text — a documented
+        //   Sheets bug (gotcha #4). Restore immediately, before anything reads the columns.
+        sheet.insertRowsBefore(seg.divider, add);
+        try { verifyAndRestoreHeaders(); } catch (e) { out.push("        ⚠ header restore: " + e); }
+        at = seg.divider;
+      } else {
+        at = seg.end + 1;
+        sheet.insertRowsAfter(seg.end, add);
+      }
+      // Format from a real data row, never from whatever sat above the insert point.
+      sheet.getRange(Schema.dataStartRow, 1, 1, Schema.dataWidth)
+           .copyTo(sheet.getRange(at, 1, add, Schema.dataWidth),
+                   SpreadsheetApp.CopyPasteType.PASTE_FORMAT, false);
+      sheet.setRowHeights(at, add, 30);
+      out.push("        ✓ added " + add + " blank row(s)");
+    } else {
+      out.push("        – already right");
+    }
+  });
 
   // The divider's per-order boxes are drawn by ROW POSITION, so anything that shifts
   // rows has to leave them repainted rather than stranded one row off.
@@ -253,6 +252,11 @@ function addRowsTableTwo(n) {
   var numRows = parseInt(n);
   var lastRow = sheet.getLastRow();
 
+  // ⭐ 2026-09-26: with the Amazon table below, "the end of the sheet" is AMAZON's end.
+  //   Direct's new rows go just above the Amazon divider instead.
+  var L = getTableLayout(sheet);
+  if (L.amazon > 0) lastRow = L.amazon - 1;
+
   // Insert the rows at the end
   sheet.insertRowsAfter(lastRow, numRows);
 
@@ -267,6 +271,22 @@ function addRowsTableTwo(n) {
   sheet.setRowHeights(lastRow + 1, numRows, 30);
 
   return "✅ Added " + numRows + " rows (format copied from eBay table).";
+}
+
+/** Adds blank rows to the end of the Amazon table (the bottom of the sheet). */
+function addRowsTableThree(n) {
+  if (!_obIsOwner()) return _asOwner('addRowsTableThree', [n]);
+  var sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(MAIN_SHEET_NAME);
+  var L = getTableLayout(sheet);
+  if (!(L.amazon > 0)) return "❌ The Amazon table is not on the sheet.";
+  var numRows = parseInt(n, 10) || 1;
+  var at = sheet.getMaxRows();
+  sheet.insertRowsAfter(at, numRows);
+  sheet.getRange(Schema.dataStartRow, 1, 1, Schema.dataWidth)
+       .copyTo(sheet.getRange(at + 1, 1, numRows, Schema.dataWidth),
+               SpreadsheetApp.CopyPasteType.PASTE_FORMAT, false);
+  sheet.setRowHeights(at + 1, numRows, 30);
+  return "✅ Added " + numRows + " rows to the Amazon table.";
 }
 
 // =======================================================================================
@@ -290,14 +310,24 @@ function protectBoundaryRow() {
   headerProtection.setDescription('DIRECT_HEADER_PROTECTED');
   headerProtection.setWarningOnly(true);
   
-  return "✅ Protected DIRECT boundary (Row " + boundary + ") and header (Row " + (boundary + 1) + ").";
+  // ⭐ The Amazon divider + header get the same warning-only guard.
+  var amz = getTableLayout(sheet).amazon;
+  if (amz > 0) {
+    var ap = sheet.getRange(amz, 1, 1, Schema.dataWidth).protect();
+    ap.setDescription('AMAZON_BOUNDARY_PROTECTED'); ap.setWarningOnly(true);
+    var ahp = sheet.getRange(amz + 1, 1, 1, Schema.dataWidth).protect();
+    ahp.setDescription('AMAZON_HEADER_PROTECTED'); ahp.setWarningOnly(true);
+  }
+  return "✅ Protected DIRECT boundary (Row " + boundary + ") and header (Row " + (boundary + 1) + ")" +
+         (amz > 0 ? " · AMAZON divider (Row " + amz + ") and header." : ".");
 }
 
 function removeExistingBoundaryProtection(sheet) {
   var protections = sheet.getProtections(SpreadsheetApp.ProtectionType.RANGE);
   for (var i = 0; i < protections.length; i++) {
     var desc = protections[i].getDescription();
-    if (desc === 'DIRECT_BOUNDARY_PROTECTED' || desc === 'DIRECT_HEADER_PROTECTED') {
+    if (desc === 'DIRECT_BOUNDARY_PROTECTED' || desc === 'DIRECT_HEADER_PROTECTED' ||
+        desc === 'AMAZON_BOUNDARY_PROTECTED' || desc === 'AMAZON_HEADER_PROTECTED') {
       protections[i].remove();
     }
   }
@@ -387,14 +417,14 @@ function setupDuplicateHighlighting() {
   if (lastRow < Schema.dataStartRow) return null;
 
   var allData = sheet.getRange(Schema.dataStartRow, Schema.cols.SKU, lastRow - Schema.dataStartRow + 1, 1).getValues();
-  var boundary = getBoundaryRow();
+  var layout = getTableLayout(sheet);
 
   var skuCount = {};
   for (var i = 0; i < allData.length; i++) {
     var currentRow = Schema.dataStartRow + i;
-    if (boundary > 0 && (currentRow === boundary || currentRow === boundary + 1)) continue;
+    if (isStructuralRowNum(currentRow, layout)) continue;
     var sku = String(allData[i][0]).trim().toUpperCase();
-    if (sku && sku !== Schema.boundaryMarker) {
+    if (sku && !Schema.isStructuralMarker(sku)) {
       skuCount[sku] = (skuCount[sku] || 0) + 1;
     }
   }
@@ -546,7 +576,11 @@ function setupDuplicateSalesOrderHighlighting() {
   var lastRow = sheet.getLastRow();
   if (lastRow < Schema.dataStartRow) return null;
 
-  var boundary = getBoundaryRow();
+  // ⭐ 2026-09-26: three tables. `boundary` stays the DIRECT row; the layout also knows
+  //   the AMAZON divider so both dividers + both header rows are skipped, badges number
+  //   per table, and each table gets its own order boxes.
+  var layout = getTableLayout(sheet);
+  var boundary = layout.direct;
 
   // Data read is bounded by lastRow (only cells that COULD have a SO value).
   var dataRows = lastRow - Schema.dataStartRow + 1;
@@ -577,7 +611,7 @@ function setupDuplicateSalesOrderHighlighting() {
   var orderRows = {};  // Map order → [row numbers]
   for (var i = 0; i < allData.length; i++) {
     var currentRow = Schema.dataStartRow + i;
-    if (boundary > 0 && (currentRow === boundary || currentRow === boundary + 1)) continue;
+    if (isStructuralRowNum(currentRow, layout)) continue;
     var order = String(allData[i][0]).trim();
     if (order) {
       orderCount[order] = (orderCount[order] || 0) + 1;
@@ -621,22 +655,26 @@ function setupDuplicateSalesOrderHighlighting() {
 
   for (var f = 0; f < bandFormats.length; f++) {
     var fRow = Schema.dataStartRow + f;
-    if (boundary > 0 && (fRow === boundary || fRow === boundary + 1)) continue;
+    if (isStructuralRowNum(fRow, layout)) continue;
     bandFormats[f][0] = '@';
   }
 
   // Per-table sequences (numbering is independent per table, eBay / DIRECT).
   var ebaySeq = [];
   var directSeq = [];
+  var amazonSeq = [];
   for (var d = 0; d < duplicateOrders.length; d++) {
     var dupFirstRow = orderRows[duplicateOrders[d]][0];   // rows collected top-down
-    if (boundary > 0 && dupFirstRow > boundary) directSeq.push(duplicateOrders[d]);
+    var tbl = tableOfRow(dupFirstRow, layout);
+    if (tbl === "AMAZON") amazonSeq.push(duplicateOrders[d]);
+    else if (tbl === "DIRECT") directSeq.push(duplicateOrders[d]);
     else ebaySeq.push(duplicateOrders[d]);
   }
   var byFirstRow = function(a, b) { return orderRows[a][0] - orderRows[b][0]; };
   ebaySeq.sort(byFirstRow);
   directSeq.sort(byFirstRow);
-  [ebaySeq, directSeq].forEach(function(seq) {
+  amazonSeq.sort(byFirstRow);
+  [ebaySeq, directSeq, amazonSeq].forEach(function(seq) {
     // Pass 1 — keepers: a group that already wears a digit keeps it. On a
     // collision (two groups claiming the same digit — only possible via >10
     // concurrent groups cycling, or a hand-pasted format) the topmost group
@@ -679,7 +717,7 @@ function setupDuplicateSalesOrderHighlighting() {
   var bandSizes = fullRange.getFontSizes();
   for (var fs = 0; fs < bandSizes.length; fs++) {
     var fsRow = Schema.dataStartRow + fs;
-    if (boundary > 0 && (fsRow === boundary || fsRow === boundary + 1)) continue;
+    if (isStructuralRowNum(fsRow, layout)) continue;
     bandSizes[fs][0] = 10;
   }
   fullRange.setFontSizes(bandSizes);
@@ -697,9 +735,18 @@ function setupDuplicateSalesOrderHighlighting() {
   // / kit expansion / manual edit because this painter re-runs on all those
   // paths. DIRECT ONLY (the eBay table is location-sorted single-item orders —
   // a rule per row would be noise).
+  // ⭐ Each table below a divider gets its own boxes, and each paint stops at the next
+  //   divider — Direct's paint used to run to the bottom of the sheet, which would now
+  //   blank the yellow AMAZON band's background and box its header row.
   if (boundary > 0) {
-    try { _paintDirectOrderDividers(sheet, boundary, allData, lastRow); }
-    catch (dividerErr) { console.log("SO divider paint error: " + dividerErr); }
+    try {
+      _paintDirectOrderDividers(sheet, boundary, allData, lastRow,
+                                layout.amazon > 0 ? layout.amazon - 1 : 0);
+    } catch (dividerErr) { console.log("SO divider paint error: " + dividerErr); }
+  }
+  if (layout.amazon > 0) {
+    try { _paintDirectOrderDividers(sheet, layout.amazon, allData, lastRow, 0); }
+    catch (amzErr) { console.log("Amazon order-box paint error: " + amzErr); }
   }
 
   // Force the clear-then-apply sequence to land before any subsequent reads.
@@ -719,9 +766,12 @@ function setupDuplicateSalesOrderHighlighting() {
  * @param {Array}  colDData  col-D values from Schema.dataStartRow (reused from the caller)
  * @param {number} lastRow   sheet.getLastRow()
  */
-function _paintDirectOrderDividers(sheet, boundary, colDData, lastRow) {
-  var firstData = boundary + 2;      // first DIRECT data row
+function _paintDirectOrderDividers(sheet, boundary, colDData, lastRow, stopRow) {
+  var firstData = boundary + 2;      // first data row below this divider
   var clearLast = Math.min(sheet.getMaxRows(), lastRow + 200);
+  // ⭐ 2026-09-26: `stopRow` (optional) ends the segment ABOVE the next divider, so the
+  //   Direct paint never reaches the Amazon band. 0/undefined = run to the bottom.
+  if (stopRow > 0) { clearLast = Math.min(clearLast, stopRow); lastRow = Math.min(lastRow, stopRow); }
   if (clearLast < firstData) return;
   var W = Schema.dataWidth;
   var bandRows = clearLast - firstData + 1;
@@ -758,7 +808,9 @@ function _paintDirectOrderDividers(sheet, boundary, colDData, lastRow) {
   // recolor the header's underline. (2026-08-03: on a multi-row range `top`
   // clears only the outer edge; the per-row lines are inner horizontals, so we
   // clear left/right/bottom/vertical/horizontal here.)
-  sheet.getRange(firstData, 1, bandRows, W).setBorder(null, false, false, false, false, false);
+  // ⭐ 2026-09-26: when the paint stops above the AMAZON divider, its last row's bottom
+  //   edge IS the divider's thick black top border — leave it alone (bottom=null).
+  sheet.getRange(firstData, 1, bandRows, W).setBorder(null, false, stopRow > 0 ? null : false, false, false, false);
 
   var boxColor  = "#c9a227";                             // brand gold — order is whole
   var splitColor = "#b71c1c";                            // alarm red — order is SPLIT
@@ -823,6 +875,7 @@ function _paintDirectOrderDividers(sheet, boundary, colDData, lastRow) {
     var drawTop = (blk.start !== firstData);
     var top     = drawTop ? (!isSplit || nth === 1) : null;
     var bottom  = (!isSplit || nth === blockCount[blk.so]);
+    if (stopRow > 0 && blk.end >= stopRow) bottom = null;   // that edge is the AMAZON band's border
 
     sheet.getRange(blk.start, 1, blk.end - blk.start + 1, boxW)
          .setBorder(top, true, bottom, true, false, false,

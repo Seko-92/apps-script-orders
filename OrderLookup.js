@@ -163,7 +163,8 @@ function _findOrderRows(normalizedQuery) {
   var nRows = lastRow - Schema.dataStartRow + 1;
   var data = sheet.getRange(Schema.dataStartRow, 1, nRows, Schema.dataWidth).getValues();
 
-  var boundaryRow = getBoundaryRow();   // sheet-row number of "DIRECT" cell, -1 if missing
+  var __tl = getTableLayout(sheet);
+  var boundaryRow = __tl.direct;   // sheet-row number of "DIRECT" cell, -1 if missing
   var hits = [];
 
   var SKU_I        = Schema.idx("SKU");
@@ -178,15 +179,14 @@ function _findOrderRows(normalizedQuery) {
   for (var i = 0; i < data.length; i++) {
     var sheetRow = Schema.dataStartRow + i;
 
-    // Skip the DIRECT boundary divider row itself
-    if (boundaryRow > 0 && sheetRow === boundaryRow) continue;
-    // Skip the DIRECT table's column-header row (row immediately after divider)
-    if (boundaryRow > 0 && sheetRow === boundaryRow + 1) continue;
+    // Skip both dividers and both table-header rows (DIRECT + AMAZON)
+    if (isStructuralRowNum(sheetRow, __tl)) continue;
 
     var soNormalized = _normalizeOrderId(data[i][SO_I]);
     if (!soNormalized || soNormalized.indexOf(normalizedQuery) === -1) continue;
 
-    var table = (boundaryRow > 0 && sheetRow > boundaryRow) ? "DIRECT" : "eBay";
+    var __t = tableOfRow(sheetRow, __tl);
+    var table = __t === "AMAZON" ? "Amazon" : (__t === "DIRECT" ? "DIRECT" : "eBay");
 
     hits.push({
       row:        sheetRow,

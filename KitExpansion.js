@@ -261,7 +261,8 @@ function previewSelectedKits(deployQty, rowsOverride) {
              kitsFound: 0, nonKitRows: [], kitRows: [], debug: { selectedRows: [] } };
   }
 
-  var boundaryRow = getBoundaryRow();   // for eBay vs DIRECT labeling
+  var __tl = getTableLayout(sheet);
+  var boundaryRow = __tl.direct;   // for eBay vs DIRECT labeling
 
   // --- Batch-read the data band so we can pull each selected row's fields ---
   var lastRow = sheet.getLastRow();
@@ -299,6 +300,10 @@ function previewSelectedKits(deployQty, rowsOverride) {
     }
     if (boundaryRow > 0 && sheetRow === boundaryRow + 1) {
       nonKitRows.push({ row: sheetRow, sku: "", reason: "DIRECT table header row" });
+      continue;
+    }
+    if (__tl.amazon > 0 && (sheetRow === __tl.amazon || sheetRow === __tl.amazon + 1)) {
+      nonKitRows.push({ row: sheetRow, sku: "", reason: "AMAZON divider / header row" });
       continue;
     }
 
@@ -349,7 +354,8 @@ function previewSelectedKits(deployQty, rowsOverride) {
       };
     });
 
-    var table = (boundaryRow > 0 && sheetRow > boundaryRow) ? "DIRECT" : "eBay";
+    var table = (__tl.amazon > 0 && sheetRow > __tl.amazon) ? "AMAZON"
+              : ((boundaryRow > 0 && sheetRow > boundaryRow) ? "DIRECT" : "eBay");
 
     // Does this kit already have expansion components on this order? Reuses the
     // sheet read we already did. See _countExistingKitComponents for why this is

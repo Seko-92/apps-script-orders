@@ -138,7 +138,7 @@ function applyOrderLinksToColumn(sheet, soCol, startRow, endRow, zohoIdMap) {
   for (var i = 0; i < n; i++) {
     var raw = String(values[i][0] || '').trim();
     if (!raw) continue;
-    if (raw.toUpperCase() === Schema.boundaryMarker) continue;
+    if (Schema.isStructuralMarker(raw)) continue;
     if (raw.charAt(0) === '◈') continue;
 
     var rtv = _orderRichText(raw, zohoIdMap);

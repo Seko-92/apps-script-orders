@@ -316,7 +316,7 @@
       var ctx = document.getElementById('ocContext');
       var html = '<span class="oc-ctx-id">' + esc(D.orderId) + '</span>';
       if (D.channel) {
-        var cls = (String(D.channel).toUpperCase() === 'DIRECT') ? 'direct' : 'ebay';
+        var cls = (String(D.channel).toUpperCase() === 'EBAY') ? 'ebay' : 'direct';   // Amazon styles like Direct
         html += '<span class="oc-badge ' + cls + '">' + esc(D.channel) + '</span>';
       }
       (D.statuses || []).forEach(function(s) { html += '<span class="oc-status-chip">' + esc(s) + '</span>'; });
@@ -353,7 +353,7 @@
       } else {
         var rh = '<table class="oc-tbl"><tr><th>SKU</th><th>Qty</th><th>Loc</th><th>Status</th><th>Shipping</th><th>Note</th></tr>';
         rows.forEach(function(r) {
-          var tb = (String(r.table).toUpperCase() === 'DIRECT') ? 'direct' : 'ebay';
+          var tb = (String(r.table).toUpperCase() === 'EBAY') ? 'ebay' : 'direct';
           rh += '<tr>'
             + '<td class="oc-mono">' + esc(r.sku) + ' <span class="oc-rowbadge ' + tb + '">' + esc(r.table) + '</span></td>'
             + '<td class="oc-mono">' + esc(r.qty) + '</td>'

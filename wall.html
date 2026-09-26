@@ -57,8 +57,8 @@ html, body { height: 100%; }
 body { background: var(--g0); color: var(--t1); font-family: var(--body); overflow: hidden; }
 .wall { height: 100dvh; display: grid;
         grid-template-rows: calc(64px + var(--safe-t)) auto 1fr;
-        grid-template-columns: 340px 1fr 1fr;
-        grid-template-areas: "hdr hdr hdr" "beacon beacon beacon" "rail ebay direct"; }
+        grid-template-columns: 340px 1fr 1fr 1fr;
+        grid-template-areas: "hdr hdr hdr hdr" "beacon beacon beacon beacon" "rail ebay direct amazon"; }
 
 /* ── HEADER ────────────────────────────────────────────────────────────── */
 /* Height GROWS by the top inset (the grid row above) while the content lane
@@ -169,7 +169,10 @@ body { background: var(--g0); color: var(--t1); font-family: var(--body); overfl
 /* ── CHANNEL COLUMNS ───────────────────────────────────────────────────── */
 .chan { min-width: 0; overflow: hidden; display: flex; flex-direction: column; min-height: 0; }
 .chan-ebay { grid-area: ebay; border-right: 1px solid var(--line); }
-.chan-direct { grid-area: direct; padding-right: var(--safe-r); }
+.chan-direct { grid-area: direct; border-right: 1px solid var(--line); }
+/* ⭐ 2026-09-26 — the third table. It is now the rightmost column, so it carries the
+   right safe-area inset that Direct used to. */
+.chan-amazon { grid-area: amazon; padding-right: var(--safe-r); }
 .chan-head { display: flex; align-items: baseline; gap: 14px; padding: 14px 24px 10px;
              border-bottom: 2px solid var(--line-brand); flex: none; }
 .chan-head h2 { font-family: var(--disp); font-weight: 600; font-size: 22px;
@@ -458,6 +461,11 @@ body { background: var(--g0); color: var(--t1); font-family: var(--body); overfl
     <ul id="listD"><li class="none">…</li></ul>
   </div>
 
+  <div class="chan chan-amazon">
+    <div class="chan-head"><h2>Amazon</h2><span class="cnt" id="cntA">—</span><span class="over" id="overA"></span></div>
+    <ul id="listA"><li class="none">…</li></ul>
+  </div>
+
 </div>
 
 <div class="restveil" id="restveil">
@@ -543,6 +551,7 @@ function fmtClock(hourFraction) {
 function inferChannel(orderId) {
   var id = String(orderId || '').trim().toUpperCase();
   if (!id) return '';
+  if (id.indexOf('AMZ-') === 0) return 'Amazon';   // ⭐ 2026-09-26 — the third table
   if (id.indexOf('SO-') === 0 || id.indexOf('INV-') === 0) return 'Direct';
   if (/^[\d][\d\-]+$/.test(id)) return 'eBay';
   return 'Direct';
@@ -821,7 +830,7 @@ function beaconCheck(rows) {
   }
   if (fresh) {
     document.getElementById('beaconBody').textContent =
-      (fresh.channel === 'DIRECT' ? 'Direct' : 'eBay') + ' · ' +
+      (wallCh(fresh) === 'AMAZON' ? 'Amazon' : (wallCh(fresh) === 'DIRECT' ? 'Direct' : 'eBay')) + ' · ' +
       (fresh.location && fresh.location !== 'NOT FOUND' ? fresh.location : 'no shelf') +
       ' · ' + fresh.orderId;
     document.getElementById('beacon').classList.add('show');
@@ -864,15 +873,16 @@ function onTick(tick) {
   var kits = tick.kits || [];
 
   // hero
-  var grab = num(c.ebayGrab) + num(c.directGrab);
+  var grab = num(c.ebayGrab) + num(c.directGrab) + num(c.amazonGrab);   // ⭐ + Amazon (2026-09-26)
   var hero = document.getElementById('heroCard');
   hero.classList.toggle('clear', grab === 0);
   document.getElementById('grabNum').textContent = grab === 0 ? '✓ clear' : grab;
   document.getElementById('grabSplit').innerHTML = grab === 0
     ? '<span>nothing waiting to be grabbed</span>'
     : '<span>eBay <b>' + num(c.ebayGrab) + '</b></span><span>Direct <b>' + num(c.directGrab) + '</b></span>' +
+      (num(c.amazonGrab) ? '<span>Amazon <b>' + num(c.amazonGrab) + '</b></span>' : '') +
       '<span style="color:var(--t3)">' +
-      Math.max(0, num(c.ebayPending) + num(c.directPending) - grab) + ' in progress</span>';
+      Math.max(0, num(c.ebayPending) + num(c.directPending) + num(c.amazonPending) - grab) + ' in progress</span>';
   document.getElementById('shareE').style.flex = String(Math.max(num(c.ebayGrab), 0.0001));
   document.getElementById('shareD').style.flex = String(Math.max(num(c.directGrab), 0.0001));
 
@@ -906,7 +916,8 @@ function onTick(tick) {
     recv > 0 ? Math.round((ship / recv) * 100) + '% of today out' : ' ';
   document.getElementById('shipBar').style.width = (recv > 0 ? Math.min(100, (ship / recv) * 100) : 0) + '%';
   document.getElementById('recvVal').textContent = recv;
-  document.getElementById('recvSub').textContent = 'eBay ' + num(c.receivedEbay) + ' · Direct ' + num(c.receivedDirect);
+  document.getElementById('recvSub').textContent = 'eBay ' + num(c.receivedEbay) + ' · Direct ' + num(c.receivedDirect) +
+    (num(c.receivedAmazon) ? ' · Amazon ' + num(c.receivedAmazon) : '');
   document.getElementById('recvBar').style.width = Math.min(100, recv) + '%';
 
   // paid
@@ -931,6 +942,7 @@ function onTick(tick) {
   // channels
   paintChannel('EBAY', 'listE', 'cntE', 'overE', rows, by, kits);
   paintChannel('DIRECT', 'listD', 'cntD', 'overD', rows, by, kits);
+  paintChannel('AMAZON', 'listA', 'cntA', 'overA', rows, by, kits);
 
   // feed
   paintFeed(c.timeline || []);
@@ -957,6 +969,12 @@ function onTick(tick) {
   firstTick = false;
 }
 
+/* ⭐ 2026-09-26 — "EBAY" | "DIRECT" | "AMAZON"; anything unrecognised reads as eBay. */
+function wallCh(r) {
+  var c = String((r && r.channel) || '').toUpperCase();
+  return (c === 'DIRECT' || c === 'AMAZON') ? c : 'EBAY';
+}
+
 function kitIndex(kits) {
   var m = {};
   for (var i = 0; i < kits.length; i++) m[kits[i].key] = kits[i];
@@ -964,7 +982,7 @@ function kitIndex(kits) {
 }
 
 function paintChannel(ch, listId, cntId, overId, rows, by, kits) {
-  var mine = rows.filter(function (r) { return (r.channel === 'DIRECT' ? 'DIRECT' : 'EBAY') === ch; });
+  var mine = rows.filter(function (r) { return wallCh(r) === ch; });
   var kIdx = kitIndex(kits);
 
   // counts + honesty
@@ -997,7 +1015,7 @@ function paintChannel(ch, listId, cntId, overId, rows, by, kits) {
     var oid = String(r.orderId || '').trim();
     if (oid !== prev) {
       var run = mine.filter(function (x) { return String(x.orderId || '').trim() === oid; });
-      if (oid && (ch === 'DIRECT' || run.length > 1)) {
+      if (oid && (ch === 'DIRECT' || ch === 'AMAZON' || run.length > 1)) {
         var chips = '';
         Object.keys(kitsPerOrder[oid] || {}).forEach(function (k) {
           var kk = kIdx[oid + '|' + k];

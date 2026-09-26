@@ -236,6 +236,10 @@ function updateOrderStatus(target, newStatus, options) {
       try { sortTableByStatusAndLocation(2); } catch (e) {
         console.log("updateOrderStatus: DIRECT sort error: " + e);
       }
+      // ⭐ 2026-09-26: the Amazon table (no-op "not on the sheet" until it exists).
+      try { sortTableByStatusAndLocation(3); } catch (e) {
+        console.log("updateOrderStatus: AMAZON sort error: " + e);
+      }
     }
 
     // 9. Optional Telegram sync — one editMessageText per unique order

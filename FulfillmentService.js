@@ -91,19 +91,22 @@ function preparePrintSheet(opts) {
 
   var ebayItems = [];
   var directItems = [];
+  var amazonItems = [];         // ⭐ 2026-09-26 — the third table
   var isDirectSection = false; // Flag to track which section we are in
+  var isAmazonSection = false;
 
   // Iterate through data rows
   for (var i = Schema.dataStartRow - 1; i < data.length; i++) {
     var row = data[i];
 
     // --- 1. DETECT SECTION SPLIT ---
-    // Substring match on the divider value (Schema.boundaryMarker = "DIRECT")
-    var rowString = row.join("||").toUpperCase();
-    if (rowString.indexOf(Schema.boundaryMarker) > -1 && rowString.length < 200) {
-      isDirectSection = true;
-      continue; // Skip the divider row itself
-    }
+    // ⭐ 2026-09-26: EXACT match on column A only. This used to substring-match the whole
+    //   joined row for "DIRECT", so an eBay row whose NOTE contained the word pushed every
+    //   row below it into the Direct section — on paper only. With a third divider the
+    //   same test would also have to avoid "AMAZON" appearing in a note.
+    var colA = String(row[Schema.idx("SKU")] || "").trim().toUpperCase();
+    if (colA === Schema.boundaryMarker) { isDirectSection = true; continue; }
+    if (colA === Schema.amazonMarker)   { isAmazonSection = true; continue; }
 
     // --- 2. CHECK STATUS ---
     var status = String(row[Schema.idx("STATUS")] || "").trim().toUpperCase();
@@ -130,7 +133,9 @@ function preparePrintSheet(opts) {
         _badgeFromFormat(soBadgeFormats[i][0]) // 9: SO badge glyph ("" if none)
       ];
 
-      if (isDirectSection) {
+      if (isAmazonSection) {
+        amazonItems.push(itemData);
+      } else if (isDirectSection) {
         directItems.push(itemData);
       } else {
         ebayItems.push(itemData);
@@ -139,7 +144,7 @@ function preparePrintSheet(opts) {
   }
 
   // Check if both are empty
-  if (ebayItems.length === 0 && directItems.length === 0) {
+  if (ebayItems.length === 0 && directItems.length === 0 && amazonItems.length === 0) {
     throw new Error("No items found with status '" + Schema.status.PREPARING + "' in the STATUS column.");
   }
 
@@ -166,14 +171,15 @@ function preparePrintSheet(opts) {
   // Values held conservative to avoid phantom "thead-only" overflow pages.
   var ROWS_PER_FIRST_PAGE = 17;
   var ROWS_PER_CONT_PAGE  = 22;
-  var estimatedPages = _estimatePageCount(ebayItems.length, directItems.length, ROWS_PER_FIRST_PAGE, ROWS_PER_CONT_PAGE);
+  var estimatedPages = _estimatePageCount(ebayItems.length, directItems.length, ROWS_PER_FIRST_PAGE, ROWS_PER_CONT_PAGE, amazonItems.length);
 
   // Compute closing-page batch metrics (KPI cards on the audit page)
-  var metrics = _computeBatchMetrics(ebayItems, directItems);
+  var metrics = _computeBatchMetrics(ebayItems, directItems, amazonItems);
 
   var htmlTemplate = HtmlService.createTemplateFromFile('PrintFulfillment');
   htmlTemplate.ebayItems = ebayItems;
   htmlTemplate.directItems = directItems;
+  htmlTemplate.amazonItems = amazonItems;
   // SO → customer map (best-effort) so the print's per-order section headers can
   // show the customer name, not just the SO number. Empty {} if Pending is absent.
   htmlTemplate.directCustomers = _buildDirectCustomerMap();
@@ -200,14 +206,15 @@ function preparePrintSheet(opts) {
   // Activity Log: PRINTED event captures who printed and the batch shape.
   // Best-effort — a logging failure must never block the modal.
   try {
-    var totalItems = ebayItems.length + directItems.length;
+    var totalItems = ebayItems.length + directItems.length + amazonItems.length;
     logActivity(
       "PRINTED",
       "",                                                    // no single orderId for a batch
       "",                                                    // no SKU
       totalItems,                                            // qty = batch size
       "sidebar",                                             // source (warehouse-side, captures picker)
-      "eBay: " + ebayItems.length + " · Direct: " + directItems.length + " · Doc: " + docNumber
+      "eBay: " + ebayItems.length + " · Direct: " + directItems.length +
+        (amazonItems.length ? " · Amazon: " + amazonItems.length : "") + " · Doc: " + docNumber
       // picker auto-captured from G2 because source is 'sidebar' (warehouse-side)
     );
   } catch (logErr) { /* swallow — print must proceed */ }
@@ -222,6 +229,7 @@ function preparePrintSheet(opts) {
       docNumber: docNumber,
       ebay: ebayItems.length,
       direct: directItems.length,
+      amazon: amazonItems.length,
       picker: pickIdShipping
     };
   }
@@ -302,13 +310,13 @@ function markSelectedPreparing() {
   //   a DIFFERENT one, and n8n inserts at the top of the sheet all day. That is the
   //   2026-05-08 / 2026-08-21 row-shift class, twice bitten here.
   var span = sheet.getRange(startRow, 1, numRows, Schema.dataWidth).getValues();
-  var boundary = -1;
-  try { boundary = getBoundaryRow(); } catch (e) {}
+  var __tl = null;
+  try { __tl = getTableLayout(sheet); } catch (e) {}
 
   var pairs = [];
   for (var i = 0; i < span.length; i++) {
     var row = startRow + i;
-    if (boundary > 0 && (row === boundary || row === boundary + 1)) continue;
+    if (isStructuralRowNum(row, __tl)) continue;
     var sku = String(span[i][Schema.idx("SKU")] || "").trim();
     var so  = String(span[i][Schema.idx("SALES_ORDER")] || "").trim();
     if (sku && so) pairs.push({ orderId: so, sku: sku });
@@ -370,7 +378,7 @@ function _extractPickIdData(raw) {
  * Matches the row-fill logic in PrintFulfillment.html so the page count shown
  * in the running header is accurate.
  */
-function _estimatePageCount(ebayCount, directCount, firstCap, contCap) {
+function _estimatePageCount(ebayCount, directCount, firstCap, contCap, amazonCount) {
   function pagesFor(count) {
     if (count <= 0) return 0;
     if (count <= firstCap) return 1;
@@ -378,7 +386,7 @@ function _estimatePageCount(ebayCount, directCount, firstCap, contCap) {
   }
   var ebayPages   = pagesFor(ebayCount);
   var directPages = pagesFor(directCount);
-  var total = ebayPages + directPages;
+  var total = ebayPages + directPages + pagesFor(amazonCount || 0);
   return Math.max(1, total);
 }
 
@@ -416,8 +424,9 @@ function _buildDirectCustomerMap() {
  *   [0] SKU · [1] QTY · [2] LOC · [3] ORDER · [4] NOTE
  *   [5] HAND · [6] LEFT · [7] SHIPPING · [8] SHIP COST
  */
-function _computeBatchMetrics(ebayItems, directItems) {
-  var allItems = ebayItems.concat(directItems);
+function _computeBatchMetrics(ebayItems, directItems, amazonItems) {
+  amazonItems = amazonItems || [];
+  var allItems = ebayItems.concat(directItems).concat(amazonItems);
 
   // Sum of all QTY values — distinct from item count when QTY > 1
   var totalQty = allItems.reduce(function(sum, item) {
@@ -454,6 +463,7 @@ function _computeBatchMetrics(ebayItems, directItems) {
   return {
     ebayCount:         ebayItems.length,
     directCount:       directItems.length,
+    amazonCount:       amazonItems.length,
     totalItems:        allItems.length,
     totalQty:          totalQty,
     distinctSkus:      distinctSkus,

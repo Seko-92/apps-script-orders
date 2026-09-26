@@ -247,7 +247,7 @@ function _webFindKitRows(sheet) {
 
   for (var i = 0; i < data.length; i++) {
     var sku = String(data[i][SKU_I] || "").trim();
-    if (!sku || sku.toUpperCase() === Schema.boundaryMarker) continue;
+    if (!sku || Schema.isStructuralMarker(sku)) continue;
     if (!kitMap.get(sku)) continue;
 
     var status = String(data[i][ST_I] || "").trim().toUpperCase();

@@ -562,6 +562,11 @@ function getTodayMetrics() {
  */
 // Classify an order id as Direct vs eBay — mirrors the Floor Board's
 // inferChannel(): SO-/INV- prefixes and any non eBay-digit-dash id are Direct.
+/** ⭐ 2026-09-26: an Amazon order carries the AMZ- prefix (see Schema.amazonOrderPrefix). */
+function _floorOrderIsAmazon(orderId) {
+  return String(orderId || "").trim().toUpperCase().indexOf(Schema.amazonOrderPrefix) === 0;
+}
+
 function _floorOrderIsDirect(orderId) {
   var u = String(orderId || "").trim().toUpperCase();
   if (!u) return false;                                  // unknown → count with eBay so the split sums to the total
@@ -659,6 +664,7 @@ function getDashboardSnapshot() {
     receivedToday: 0,
     receivedEbay: 0,    // today's intake split by channel (Received-card breakdown)
     receivedDirect: 0,
+    receivedAmazon: 0,  // ⭐ 2026-09-26 — AMZ- orders (counted separately, not as Direct)
     oldestPendingMinutes: null,
     pastRedlineCount: 0,    // # of PENDING orders aged past the 3h redline
     orderAgeMin: {},        // orderId → age in minutes, OPEN orders only (board "by age" sort)
@@ -666,8 +672,10 @@ function getDashboardSnapshot() {
     lastSyncMinutes: null,
     ebayPending: 0,
     directPending: 0,
+    amazonPending: 0,
     ebayGrab: 0,
     directGrab: 0,
+    amazonGrab: 0,
     zohoPending: 0,
     prepQueueCount: 0,
     /* ⭐ SKU → the Zoho stock push made TODAY (2026-08-18, floor report).
@@ -742,7 +750,8 @@ function getDashboardSnapshot() {
               result.receivedToday++;
               // channel by order-id shape (mirrors the board's inferChannel);
               // anything not a clean eBay digit-dash id counts as Direct.
-              if (_floorOrderIsDirect(orderId)) result.receivedDirect++;
+              if (_floorOrderIsAmazon(orderId)) result.receivedAmazon++;
+              else if (_floorOrderIsDirect(orderId)) result.receivedDirect++;
               else result.receivedEbay++;
             }
             else if (event === "SHIPPED") result.shippedToday++;
@@ -816,6 +825,7 @@ function getDashboardSnapshot() {
 
         var oldestMs = null;
         var boundaryArrayIdx = -1;   // index in mainData where col A == "DIRECT"
+        var amazonArrayIdx = -1;     // ⭐ 2026-09-26: index where col A == "AMAZON"
 
         for (var j = 0; j < mainData.length; j++) {
           var skuCell = String(mainData[j][Schema.idx("SKU")] || "").trim().toUpperCase();
@@ -827,13 +837,17 @@ function getDashboardSnapshot() {
           }
           // DIRECT header row sits immediately after the boundary — skip it
           if (boundaryArrayIdx !== -1 && j === boundaryArrayIdx + 1) continue;
+          if (skuCell === Schema.amazonMarker) { amazonArrayIdx = j; continue; }
+          if (amazonArrayIdx !== -1 && j === amazonArrayIdx + 1) continue;
+          var inAmazon = (amazonArrayIdx !== -1 && j > amazonArrayIdx);
 
           var status = String(mainData[j][Schema.idx("STATUS")] || "").trim().toUpperCase();
           var inDirect = (boundaryArrayIdx !== -1 && j > boundaryArrayIdx);
 
           // Queue-strip counts: PENDING + PREPARING = "workload waiting"
           if (status === Schema.status.PENDING || status === Schema.status.PREPARING) {
-            if (inDirect) result.directPending++;
+            if (inAmazon) result.amazonPending++;
+            else if (inDirect) result.directPending++;
             else result.ebayPending++;
 
             // Per-order AGE, so the Floor Board can offer a "by age" walk
@@ -856,7 +870,8 @@ function getDashboardSnapshot() {
           // the Pending-SO mirror), so the number reflects real pick work.
           if (status !== Schema.status.PENDING) continue;
           result.pendingCount++;
-          if (inDirect) result.directGrab++;
+          if (inAmazon) result.amazonGrab++;
+          else if (inDirect) result.directGrab++;
           else result.ebayGrab++;
           var oid = String(mainData[j][Schema.idx("SALES_ORDER")] || "").trim();
           if (oid && receivedMap[oid]) {

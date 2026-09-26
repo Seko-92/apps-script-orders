@@ -225,7 +225,7 @@ function _buildDashboardTick() {
     // Per-channel totals before the cap, so each SECTION can report its own
     // "+N more" instead of one pooled number that hides which half was cut.
     // Same array-property lifting problem as `total` above.
-    openOrdersBy: (openOrders && openOrders.byChannel) || { EBAY: 0, DIRECT: 0 },
+    openOrdersBy: (openOrders && openOrders.byChannel) || { EBAY: 0, DIRECT: 0, AMAZON: 0 },
     // Kits in progress — same lifting problem as `total` above.
     kits:       (openOrders && openOrders.kits) || [],
     // Held orders, open AND shipped-but-not-yet-collected. Same array-property
@@ -593,7 +593,7 @@ function _dashOpenOrders() {
   var kitTot = {}, kitDone = {}, kitLeft = {}, kitMeta = {};
   for (var p = 0; p < data.length; p++) {
     var pSku = String(data[p][Schema.idx("SKU")] || "").trim();
-    if (pSku.toUpperCase() === Schema.boundaryMarker) continue;
+    if (Schema.isStructuralMarker(pSku)) continue;
     if (!pSku) continue;
     var pStatus = String(data[p][Schema.idx("STATUS")] || "").trim().toUpperCase();
     var pOpen   = (pStatus === Schema.status.PENDING ||
@@ -648,10 +648,12 @@ function _dashOpenOrders() {
   var out = [];
   var paidCount = 0;
   var inDirect = false;
+  var inAmazon = false;   // ⭐ 2026-09-26: the AMAZON divider (always below DIRECT)
   for (var i = 0; i < data.length; i++) {
     var sku = String(data[i][Schema.idx("SKU")] || "").trim();
     // Boundary divider (col A == "DIRECT") flips us onto the DIRECT side.
     if (sku.toUpperCase() === Schema.boundaryMarker) { inDirect = true; continue; }
+    if (sku.toUpperCase() === Schema.amazonMarker) { inAmazon = true; continue; }
     if (!sku) continue;
     var status = String(data[i][Schema.idx("STATUS")] || "").trim().toUpperCase();
 
@@ -688,7 +690,7 @@ function _dashOpenOrders() {
     if (isKitParent && expandedOf[kitKey] > 0 && parentsOf[kitKey] === 1) continue;
 
     var row = {
-      channel:  inDirect ? "DIRECT" : "EBAY",
+      channel:  inAmazon ? "AMAZON" : (inDirect ? "DIRECT" : "EBAY"),
       orderId:  orderId,
       sku:      sku,
       qty:      data[i][Schema.idx("QTY")],
@@ -788,7 +790,8 @@ function _dashOpenOrders() {
   capped.paidCount = paidCount;     // before JSON serialisation drops them
   capped.kits      = kits;
   capped.byChannel = { EBAY:   _dashCountChannel(out, "EBAY"),
-                       DIRECT: _dashCountChannel(out, "DIRECT") };
+                       DIRECT: _dashCountChannel(out, "DIRECT"),
+                       AMAZON: _dashCountChannel(out, "AMAZON") };
   // ⚠ HELD ORDERS — INCLUDING SHIPPED ONES, which is the point (2026-08-21).
   // Everything above this line filtered to PENDING/PREPARING, so the moment a
   // label was bought the order stopped existing as far as the board was
@@ -867,15 +870,16 @@ function _dashCompareShelf(la, lb) {
  * @returns {number}
  */
 function _dashComparePickRows(a, b) {
-  var ca = (a.channel === "DIRECT") ? 1 : 0;
-  var cb = (b.channel === "DIRECT") ? 1 : 0;
-  if (ca !== cb) return ca - cb;          // eBay block, then DIRECT block
+  // ⭐ 2026-09-26: eBay block, then DIRECT, then AMAZON — the sheet's own order.
+  var ca = _dashChannelRank(a.channel);
+  var cb = _dashChannelRank(b.channel);
+  if (ca !== cb) return ca - cb;
 
   var idA = String(a.orderId || "").trim();
   var idB = String(b.orderId || "").trim();
 
-  if (ca === 1) {
-    // DIRECT — keep an order's lines together, in SO order (oldest first, and
+  if (ca >= 1) {
+    // DIRECT (and AMAZON, same shape) — keep an order's lines together, in SO order (oldest first, and
     // deterministic). The accordion works one box at a time, so age beats
     // walk order here.
     if (!idA && idB) return 1;            // an SO-less row sinks
@@ -936,6 +940,18 @@ function _dashSetOrderAnchors(rows) {
 }
 
 
+/** "EBAY" | "DIRECT" | "AMAZON" — anything unrecognised reads as eBay (today's default). */
+function _dashChannelOf(row) {
+  var c = String((row && row.channel) || "").toUpperCase();
+  return (c === "DIRECT" || c === "AMAZON") ? c : "EBAY";
+}
+
+/** Sort rank of a channel: eBay 0 · Direct 1 · Amazon 2. */
+function _dashChannelRank(ch) {
+  var c = String(ch || "").toUpperCase();
+  return c === "AMAZON" ? 2 : (c === "DIRECT" ? 1 : 0);
+}
+
 /**
  * Cap EACH channel independently.
  *
@@ -954,9 +970,9 @@ function _dashSetOrderAnchors(rows) {
  * @returns {Array<Object>}
  */
 function _dashCapPerChannel(rows, cap) {
-  var kept = [], seen = { EBAY: 0, DIRECT: 0 };
+  var kept = [], seen = { EBAY: 0, DIRECT: 0, AMAZON: 0 };
   for (var i = 0; i < rows.length; i++) {
-    var ch = (rows[i].channel === "DIRECT") ? "DIRECT" : "EBAY";
+    var ch = _dashChannelOf(rows[i]);
     if (seen[ch] >= cap) continue;
     seen[ch]++;
     kept.push(rows[i]);
@@ -976,7 +992,7 @@ function _dashCapPerChannel(rows, cap) {
 function _dashCountChannel(rows, channel) {
   var n = 0;
   for (var i = 0; i < rows.length; i++) {
-    var ch = (rows[i].channel === "DIRECT") ? "DIRECT" : "EBAY";
+    var ch = _dashChannelOf(rows[i]);
     if (ch === channel) n++;
   }
   return n;

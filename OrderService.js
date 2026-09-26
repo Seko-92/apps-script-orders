@@ -1523,7 +1523,8 @@ function manualReceiveOnEdit(e) {
     console.log("manualReceiveOnEdit: range=" + e.range.getA1Notation() +
                 " rows=" + numRows + " cols=" + numCols);
 
-    var boundary = getBoundaryRow();
+    var __tl = getTableLayout(sheet);
+    var boundary = __tl.direct;
     var isSingleCell = (numRows === 1 && numCols === 1);
 
     // Cols A..G per row. Both identity halves are read from the ROW, never from
@@ -1536,7 +1537,7 @@ function manualReceiveOnEdit(e) {
       var row = startRow + i;
       if (row < Schema.dataStartRow) continue;
       // Skip boundary divider + DIRECT header row
-      if (boundary > 0 && (row === boundary || row === boundary + 1)) continue;
+      if (isStructuralRowNum(row, __tl)) continue;
 
       var rowCtx = contextValues[i];
       var sku = String(rowCtx[Schema.idx("SKU")] || "").trim();
@@ -1554,7 +1555,8 @@ function manualReceiveOnEdit(e) {
 
       // Tag DETAIL with the originating table so logs are readable at a glance.
       var inEbayTable = (boundary <= 0) || (row < boundary);
-      var origin = inEbayTable ? "eBay manual (replacement)" : "DIRECT manual";
+      var origin = inEbayTable ? "eBay manual (replacement)"
+                 : ((__tl.amazon > 0 && row > __tl.amazon) ? "AMAZON manual" : "DIRECT manual");
 
       // Slots: [event, orderId, sku, qty, source, detail, picker?, note]
       batch.push([
@@ -1675,7 +1677,8 @@ function noteEditOnEdit(e) {
     var noteColInRange = Schema.cols.NOTE - startCol;
     if (noteColInRange < 0 || noteColInRange >= numCols) return;
 
-    var boundary = getBoundaryRow();
+    var __tl = getTableLayout(sheet);
+    var boundary = __tl.direct;
     var isSingleCell = (numRows === 1 && numCols === 1);
 
     var rangeValues = e.range.getValues();
@@ -1687,7 +1690,7 @@ function noteEditOnEdit(e) {
     for (var i = 0; i < numRows; i++) {
       var row = startRow + i;
       if (row < Schema.dataStartRow) continue;
-      if (boundary > 0 && (row === boundary || row === boundary + 1)) continue;
+      if (isStructuralRowNum(row, __tl)) continue;
 
       var newNote = String(rangeValues[i][noteColInRange] || "").trim();
 
@@ -2000,9 +2003,14 @@ function _compareDirectRows(a, b, soRank) {
 function sortTableByStatusAndLocation(tableNumber) {
   var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   var sheet = ss.getSheetByName(MAIN_SHEET_NAME);
-  var boundary = getBoundaryRow();
-  var startRow = (tableNumber === 1) ? Schema.dataStartRow : boundary + 2;
-  var endRow = (tableNumber === 1) ? boundary - 1 : sheet.getLastRow();
+  // ⭐ 2026-09-26: three tables. Direct used to sort "DIRECT+2 → last row", which with the
+  //   Amazon table below it would drag Amazon's rows AND its divider into the Direct sort.
+  //   The segment comes from getTableLayout(); table 3 (Amazon) sorts like Direct.
+  var layout = getTableLayout(sheet);
+  var seg = _tableSegment(tableNumber, layout);
+  if (!seg) return "Table is not on the sheet.";
+  var startRow = seg.start;
+  var endRow = Math.min(seg.end, sheet.getLastRow());
   var lastDataRow = findLastDataRowInSegment(startRow, endRow);
   if (lastDataRow < startRow) return "Table is empty.";
   var numRows = lastDataRow - startRow + 1;
@@ -2035,8 +2043,8 @@ function sortTableByStatusAndLocation(tableNumber) {
   var indexed = data.map(function(row, i) {
     return { values: row, formats: formats[i], rich: skuRich[i][0], soRich: soRich[i][0] };
   });
-  if (tableNumber === 2) {
-    // DIRECT is ORDER-CENTRIC: whole SALES ORDER groups move as units, ordered by
+  if (tableNumber === 2 || tableNumber === 3) {
+    // DIRECT (and AMAZON, same shape) is ORDER-CENTRIC: whole SALES ORDER groups move as units, ordered by
     // the most urgent row inside each (so shipped orders sink to the bottom the way
     // shipped rows do on eBay), then status + aisle within the order. The group rank
     // is what keeps a half-shipped order from splitting into two gold boxes — see
@@ -2094,6 +2102,9 @@ function sortDirectTable() {
   //   where doPost executes as the OWNER — see OwnerBridge.js.
   if (!_obIsOwner()) return _asOwner('sortDirectTable', []);
  return sortTableByStatusAndLocation(2); }
+function sortAmazonTable() {
+  if (!_obIsOwner()) return _asOwner('sortAmazonTable', []);
+  return sortTableByStatusAndLocation(3); }
 
 function refreshProDashboard() {
   // Stats banner (G1) refresh. The date in B1 auto-updates via the
@@ -2375,7 +2386,7 @@ function getItemsFromSheet(orderId) {
 
   for (var i = 0; i < data.length; i++) {
     // Skip the DIRECT boundary row
-    if (String(data[i][Schema.idx("SKU")]).trim().toUpperCase() === Schema.boundaryMarker) continue;
+    if (Schema.isStructuralMarker(data[i][Schema.idx("SKU")])) continue;
 
     if (String(data[i][Schema.idx("SALES_ORDER")]).trim() === cleanOrderId) {
       items.push({

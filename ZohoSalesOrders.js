@@ -874,6 +874,9 @@ function _insertAddedItemsToDirect(sheet, soNumber, lineItems, noteOverride, det
 
   try {
     var templateRow = insertRow + newRows.length;
+    // ⭐ 2026-09-26: with an EMPTY Direct table and no buffer, the row below the insert is
+    //   the AMAZON divider — never copy its band format onto order rows.
+    if (Schema.isStructuralMarker(sheet.getRange(templateRow, 1).getValue())) templateRow = Schema.dataStartRow;
     sheet.getRange(templateRow, 1, 1, Schema.dataWidth).copyFormatToRange(
       sheet, 1, Schema.dataWidth,
       insertRow, insertRow + newRows.length - 1

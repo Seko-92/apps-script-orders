@@ -239,7 +239,11 @@ function _igScanRows(data, boundary) {
 
   for (var i = 0; i < data.length; i++) {
     var rowNum = Schema.dataStartRow + i;
-    if (boundary > 0 && (rowNum === boundary || rowNum === boundary + 1)) continue;
+    // ⭐ 2026-09-26: `boundary` may be the DIRECT row number (legacy) OR a
+    //   getTableLayout() object, which also knows the AMAZON divider + header.
+    if (boundary && typeof boundary === "object") {
+      if (isStructuralRowNum(rowNum, boundary)) continue;
+    } else if (boundary > 0 && (rowNum === boundary || rowNum === boundary + 1)) continue;
 
     var r = data[i];
     var sku    = String(r[Schema.idx("SKU")] || "").trim();
@@ -468,7 +472,7 @@ function runIdentityReconcile() {
   var data = sheet.getRange(Schema.dataStartRow, 1, n, Schema.dataWidth).getValues();
 
   var boundary = -1;
-  try { boundary = getBoundaryRow(); } catch (e) { boundary = -1; }
+  try { boundary = getTableLayout(sheet); } catch (e) { boundary = -1; }
 
   var scan  = _igScanRows(data, boundary);
   var known = _igKnownFromLog(ss);
@@ -847,7 +851,7 @@ function diagnoseIdentityFlags() {
   var data = sheet.getRange(Schema.dataStartRow, 1, n, Schema.dataWidth).getValues();
 
   var boundary = -1;
-  try { boundary = getBoundaryRow(); } catch (e) { boundary = -1; }
+  try { boundary = getTableLayout(sheet); } catch (e) { boundary = -1; }
 
   var scan  = _igScanRows(data, boundary);
   var known = _igKnownFromLog(ss);
@@ -984,7 +988,7 @@ function diagnoseIdentityCF() {
   var n = lastRow - Schema.dataStartRow + 1;
   var data = sheet.getRange(Schema.dataStartRow, 1, n, Schema.dataWidth).getValues();
   var boundary = -1;
-  try { boundary = getBoundaryRow(); } catch (e) {}
+  try { boundary = getTableLayout(sheet); } catch (e) {}
   var scan = _igScanRows(data, boundary);
 
   var target = null;

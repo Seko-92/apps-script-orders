@@ -268,10 +268,12 @@ function holdScanRows(data) {
   var byOrder = {};
   var order = [];
   var inDirect = false;
+  var inAmazon = false;   // ⭐ 2026-09-26
 
   for (var i = 0; i < data.length; i++) {
     var sku = String(data[i][Schema.idx("SKU")] || "").trim();
     if (sku.toUpperCase() === Schema.boundaryMarker) { inDirect = true; continue; }
+    if (sku.toUpperCase() === Schema.amazonMarker) { inAmazon = true; continue; }
     if (!sku) continue;
 
     var status = String(data[i][Schema.idx("STATUS")] || "").trim().toUpperCase();
@@ -289,7 +291,7 @@ function holdScanRows(data) {
     if (!byOrder[oid]) {
       byOrder[oid] = {
         orderId: oid,
-        channel: inDirect ? "DIRECT" : "EBAY",
+        channel: inAmazon ? "AMAZON" : (inDirect ? "DIRECT" : "EBAY"),
         note:    note,
         acked:   holdNoteHasAck(note),
         ackText: holdNoteAckText(note),

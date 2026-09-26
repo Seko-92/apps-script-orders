@@ -286,6 +286,8 @@ function _oaRollUpOrders(events, dayOf) {
  * which loads this file alone.
  */
 function _oaChannelOf(orderId) {
+  // ⭐ 2026-09-26 — the third table. AMZ- orders archive as AMAZON, not DIRECT.
+  if (String(orderId || "").trim().toUpperCase().indexOf("AMZ-") === 0) return "AMAZON";
   if (typeof _floorOrderIsDirect === "function") {
     return _floorOrderIsDirect(orderId) ? "DIRECT" : "eBay";
   }

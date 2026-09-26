@@ -596,6 +596,18 @@ var TG_ROUTES = {
     }
   },
 
+  "/amazon": {
+    help:  "add an Amazon order to the Amazon table",
+    usage: "<order#> <sku> [qty] [<sku> [qty] …] [by <date>] [note <text>]",
+    run: function (argStr) {
+      if (!argStr) {
+        return "Usage: /amazon <order#> <sku> [qty] [<sku> [qty] …] [by <date>] [note <text>]\n" +
+               "Example: /amazon 114-3941689-8772232 167517 2 171378 by 9/29";
+      }
+      return _tgAmazonPreview(argStr);
+    }
+  },
+
   "/note": {
     help:  "pin a note to an order — shows on the Floor Board",
     usage: "<order> <text>",
@@ -684,6 +696,14 @@ var TG_ACTIONS = {
   "rline": {
     toast: "Adding…",
     run: function (token) { return _tgReplacementApply(token); }
+  },
+  "amz": {
+    toast: "Adding…",
+    run: function (token) { return _tgAmazonApply(token); }
+  },
+  "amzcancel": {
+    toast: "Cancelled",
+    run: function () { return "✖ Cancelled — nothing was added to the sheet."; }
   },
   "rlcancel": {
     toast: "Cancelled",
@@ -892,6 +912,70 @@ function _tgReplacementApply(token) {
 }
 
 
+// =======================================================================================
+// /amazon — THE AMAZON DOOR (2026-09-26). Same two-step shape as /missing: the card
+// confirms, the button commits, the payload rides the SCRIPT cache under a short token
+// (callback_data caps at 64 bytes), and addAmazonOrder re-validates from scratch at
+// apply time so a double-tap is refused by the duplicate guard.
+// =======================================================================================
+
+/** Build the confirmation card for /amazon. */
+function _tgAmazonPreview(argStr) {
+  var a = _amzParseCommand(argStr);
+  if (!a.orderId || !a.lines.length) {
+    return "Usage: /amazon <order#> <sku> [qty] [<sku> [qty] …] [by <date>] [note <text>]";
+  }
+  var p = previewAmazonOrder(a.orderId, a.lines, a.shipBy, a.note);
+  if (!p.ok) return "⚠ " + p.error;
+
+  var token = Utilities.getUuid().replace(/-/g, "").slice(0, 10);
+  try {
+    CacheService.getScriptCache().put("amz:" + token,
+      JSON.stringify({ orderId: p.clean.orderId, lines: p.lines.map(function (l) {
+        return { sku: l.sku, qty: l.qty }; }), shipBy: a.shipBy, note: a.note }),
+      TG_REPLACEMENT_CACHE_SEC);
+  } catch (e) {
+    return "⚠ Could not stage that order (cache unavailable) — try again.";
+  }
+
+  var L = ["🟧 AMAZON ORDER  " + p.clean.salesOrder, ""];
+  p.lines.forEach(function (l) {
+    L.push("  " + l.qty + "× " + l.sku +
+           (l.location && l.location !== "NOT FOUND" ? "   " + l.location : "   ⚠ no shelf") +
+           "   (on hand " + l.hand + ")");
+  });
+  L.push("");
+  L.push("Note: " + p.clean.note);
+  if (p.warnings.length) { L.push(""); p.warnings.forEach(function (w) { L.push("⚠ " + w); }); }
+  L.push("");
+  L.push("It lands in the AMAZON table as PENDING. Confirm the shipment in Seller Central when it leaves.");
+  return {
+    text: L.join("\n"),
+    buttons: [[
+      { text: "✅ Add order", data: "amz:" + token },
+      { text: "✖ Cancel",    data: "amzcancel:" + token }
+    ]]
+  };
+}
+
+/** Commit the staged order. Called from the button tap. */
+function _tgAmazonApply(token) {
+  var raw;
+  try { raw = CacheService.getScriptCache().get("amz:" + String(token || "").trim()); }
+  catch (e) { return "⚠ Could not read the staged order — re-run the command."; }
+  if (!raw) return "⏳ That card expired (30 min) — re-run /amazon.";
+  var d;
+  try { d = JSON.parse(raw); } catch (e2) { return "⚠ The staged order was unreadable — re-run /amazon."; }
+
+  var r = addAmazonOrder(d.orderId, d.lines, d.shipBy, d.note, "telegram");
+  if (!r || !r.ok) return "⚠ " + ((r && r.message) || "Could not add that order.");
+  try { CacheService.getScriptCache().remove("amz:" + token); } catch (_) {}
+  var out = [r.message];
+  if (r.warnings && r.warnings.length) { out.push(""); r.warnings.forEach(function (w) { out.push("⚠ " + w); }); }
+  return out.join("\n");
+}
+
+
 /** Render a Part dossier as a chat message. Reuses getPartData() unchanged. */
 function _tgFormatPart(query) {
   var res = getPartData(query);
@@ -987,8 +1071,9 @@ function _tgFormatStatus() {
   var L = [];
   L.push("📊 HQ · RIGHT NOW");
   L.push("");
-  L.push("🛒 To grab: " + _tgNum(s.ebayGrab != null ? s.ebayGrab + (s.directGrab || 0) : s.pendingCount) +
-         "   (eBay " + _tgNum(s.ebayGrab) + " · Direct " + _tgNum(s.directGrab) + ")");
+  L.push("🛒 To grab: " + _tgNum(s.ebayGrab != null ? s.ebayGrab + (s.directGrab || 0) + (s.amazonGrab || 0) : s.pendingCount) +
+         "   (eBay " + _tgNum(s.ebayGrab) + " · Direct " + _tgNum(s.directGrab) +
+         (s.amazonGrab ? " · Amazon " + _tgNum(s.amazonGrab) : "") + ")");
 
   if (s.oldestPendingMinutes != null && s.oldestPendingMinutes >= 0) {
     var m = s.oldestPendingMinutes;

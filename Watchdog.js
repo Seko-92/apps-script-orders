@@ -265,11 +265,14 @@ function _gatherStragglers(maps) {
     var ST_I  = Schema.idx("STATUS");
 
     var boundaryIdx = -1;
+    var amazonIdx = -1;   // ⭐ 2026-09-26: the AMAZON divider (below DIRECT)
     for (var j = 0; j < data.length; j++) {
       var skuCell = String(data[j][SKU_I] || "").trim();
 
       if (skuCell.toUpperCase() === Schema.boundaryMarker) { boundaryIdx = j; continue; }
       if (boundaryIdx !== -1 && j === boundaryIdx + 1) continue;   // DIRECT header
+      if (skuCell.toUpperCase() === Schema.amazonMarker) { amazonIdx = j; continue; }
+      if (amazonIdx !== -1 && j === amazonIdx + 1) continue;       // AMAZON header
       if (!skuCell) continue;
 
       rows.push({
@@ -279,6 +282,7 @@ function _gatherStragglers(maps) {
         note:     String(data[j][NOTE_I] || ""),
         status:   String(data[j][ST_I]   || "").trim().toUpperCase(),
         inDirect: (boundaryIdx !== -1 && j > boundaryIdx),
+        inAmazon: (amazonIdx !== -1 && j > amazonIdx),
         arrIdx:   j
       });
     }
@@ -305,7 +309,7 @@ function _gatherStragglers(maps) {
       out.redline.push({
         key:     "rl:" + row.so,
         orderId: row.so,
-        channel: row.inDirect ? "Direct" : "eBay",
+        channel: row.inAmazon ? "Amazon" : (row.inDirect ? "Direct" : "eBay"),
         ageMin:  ageMin,
         sku:     row.sku,
         loc:     row.loc

@@ -123,11 +123,14 @@ function getSingleLocation(sku) {
 function updateAllExistingRows(tableNumber) {
   var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   var sheet = ss.getSheetByName(MAIN_SHEET_NAME);
-  var boundary = getBoundaryRow();
-  
-  // startRow: Table 1 starts at row 4. Table 2 starts 2 rows after the "Direct" title.
-  var startRow = (tableNumber === 2) ? boundary + 2 : Schema.dataStartRow;
-  var endRow = (tableNumber === 1) ? boundary - 2 : sheet.getLastRow();
+  // ⭐ 2026-09-26: three tables. Table 2 used to run to the last row of the sheet, which
+  //   with the Amazon table below would write "NOT FOUND" into the AMAZON divider row.
+  var layout = getTableLayout(sheet);
+  var seg = _tableSegment(tableNumber, layout);
+  if (!seg) return "Table is not on the sheet.";
+  var startRow = seg.start;
+  // (eBay keeps its historical end of DIRECT-2; the others stop at their segment end.)
+  var endRow = (tableNumber === 1) ? layout.direct - 2 : Math.min(seg.end, sheet.getLastRow());
 
   var lastDataRow = findLastDataRowInSegment(startRow, endRow);
 
@@ -151,7 +154,7 @@ function updateAllExistingRows(tableNumber) {
     // --- THE HEADER SHIELD ---
     // Skip row if: Empty, is the Table Title, OR contains the word "SKU"
     if (sku === "" ||
-        sku === Schema.boundaryMarker.toLowerCase() ||
+        Schema.isStructuralMarker(sku) ||
         rawSku.includes("SKU")) {
       continue;
     }

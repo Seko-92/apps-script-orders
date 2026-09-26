@@ -995,7 +995,7 @@
           </div>
           <div class="rh-meta-cell is-page">
             <span class="lbl">Total</span>
-            <span class="val"><?= ebayItems.length + directItems.length ?> items</span>
+            <span class="val"><?= ebayItems.length + directItems.length + amazonItems.length ?> items</span>
           </div>
         </div>
       </div>
@@ -1018,7 +1018,7 @@
     <!-- ===== STATS STRIP (screen only) ===== -->
     <div class="stats-strip">
       <div class="stat-block is-total">
-        <div class="stat-num"><?= ebayItems.length + directItems.length ?></div>
+        <div class="stat-num"><?= ebayItems.length + directItems.length + amazonItems.length ?></div>
         <div class="stat-lbl">Total Items</div>
       </div>
       <div class="stat-block">
@@ -1029,6 +1029,12 @@
         <div class="stat-num"><?= directItems.length ?></div>
         <div class="stat-lbl">Direct</div>
       </div>
+      <? if (amazonItems.length > 0) { ?>
+      <div class="stat-block">
+        <div class="stat-num"><?= amazonItems.length ?></div>
+        <div class="stat-lbl">Amazon</div>
+      </div>
+      <? } ?>
     </div>
 
     <!-- ===== EBAY TABLE ===== -->
@@ -1128,7 +1134,7 @@
           <? } ?>
         </tbody>
       </table>
-      <? if (directItems.length > 0) { ?>
+      <? if (directItems.length > 0 || amazonItems.length > 0) { ?>
         <div style="page-break-after:always;"></div>
       <? } ?>
     <? } ?>
@@ -1202,6 +1208,79 @@
       </table>
     <? } ?>
 
+    <? if (directItems.length > 0 && amazonItems.length > 0) { ?>
+      <div style="page-break-after:always;"></div>
+    <? } ?>
+
+    <!-- ===== AMAZON TABLE (third table, added 2026-09-26) ===== -->
+    <? if (amazonItems.length > 0) { ?>
+      <div class="section-head">
+        <span class="section-head-title">Amazon Orders</span>
+        <span class="section-head-count"><?= amazonItems.length ?> Items · Pick · Confirm shipment in Seller Central</span>
+      </div>
+      <table id="amazon-table">
+        <thead>
+          <!-- Per-page writable adjustment field (repeats on every page via thead).
+               colspan 8 clamps to the actual column count. -->
+          <tr class="adj-row">
+            <th colspan="8" class="adj-cell">
+              <span class="adj-inner">
+                <span class="adj-label">ID FOR ADJUSTMENT</span>
+                <span class="adj-blank"></span>
+              </span>
+            </th>
+          </tr>
+          <tr>
+            <th class="c-sku">SKU</th>
+            <th class="c-qty">Qty</th>
+            <th class="c-loc">Location</th>
+            <th class="c-order">Order #</th>
+            <th class="c-note">Note</th>
+            <th class="c-hand">Hand</th>
+            <th class="c-left">Left</th>
+          </tr>
+        </thead>
+        <tbody>
+          <?
+            // Pre-count PREPARING items per sales order so each order's header
+            // can show "N items". amazonItems is in sheet order (grouped by SO
+            // after the SO-aware DIRECT sort), so a header emits once per group.
+            var aCounts = {};
+            for (var ac = 0; ac < amazonItems.length; ac++) {
+              var acSO = String(amazonItems[ac][3] || '').trim();
+              aCounts[acSO] = (aCounts[acSO] || 0) + 1;
+            }
+            var aPrevSO = null;
+            var aCustMap = {};
+            for (var i = 0; i < amazonItems.length; i++) {
+              var aBadge = amazonItems[i][9] || '';
+              var aHand  = amazonItems[i][5];
+              var aHandLow = (String(aHand) !== '' && parseFloat(aHand) <= 20) ? ' low-stock' : '';
+              var aSO   = String(amazonItems[i][3] || '').trim();
+              var aCust = aCustMap[aSO] ? String(aCustMap[aSO]) : '';
+              if (aSO && aSO !== aPrevSO) {
+          ?>
+            <tr class="order-head">
+              <td colspan="7">▌ <?= aSO ?><? if (aCust) { ?><span class="oh-cust"> · <?= aCust ?></span><? } ?><span class="oh-count"> · <?= aCounts[aSO] ?> item<?= aCounts[aSO] == 1 ? '' : 's' ?></span></td>
+            </tr>
+          <?
+                aPrevSO = aSO;
+              }
+          ?>
+            <tr>
+              <td class="c-sku"><?= amazonItems[i][0] ?></td>
+              <td class="c-qty"><?= amazonItems[i][1] ?></td>
+              <td class="c-loc"><?= amazonItems[i][2] ?></td>
+              <td class="c-order"><? if (aBadge) { ?><span class="so-badge"><?= aBadge ?></span><? } ?><?= amazonItems[i][3] ?></td>
+              <td class="c-note"><?= amazonItems[i][4] ?></td>
+              <td class="c-hand<?= aHandLow ?>"><?= aHand ?></td>
+              <td class="c-left"><?= amazonItems[i][6] ?></td>
+            </tr>
+          <? } ?>
+        </tbody>
+      </table>
+    <? } ?>
+
     <!-- ===== CLOSING SUMMARY PAGE =====
          Wrapped in .summary-page → forces onto dedicated final page via
          CSS named-page system, AND drops the @top-center "ID FOR ADJUSTMENT"
@@ -1230,6 +1309,12 @@
             <div class="metric-num"><?= metrics.directCount ?></div>
             <div class="metric-lbl">Direct</div>
           </div>
+          <? if (metrics.amazonCount > 0) { ?>
+          <div class="metric">
+            <div class="metric-num"><?= metrics.amazonCount ?></div>
+            <div class="metric-lbl">Amazon</div>
+          </div>
+          <? } ?>
           <div class="metric">
             <div class="metric-num"><?= metrics.distinctSkus ?></div>
             <div class="metric-lbl">Distinct SKUs</div>
@@ -1383,9 +1468,11 @@
       // table inherits that role and gets the smaller first-page capacity.
       var hasEbay   = !!document.getElementById('ebay-table');
       var hasDirect = !!document.getElementById('direct-table');
+      var hasAmazon = !!document.getElementById('amazon-table');
 
       if (hasEbay)   fillTableToPage('ebay-table',   8, true);
       if (hasDirect) fillTableToPage('direct-table', 7, !hasEbay);
+      if (hasAmazon) fillTableToPage('amazon-table', 7, !hasEbay && !hasDirect);
 
       setTimeout(function() { window.print(); }, 700);
     };

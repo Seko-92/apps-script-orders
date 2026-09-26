@@ -3988,6 +3988,10 @@ body.dark-theme .footer-version { border-color: #2c2c2c; }
       <span class="cockpit-queue-value" id="cockpitQueueDirect">0</span>
       <span class="zoho-dot" id="cockpitZohoDot" title="Zoho SOs waiting to be Pulled" aria-hidden="true"></span>
     </div>
+    <div class="cockpit-queue-pill" id="cockpitQueueAmazonPill" title="Amazon non-terminal (PENDING + PREPARING)">
+      <span class="cockpit-queue-label">Amazon</span>
+      <span class="cockpit-queue-value" id="cockpitQueueAmazon">0</span>
+    </div>
     <div class="cockpit-queue-pill" id="cockpitQueuePrepPill" title="Prep Queue size">
       <span class="cockpit-queue-label">Prep</span>
       <span class="cockpit-queue-value" id="cockpitQueuePrep">0</span>
@@ -4596,6 +4600,53 @@ body.dark-theme .footer-version { border-color: #2c2c2c; }
         <summary>More tools</summary>
         <div class="card-more-content">
           <button class="btn-danger" onclick="run('runDeleteEmptyRowsTableTwo')">Cleanup Empty Rows</button>
+        </div>
+      </details>
+    </div>
+  </div>
+
+  <!-- ⭐ 2026-09-26 — THE AMAZON TABLE. The same tools the Direct card has, plus the
+       door: an Amazon order is entered here (or /amazon in Telegram) and lands in the
+       Amazon table as PENDING. Nothing automatic touches these rows yet. -->
+  <div class="card collapsed" data-id="amazon" draggable="true">
+    <div class="card-header" onclick="toggleCollapse(this)">
+      <div class="drag-handle" title="Drag to reorder">☰</div>
+      <div class="card-title"><div class="card-icon">📦</div><h3>Amazon Orders</h3></div>
+      <div class="card-toggle">▼</div>
+    </div>
+    <div class="card-body">
+      <div class="quick-add">
+        <div class="quick-add-title">Add an Amazon order</div>
+        <div class="qa-field"><label>Order #</label>
+          <input type="text" id="amzOrder" placeholder="114-3941689-8772232" autocomplete="off" /></div>
+        <div class="qa-field"><label>SKU + qty, one per line</label>
+          <textarea id="amzLines" rows="3" placeholder="167517 2&#10;171378 1"></textarea></div>
+        <div class="qa-field"><label>Ship by</label>
+          <input type="text" id="amzShipBy" placeholder="9/29" autocomplete="off" /></div>
+        <div class="qa-field"><label>Note (optional)</label>
+          <input type="text" id="amzNote" placeholder="" autocomplete="off" /></div>
+        <div class="btn-group">
+          <button onclick="amzPreview()">Preview</button>
+          <button class="btn-success" onclick="amzAdd()">Add order</button>
+        </div>
+        <div class="empty-hint" id="amzResult">Lands in the AMAZON table as PENDING. Confirm the shipment in Seller Central when it leaves.</div>
+      </div>
+      <div class="btn-group">
+        <button onclick="run('runUpdateLocationsTableThree')">Update Locations</button>
+        <button onclick="run('sortAmazonTable')">Sort</button>
+      </div>
+      <div class="range-control">
+        <div class="range-header"><span class="range-label">Insert Rows</span><span class="range-value" id="r3">5</span></div>
+        <input type="range" min="1" max="50" value="5" step="1" oninput="document.getElementById('r3').innerText=this.value">
+        <button class="btn-success" onclick="run('addRowsTableThree', Number(document.getElementById('r3').innerText))">Add Rows</button>
+      </div>
+      <details class="card-more">
+        <summary>More tools</summary>
+        <div class="card-more-content">
+          <button class="btn-danger" onclick="run('runDeleteEmptyRowsTableThree')">Cleanup Empty Rows</button>
+          <button onclick="run('setupAmazonTable')">Set up the Amazon table</button>
+          <button class="btn-danger" onclick="if (confirm('Remove the Amazon table? It refuses while any Amazon row has data.')) run('removeAmazonTable')">Remove the Amazon table</button>
+          <button onclick="run('purgeAmazonTestEvents')">Purge test-order log rows (AMZ-000-…)</button>
         </div>
       </details>
     </div>
@@ -5277,6 +5328,45 @@ const statusMessages = [
 // CORE FUNCTIONS
 // ═══════════════════════════════════════════════════════════════════════════════
 
+// ⭐ 2026-09-26 — THE AMAZON DOOR (sidebar). "SKU qty" per line; qty defaults to 1.
+function _amzReadForm() {
+  var lines = String(document.getElementById('amzLines').value || '').split(/\n+/)
+    .map(function (l) { return l.trim(); }).filter(function (l) { return l; })
+    .map(function (l) { var p = l.split(/[\s,×*]+/); return { sku: p[0], qty: p[1] ? Number(p[1]) : 1 }; });
+  return { order: document.getElementById('amzOrder').value, lines: lines,
+           shipBy: document.getElementById('amzShipBy').value, note: document.getElementById('amzNote').value };
+}
+function _amzShow(html, cls) {
+  var el = document.getElementById('amzResult');
+  el.className = 'empty-hint' + (cls ? ' ' + cls : '');
+  el.innerHTML = html;
+}
+function _amzEsc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
+  return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+function amzPreview() {
+  var f = _amzReadForm();
+  _amzShow('Checking…');
+  google.script.run.withSuccessHandler(function (p) {
+    if (!p || !p.ok) { _amzShow('⚠ ' + _amzEsc(p && p.error), 'zp-msg-error'); return; }
+    var h = '<b>' + _amzEsc(p.clean.salesOrder) + '</b><br>' + p.lines.map(function (l) {
+      return _amzEsc(l.qty + '× ' + l.sku + ' · ' + l.location + ' · on hand ' + l.hand); }).join('<br>') +
+      '<br>Note: ' + _amzEsc(p.clean.note) +
+      (p.warnings.length ? '<br>⚠ ' + p.warnings.map(_amzEsc).join('<br>⚠ ') : '');
+    _amzShow(h);
+  }).withFailureHandler(function (e) { _amzShow('⚠ ' + _amzEsc(e.message), 'zp-msg-error'); })
+    .previewAmazonOrderFromSidebar(f.order, f.lines, f.shipBy, f.note);
+}
+function amzAdd() {
+  var f = _amzReadForm();
+  _amzShow('Adding…');
+  google.script.run.withSuccessHandler(function (r) {
+    if (!r || !r.ok) { _amzShow('⚠ ' + _amzEsc(r && r.message), 'zp-msg-error'); return; }
+    _amzShow(_amzEsc(r.message) + (r.warnings && r.warnings.length ? '<br>⚠ ' + r.warnings.map(_amzEsc).join('<br>⚠ ') : ''));
+    ['amzOrder', 'amzLines', 'amzShipBy', 'amzNote'].forEach(function (id) { document.getElementById(id).value = ''; });
+  }).withFailureHandler(function (e) { _amzShow('⚠ ' + _amzEsc(e.message), 'zp-msg-error'); })
+    .addAmazonOrderFromSidebar(f.order, f.lines, f.shipBy, f.note);
+}
+
 function run(fn, param) {
   status.className = 'running';
   status.textContent = 'Processing…';
@@ -5391,6 +5481,7 @@ function _paintCockpit(snap) {
   // ---- Queue Strip (Phase 5) ----
   _setQueuePill('cockpitQueueEbay',  'cockpitQueueEbayPill',  snap.ebayPending);
   _setQueuePill('cockpitQueueDirect','cockpitQueueDirectPill',snap.directPending);
+  _setQueuePill('cockpitQueueAmazon','cockpitQueueAmazonPill',snap.amazonPending);
   _setQueuePill('cockpitQueuePrep',  'cockpitQueuePrepPill',  snap.prepQueueCount);
   _setZohoDot(snap.zohoPending);
 
@@ -5865,7 +5956,9 @@ var HQS_VOICES = {
 };
 var HQS_CHANNELS = [
   { ch: 'DIRECT', key: 'direct', name: 'Direct', nagOpts: [15, 30, 45, 60] },
-  { ch: 'EBAY',   key: 'ebay',   name: 'eBay',   nagOpts: [30, 60, 90, 120] }
+  { ch: 'EBAY',   key: 'ebay',   name: 'eBay',   nagOpts: [30, 60, 90, 120] },
+  // ⭐ 2026-09-26 — Amazon arrivals get their own voice and repeat (the third table).
+  { ch: 'AMAZON', key: 'amazon', name: 'Amazon', nagOpts: [15, 30, 45, 60] }
 ];
 var HQS_EVERY_OPTS = [30, 60, 120];
 // Defaults: two voices you can tell apart without looking (three low notes = Direct,
@@ -5873,8 +5966,10 @@ var HQS_EVERY_OPTS = [30, 60, 120];
 // it has no Telegram card — the table is its only signal.
 var HQS_DEFAULTS = {
   vol: 85, every: 60, quiet: true, hours: true,
-  arrive: { direct: { on: true, voice: 'arp' }, ebay: { on: true, voice: 'bright' } },
-  nag:    { direct: { on: true, after: 30 },   ebay: { on: true, after: 60 } }
+  arrive: { direct: { on: true, voice: 'arp' }, ebay: { on: true, voice: 'bright' },
+            amazon: { on: true, voice: 'chord' } },
+  nag:    { direct: { on: true, after: 30 },   ebay: { on: true, after: 60 },
+            amazon: { on: true, after: 30 } }
 };
 
 function _hqsLoad() {
@@ -9723,7 +9818,7 @@ function applyZones() {
   // zone-key drives data-zone attribute → CSS accent
   const zones = [
     ['today',        "TODAY'S WORK", ['alerts', 'order-case', 'zoho-pull', 'missing-line', 'kits', 'fulfill', 'displays']],
-    ['table-tools',  'TABLE TOOLS',  ['ebay', 'direct', 'live', 'location-update']],
+    ['table-tools',  'TABLE TOOLS',  ['ebay', 'direct', 'amazon', 'live', 'location-update']],
     ['inventory',    'INVENTORY',    ['part-console', 'prep-queue', 'restock', 'supplies', 'stock-highlight', 'product-health', 'price-audit']],
     ['diagnostics',  'DIAGNOSTICS',  ['weekly-digest', 'watchdog', 'sound', 'order-archive', 'duplicates', 'sheet-protect', 'api-monitor', 'arcade']]
   ];
@@ -9847,7 +9942,7 @@ window.addEventListener('load',function(){
     'zoho-stock':'m-stock','sheet-protect':'m-shield','prep-queue':'m-prep',
     'price-push':'m-push','displays':'m-board','product-health':'m-health',
     'location-update':'m-loc',fulfill:'m-print','zoho-pull':'m-pull',ebay:'m-stock',
-    direct:'m-case',duplicates:'m-alert','stock-highlight':'m-oos','api-monitor':'m-digest',
+    direct:'m-case',amazon:'m-case',duplicates:'m-alert','stock-highlight':'m-oos','api-monitor':'m-digest',
     arcade:'m-board',
     /* the archive is a RECORD — m-doc, the same mark the PDF report wears. */
     'order-archive':'m-doc',
@@ -10123,7 +10218,8 @@ function _rpRow(rows, label, value, warn) {
 /* "7 lines · 2 orders" — both units, because they answer different questions.
    `lines` only rides the PUBLISHED tick; on the live fallback we say orders. */
 function _rpWorkText(c, full) {
-  var orders = (parseInt(c && c.ebayGrab, 10) || 0) + (parseInt(c && c.directGrab, 10) || 0);
+  var orders = (parseInt(c && c.ebayGrab, 10) || 0) + (parseInt(c && c.directGrab, 10) || 0) +
+               (parseInt(c && c.amazonGrab, 10) || 0);   // ⭐ + Amazon (2026-09-26)
   if (!orders) return '';
   var lines = full && parseInt(full.openOrdersTotal, 10);
   var o = orders + (orders === 1 ? ' order' : ' orders');
@@ -10214,7 +10310,9 @@ function _rpPaint() {
     set('rpShippedSub', received ? 'of ' + received + ' received' : '');
   }
   var eb = parseInt(c.receivedEbay, 10), dr = parseInt(c.receivedDirect, 10);
-  set('rpReceivedSub', (isFinite(eb) && isFinite(dr) && (eb || dr)) ? (eb + ' eBay · ' + dr + ' direct') : '');
+  var am = parseInt(c.receivedAmazon, 10) || 0;
+  set('rpReceivedSub', (isFinite(eb) && isFinite(dr) && (eb || dr || am)) ?
+      (eb + ' eBay · ' + dr + ' direct' + (am ? ' · ' + am + ' amazon' : '')) : '');
 
   /* ⚠ The third line changes JOB between the states, not just its value:
      by day a FINDING (are we falling behind?), by night an IDENTITY. */

@@ -34,6 +34,93 @@ function getBoundaryRow() {
 }
 
 /**
+ * Row of the AMAZON divider (the third table), or -1 when the sheet has none.
+ */
+function getAmazonBoundaryRow() {
+  return getTableLayout().amazon;
+}
+
+/**
+ * ⭐ THE ONE PLACE THAT KNOWS WHERE THE THREE TABLES ARE (2026-09-26).
+ *
+ *   eBay    dataStartRow .. (DIRECT - 1)
+ *   ▌DIRECT divider + header row
+ *   Direct  DIRECT+2 .. (AMAZON - 1)        ← stops at Amazon when it exists
+ *   ▌AMAZON divider + header row
+ *   Amazon  AMAZON+2 .. maxRows
+ *
+ * With no Amazon divider this returns exactly today's shape (Direct runs to the end),
+ * so every caller degrades to current behaviour if the table is absent.
+ *
+ * @param {Sheet} [sheet]  defaults to the main sheet
+ * @param {Array[]} [colA] optional pre-read column-A values (row 1 first) — saves a read
+ */
+function getTableLayout(sheet, colA) {
+  if (!sheet) sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(MAIN_SHEET_NAME);
+  var out = { direct: -1, amazon: -1, lastRow: 0, maxRows: 0, structural: {} };
+  if (!sheet) return out;
+  out.lastRow = sheet.getLastRow();
+  out.maxRows = sheet.getMaxRows();
+  var values = colA || (out.lastRow > 0
+    ? sheet.getRange(1, Schema.cols.SKU, out.lastRow, 1).getValues() : []);
+  for (var i = 0; i < values.length; i++) {
+    var v = String(values[i][0]).trim().toUpperCase();
+    if (v === Schema.boundaryMarker && out.direct === -1) out.direct = i + 1;
+    else if (v === Schema.amazonMarker && out.amazon === -1) out.amazon = i + 1;
+  }
+  // ⚠ An Amazon divider ABOVE the DIRECT one is a broken sheet, not a layout — ignore
+  //   it so nothing downstream acts on a nonsense range.
+  if (out.amazon !== -1 && out.direct !== -1 && out.amazon < out.direct) out.amazon = -1;
+  return _layoutRanges(out);
+}
+
+/** Pure: fills the per-table ranges from the divider rows. Node-testable. */
+function _layoutRanges(out) {
+  var d = out.direct, a = out.amazon;
+  out.ebay   = { start: Schema.dataStartRow, end: d > 0 ? d - 1 : out.maxRows };
+  out.directTable = d > 0 ? { start: d + 2, end: a > 0 ? a - 1 : out.maxRows } : null;
+  out.amazonTable = a > 0 ? { start: a + 2, end: out.maxRows } : null;
+  out.structural = {};
+  if (d > 0) { out.structural[d] = "DIRECT"; out.structural[d + 1] = "DIRECT_HEADER"; }
+  if (a > 0) { out.structural[a] = "AMAZON"; out.structural[a + 1] = "AMAZON_HEADER"; }
+  return out;
+}
+
+/** true for a divider row or a table-header row (never pickable data). */
+function isStructuralRowNum(row, layout) {
+  return !!(layout && layout.structural && layout.structural[row]);
+}
+
+/** "EBAY" | "DIRECT" | "AMAZON" | "STRUCT" for a sheet row number. */
+function tableOfRow(row, layout) {
+  if (isStructuralRowNum(row, layout)) return "STRUCT";
+  if (layout.amazon > 0 && row > layout.amazon) return "AMAZON";
+  if (layout.direct > 0 && row > layout.direct) return "DIRECT";
+  return "EBAY";
+}
+
+/**
+ * {start, end, divider, last} for table 1 (eBay) · 2 (Direct) · 3 (Amazon), or null when
+ * that table does not exist. `divider` is the row of the NEXT divider below the table
+ * (-1 when the table runs to the bottom of the sheet); `last` is true for the bottom table.
+ */
+function _tableSegment(t, L) {
+  t = parseInt(t, 10);
+  if (t === 1) return { start: Schema.dataStartRow, end: L.direct > 0 ? L.direct - 1 : L.maxRows,
+                        divider: L.direct, last: L.direct <= 0 };
+  if (t === 2) return L.direct > 0 ? { start: L.direct + 2, end: L.amazon > 0 ? L.amazon - 1 : L.maxRows,
+                        divider: L.amazon > 0 ? L.amazon : -1, last: !(L.amazon > 0) } : null;
+  if (t === 3) return L.amazon > 0 ? { start: L.amazon + 2, end: L.maxRows, divider: -1, last: true } : null;
+  return null;
+}
+
+/** Last row of the Direct table: stops at the Amazon divider when there is one. */
+function directTableEnd(fallback, layout) {
+  layout = layout || getTableLayout();
+  return layout.amazon > 0 ? layout.amazon - 1 : fallback;
+}
+
+/**
  * Finds the last row with data in a segment
  * @param {number} startRow - Start row of the segment
  * @param {number} endRow - End row of the segment
@@ -74,7 +161,7 @@ function getCommittedQuantities() {
     var qty    = parseInt(data[i][Schema.idx("QTY")]) || 0;
     var status = String(data[i][Schema.idx("STATUS")]).trim().toUpperCase();
 
-    if (!sku || sku === Schema.boundaryMarker.toLowerCase()) continue;
+    if (!sku || Schema.isStructuralMarker(sku)) continue;
     if (status !== Schema.status.PENDING && status !== Schema.status.PREPARING) continue;
 
     committed.set(sku, (committed.get(sku) || 0) + qty);
@@ -145,7 +232,8 @@ function recomputeHand(sharedMaps, sharedZoho) {
   var nRows = lastRow - Schema.dataStartRow + 1;
   var data = sheet.getRange(Schema.dataStartRow, 1, nRows, Schema.cols.HAND).getValues();
 
-  var boundary = getBoundaryRow();
+  var __tl = getTableLayout(sheet);
+  var boundary = __tl.direct;
   // Zoho stock mirror (SKU → {available}). Empty map if the sheet doesn't exist
   // yet → every row falls back to MI, i.e. identical to pre-Zoho behavior.
   var zohoMap = (sharedZoho && typeof sharedZoho.get === 'function') ? sharedZoho
@@ -160,9 +248,9 @@ function recomputeHand(sharedMaps, sharedZoho) {
 
     // Skip boundary divider + DIRECT header row + empty rows
     var skipRow = false;
-    if (boundary > 0 && (rowNum === boundary || rowNum === boundary + 1)) skipRow = true;
+    if (isStructuralRowNum(rowNum, __tl)) skipRow = true;
     if (!rawSku) skipRow = true;
-    if (rawSku.toUpperCase() === Schema.boundaryMarker) skipRow = true;
+    if (Schema.isStructuralMarker(rawSku)) skipRow = true;
     if (rawSku.toUpperCase().indexOf('SKU') === 0) skipRow = true;  // header leak guard
 
     if (skipRow) {
@@ -349,14 +437,17 @@ function setupHandConditionalFormatting() {
     }
   }
 
-  // DIRECT data rows (skip boundary row and DIRECT header row)
-  if (boundary > 0 && boundary + 2 <= lastRow) {
-    var directStart = boundary + 2;
-    var directCount = lastRow - directStart + 1;
-    if (directCount > 0) {
-      sheet.getRange(directStart, Schema.cols.HAND, directCount, 1).setBackground(null);
+  // DIRECT (and AMAZON) data rows — each segment stops at the next divider, so the
+  // yellow AMAZON band's HAND cell is never blanked.
+  var __hl = getTableLayout(sheet);
+  [2, 3].forEach(function (t) {
+    var seg = _tableSegment(t, __hl);
+    if (!seg) return;
+    var segEnd = Math.min(seg.end, lastRow);
+    if (segEnd >= seg.start) {
+      sheet.getRange(seg.start, Schema.cols.HAND, segEnd - seg.start + 1, 1).setBackground(null);
     }
-  }
+  });
 
   // Build conditional formatting rule — Service Bay v6 font-only treatment.
   // Mirrors _buildHandLowStockRule in BrandTheme.js: dark red `#b71c1c` + bold,

@@ -123,7 +123,7 @@ function applySkuLinksToColumn(sheet, skuCol, startRow, endRow, map) {
     blankNotes.push(['']);
     var raw = String(values[i][0] || '').trim();
     if (!raw) continue;                                       // empty — no link
-    if (raw.toUpperCase() === Schema.boundaryMarker) continue; // DIRECT divider — leave
+    if (Schema.isStructuralMarker(raw)) continue; // DIRECT / AMAZON divider — leave
     if (raw.toUpperCase() === PREP_QUEUE.boundaryMarker) continue; // Prep INCOMING divider — leave
     if (raw.charAt(0) === '◈') continue;                      // header glyph — leave
 
@@ -202,7 +202,7 @@ function skuEnrichmentOnEdit(e) {
     var raw = String(values[i][0] || '').trim();
     var upper = raw.toUpperCase();
     if (!raw) continue;                                       // cleared SKU — link cleared with the value
-    if (upper === Schema.boundaryMarker) continue;
+    if (Schema.isStructuralMarker(upper)) continue;
     if (raw.charAt(0) === '◈') continue;
 
     var rec = map.get(raw.toLowerCase()) || null;

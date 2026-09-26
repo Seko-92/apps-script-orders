@@ -76,13 +76,14 @@ function _scanAlerts() {
     Schema.dataWidth
   ).getValues();
 
-  var boundary = getBoundaryRow();
+  var __tl = getTableLayout(sheet);
+  var boundary = __tl.direct;
 
   for (var i = 0; i < data.length; i++) {
     var rowNum = Schema.dataStartRow + i;
 
     // PRIMARY skip: boundary divider + DIRECT header row (by row number)
-    if (boundary > 0 && (rowNum === boundary || rowNum === boundary + 1)) continue;
+    if (isStructuralRowNum(rowNum, __tl)) continue;
 
     var sku = String(data[i][Schema.idx("SKU")]).trim();
     if (!sku) continue;
@@ -92,7 +93,7 @@ function _scanAlerts() {
     // text "SHIP COST" — without this, an undetected header row would parse
     // as paid-shipping false positive (which is the bug we're fixing).
     var skuUpper = sku.toUpperCase();
-    if (skuUpper === Schema.boundaryMarker) continue;       // "DIRECT" divider value
+    if (Schema.isStructuralMarker(skuUpper)) continue;       // "DIRECT" divider value
     if (skuUpper.indexOf('◈') !== -1) continue;              // header glyph from "◈ SKU"
     if (skuUpper === 'SKU' || skuUpper === '# SKU' || skuUpper === '◈ SKU') continue;
 

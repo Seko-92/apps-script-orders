@@ -92,6 +92,29 @@ var Schema = {
    */
   boundaryMarker: "DIRECT",
 
+  /**
+   * ⭐ 2026-09-26 — THE THIRD TABLE. Amazon is a real standalone table, LAST on the
+   * sheet, below its own divider whose column A reads EXACTLY this (same strict-equality
+   * contract as "DIRECT", Gotcha #1). It goes LAST on purpose: eBay inserts at the top
+   * and Zoho pulls insert at DIRECT+2, so neither insert path has to change.
+   *
+   * ⚠ getBoundaryRow() STILL MEANS "the DIRECT row". Anything that used to treat
+   *   "DIRECT+2 → last row" as the Direct table must now stop at the Amazon divider —
+   *   ask getTableLayout() (Helpers.js), never do the arithmetic by hand.
+   * ⚠ The AMZ- order-id prefix is still required: a raw Amazon id is digits-and-dashes
+   *   and would pass n8n S4's shipped-check filter and be sent to eBay's API.
+   */
+  amazonMarker: "AMAZON",
+  amazonOrderPrefix: "AMZ-",
+
+  /** Every column-A value that marks a structural divider row (never a SKU). */
+  structuralMarkers: ["DIRECT", "AMAZON"],
+
+  /** true when a column-A value is a divider marker (trim + uppercase compare). */
+  isStructuralMarker: function(v) {
+    return Schema.structuralMarkers.indexOf(String(v == null ? "" : v).trim().toUpperCase()) !== -1;
+  },
+
   /** Width of the boundary row's left merge (A:F) */
   boundaryLeftWidth:  6,
 

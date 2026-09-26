@@ -372,14 +372,18 @@ function onEditInstallable(e) {
 function toggleFocusMode(state) {
   var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   var sheet = ss.getSheetByName(MAIN_SHEET_NAME);
-  var boundary = getBoundaryRow();
+  var layout = getTableLayout(sheet);
+  var boundary = layout.direct;
   var hide = (state === 'ON');
   
-  // Define the segments for both tables
+  // Define the segments for all three tables (⭐ Amazon added 2026-09-26; Direct now
+  // stops at the Amazon divider instead of running to the last row).
+  var lastRowFM = sheet.getLastRow();
   var segments = [
     { start: Schema.dataStartRow, end: boundary - 2 },      // eBay Table
-    { start: boundary + 2, end: sheet.getLastRow() }    // Direct Table
+    { start: boundary + 2, end: layout.amazon > 0 ? layout.amazon - 1 : lastRowFM }    // Direct Table
   ];
+  if (layout.amazon > 0) segments.push({ start: layout.amazon + 2, end: lastRowFM });  // Amazon
 
   segments.forEach(function(seg) {
     if (seg.end < seg.start) return;

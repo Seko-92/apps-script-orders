@@ -116,7 +116,8 @@ function liveUpdateTrigger(e) {
 
     // Get boundary row to (a) protect divider/header and (b) route HAND source.
     mk.at("rowCheck");
-    var boundary = getBoundaryRow();
+    var __tl = getTableLayout(sheet);
+    var boundary = __tl.direct;
     mk.at("boundary");
 
     for (var i = 0; i < edits.length; i++) {
@@ -125,13 +126,13 @@ function liveUpdateTrigger(e) {
       var skuLower = rawSku.toLowerCase();
 
       // Protect boundary row and DIRECT header row - preserve their content
-      if (boundary > 0 && (currentRow === boundary || currentRow === boundary + 1)) {
+      if (isStructuralRowNum(currentRow, __tl)) {
         locationResults.push([sheet.getRange(currentRow, Schema.cols.LOCATION).getValue()]);
         quantityResults.push([sheet.getRange(currentRow, Schema.cols.HAND).getValue()]);
         continue;
       }
 
-      if (skuLower === "" || skuLower === Schema.boundaryMarker.toLowerCase()) {
+      if (skuLower === "" || Schema.isStructuralMarker(skuLower)) {
         // Empty row or table separator
         locationResults.push([""]);
         quantityResults.push([""]);

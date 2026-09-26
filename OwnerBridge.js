@@ -73,7 +73,10 @@ var OWNER_BRIDGE = {
     "setupHandConditionalFormatting",
     "commitKitFromModal", "applyZohoPullSelection",
     "markPreparingByValues",
-    "addReplacementFromSidebar", "recomputeHandFromZohoStock"
+    "addReplacementFromSidebar", "recomputeHandFromZohoStock",
+    // ⭐ 2026-09-26 — the Amazon table's twins of the Direct buttons, and its door.
+    "sortAmazonTable", "addRowsTableThree", "runDeleteEmptyRowsTableThree",
+    "runUpdateLocationsTableThree", "addAmazonOrderFromSidebar"
   ],
 
   ownerEmailKey: "OWNER_EMAIL",   // Secrets.js constant; Script Property overrides it
@@ -201,7 +204,12 @@ function _obRunAsOwner(fnName, args) {
     applyZohoPullSelection:        function () { return applyZohoPullSelection(a[0], a[1], a[2]); },
     markPreparingByValues:         function () { return markPreparingByValues(a[0]); },
     addReplacementFromSidebar:     function () { return addReplacementFromSidebar(a[0], a[1], a[2], a[3], a[4]); },
-    recomputeHandFromZohoStock:    function () { return recomputeHandFromZohoStock(); }
+    recomputeHandFromZohoStock:    function () { return recomputeHandFromZohoStock(); },
+    sortAmazonTable:               function () { return sortAmazonTable(); },
+    addRowsTableThree:             function () { return addRowsTableThree(a[0]); },
+    runDeleteEmptyRowsTableThree:  function () { return runDeleteEmptyRowsTableThree(); },
+    runUpdateLocationsTableThree:  function () { return runUpdateLocationsTableThree(); },
+    addAmazonOrderFromSidebar:     function () { return addAmazonOrderFromSidebar(a[0], a[1], a[2], a[3]); }
   };
 
   var fn = map[fnName];

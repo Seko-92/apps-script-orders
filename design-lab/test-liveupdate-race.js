@@ -129,6 +129,14 @@ function makeEnv(opts) {
   vm.createContext(sandbox);
   vm.runInContext(fs.readFileSync(path.join(ROOT, 'Schema.js'), 'utf8'), sandbox, { filename: 'Schema.js' });
   vm.runInContext(fs.readFileSync(path.join(ROOT, 'LiveSync.js'), 'utf8'), sandbox, { filename: 'LiveSync.js' });
+  // ⭐ 2026-09-26: LiveSync asks getTableLayout() (three tables) — the real pure helpers,
+  //   driven by the same stubbed DIRECT row the harness always used. Skipped on a HEAD
+  //   that predates the helper, so a before/after run still reports every section.
+  try {
+    require('./_layout-stub').injectLayout(sandbox, () => ({
+      direct: opts.boundary === undefined ? -1 : opts.boundary, amazon: opts.amazon,
+      maxRows: 200, lastRow: 200 }), ROOT);
+  } catch (e) { /* HEAD without getTableLayout — getBoundaryRow alone is enough */ }
 
   /* ⚠ AFTER loading, not before. LiveSync.js DEFINES buildLocationAndInventoryMaps,
      so a stub set beforehand is overwritten by the real one — which then reaches for

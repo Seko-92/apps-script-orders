@@ -52,7 +52,7 @@ function fakeSheet() {
 const sandbox = {
   console, Date, Math, String, Number, JSON, RegExp, Object, Array,
   SPREADSHEET_ID: 'x', MAIN_SHEET_NAME: 'All orders',
-  Schema: { dataStartRow: 4, dataWidth: 10, cellSyncTime: 'E1', cellMasthead: 'A1', boundaryMarker: 'DIRECT',
+  Schema: { dataStartRow: 4, dataWidth: 10, cellSyncTime: 'E1', cellMasthead: 'A1', boundaryMarker: 'DIRECT', amazonMarker: 'AMAZON',
             cellStats: 'D1', cellDayCurve: 'F1',
             cellEmployeeId: 'F2', cellAdjustmentId: 'H2',
             pickIdA1: function (which) { return which === 'adjustment' ? 'H2' : 'F2'; } },
@@ -154,7 +154,20 @@ ok('A20 finds the DIRECT marker through INDIRECT', /^=IFERROR\(MATCH\("DIRECT",I
 ok('A17 (eBay open) counts the rows above the marker, not __Published',
    /INDIRECT\("'All orders'!F4:F"&\(A20-1\)\)/.test(S.A17 || '') && !/__Published/.test(S.A17 || ''), S.A17);
 ok('A18 (Direct open) counts the rows below the DIRECT header, not __Published',
-   /INDIRECT\("'All orders'!F"&\(A20\+2\)&":F"\)/.test(S.A18 || '') && !/__Published/.test(S.A18 || ''), S.A18);
+   /INDIRECT\("'All orders'!F"&\(A20\+2\)&":F"&IF\(A27="","",A27-1\)\)/.test(S.A18 || '') && !/__Published/.test(S.A18 || ''), S.A18);
+// ⭐ 2026-09-26 — THE THIRD TABLE. Direct's ranges stop at the AMAZON divider (A27) so an
+//   Amazon order is never counted, named or alarmed on as Direct; A28 counts Amazon.
+ok('A27 finds the AMAZON marker through INDIRECT',
+   /^=IFERROR\(MATCH\("AMAZON",INDIRECT\("'All orders'!A:A"\),0\),""\)$/.test(S.A27 || ''), S.A27);
+ok('A28 (Amazon open) counts the rows below the AMAZON header, blank when absent',
+   /^=IF\(A27="",""/.test(S.A28 || '') &&
+   /INDIRECT\("'All orders'!F"&\(A27\+2\)&":F"\)/.test(S.A28 || '') &&
+   /"PENDING"/.test(S.A28 || '') && /"PREPARING"/.test(S.A28 || ''), S.A28);
+ok('⚠ no Direct-table range runs past the AMAZON divider (every A20+2 range is bounded by A27)',
+   Object.keys(S).every(k => typeof S[k] !== 'string' ||
+     (S[k].match(/&\(A20\+2\)&":[A-Z]+"/g) || []).length ===
+     (S[k].match(/&\(A20\+2\)&":[A-Z]+"&IF\(A27="","",A27-1\)/g) || []).length),
+   Object.keys(S).filter(k => typeof S[k] === 'string' && /&\(A20\+2\)&":[A-Z]+"\)/.test(S[k])));
 ok('A17/A18 count PENDING + PREPARING', ['A17', 'A18'].every(r => /"PENDING"/.test(S[r] || '') && /"PREPARING"/.test(S[r] || '')));
 ok('⚠ A17/A18 stay BLANK, never 0, when the marker is missing', ['A17', 'A18'].every(r => /^=IF\(A20="",""/.test(S[r] || '')));
 ok('the face falls back to the text chip', /,"HQ"\)$/.test(W.A1 || ''));
@@ -482,21 +495,21 @@ console.log('\nK · ⭐ the Direct band (2026-09-15)');
   ok('⚠ every helper and headline formula has balanced parens and quotes', unbalanced.length === 0, unbalanced);
 
   ok('Z1 lists DIRECT orders with a PENDING line, through INDIRECT',
-     /^=IF\(A20="","",IFERROR\(UNIQUE\(FILTER\(INDIRECT\("'All orders'!D"&\(A20\+2\)&":D"\),INDIRECT\("'All orders'!F"&\(A20\+2\)&":F"\)="PENDING"/.test(S.Z1 || ''), S.Z1);
+     /^=IF\(A20="","",IFERROR\(UNIQUE\(FILTER\(INDIRECT\("'All orders'!D"&\(A20\+2\)&":D"&IF\(A27="","",A27-1\)\),INDIRECT\("'All orders'!F"&\(A20\+2\)&":F"&IF\(A27="","",A27-1\)\)="PENDING"/.test(S.Z1 || ''), S.Z1);
   ok('⚠ PREPARING is not "waiting" — the list filters PENDING only', !/PREPARING/.test(S.Z1 || ''));
 
   // ⭐ THE HOLD EXEMPTION (2026-09-16) — a deliberate wait must not turn the band red.
   ok('HOLD · Y1 lists Direct orders whose NOTE carries HOLD, through INDIRECT',
-     /^=IF\(A20="","",IFERROR\(UNIQUE\(FILTER\(INDIRECT\("'All orders'!D"&\(A20\+2\)&":D"\)/.test(S.Y1 || '') &&
-     /REGEXMATCH\(INDIRECT\("'All orders'!E"&\(A20\+2\)&":E"\)&"",/.test(S.Y1 || ''), S.Y1);
+     /^=IF\(A20="","",IFERROR\(UNIQUE\(FILTER\(INDIRECT\("'All orders'!D"&\(A20\+2\)&":D"&IF\(A27="","",A27-1\)\)/.test(S.Y1 || '') &&
+     /REGEXMATCH\(INDIRECT\("'All orders'!E"&\(A20\+2\)&":E"&IF\(A27="","",A27-1\)\)&"",/.test(S.Y1 || ''), S.Y1);
   ok('HOLD · ⚠ a CANCELED line does not hold the order (holdScanRows skips it too)',
-     /INDIRECT\("'All orders'!F"&\(A20\+2\)&":F"\)<>"CANCELED"/.test(S.Y1 || ''), S.Y1);
+     /INDIRECT\("'All orders'!F"&\(A20\+2\)&":F"&IF\(A27="","",A27-1\)\)<>"CANCELED"/.test(S.Y1 || ''), S.Y1);
   ok('HOLD · Z1 drops any order listed in Y — per ORDER, not per row',
-     /ISNA\(MATCH\(INDIRECT\("'All orders'!D"&\(A20\+2\)&":D"\),Y1:Y,0\)\)/.test(S.Z1 || ''), S.Z1);
+     /ISNA\(MATCH\(INDIRECT\("'All orders'!D"&\(A20\+2\)&":D"&IF\(A27="","",A27-1\)\),Y1:Y,0\)\)/.test(S.Z1 || ''), S.Z1);
   {
     // ⚠ The regex is EXECUTED, not just matched as text: Gotcha #15 (a single backslash
     //   becomes a backspace) would pass a text check and never match a real note.
-    const m = /REGEXMATCH\([^,]+&"","\(\?i\)(.*?)"\)/.exec(S.Y1 || '');
+    const m = /REGEXMATCH\(.+?&"","\(\?i\)(.*?)"\)/.exec(S.Y1 || '');
     const re = m ? new RegExp(m[1], 'i') : null;
     const board = n => /\bHOLD\b/i.test(n);          // Holds.js holdNoteHasHold
     const notes = ['HOLD', 'hold for payment', 'On Hold — call Miguel', 'waiting · HOLD · 2',
