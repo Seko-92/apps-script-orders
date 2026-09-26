@@ -34,14 +34,30 @@ const section = (name, fn) => {
 // THE MODEL SHEET
 // =======================================================================================
 const W = 10, YELLOW = '#ffd400';
-function cell(v) { return { v: v == null ? '' : v, f: '', bg: null, fs: 10 }; }
+const STATUS_DV = ['PENDING', 'PREPARING', 'SHIPPED', 'CANCELED'];
+function cell(v) { return { v: v == null ? '' : v, f: '', bg: null, fs: 10, dv: null }; }
+/* ⚠ REAL-SHEETS RULE (the 2026-09-26 live failure): a cell carrying a list validation
+   REFUSES any other value. The model throws on the write (Sheets throws at the next flush —
+   stricter here, never looser). */
+function checkDv(x, v) {
+  if (x.dv && v !== '' && v != null && x.dv.indexOf(String(v)) === -1) {
+    throw new Error('The data you entered violates the data validation rules set on this cell. ' +
+                    'Please enter one of the following values: ' + x.dv.join(', ') + '. (got ' + JSON.stringify(v) + ')');
+  }
+}
+const fmtOf = (x) => ({ f: x.f, bg: x.bg, fs: x.fs, dv: x.dv ? x.dv.slice() : null });
 function blankRow() { const r = []; for (let c = 0; c < W; c++) r.push(cell('')); return r; }
 function rowOf(vals) { const r = blankRow(); vals.forEach((v, i) => { r[i].v = v; }); return r; }
 
 function makeSheet(rows) {
   const grid = rows.map(r => Array.isArray(r) ? rowOf(r) : r);
+  grid.forEach((r, i) => { const a = String(r[0].v).trim().toUpperCase();
+    if (i + 1 >= 4 && a !== 'DIRECT' && a !== 'AMAZON' && a.indexOf('◈') !== 0) r[5].dv = STATUS_DV.slice(); });
   const S = { grid, ops: [] };
   const ensure = (r) => { while (grid.length < r) grid.push(blankRow()); };
+  // A new row takes the FORMAT of its neighbour above (values blank) — like Sheets.
+  const inherit = (above) => { const src = grid[above - 1]; const r0 = blankRow();
+    if (src) r0.forEach((x, j) => Object.assign(x, fmtOf(src[j]))); return r0; };
   function range(r, c, nr, nc) {
     nr = nr || 1; nc = nc || 1;
     const cells = () => { const out = []; for (let i = 0; i < nr; i++) { const row = grid[r - 1 + i] || blankRow();
@@ -52,8 +68,14 @@ function makeSheet(rows) {
       getA1Notation: () => 'R' + r + 'C' + c,
       getValues: () => cells().map(o => o.map(x => x.v)),
       getValue: () => (cells()[0][0]).v,
-      setValues: (v) => { each((x, i, j) => { x.v = v[i][j]; }); return px; },
-      setValue: (v) => { each(x => { x.v = v; }); return px; },
+      // A cell hidden inside a merge holds no value — Sheets keeps only the top-left one.
+      setValues: (v) => { each((x, i, j) => { if (x.hid) return; checkDv(x, v[i][j]); x.v = v[i][j]; }); return px; },
+      setValue: (v) => { each(x => { if (x.hid) return; checkDv(x, v); x.v = v; }); return px; },
+      setFormula: (v) => { each(x => { if (x.hid) return; checkDv(x, v); x.v = v; }); return px; },
+      merge: () => { each((x, i, j) => { if (i || j) { x.hid = true; x.v = ''; } }); return px; },
+      breakApart: () => { each(x => { x.hid = false; }); return px; },
+      clearDataValidations: () => { each(x => { x.dv = null; }); return px; },
+      getDataValidations: () => cells().map(o => o.map(x => x.dv)),
       getNumberFormats: () => cells().map(o => o.map(x => x.f)),
       setNumberFormats: (v) => { each((x, i, j) => { x.f = v[i][j]; }); return px; },
       setNumberFormat: (f) => { each(x => { x.f = f; }); return px; },
@@ -65,7 +87,10 @@ function makeSheet(rows) {
       getRichTextValues: () => cells().map(o => o.map(x => ({ getText: () => x.v }))),
       setRichTextValues: (v) => { each((x, i, j) => { x.v = v[i][j].getText(); }); return px; },
       clearContent: () => { each(x => { x.v = ''; }); return px; },
-      copyTo: () => px, copyFormatToRange: () => px,
+      // PASTE_FORMAT carries number format, background AND DATA VALIDATION — tiled.
+      copyTo: (target, kind) => { if (kind === 'F') target._pasteFmt(cells()); return px; },
+      copyFormatToRange: (sh, c1, c2, r1, r2) => { sh.getRange(r1, c1, r2 - r1 + 1, c2 - c1 + 1)._pasteFmt(cells()); return px; },
+      _pasteFmt: (src) => { each((x, i, j) => { const s0 = src[i % src.length][j % src[0].length]; Object.assign(x, fmtOf(s0)); }); return px; },
       protect: () => ({ setDescription() { return this; }, setWarningOnly() { return this; } }),
       getMergedRanges: () => []
     };
@@ -81,8 +106,8 @@ function makeSheet(rows) {
       if (typeof a === 'string') { const m = /^([A-Z])(\d+)$/.exec(a); return range(+m[2], m[1].charCodeAt(0) - 64, 1, 1); }
       return range(a, b, c2, d);
     },
-    insertRowsBefore: (row, n) => { S.ops.push(['insertBefore', row, n]); grid.splice(row - 1, 0, ...Array.from({ length: n }, blankRow)); },
-    insertRowsAfter: (row, n) => { S.ops.push(['insertAfter', row, n]); grid.splice(row, 0, ...Array.from({ length: n }, blankRow)); },
+    insertRowsBefore: (row, n) => { S.ops.push(['insertBefore', row, n]); grid.splice(row - 1, 0, ...Array.from({ length: n }, () => inherit(row - 1))); },
+    insertRowsAfter: (row, n) => { S.ops.push(['insertAfter', row, n]); grid.splice(row, 0, ...Array.from({ length: n }, () => inherit(row))); },
     deleteRows: (row, n) => { S.ops.push(['delete', row, n]); grid.splice(row - 1, n); },
     deleteRow: (row) => grid.splice(row - 1, 1),
     setRowHeight: () => {}, setRowHeights: () => {},
@@ -146,9 +171,9 @@ function boot(rows) {
     publishBoardTickInline: (why) => published.push(why),
     refreshAllOrdersLockCarveOuts: () => {}, refreshDynamicBandings: () => {}, _ensureSparkData: () => {},
     _obIsOwner: () => true, _obRequireOwner: () => '', _asOwner: () => { throw new Error('no hop in tests'); },
-    // the band styler lives in BrandTheme.js — modelled: marker in col A, yellow across the row
-    _styleAmazonDivider: (sh, row) => { sh.getRange(row, 1).setValue('AMAZON'); sh.getRange(row, 1, 1, W).setBackground(YELLOW); },
-    _styleHeaderRow: () => {},
+    // ⭐ The band styler is the REAL one from BrandTheme.js (loaded below). It used to be a
+    //   stand-in here, which is why the live failure — the real styler writing onto a cell
+    //   carrying the STATUS dropdown — could not be seen by this suite.
     TABLE_BUFFER_ROWS: 1,
     ACTIVITY_LOG: { sheetName: 'Activity Log', cols: { ORDER_ID: 3 } }
   };
@@ -157,7 +182,7 @@ function boot(rows) {
                    resolveHandValue: sb.resolveHandValue };
   vm.createContext(sb);
   ['Schema.js', 'Helpers.js', 'RowManagement.js', 'OrderService.js', 'Replacements.js',
-   'Amazon.js', 'Holds.js', 'DashboardService.js', 'LocationService.js'].forEach(f => {
+   'Amazon.js', 'Holds.js', 'DashboardService.js', 'LocationService.js', 'BrandTheme.js'].forEach(f => {
     vm.runInContext(fs.readFileSync(path.join(SRC, f), 'utf8'), sb, { filename: f });
   });
   // re-assert the edge stubs the loaded files would otherwise shadow
@@ -400,6 +425,60 @@ section('J · pure door helpers', () => {
   t('J6 note wording', sb._amzNote('9/29', ''), 'AMAZON · ship by 9/29');
   t('J7 same SKU twice is MERGED', sb._amzCleanLines([{ sku: '167517', qty: 1 }, { sku: '167517', qty: 2 }]).lines,
     [{ sku: '167517', qty: 3 }]);
+});
+
+// =======================================================================================
+section('L · ⚠ REAL-SHEETS RULES — validation, the half-built live state, all-or-nothing', () => {
+  // L1–L4: validation lands only where it belongs
+  { const { S, sb } = boot();
+    const msg = sb.setupAmazonTable();
+    const a = findRow(S, 'AMAZON');
+    ok('L1 setup succeeds with the STATUS dropdown on every data row (the live failure)', /✅/.test(msg), msg);
+    t('L2 the band carries no validation', S.sheet.getRange(a, 1, 1, W).getDataValidations()[0].filter(Boolean).length, 0);
+    t('L3 the header carries no validation, and reads STATUS', [S.sheet.getRange(a + 1, 6).getDataValidations()[0][0], S.row(a + 1)[5]], [null, 'STATUS']);
+    ok('L4 the blank Amazon row KEEPS the STATUS dropdown', !!S.sheet.getRange(a + 2, 6).getDataValidations()[0][0]);
+    const r = sb.addAmazonOrder('000-0000000-0000001', [{ sku: '167517', qty: 1 }], '', 'test', 'editor');
+    const row = S.colA().indexOf('167517') + 1;
+    ok('L5 the door writes PENDING into a validated cell', r.ok && S.row(row)[5] === 'PENDING', r.message);
+    ok('L6 the new Amazon row carries the STATUS dropdown', !!S.sheet.getRange(row, 6).getDataValidations()[0][0]);
+    let refused = false; try { S.sheet.getRange(row, 6).setValue('AMAZON'); } catch (e) { refused = true; }
+    ok('L7 …and it still refuses a non-status value (the rule is real on the new row)', refused);
+  }
+  // L8–L11: the exact half-built state the first live run left behind
+  { const rows = liveRows();
+    rows.push([''], ['◈ SKU', 'QTY', 'LOCATION', 'ORDER', 'NOTE'], ['']);
+    const { S, sb } = boot(rows);
+    const before = S.sheet.getMaxRows();
+    const msg = sb.setupAmazonTable();
+    const a = findRow(S, 'AMAZON');
+    ok('L8 re-running cleans the debris and builds the table', /✅/.test(msg) && /removed 3 leftover/.test(msg), msg);
+    t('L9 exactly ONE header copy below DIRECT\'s own', S.colA().filter(v => v === '◈ SKU').length, 3);
+    t('L10 the band sits right under the Direct tail, not under the debris', a, 14);
+    t('L11 no net row growth beyond band + header + buffer', S.sheet.getMaxRows(), before - 3 + 3);
+  }
+  // L12: debris with data below it → refuse, delete nothing
+  { const rows = liveRows();
+    rows.push([''], ['◈ SKU', 'QTY', 'LOCATION', 'ORDER', 'NOTE'], ['999999', 1]);
+    const { S, sb } = boot(rows);
+    const before = S.colA().slice();
+    const msg = sb.setupAmazonTable();
+    ok('L12 debris with a real row below → refused, nothing deleted', /❌/.test(msg) && JSON.stringify(S.colA()) === JSON.stringify(before), msg);
+  }
+  // L13–L14: any failure mid-build rolls the rows back out
+  { const { S, sb } = boot();
+    const before = S.colA().slice(), maxBefore = S.sheet.getMaxRows();
+    sb._styleAmazonDivider = () => { throw new Error('simulated refusal'); };
+    const msg = sb.setupAmazonTable();
+    ok('L13 a failure mid-build returns ❌ with the reason', /❌/.test(msg) && /simulated refusal/.test(msg), msg);
+    ok('L14 …and the sheet is exactly as it was', S.sheet.getMaxRows() === maxBefore && JSON.stringify(S.colA()) === JSON.stringify(before));
+  }
+  // L15: a band written but with the WRONG marker is caught by the read-back
+  { const { S, sb } = boot();
+    const real = sb._styleAmazonDivider;
+    sb._styleAmazonDivider = (sh, row) => { real(sh, row); sh.getRange(row, 1).setValue('AMAZON TABLE'); };
+    const msg = sb.setupAmazonTable();
+    ok('L15 a wrong marker is caught by the read-back and rolled back', /❌/.test(msg) && findRow(S, 'AMAZON TABLE') === 0, msg);
+  }
 });
 
 // =======================================================================================

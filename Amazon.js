@@ -204,29 +204,32 @@ function setupAmazonTable() {
 
   var W = Schema.dataWidth;
   var buffer = Math.max(1, (typeof TABLE_BUFFER_ROWS === "number") ? TABLE_BUFFER_ROWS : 1);
+
+  // A previous attempt that died half-way leaves an orphan header at the bottom with no
+  // AMAZON band above it (2026-09-26: the band was dropped, the header half-written).
+  // Clear it first, or this run would stack a second table under the debris.
+  var cleaned = _amzClearFailedSetup(sheet, L);
+  if (cleaned.error) return "❌ " + cleaned.error;
+  if (cleaned.removed) L = getTableLayout(sheet);
+
   var at = sheet.getMaxRows();                 // append below the Direct table's tail
   sheet.insertRowsAfter(at, 2 + buffer);
   var band = at + 1, header = at + 2, firstData = at + 3;
 
-  // Data-row format first (fonts, borders) from a real data row, for all three rows —
-  // then the band and header get their own styling on top.
-  sheet.getRange(Schema.dataStartRow, 1, 1, W)
-       .copyTo(sheet.getRange(band, 1, 2 + buffer, W),
-               SpreadsheetApp.CopyPasteType.PASTE_FORMAT, false);
-  sheet.getRange(band, 1, 2 + buffer, W).clearContent().setBackground(null).setFontLine("none");
-  sheet.getRange(firstData, Schema.cols.SALES_ORDER, buffer, 1).setNumberFormat("@");
-
-  // Header row = the DIRECT header's own labels (the same seven columns, same words).
-  var headerVals = sheet.getRange(L.direct + 1, 1, 1, W).getValues();
-  sheet.getRange(header, 1, 1, W).setValues(headerVals);
-
-  // Band: the same two merges the DIRECT band carries, then the shared styling.
-  try { sheet.getRange(band, 1, 1, Schema.boundaryLeftWidth).merge(); } catch (e) {}
-  try { sheet.getRange(band, Schema.boundaryLeftWidth + 1, 1, W - Schema.boundaryLeftWidth).merge(); } catch (e) {}
-  _styleAmazonDivider(sheet, band);
-  _styleHeaderRow(sheet, header);
-  sheet.setRowHeight(header, AMAZON.headerHeight);
-  sheet.setRowHeights(firstData, buffer, 30);
+  try {
+    _amzBuildStructure(sheet, L, band, header, firstData, buffer);
+    SpreadsheetApp.flush();      // surface any refused write HERE, not inside a later step
+    var bad = _amzVerifyStructure(sheet, L, band, header);
+    if (bad) throw new Error(bad);
+  } catch (e) {
+    // All or nothing: never leave a half-built table on the live sheet.
+    try { sheet.deleteRows(band, 2 + buffer); } catch (e2) {}
+    try { SpreadsheetApp.flush(); } catch (e3) {}
+    var fail = "❌ Amazon table NOT added — the rows were removed again, the sheet is as it was.\n" +
+               "   Reason: " + (e && e.message || e);
+    console.log(fail);
+    return fail;
+  }
 
   var notes = [];
   var step = function (label, fn) {
@@ -241,9 +244,109 @@ function setupAmazonTable() {
   step("board cache", _dashBustTickCache);
 
   var msg = "✅ Amazon table added — divider at row " + band + ", header " + header +
-            ", first row " + firstData + ".\n" + notes.join("\n");
+            ", first row " + firstData + "." +
+            (cleaned.removed ? "\n✓ removed " + cleaned.removed + " leftover row(s) from the failed attempt" : "") +
+            "\n" + notes.join("\n");
   console.log(msg);
   return msg;
+}
+
+/**
+ * Band + header + blank rows. Separate from setupAmazonTable so the caller can wrap it
+ * in one all-or-nothing try.
+ */
+function _amzBuildStructure(sheet, L, band, header, firstData, buffer) {
+  var W = Schema.dataWidth;
+  // Data-row format first (fonts, borders) from a real data row, for all the new rows —
+  // then the band and header get their own styling on top.
+  sheet.getRange(Schema.dataStartRow, 1, 1, W)
+       .copyTo(sheet.getRange(band, 1, 2 + buffer, W),
+               SpreadsheetApp.CopyPasteType.PASTE_FORMAT, false);
+  sheet.getRange(band, 1, 2 + buffer, W).clearContent().setBackground(null).setFontLine("none");
+  // ⚠⚠ PASTE_FORMAT CARRIES DATA VALIDATION. The data row's STATUS dropdown lands on the
+  //    band and the header too, and then writing "AMAZON" / "STATUS" there is refused —
+  //    which is exactly how the first live run lost its band (2026-09-26). The blank data
+  //    rows KEEP the dropdown (they need it); the two structural rows must not have it.
+  sheet.getRange(band, 1, 2, W).clearDataValidations();
+  sheet.getRange(firstData, Schema.cols.SALES_ORDER, buffer, 1).setNumberFormat("@");
+
+  // Header row = the DIRECT header's own labels (the same columns, same words).
+  var headerVals = sheet.getRange(L.direct + 1, 1, 1, W).getValues();
+  sheet.getRange(header, 1, 1, W).setValues(headerVals);
+
+  // Band: the same two merges the DIRECT band carries, then the shared styling.
+  sheet.getRange(band, 1, 1, Schema.boundaryLeftWidth).merge();
+  sheet.getRange(band, Schema.boundaryLeftWidth + 1, 1, W - Schema.boundaryLeftWidth).merge();
+  _styleAmazonDivider(sheet, band);
+  _styleHeaderRow(sheet, header);
+  sheet.setRowHeight(header, AMAZON.headerHeight);
+  sheet.setRowHeights(firstData, buffer, 30);
+}
+
+/**
+ * Reads the structure back. Returns "" when it is right, else what is wrong.
+ * Checks what the rest of the system depends on: the exact marker, the header labels,
+ * and that getTableLayout() now finds the table where it was built.
+ */
+function _amzVerifyStructure(sheet, L, band, header) {
+  var W = Schema.dataWidth;
+  var marker = String(sheet.getRange(band, 1).getValue()).trim().toUpperCase();
+  if (marker !== Schema.amazonMarker) {
+    return "the band at row " + band + " reads '" + marker + "', not '" + Schema.amazonMarker + "'.";
+  }
+  var want = sheet.getRange(L.direct + 1, 1, 1, W).getValues()[0];
+  var got  = sheet.getRange(header, 1, 1, W).getValues()[0];
+  for (var c = 0; c < W; c++) {
+    if (String(got[c]) !== String(want[c])) {
+      return "header cell " + String.fromCharCode(65 + c) + header + " reads '" + got[c] +
+             "', expected '" + want[c] + "'.";
+    }
+  }
+  var L2 = getTableLayout(sheet);
+  if (L2.amazon !== band) return "the layout finds the Amazon divider at row " + L2.amazon + ", not " + band + ".";
+  if (L2.direct !== L.direct) return "the DIRECT divider moved (" + L.direct + " → " + L2.direct + ").";
+  return "";
+}
+
+/**
+ * Removes the debris of a setup that died half-way: a copy of the table header sitting
+ * below the Direct table with no AMAZON band. Only acts when every row from the row
+ * above that header to the bottom of the sheet is empty apart from the header itself —
+ * anything else and it refuses, because then it is not debris.
+ * @returns {{removed:number, error:string}}
+ */
+function _amzClearFailedSetup(sheet, L) {
+  if (!(L.direct > 0) || L.amazon > 0) return { removed: 0, error: "" };
+  var W = Schema.dataWidth;
+  var top = L.direct + 2, max = sheet.getMaxRows();
+  if (max < top) return { removed: 0, error: "" };
+  var headA = String(sheet.getRange(L.direct + 1, 1).getValue()).trim();
+  var vals = sheet.getRange(top, 1, max - top + 1, W).getValues();
+  var h = -1;
+  for (var i = 0; i < vals.length; i++) {
+    if (headA && String(vals[i][0]).trim() === headA) { h = top + i; break; }
+  }
+  if (h === -1) return { removed: 0, error: "" };
+  var from = h - 1;
+  if (from < top) {
+    return { removed: 0, error: "Found a stray copy of the table header at row " + h +
+             " directly under the Direct header. Not touching it — check the sheet by hand." };
+  }
+  for (var r = from; r <= max; r++) {
+    if (r === h) continue;
+    var row = vals[r - top];
+    for (var c = 0; c < W; c++) {
+      if (String(row[c]).trim() !== "") {
+        return { removed: 0, error: "Found a leftover table header at row " + h + " from an earlier " +
+                 "attempt, but row " + r + " below it holds data ('" + row[c] + "'). Not deleting " +
+                 "anything — clear those rows by hand, then run setupAmazonTable() again." };
+      }
+    }
+  }
+  try { sheet.getRange(from, 1, max - from + 1, W).breakApart(); } catch (e) {}
+  sheet.deleteRows(from, max - from + 1);
+  console.log("setupAmazonTable: removed " + (max - from + 1) + " leftover row(s) from a failed attempt (" + from + "–" + max + ").");
+  return { removed: max - from + 1, error: "" };
 }
 
 /**
