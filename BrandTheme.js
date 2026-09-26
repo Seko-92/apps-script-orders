@@ -1557,11 +1557,15 @@ function repairLiveBannerFormulas() {
   _ensureSparkData(ss);
   _setSystemPulseBannerFormulas(sheet);
   _installDirectBandRules(sheet);
+  // ⭐ 2026-09-26 — the band nameplates too. This is the repair people actually run, and
+  //   leaving them out is how the DIRECT band sat frozen on static text for months.
+  var plates = _applyDividerNameplate(sheet);
+  console.log(plates);
   // ⚠ It writes A1/D1/E1/F1. The pre-masthead layout put the stats in G1 and this
   //   string was never updated — a report that names the wrong cells sends the next
   //   reader to the wrong place.
-  return "✅ Live banner formulas re-installed (A1 face · D1/F1 headline · E1/H1 pulse · __SparkData)" +
-         (MASTHEAD.directBand ? " + the Direct band. Run diagnoseDirectBand() to see what it reads." : ".");
+  return "✅ Live banner formulas re-installed (A1 face · D1/F1 headline · E1/H1 pulse · __SparkData)\n" + plates + "\n" +
+         (MASTHEAD.directBand ? "Direct band alarm on. Run diagnoseDirectBand() to see what it reads." : "");
 }
 
 /** Where the band paints: the headline + pulse the reader actually SEES. In strip mode the
@@ -1631,6 +1635,8 @@ function diagnoseDirectBand() {
   show('Direct open (PENDING+PREPARING)', 'A18');
   show('AMAZON marker row', 'A27');
   show('Amazon open (PENDING+PREPARING)', 'A28');
+  show('Direct lines waiting (PENDING)', 'A29');
+  show('Amazon lines waiting (PENDING)', 'A30');
   show('queue, both tables', 'A8');
   show('Direct orders waiting (PENDING)', 'A21');
   show('oldest wait, minutes', 'A22');
@@ -1638,6 +1644,18 @@ function diagnoseDirectBand() {
   show('oldest past ' + MASTHEAD.lateMinutes + ' min', 'A24');
   show('log tail starts at row', 'A25');
   show('band verdict', 'A26');
+  // ⭐ 2026-09-26 — the NAMEPLATE cells themselves (reported: DIRECT's read "0 waiting" for
+  //   a while). Formula AND display, per band, so a stale formula or a static string shows.
+  try {
+    var Lay = getTableLayout(main);
+    [['DIRECT band', Lay.direct], ['AMAZON band', Lay.amazon]].forEach(function (b) {
+      if (!(b[1] > 0)) { L.push('  nameplate ' + b[0] + ': (no such row)'); return; }
+      var c = main.getRange(b[1], Schema.boundaryLeftWidth + 1);
+      L.push('  nameplate ' + b[0] + ' ' + c.getA1Notation() + ': shows "' + c.getDisplayValue() + '"');
+      if (!c.getFormula()) bad++;
+      L.push('        formula: ' + (c.getFormula() || '❌ (NONE — static text, the count is frozen)'));
+    });
+  } catch (e) { L.push('  nameplate read failed: ' + e); }
   var rows = sd.getRange('Z1:AD' + Math.min(DIRECT_BAND_LIST_ROWS, 8)).getDisplayValues();
   var held = sd.getRange('Y1:Y8').getDisplayValues().map(function (r) { return r[0]; })
     .filter(function (v) { if (ERR.test(v)) bad++; return v !== ''; });
@@ -2583,11 +2601,21 @@ function _styleHeaderRow(sheet, row) {
  * getBoundaryRow() matches column A only, and n8n's All-Orders readers take
  * UNFORMATTED_VALUE -- which returns the computed string exactly as today.
  */
-function _nameplateFormula(label, sparkCell) {
+function _nameplateFormula(label, sparkCell, waitCell) {
   var SD = "'__SparkData'!";
+  // Single-count form (row 2's eBay plate, parked): "· N waiting", as before.
+  if (!waitCell) {
+    return '="' + MASTHEAD.namePrefix + ' \u00b7 ' + label + '"&' +
+           'IF(' + SD + sparkCell + '="","",' +
+           '" \u00b7 "&' + SD + sparkCell + '&" waiting")';
+  }
+  // ⭐ 2026-09-26 (user's call): the band says BOTH — "· 17 open · 0 waiting". Open =
+  //   PENDING+PREPARING lines, waiting = PENDING lines nobody has picked yet. The old
+  //   "17 waiting" called lines that were being worked "waiting". Both are LINE counts.
   return '="' + MASTHEAD.namePrefix + ' \u00b7 ' + label + '"&' +
          'IF(' + SD + sparkCell + '="","",' +
-         '" \u00b7 "&' + SD + sparkCell + '&" waiting")';
+         '" \u00b7 "&' + SD + sparkCell + '&" open"&' +
+         'IF(' + SD + waitCell + '="",""," \u00b7 "&' + SD + waitCell + '&" waiting"))';
 }
 
 /**
@@ -2596,13 +2624,14 @@ function _nameplateFormula(label, sparkCell) {
  * nameplate differ. The marker value MUST stay exactly Schema.amazonMarker.
  */
 function _styleAmazonDivider(sheet, row) {
-  return _styleDirectDivider(sheet, row, Schema.amazonMarker, MASTHEAD.nameAmazon, 'A28');
+  return _styleDirectDivider(sheet, row, Schema.amazonMarker, MASTHEAD.nameAmazon, 'A28', 'A30');
 }
 
-function _styleDirectDivider(sheet, boundary, marker, nameLabel, sparkCell) {
+function _styleDirectDivider(sheet, boundary, marker, nameLabel, sparkCell, waitCell) {
   marker    = marker    || Schema.boundaryMarker;
   nameLabel = nameLabel || MASTHEAD.nameDirect;
   sparkCell = sparkCell || 'A18';
+  waitCell  = waitCell  || 'A29';
   // Service Bay v6 divider — full-row brand-yellow band, the loudest section
   // break in the sheet. Reads from across the warehouse.
   //
@@ -2636,7 +2665,7 @@ function _styleDirectDivider(sheet, boundary, marker, nameLabel, sparkCell) {
   // displayed render. Sheets persists number formats per-cell, so the prefix
   // survives re-runs of this function.
 
-  rightMerge.setFormula(_nameplateFormula(nameLabel, sparkCell))
+  rightMerge.setFormula(_nameplateFormula(nameLabel, sparkCell, waitCell))
             .setBackground(BRAND.yellow)
             .setFontColor(BRAND.ink)
             .setFontFamily(BRAND.fontDisplay)
@@ -3810,6 +3839,10 @@ function _ensureSparkData(ss) {
   sheet.getRange('A28').setFormula(
     '=IF(A27="","",COUNTIF(' + amazonStatus + ',"PENDING")+COUNTIF(' + amazonStatus + ',"PREPARING"))'
   );
+  // ⭐ 2026-09-26 — the "waiting" half of each band's nameplate: PENDING LINES only
+  //   (A21 counts ORDERS and skips HOLD — a different question, kept for the band alarm).
+  sheet.getRange('A29').setFormula('=IF(A20="","",COUNTIF(' + directStatus + ',"PENDING"))');
+  sheet.getRange('A30').setFormula('=IF(A27="","",COUNTIF(' + amazonStatus + ',"PENDING"))');
 
   sheet.getRange('A7').setFormula(pubNum('oldestPendingMinutes'));
   // ⚠ A19 — how many orders are past the 3h line, not just how old the oldest is. A7 says
@@ -4385,20 +4418,33 @@ function _buildRow2(sheet, plate) {
 function _applyDividerNameplate(sheet) {
   var boundary = _findBoundaryInSheet(sheet);
   if (boundary <= 0) return '✗ divider: boundary row not found';
+  // ⭐ 2026-09-26 — BOTH bands, and a READ-BACK that checks for a FORMULA, not a prefix.
+  //   The DIRECT cell was found holding static text "… · 0 waiting": the old check passed
+  //   it because the text happened to contain "HQMS". A frozen count is the failure.
+  var bands = [[boundary, MASTHEAD.nameDirect, 'A18', 'A29']];
   try {
-    var col = Schema.boundaryLeftWidth + 1;                       // G
-    sheet.getRange(boundary, col).setFormula(_nameplateFormula(MASTHEAD.nameDirect, 'A18'));
-    sheet.getRange(boundary, col, 1, Schema.boundaryRightWidth)
-      .setFontFamily(BRAND.fontDisplay).setFontWeight('bold').setFontSize(10)
-      .setFontColor(BRAND.ink)
-      .setHorizontalAlignment('right').setVerticalAlignment('middle');
-    SpreadsheetApp.flush();
-    var got = String(sheet.getRange(boundary, col).getDisplayValue() || '');
-    return (got.indexOf(MASTHEAD.namePrefix) !== -1 ? '✓' : '✗') +
-           ' divider nameplate row ' + boundary + ': "' + got + '"';
-  } catch (e) {
-    return '✗ divider nameplate — ' + e;
-  }
+    var Lay = getTableLayout(sheet);
+    if (Lay.amazon > 0) bands.push([Lay.amazon, MASTHEAD.nameAmazon, 'A28', 'A30']);
+  } catch (e) {}
+  var col = Schema.boundaryLeftWidth + 1;                         // G
+  var out = [];
+  bands.forEach(function (b) {
+    try {
+      sheet.getRange(b[0], col).setFormula(_nameplateFormula(b[1], b[2], b[3]));
+      sheet.getRange(b[0], col, 1, Schema.boundaryRightWidth)
+        .setFontFamily(BRAND.fontDisplay).setFontWeight('bold').setFontSize(10)
+        .setFontColor(BRAND.ink)
+        .setHorizontalAlignment('right').setVerticalAlignment('middle');
+      SpreadsheetApp.flush();
+      var c = sheet.getRange(b[0], col);
+      var live = !!c.getFormula();
+      out.push((live ? '✓' : '✗') + ' ' + b[1] + ' nameplate row ' + b[0] + ': "' +
+               c.getDisplayValue() + '"' + (live ? '' : ' — NO FORMULA'));
+    } catch (e) {
+      out.push('✗ ' + b[1] + ' nameplate — ' + e);
+    }
+  });
+  return out.join('\n');
 }
 
 /**

@@ -68,6 +68,8 @@ function makeSheet(rows) {
       getA1Notation: () => 'R' + r + 'C' + c,
       getValues: () => cells().map(o => o.map(x => x.v)),
       getValue: () => (cells()[0][0]).v,
+      getFormula: () => { const v = String(cells()[0][0].v); return v.charAt(0) === '=' ? v : ''; },
+      getDisplayValue: () => String(cells()[0][0].v),
       // A cell hidden inside a merge holds no value — Sheets keeps only the top-left one.
       setValues: (v) => { each((x, i, j) => { if (x.hid) return; checkDv(x, v[i][j]); x.v = v[i][j]; }); return px; },
       setValue: (v) => { each(x => { if (x.hid) return; checkDv(x, v); x.v = v; }); return px; },
@@ -479,6 +481,22 @@ section('L · ⚠ REAL-SHEETS RULES — validation, the half-built live state, a
     const msg = sb.setupAmazonTable();
     ok('L15 a wrong marker is caught by the read-back and rolled back', /❌/.test(msg) && findRow(S, 'AMAZON TABLE') === 0, msg);
   }
+});
+
+// =======================================================================================
+section('M · the band nameplates — a live FORMULA on both, "open · waiting"', () => {
+  const { S, sb } = boot();
+  S.sheet.getRange(8, 7).setValue('HQMS · DIRECT ORDERS · 0 waiting');   // the frozen live state
+  sb.setupAmazonTable();
+  const a = findRow(S, 'AMAZON');
+  const rep = sb._applyDividerNameplate(S.sheet);
+  const d = String(S.row(8)[6]), m = String(S.row(a)[6]);
+  ok('M1 the static DIRECT text is replaced by a formula', d.charAt(0) === '=' && /A18/.test(d) && /A29/.test(d), d);
+  ok('M2 the AMAZON band reads A28 + A30', m.charAt(0) === '=' && /A28/.test(m) && /A30/.test(m), m);
+  ok('M3 both say "open" and "waiting"', /open/.test(d) && /waiting/.test(d) && /open/.test(m) && /waiting/.test(m));
+  ok('M4 the report ticks both bands', (rep.match(/✓/g) || []).length === 2 && !/✗/.test(rep), rep);
+  ok('M5 the single-count form (row 2) is unchanged', /waiting/.test(sb._nameplateFormula('EBAY ORDERS', 'A17')) &&
+     !/open/.test(sb._nameplateFormula('EBAY ORDERS', 'A17')));
 });
 
 // =======================================================================================
