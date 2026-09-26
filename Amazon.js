@@ -44,6 +44,10 @@ var AMAZON = {
   idRe:         /^\d{3}-\d{7}-\d{7}$/,
   // Test orders use this id range so their Activity Log trail can be purged afterwards.
   testIdPrefix: "000-",
+  // Ids entered during testing that are NOT in the 000- range, purged the same way.
+  // 114-3941689-8772232 was the example printed in the sidebar field and in /amazon's
+  // usage text, and the first live test (2026-09-26) used it verbatim.
+  testOrderIds: ["114-3941689-8772232"],
   source:       "amazon",
   headerHeight: 36
 };
@@ -132,7 +136,10 @@ function _amzShipBy(raw, now) {
 
 /** The NOTE written on every line of the order. Pure so a test can pin the wording. */
 function _amzNote(shipByText, note) {
-  var parts = ["AMAZON"];
+  // ⭐ 2026-09-26 (user's call): no bare "AMAZON" word — the table and the AMZ- id already
+  //   say which channel it is, and on the board every NOTE renders as a 📌, which is for
+  //   real exceptions. Only a deadline or a real note earns the cell; otherwise it is blank.
+  var parts = [];
   if (shipByText) parts.push("ship by " + shipByText);
   var n = String(note || "").trim();
   if (n.length > AMAZON.maxNoteChars) n = n.slice(0, AMAZON.maxNoteChars - 1) + "…";
@@ -605,14 +612,18 @@ function purgeAmazonTestEvents() {
   var col = ACTIVITY_LOG.cols.ORDER_ID;
   var ids = sh.getRange(2, col, last - 1, 1).getValues();
   var prefix = Schema.amazonOrderPrefix + AMAZON.testIdPrefix;
+  var exact = {};
+  AMAZON.testOrderIds.forEach(function (id) { exact[Schema.amazonOrderPrefix + id] = true; });
   var removed = 0;
   for (var i = ids.length - 1; i >= 0; i--) {          // bottom-up so row numbers hold
-    if (String(ids[i][0] || "").trim().toUpperCase().indexOf(prefix) === 0) {
+    var v = String(ids[i][0] || "").trim().toUpperCase();
+    if (v.indexOf(prefix) === 0 || exact[v]) {
       sh.deleteRow(i + 2); removed++;
     }
   }
   try { _dashBustTickCache(); } catch (e) {}
-  return "✅ Removed " + removed + " Activity Log row(s) for " + prefix + "… test orders.";
+  return "✅ Removed " + removed + " Activity Log row(s) for test orders (" + prefix + "… and " +
+         Object.keys(exact).join(", ") + ").";
 }
 
 

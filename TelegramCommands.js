@@ -602,7 +602,7 @@ var TG_ROUTES = {
     run: function (argStr) {
       if (!argStr) {
         return "Usage: /amazon <order#> <sku> [qty] [<sku> [qty] …] [by <date>] [note <text>]\n" +
-               "Example: /amazon 114-3941689-8772232 167517 2 171378 by 9/29";
+               "Example: /amazon 000-0000000-0000001 167517 2 171378 by 9/29  (000- = a test order)";
       }
       return _tgAmazonPreview(argStr);
     }

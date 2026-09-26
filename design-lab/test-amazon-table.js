@@ -244,8 +244,8 @@ section('C · THE DOOR — addAmazonOrder', () => {
   const r = sb.addAmazonOrder('114-3941689-8772232', [{ sku: '167517', qty: 2 }, { sku: '171378' }], '9/29', 'gift wrap', 'telegram');
   ok('C1 ok', r.ok, r.message);
   t('C2 lands at the top of the Amazon table (AMAZON+2)', r.row, 16);
-  t('C3 row 16 content', S.row(16).slice(0, 7), ['167517', 2, 'K-7', 'AMZ-114-3941689-8772232', 'AMAZON · ship by 9/29 · gift wrap', 'PENDING', 12]);
-  t('C4 row 17 content (qty defaults to 1)', S.row(17).slice(0, 7), ['171378', 1, 'L-3', 'AMZ-114-3941689-8772232', 'AMAZON · ship by 9/29 · gift wrap', 'PENDING', 1]);
+  t('C3 row 16 content', S.row(16).slice(0, 7), ['167517', 2, 'K-7', 'AMZ-114-3941689-8772232', 'ship by 9/29 · gift wrap', 'PENDING', 12]);
+  t('C4 row 17 content (qty defaults to 1)', S.row(17).slice(0, 7), ['171378', 1, 'L-3', 'AMZ-114-3941689-8772232', 'ship by 9/29 · gift wrap', 'PENDING', 1]);
   t('C5 the AMAZON divider did not move', findRow(S, 'AMAZON'), 14);
   t('C6 Direct + eBay untouched', dataRowsOf(S, 4, 13), ['111111', '222222', '333333', '444444', '555555', '666666']);
   t('C7 one RECEIVED per line, source "amazon" (never a warehouse source)', logs.map(l => [l[0], l[1], l[2], l[4]]),
@@ -424,7 +424,8 @@ section('J · pure door helpers', () => {
   t('J4 ship-by formats', ['9/29', '2026-09-30', 'today', 'tomorrow', '', '12/31/26']
     .map(x => sb._amzShipBy(x, now).text), ['9/29', '9/30', '9/26', '9/27', '', '12/31']);
   ok('J5 an impossible date is refused', !sb._amzShipBy('2/31', now).ok);
-  t('J6 note wording', sb._amzNote('9/29', ''), 'AMAZON · ship by 9/29');
+  t('J6 note wording — no bare AMAZON word', sb._amzNote('9/29', ''), 'ship by 9/29');
+  t('J6b no deadline, no note → the cell stays BLANK (no 📌 on the board)', sb._amzNote('', ''), '');
   t('J7 same SKU twice is MERGED', sb._amzCleanLines([{ sku: '167517', qty: 1 }, { sku: '167517', qty: 2 }]).lines,
     [{ sku: '167517', qty: 3 }]);
 });

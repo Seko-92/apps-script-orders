@@ -28,11 +28,11 @@ function tickWithAmazon(extra) {
   const t = JSON.parse(JSON.stringify(BASE));
   t.openOrders = t.openOrders.concat([
     { channel: 'AMAZON', orderId: 'AMZ-114-3941689-8772232', sku: '167517', qty: 2, location: 'K-7',
-      status: 'PENDING', note: 'AMAZON · ship by 9/29', isKit: false, hand: 12 },
+      status: 'PENDING', note: 'ship by 9/29', isKit: false, hand: 12 },
     { channel: 'AMAZON', orderId: 'AMZ-114-3941689-8772232', sku: '171378', qty: 1, location: 'L-3',
-      status: 'PENDING', note: 'AMAZON · ship by 9/29', isKit: false, hand: 1 },
+      status: 'PENDING', note: 'ship by 9/29', isKit: false, hand: 1 },
     { channel: 'AMAZON', orderId: 'AMZ-111-1111111-1111111', sku: '194244', qty: 1, location: 'A-14',
-      status: 'PREPARING', note: 'AMAZON · ship by 9/30', isKit: false, hand: 9 }
+      status: 'PREPARING', note: 'ship by 9/30', isKit: false, hand: 9 }
   ]).concat(extra || []);
   t.openOrdersTotal = (t.openOrdersTotal || 0) + 3;
   t.openOrdersBy = Object.assign({}, t.openOrdersBy, { AMAZON: 3 });

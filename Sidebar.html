@@ -4618,7 +4618,7 @@ body.dark-theme .footer-version { border-color: #2c2c2c; }
       <div class="quick-add">
         <div class="quick-add-title">Add an Amazon order</div>
         <div class="qa-field"><label>Order #</label>
-          <input type="text" id="amzOrder" placeholder="114-3941689-8772232" autocomplete="off" /></div>
+          <input type="text" id="amzOrder" placeholder="000-0000000-0000001" autocomplete="off" /></div>
         <div class="qa-field"><label>SKU + qty, one per line</label>
           <textarea id="amzLines" rows="3" placeholder="167517 2&#10;171378 1"></textarea></div>
         <div class="qa-field"><label>Ship by</label>
@@ -4646,7 +4646,7 @@ body.dark-theme .footer-version { border-color: #2c2c2c; }
           <button class="btn-danger" onclick="run('runDeleteEmptyRowsTableThree')">Cleanup Empty Rows</button>
           <button onclick="run('setupAmazonTable')">Set up the Amazon table</button>
           <button class="btn-danger" onclick="if (confirm('Remove the Amazon table? It refuses while any Amazon row has data.')) run('removeAmazonTable')">Remove the Amazon table</button>
-          <button onclick="run('purgeAmazonTestEvents')">Purge test-order log rows (AMZ-000-…)</button>
+          <button onclick="run('purgeAmazonTestEvents')">Purge test-order log rows</button>
         </div>
       </details>
     </div>

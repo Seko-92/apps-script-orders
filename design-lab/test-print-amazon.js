@@ -49,7 +49,7 @@ const item = (sku, so, note) => [sku, 1, 'A-1', so, note || '', 5, '', '', '', '
 const base = {
   ebayItems: [item('111111', '05-11111-11111')],
   directItems: [item('444444', 'SO-100'), item('555555', 'SO-100')],
-  amazonItems: [item('167517', 'AMZ-114-3941689-8772232', 'AMAZON · ship by 9/29')],
+  amazonItems: [item('167517', 'AMZ-114-3941689-8772232', 'ship by 9/29')],
   directCustomers: { 'SO-100': 'Acme' },
   employeeId: 'Yassin · 1', pickIdShipping: 'Yassin · 1', pickIdAdjustment: '',
   printDate: '9/26/2026', printTime: '9:00 PM', printDay: 'Saturday',
