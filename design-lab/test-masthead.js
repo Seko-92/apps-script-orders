@@ -52,7 +52,7 @@ function fakeSheet() {
 const sandbox = {
   console, Date, Math, String, Number, JSON, RegExp, Object, Array,
   SPREADSHEET_ID: 'x', MAIN_SHEET_NAME: 'All orders',
-  Schema: { dataStartRow: 4, dataWidth: 10, cellSyncTime: 'E1', cellMasthead: 'A1', boundaryMarker: 'DIRECT', amazonMarker: 'AMAZON',
+  Schema: { dataStartRow: 4, headerRow: 3, dataWidth: 10, cellSyncTime: 'E1', cellMasthead: 'A1', boundaryMarker: 'DIRECT', amazonMarker: 'AMAZON',
             cellStats: 'D1', cellDayCurve: 'F1',
             cellEmployeeId: 'F2', cellAdjustmentId: 'H2',
             pickIdA1: function (which) { return which === 'adjustment' ? 'H2' : 'F2'; } },
@@ -150,15 +150,17 @@ ok('A8 (queue) reads the sheet, not __Published', /COUNTIF\(INDIRECT\("'All orde
 const sparkAll = Object.keys(S).map(k => [k, String(Array.isArray(S[k]) ? JSON.stringify(S[k]) : S[k])]);
 const plainRefs = sparkAll.filter(([, f]) => /'All orders'!/.test(f.replace(/INDIRECT\("[^"]*"/g, '')));
 ok('⚠ no helper formula holds a plain All Orders reference', plainRefs.length === 0, plainRefs.map(p => p[0]));
-ok('A20 finds the DIRECT marker through INDIRECT', /^=IFERROR\(MATCH\("DIRECT",INDIRECT\("'All orders'!A:A"\),0\),""\)$/.test(S.A20 || ''), S.A20);
+ok('A20 finds the DIRECT marker through INDIRECT', /^=IFERROR\(MATCH\("DIRECT",INDIRECT\("'All orders'!A3:A"\),0\)\+2,""\)$/.test(S.A20 || ''), S.A20);
 ok('A17 (eBay open) counts the rows above the marker, not __Published',
    /INDIRECT\("'All orders'!F4:F"&\(A20-1\)\)/.test(S.A17 || '') && !/__Published/.test(S.A17 || ''), S.A17);
 ok('A18 (Direct open) counts the rows below the DIRECT header, not __Published',
    /INDIRECT\("'All orders'!F"&\(A20\+2\)&":F"&IF\(A27="","",A27-1\)\)/.test(S.A18 || '') && !/__Published/.test(S.A18 || ''), S.A18);
 // ⭐ 2026-09-26 — THE THIRD TABLE. Direct's ranges stop at the AMAZON divider (A27) so an
 //   Amazon order is never counted, named or alarmed on as Direct; A28 counts Amazon.
+ok('⚠ CIRCLE · no helper formula reads All Orders A:A (A1 is the dial, which reads A8 → the nameplates → A18 → A20)',
+   !Object.keys(S).some(function (k) { return /'All orders'!A:A/.test(S[k] || ''); }));
 ok('A27 finds the AMAZON marker through INDIRECT',
-   /^=IFERROR\(MATCH\("AMAZON",INDIRECT\("'All orders'!A:A"\),0\),""\)$/.test(S.A27 || ''), S.A27);
+   /^=IFERROR\(MATCH\("AMAZON",INDIRECT\("'All orders'!A3:A"\),0\)\+2,""\)$/.test(S.A27 || ''), S.A27);
 ok('A28 (Amazon open) counts the rows below the AMAZON header, blank when absent',
    /^=IF\(A27="",""/.test(S.A28 || '') &&
    /INDIRECT\("'All orders'!F"&\(A27\+2\)&":F"\)/.test(S.A28 || '') &&

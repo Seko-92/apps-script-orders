@@ -120,8 +120,15 @@ var Schema = {
   /** ⭐ 2026-09-26 — the channel mark (=IMAGE) sits in column D on every table band,
    *  lined up under the eBay logo in D2. */
   bandLogoCol:        4,
-  /** The nameplate's anchor column (F). E is left empty between logo and nameplate. */
+  /** ⭐ 2026-09-26 (owner's hand-merge, now code) — the mark spans D:E so it sits centred
+   *  under the eBay logo, which is centred across the same two columns. */
+  bandLogoWidth:      2,
+  /** The nameplate's anchor column (F). */
   bandPlateCol:       6,
+  /** ⭐ 2026-09-26 — the marker word is HIDDEN on the band (owner: "DIRECT" beside the
+   *  direct logo is a duplication). ';;;' is display-only: the cell VALUE stays exactly
+   *  "DIRECT"/"AMAZON", which is all getBoundaryRow/getTableLayout ever read. */
+  bandMarkerFormat:   ';;;',
 
   /** Width of the boundary row's right merge (G:J) */
   // ⚠ REVERTED 2026-08-31, same day. I widened this to 14 (G:T) for a "bands bleed,

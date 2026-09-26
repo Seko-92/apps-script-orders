@@ -2645,9 +2645,9 @@ function _styleDirectDivider(sheet, boundary) {
  * drift. Layout, left to right, on a 60px brand-yellow row:
  *
  *   A:C  the marker word — value EXACTLY "DIRECT" / "AMAZON" (getBoundaryRow and
- *        getTableLayout match it by strict equality; the ▌ bar is a NUMBER FORMAT)
- *   D    the channel mark, =IMAGE() from our own server — lined up under eBay's D2 logo
- *   E    empty
+ *        getTableLayout match it by strict equality). HIDDEN by the ';;;' number format
+ *        since 2026-09-26 — the channel mark already names the table.
+ *   D:E  the channel mark, =IMAGE() from our own server — merged and centred like eBay's
  *   F:J  the live nameplate "HQMS · … ORDERS · N open · M waiting"
  *
  * ⚠ Idempotent: breaks the row's old merges (hand-made A:F + G:J on the live DIRECT band)
@@ -2675,18 +2675,23 @@ function _styleTableBand(sheet, row, marker) {
   var word = sheet.getRange(row, 1, 1, Schema.boundaryLeftWidth);                       // A:C
   word.merge();
   word.setValue(marker)                         // ← underlying value MUST be exactly this
-      .setNumberFormat('"▌  "@')                // ← display-only bar; the value is untouched
+      .setNumberFormat(Schema.bandMarkerFormat) // ← hidden on screen; the value is untouched
       .setFontFamily(BRAND.fontDisplay).setFontWeight('bold').setFontSize(16)
       .setHorizontalAlignment('left');
 
-  sheet.getRange(row, Schema.bandLogoCol)                                               // D
+  var logo = sheet.getRange(row, Schema.bandLogoCol, 1, Schema.bandLogoWidth);           // D:E
+  logo.merge();
+  sheet.getRange(row, Schema.bandLogoCol)
        .setFormula('=IFERROR(IMAGE("' + MASTHEAD.baseUrl + mark.file + '",4,' + mark.h + ',' +
-                   mark.w + '),"")')
-       .setHorizontalAlignment('center');
+                   mark.w + '),"")');
+  logo.setHorizontalAlignment('center');
 
   var plate = sheet.getRange(row, Schema.bandPlateCol, 1, Schema.boundaryRightWidth);   // F:J
   plate.merge();
   sheet.getRange(row, Schema.bandPlateCol).setFormula(_nameplateFormula(label, open, wait));
+  // ⚠ Reset the number format: the pre-2026-09-26 band carried '"▌  "@' across the row,
+  //   and it survived breakApart onto F — the DIRECT plate read "▌  HQMS · …".
+  plate.setNumberFormat('@');
   plate.setFontFamily(BRAND.fontDisplay).setFontWeight('bold').setFontSize(10)
        .setHorizontalAlignment('right');
 
@@ -3096,8 +3101,8 @@ function repairDirectDividerGlyph() {
   if (!sheet) return "❌ Main sheet not found";
   var boundary = _findBoundaryInSheet(sheet);
   if (boundary <= 0) return "❌ DIRECT boundary row not found";
-  sheet.getRange(boundary, 1).setNumberFormat('"▌  "@');
-  return "✅ DIRECT divider ▌ glyph restored on row " + boundary + ".";
+  sheet.getRange(boundary, 1).setNumberFormat(Schema.bandMarkerFormat);
+  return "✅ DIRECT divider marker format restored on row " + boundary + " (word hidden, value intact).";
 }
 
 /**
@@ -3754,6 +3759,18 @@ function _sdDirectCol(c) {
   return 'INDIRECT("\'' + MAIN_SHEET_NAME + '\'!' + c + '"&(A20+2)&":' + c + '"&IF(A27="","",A27-1))';
 }
 
+/**
+ * ⭐ 2026-09-26 — the column the band MATCHes search: A from the header row down, NEVER A:A.
+ * ⚠⚠ A:A includes A1, the dial =IMAGE(), whose URL reads A8 — the queue count over F4:F,
+ *    which includes each band's live nameplate in F, which reads A18 → A20 → A:A → A1.
+ *    A circle. Sheets shows it as #REF! and IFERROR cannot catch it; it took F1 and both
+ *    nameplates down the moment the nameplate became a formula again. Rows 1-2 are banner,
+ *    so starting at the header row loses nothing — add (headerRow-1) to get the sheet row.
+ */
+function _sdMarkerCol() {
+  return _sdAllOrders('A' + Schema.headerRow + ':A');
+}
+
 function _sdAllOrders(text, expr, suffix) {
   return 'INDIRECT("\'' + MAIN_SHEET_NAME + '\'!' + text + '"' +
          (expr ? '&(' + expr + ')' : '') +
@@ -3831,7 +3848,7 @@ function _ensureSparkData(ss) {
   //   DIRECT marker, DIRECT below its header row. BLANK, never zero, when the marker
   //   cannot be found — the table is then unreadable, not empty.
   sheet.getRange('A20').setFormula(
-    '=IFERROR(MATCH("' + Schema.boundaryMarker + '",' + _sdAllOrders('A:A') + ',0),"")'
+    '=IFERROR(MATCH("' + Schema.boundaryMarker + '",' + _sdMarkerCol() + ',0)+' + (Schema.headerRow - 1) + ',"")'
   );
   var ebayStatus   = _sdAllOrders('F' + Schema.dataStartRow + ':F', 'A20-1');
   var directStatus = _sdDirectCol('F');
@@ -3846,7 +3863,7 @@ function _ensureSparkData(ss) {
   //   order is never counted, named or alarmed on as Direct. A28 = Amazon's open count,
   //   blank (never 0) when the table is absent.
   sheet.getRange('A27').setFormula(
-    '=IFERROR(MATCH("' + Schema.amazonMarker + '",' + _sdAllOrders('A:A') + ',0),"")'
+    '=IFERROR(MATCH("' + Schema.amazonMarker + '",' + _sdMarkerCol() + ',0)+' + (Schema.headerRow - 1) + ',"")'
   );
   var amazonStatus = _sdAllOrders('F', 'A27+2', 'F');
   sheet.getRange('A28').setFormula(
