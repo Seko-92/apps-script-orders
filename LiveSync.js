@@ -155,12 +155,10 @@ function liveUpdateTrigger(e) {
       quantityResults.push([resolveHandValue(miAvail, zoAvail, preferZoho)]);
     }
 
-    // Update LOCATION column
-    sheet.getRange(startRow, Schema.cols.LOCATION, locationResults.length, 1).setValues(locationResults);
-
-    // Update HAND column — conditional formatting handles highlighting
-    var handRange = sheet.getRange(startRow, Schema.cols.HAND, quantityResults.length, 1);
-    handRange.setValues(quantityResults);
+    // Update LOCATION + HAND — in runs that skip band rows (an edit spanning a band
+    // would otherwise write the band's displayed nameplate back over its formula).
+    writeColumnAroundBands(sheet, Schema.cols.LOCATION, startRow, locationResults, __tl);
+    writeColumnAroundBands(sheet, Schema.cols.HAND, startRow, quantityResults, __tl);
     mk.at("writes");
     mk.report(edits.length + " row(s)");
   }

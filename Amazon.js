@@ -281,9 +281,7 @@ function _amzBuildStructure(sheet, L, band, header, firstData, buffer) {
   var headerVals = sheet.getRange(L.direct + 1, 1, 1, W).getValues();
   sheet.getRange(header, 1, 1, W).setValues(headerVals);
 
-  // Band: the same two merges the DIRECT band carries, then the shared styling.
-  sheet.getRange(band, 1, 1, Schema.boundaryLeftWidth).merge();
-  sheet.getRange(band, Schema.boundaryLeftWidth + 1, 1, W - Schema.boundaryLeftWidth).merge();
+  // Band: the one shared styler builds the merges, the mark and the nameplate.
   _styleAmazonDivider(sheet, band);
   _styleHeaderRow(sheet, header);
   sheet.setRowHeight(header, AMAZON.headerHeight);

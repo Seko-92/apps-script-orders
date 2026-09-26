@@ -115,8 +115,13 @@ var Schema = {
     return Schema.structuralMarkers.indexOf(String(v == null ? "" : v).trim().toUpperCase()) !== -1;
   },
 
-  /** Width of the boundary row's left merge (A:F) */
-  boundaryLeftWidth:  6,
+  /** Width of the band's left merge — the marker word (A:C since 2026-09-26, was A:F) */
+  boundaryLeftWidth:  3,
+  /** ⭐ 2026-09-26 — the channel mark (=IMAGE) sits in column D on every table band,
+   *  lined up under the eBay logo in D2. */
+  bandLogoCol:        4,
+  /** The nameplate's anchor column (F). E is left empty between logo and nameplate. */
+  bandPlateCol:       6,
 
   /** Width of the boundary row's right merge (G:J) */
   // ⚠ REVERTED 2026-08-31, same day. I widened this to 14 (G:T) for a "bands bleed,
@@ -125,7 +130,8 @@ var Schema = {
   //   columns and added nothing. They were right: it was paint, not engineering, and it
   //   was folded in beside real defect fixes where it did not belong.
   //   Design gets judged in the eye, not in a document. Back to G:J.
-  boundaryRightWidth: 4,
+  // ⭐ 2026-09-26 — F:J (5 wide) so "17 open · 0 waiting" fits; starts at bandPlateCol.
+  boundaryRightWidth: 5,
 
 
   // =====================================================================================

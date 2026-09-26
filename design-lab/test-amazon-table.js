@@ -35,7 +35,11 @@ const section = (name, fn) => {
 // =======================================================================================
 const W = 10, YELLOW = '#ffd400';
 const STATUS_DV = ['PENDING', 'PREPARING', 'SHIPPED', 'CANCELED'];
-function cell(v) { return { v: v == null ? '' : v, f: '', bg: null, fs: 10, dv: null }; }
+function cell(v) { return { v: v == null ? '' : v, f: '', bg: null, fs: 10, dv: null, fx: '' }; }
+/* ⚠ REAL-SHEETS RULE (the frozen-nameplate bug): reading a formula cell returns its COMPUTED
+   value, and writing that value back REPLACES the formula. The model keeps the formula in fx
+   and reports '⟨computed⟩' as the value, so a read-then-write-back is visible as a lost fx. */
+const shown = (x) => x.fx ? '⟨computed⟩' : x.v;
 /* ⚠ REAL-SHEETS RULE (the 2026-09-26 live failure): a cell carrying a list validation
    REFUSES any other value. The model throws on the write (Sheets throws at the next flush —
    stricter here, never looser). */
@@ -66,14 +70,14 @@ function makeSheet(rows) {
     const api = {
       getRow: () => r, getColumn: () => c, getNumRows: () => nr, getNumColumns: () => nc,
       getA1Notation: () => 'R' + r + 'C' + c,
-      getValues: () => cells().map(o => o.map(x => x.v)),
-      getValue: () => (cells()[0][0]).v,
-      getFormula: () => { const v = String(cells()[0][0].v); return v.charAt(0) === '=' ? v : ''; },
-      getDisplayValue: () => String(cells()[0][0].v),
+      getValues: () => cells().map(o => o.map(shown)),
+      getValue: () => shown(cells()[0][0]),
+      getFormula: () => cells()[0][0].fx,
+      getDisplayValue: () => String(shown(cells()[0][0])),
       // A cell hidden inside a merge holds no value — Sheets keeps only the top-left one.
-      setValues: (v) => { each((x, i, j) => { if (x.hid) return; checkDv(x, v[i][j]); x.v = v[i][j]; }); return px; },
-      setValue: (v) => { each(x => { if (x.hid) return; checkDv(x, v); x.v = v; }); return px; },
-      setFormula: (v) => { each(x => { if (x.hid) return; checkDv(x, v); x.v = v; }); return px; },
+      setValues: (v) => { each((x, i, j) => { if (x.hid) return; checkDv(x, v[i][j]); x.v = v[i][j]; x.fx = ''; }); return px; },
+      setValue: (v) => { each(x => { if (x.hid) return; checkDv(x, v); x.v = v; x.fx = ''; }); return px; },
+      setFormula: (v) => { each(x => { if (x.hid) return; x.fx = v; x.v = ''; }); return px; },
       merge: () => { each((x, i, j) => { if (i || j) { x.hid = true; x.v = ''; } }); return px; },
       breakApart: () => { each(x => { x.hid = false; }); return px; },
       clearDataValidations: () => { each(x => { x.dv = null; }); return px; },
@@ -86,8 +90,8 @@ function makeSheet(rows) {
       setBackground: (b) => { each(x => { x.bg = b; }); return px; },
       getFontSizes: () => cells().map(o => o.map(x => x.fs)),
       setFontSizes: (v) => { each((x, i, j) => { x.fs = v[i][j]; }); return px; },
-      getRichTextValues: () => cells().map(o => o.map(x => ({ getText: () => x.v }))),
-      setRichTextValues: (v) => { each((x, i, j) => { x.v = v[i][j].getText(); }); return px; },
+      getRichTextValues: () => cells().map(o => o.map(x => ({ getText: () => String(shown(x)) }))),
+      setRichTextValues: (v) => { each((x, i, j) => { x.v = v[i][j].getText(); x.fx = ''; }); return px; },
       clearContent: () => { each(x => { x.v = ''; }); return px; },
       // PASTE_FORMAT carries number format, background AND DATA VALIDATION — tiled.
       copyTo: (target, kind) => { if (kind === 'F') target._pasteFmt(cells()); return px; },
@@ -119,7 +123,7 @@ function makeSheet(rows) {
   S.sheet = sheet;
   S.colA = () => grid.map(r => String(r[0].v));
   S.col = (c) => grid.map(r => r[c - 1].v);
-  S.row = (n) => grid[n - 1].map(x => x.v);
+  S.row = (n) => grid[n - 1].map(x => x.fx || x.v);
   return S;
 }
 
@@ -158,7 +162,9 @@ function boot(rows) {
       flush: () => {}, CopyPasteType: { PASTE_FORMAT: 'F' },
       BorderStyle: { SOLID_MEDIUM: 'M', SOLID_THICK: 'T' },
       ProtectionType: { RANGE: 'R' },
-      BooleanCriteria: { CUSTOM_FORMULA: 'CF' }, newConditionalFormatRule: () => ({})
+      BooleanCriteria: { CUSTOM_FORMULA: 'CF' }, newConditionalFormatRule: () => ({}),
+      newTextStyle: () => { const b = new Proxy({}, { get: (o, k) => k === 'build' ? () => ({}) : () => b }); return b; },
+      newRichTextValue: () => { let t = ''; const b = { setText: (x) => { t = x; return b; }, setLinkUrl: () => b, setTextStyle: () => b, build: () => ({ getText: () => t }) }; return b; }
     },
     LockService: { getScriptLock: () => ({ waitLock: () => {}, releaseLock: () => {} }) },
     Utilities: { formatDate: () => '', getUuid: () => 'abcdef0123456789' },
@@ -184,7 +190,7 @@ function boot(rows) {
                    resolveHandValue: sb.resolveHandValue };
   vm.createContext(sb);
   ['Schema.js', 'Helpers.js', 'RowManagement.js', 'OrderService.js', 'Replacements.js',
-   'Amazon.js', 'Holds.js', 'DashboardService.js', 'LocationService.js', 'BrandTheme.js'].forEach(f => {
+   'Amazon.js', 'Holds.js', 'DashboardService.js', 'LocationService.js', 'BrandTheme.js', 'OrderLinks.js'].forEach(f => {
     vm.runInContext(fs.readFileSync(path.join(SRC, f), 'utf8'), sb, { filename: f });
   });
   // re-assert the edge stubs the loaded files would otherwise shadow
@@ -487,17 +493,74 @@ section('L · ⚠ REAL-SHEETS RULES — validation, the half-built live state, a
 // =======================================================================================
 section('M · the band nameplates — a live FORMULA on both, "open · waiting"', () => {
   const { S, sb } = boot();
-  S.sheet.getRange(8, 7).setValue('HQMS · DIRECT ORDERS · 0 waiting');   // the frozen live state
+  S.sheet.getRange(8, sb.Schema.bandPlateCol).setValue('HQMS · DIRECT ORDERS · 0 waiting');   // the frozen live state
   sb.setupAmazonTable();
   const a = findRow(S, 'AMAZON');
   const rep = sb._applyDividerNameplate(S.sheet);
-  const d = String(S.row(8)[6]), m = String(S.row(a)[6]);
+  const P = sb.Schema.bandPlateCol;
+  const d = S.sheet.getRange(8, P).getFormula(), m = S.sheet.getRange(a, P).getFormula();
   ok('M1 the static DIRECT text is replaced by a formula', d.charAt(0) === '=' && /A18/.test(d) && /A29/.test(d), d);
   ok('M2 the AMAZON band reads A28 + A30', m.charAt(0) === '=' && /A28/.test(m) && /A30/.test(m), m);
   ok('M3 both say "open" and "waiting"', /open/.test(d) && /waiting/.test(d) && /open/.test(m) && /waiting/.test(m));
   ok('M4 the report ticks both bands', (rep.match(/✓/g) || []).length === 2 && !/✗/.test(rep), rep);
   ok('M5 the single-count form (row 2) is unchanged', /waiting/.test(sb._nameplateFormula('EBAY ORDERS', 'A17')) &&
      !/open/.test(sb._nameplateFormula('EBAY ORDERS', 'A17')));
+});
+
+// =======================================================================================
+section('N · ⚠ WHOLE-COLUMN WRITERS never touch a band row (the frozen-nameplate root cause)', () => {
+  const { S, sb } = boot();
+  sb.setupAmazonTable();
+  const a = findRow(S, 'AMAZON');
+  // formulas on both bands: the nameplate (G) and a logo (D)
+  const P = sb.Schema.bandPlateCol, G = sb.Schema.cols.HAND;
+  sb._styleDirectDivider(S.sheet, 8);                 // the live DIRECT band, new layout
+  [8, a].forEach(row => {
+    S.sheet.getRange(row, P).setFormula('=NAMEPLATE(' + row + ')');
+    S.sheet.getRange(row, 4).setFormula('=IMAGE("logo-' + row + '")');
+  });
+  // the OLD layout kept the nameplate in G (HAND) — put a formula there too, so the test
+  // still proves the HAND writer never rewrites a band cell, wherever the plate lives
+  S.sheet.getRange(8, G).breakApart(); S.sheet.getRange(8, G).setFormula('=OLDPLATE()');
+  sb.buildZohoStockMap = () => new Map();
+  sb._isManualSalesOrder = (v) => !/^[\d-]+$/.test(String(v || '').trim());
+  const maps = { inventoryMap: new Map([['111111', { available: 3 }], ['444444', { available: 5 }]]) };
+  const hand = sb.recomputeHand(maps, new Map());
+  ok('N1 recomputeHand ran', /HAND recomputed/.test(hand), hand);
+  t('N2 …a formula in the band\'s HAND cell (G) survives — the frozen-nameplate bug', S.sheet.getRange(8, G).getFormula(), '=OLDPLATE()');
+  t('N3 …the nameplates survive', [S.sheet.getRange(8, P).getFormula(), S.sheet.getRange(a, P).getFormula()], ['=NAMEPLATE(8)', '=NAMEPLATE(' + a + ')']);
+  t('N4 …and HAND still lands on the data rows', S.row(4)[6], 3);
+  sb.applyOrderLinksToColumn(S.sheet, 4, 4, S.sheet.getLastRow(), null);
+  t('N5 applyOrderLinksToColumn keeps the DIRECT logo formula in D', S.sheet.getRange(8, 4).getFormula(), '=IMAGE("logo-8")');
+  t('N6 …and the AMAZON logo formula in D', S.sheet.getRange(a, 4).getFormula(), '=IMAGE("logo-' + a + '")');
+  t('N7 …while order ids on data rows are still written', S.row(4)[3], '05-11111-11111');
+});
+
+// =======================================================================================
+section('O · the band layout — word A:C · mark in D · nameplate F:J', () => {
+  const { S, sb } = boot();
+  sb.setupAmazonTable();
+  const a = findRow(S, 'AMAZON');
+  sb._styleDirectDivider(S.sheet, 8);
+  [[8, 'DIRECT', 'mark-direct', 'A18', 'A29'], [a, 'AMAZON', 'mark-amazon', 'A28', 'A30']].forEach(([row, word, file, open, wait]) => {
+    t('O1 ' + word + ' marker is EXACTLY the word in col A', S.row(row)[0], word);
+    const logo = S.sheet.getRange(row, 4).getFormula();
+    ok('O2 ' + word + ' mark is an =IMAGE of ' + file + ' in D', /IMAGE\("https:\/\/hq\.yassinqurabi\.com\/mast\/mark-/.test(logo) && logo.indexOf(file) !== -1, logo);
+    const plate = S.sheet.getRange(row, sb.Schema.bandPlateCol).getFormula();
+    ok('O3 ' + word + ' nameplate formula in F reads ' + open + ' + ' + wait, plate.indexOf(open) !== -1 && plate.indexOf(wait) !== -1, plate);
+    t('O4 ' + word + ' E is empty', S.row(row)[4], '');
+  });
+  t('O5 the layout still finds both tables', [sb.getTableLayout(S.sheet).direct, sb.getTableLayout(S.sheet).amazon], [8, a]);
+  const rep = sb._applyDividerNameplate(S.sheet);
+  ok('O6 the installer rebuilds both bands and reports ✓ twice', (rep.match(/✓/g) || []).length === 2 && !/✗/.test(rep), rep);
+  S.sheet.getRange(8, sb.Schema.bandPlateCol).setValue('HQMS · DIRECT ORDERS · 0 waiting');
+  // a STATUS dropdown on the DIRECT band's F (possible on the live sheet) must not block it
+  { const { S: S2, sb: sb2 } = boot();
+    S2.grid[7].forEach(x => { x.dv = ['PENDING', 'PREPARING', 'SHIPPED', 'CANCELED']; });
+    let err = null; try { sb2._styleDirectDivider(S2.sheet, 8); } catch (e) { err = String(e); }
+    ok('O8 a STATUS dropdown on the band row does not block the restyle', err === null && !!S2.sheet.getRange(8, sb2.Schema.bandPlateCol).getFormula(), err); }
+  const rep2 = sb._applyDividerNameplate(S.sheet);
+  ok('O7 a frozen static nameplate is rebuilt into a formula', !!S.sheet.getRange(8, sb.Schema.bandPlateCol).getFormula() && !/✗/.test(rep2), rep2);
 });
 
 // =======================================================================================

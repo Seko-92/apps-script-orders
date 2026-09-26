@@ -114,6 +114,44 @@ function _tableSegment(t, L) {
   return null;
 }
 
+/**
+ * ⭐ 2026-09-26 — write ONE column over a span of rows WITHOUT touching a structural row
+ * (the DIRECT / AMAZON bands and their headers). Writes each run between them separately.
+ *
+ * ⚠⚠ WHY: "read the column, write the column back" is NOT a no-op on a formula cell.
+ *    getValues() returns what a formula COMPUTES; setValues() of that replaces the formula
+ *    with the frozen text. recomputeHand did exactly that to column G every 2 minutes, and
+ *    G is where each band's nameplate formula lives — which is how the DIRECT band sat on
+ *    "… · 0 waiting" for months. Column D will hold the band logos (=IMAGE()), and the
+ *    order-link writer rewrites all of D on every order insert. Any whole-column writer on
+ *    All Orders goes through here.
+ * @param {Sheet}   sheet
+ * @param {number}  col       1-based column
+ * @param {number}  startRow  sheet row of values[0]
+ * @param {Array[]} values    one [value] per row
+ * @param {Object}  [layout]  getTableLayout(sheet) — pass it when you already have one
+ * @param {boolean} [rich]    values are RichTextValues (setRichTextValues)
+ * @returns {number} runs written
+ */
+function writeColumnAroundBands(sheet, col, startRow, values, layout, rich) {
+  if (!values || !values.length) return 0;
+  layout = layout || getTableLayout(sheet);
+  var runs = 0, runStart = -1;
+  var flush = function (endIdx) {
+    if (runStart < 0) return;
+    var rg = sheet.getRange(startRow + runStart, col, endIdx - runStart, 1);
+    var part = values.slice(runStart, endIdx);
+    if (rich) rg.setRichTextValues(part); else rg.setValues(part);
+    runs++; runStart = -1;
+  };
+  for (var i = 0; i < values.length; i++) {
+    if (isStructuralRowNum(startRow + i, layout)) flush(i);
+    else if (runStart < 0) runStart = i;
+  }
+  flush(values.length);
+  return runs;
+}
+
 /** Last row of the Direct table: stops at the Amazon divider when there is one. */
 function directTableEnd(fallback, layout) {
   layout = layout || getTableLayout();
@@ -289,8 +327,9 @@ function recomputeHand(sharedMaps, sharedZoho) {
     updatedCount++;
   }
 
-  // Single batched write to col G (HAND)
-  sheet.getRange(Schema.dataStartRow, Schema.cols.HAND, nRows, 1).setValues(newHandValues);
+  // Batched write to col G (HAND), in runs that SKIP the band rows — G holds each band's
+  // nameplate formula, and writing its displayed value back froze it (2026-09-26).
+  writeColumnAroundBands(sheet, Schema.cols.HAND, Schema.dataStartRow, newHandValues, __tl);
 
   return "✅ HAND recomputed for " + updatedCount + " active row(s)" +
          (zohoSourced ? " (" + zohoSourced + " from Zoho)" : "") + ".";

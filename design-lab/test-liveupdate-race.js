@@ -129,6 +129,10 @@ function makeEnv(opts) {
   vm.createContext(sandbox);
   vm.runInContext(fs.readFileSync(path.join(ROOT, 'Schema.js'), 'utf8'), sandbox, { filename: 'Schema.js' });
   vm.runInContext(fs.readFileSync(path.join(ROOT, 'LiveSync.js'), 'utf8'), sandbox, { filename: 'LiveSync.js' });
+  // the REAL band-skipping column writer (Helpers.js), not a stand-in
+  const H = fs.readFileSync(path.join(ROOT, 'Helpers.js'), 'utf8');
+  const m = /function writeColumnAroundBands[\s\S]*?\n}\n/.exec(H);
+  if (m) vm.runInContext(m[0], sandbox, { filename: 'Helpers.js#writeColumnAroundBands' });
   // ⭐ 2026-09-26: LiveSync asks getTableLayout() (three tables) — the real pure helpers,
   //   driven by the same stubbed DIRECT row the harness always used. Skipped on a HEAD
   //   that predates the helper, so a before/after run still reports every section.

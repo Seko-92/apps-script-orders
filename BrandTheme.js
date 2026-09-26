@@ -89,6 +89,14 @@ var BRAND = {
  */
 var MASTHEAD = {
   baseUrl:      "https://hq.yassinqurabi.com/mast/",
+  // ⭐ 2026-09-26 — each table band carries its channel's mark in column D, like eBay's
+  //   logo in D2. Self-hosted beside the eBay logo (a Wikimedia URL once died silently).
+  //   w/h = the size drawn on the band; bump the file's -vN to bust Sheets' image cache.
+  bandHeight:   60,
+  bandMarks: {
+    DIRECT: { file: "mark-direct-v1.png", h: 36, w: 140, alt: "direct" },
+    AMAZON: { file: "mark-amazon-v1.png", h: 30, w: 99,  alt: "amazon" }
+  },
   // ⚠⚠ BUMP THIS ON EVERY RE-RENDER. Sheets caches =IMAGE() per URL, so re-drawing the
   //    art at the SAME path leaves the OLD frame on screen indefinitely — which is exactly
   //    what happened on 2026-08-30: the sky kept showing a broken-logo build long after
@@ -332,7 +340,7 @@ function applyBrandTheme(sheetName) {
     // ── DIRECT DIVIDER + DIRECT HEADER ──
     var boundary = _findBoundaryInSheet(sheet);
     if (boundary > 0) {
-      _styleDirectDivider(sheet, boundary);     // sets row height 40 internally
+      _styleDirectDivider(sheet, boundary);     // sets the band height internally
       _styleHeaderRow(sheet, boundary + 1);
       sheet.setRowHeight(boundary + 1, 36);     // DIRECT header row — same as eBay header
     }
@@ -1650,7 +1658,7 @@ function diagnoseDirectBand() {
     var Lay = getTableLayout(main);
     [['DIRECT band', Lay.direct], ['AMAZON band', Lay.amazon]].forEach(function (b) {
       if (!(b[1] > 0)) { L.push('  nameplate ' + b[0] + ': (no such row)'); return; }
-      var c = main.getRange(b[1], Schema.boundaryLeftWidth + 1);
+      var c = main.getRange(b[1], Schema.bandPlateCol);
       L.push('  nameplate ' + b[0] + ' ' + c.getA1Notation() + ': shows "' + c.getDisplayValue() + '"');
       if (!c.getFormula()) bad++;
       L.push('        formula: ' + (c.getFormula() || '❌ (NONE — static text, the count is frozen)'));
@@ -2624,64 +2632,69 @@ function _nameplateFormula(label, sparkCell, waitCell) {
  * nameplate differ. The marker value MUST stay exactly Schema.amazonMarker.
  */
 function _styleAmazonDivider(sheet, row) {
-  return _styleDirectDivider(sheet, row, Schema.amazonMarker, MASTHEAD.nameAmazon, 'A28', 'A30');
+  return _styleTableBand(sheet, row, Schema.amazonMarker);
 }
 
-function _styleDirectDivider(sheet, boundary, marker, nameLabel, sparkCell, waitCell) {
-  marker    = marker    || Schema.boundaryMarker;
-  nameLabel = nameLabel || MASTHEAD.nameDirect;
-  sparkCell = sparkCell || 'A18';
-  waitCell  = waitCell  || 'A29';
-  // Service Bay v6 divider — full-row brand-yellow band, the loudest section
-  // break in the sheet. Reads from across the warehouse.
-  //
-  // Architecture:
-  //   A:F merge (Schema.boundaryLeftWidth) → "DIRECT" left-aligned, big Oswald
-  //   G:J merge → "HQ MS · DIRECT TABLE" right-aligned, smaller Oswald
-  //   Whole row: brand-yellow #ffd400 bg + brand-black text
-  //   Top + bottom thick black borders frame the band visually
-  //
-  // CRITICAL: The left-merge value MUST stay exactly Schema.boundaryMarker
-  // ("DIRECT"). getBoundaryRow() does strict equality on this constant —
-  // prepending glyphs ("▌ DIRECT") or branding ("HQ DIRECT") silently breaks
-  // every function downstream (sort, row inserts, live sync, fulfillment,
-  // protection self-heal). The yellow band itself provides the visual cue;
-  // we don't need decorative prefixes in the canonical marker cell.
-  var leftMerge  = sheet.getRange(boundary, 1, 1, Schema.boundaryLeftWidth);                             // A:F
-  var rightMerge = sheet.getRange(boundary, Schema.boundaryLeftWidth + 1, 1, Schema.boundaryRightWidth); // G:J
+/** Back-compat name: the DIRECT band. */
+function _styleDirectDivider(sheet, boundary) {
+  return _styleTableBand(sheet, boundary, Schema.boundaryMarker);
+}
 
-  leftMerge.setValue(marker)                     // ← Underlying value MUST be exactly this
-           .setNumberFormat('"▌  "@')             // ← DISPLAY prepends the bar glyph; underlying value untouched
-           .setBackground(BRAND.yellow)
-           .setFontColor(BRAND.ink)
-           .setFontFamily(BRAND.fontDisplay)
-           .setFontWeight('bold')
-           .setFontSize(16)
-           .setHorizontalAlignment('left')
-           .setVerticalAlignment('middle');
-  // The ▌ glyph is a number-format prefix, NOT a value. getValue() returns
-  // "DIRECT" (the underlying value), so getBoundaryRow()'s strict-equality
-  // contract stays intact. The visual stripe lives purely in the cell's
-  // displayed render. Sheets persists number formats per-cell, so the prefix
-  // survives re-runs of this function.
+/**
+ * ⭐ 2026-09-26 — ONE styler for every table band (DIRECT, AMAZON), so the two can never
+ * drift. Layout, left to right, on a 60px brand-yellow row:
+ *
+ *   A:C  the marker word — value EXACTLY "DIRECT" / "AMAZON" (getBoundaryRow and
+ *        getTableLayout match it by strict equality; the ▌ bar is a NUMBER FORMAT)
+ *   D    the channel mark, =IMAGE() from our own server — lined up under eBay's D2 logo
+ *   E    empty
+ *   F:J  the live nameplate "HQMS · … ORDERS · N open · M waiting"
+ *
+ * ⚠ Idempotent: breaks the row's old merges (hand-made A:F + G:J on the live DIRECT band)
+ *   and rebuilds. Column A is written in place, never cleared first, so nothing reading
+ *   the marker can ever see the row without it.
+ * ⚠ Clears DATA VALIDATION on the band: a STATUS dropdown here refuses the nameplate
+ *   formula (the 2026-09-26 setup failure).
+ * ⚠ The formulas in D and F survive the whole-column writers only because those go
+ *   through writeColumnAroundBands (Helpers.js).
+ */
+function _styleTableBand(sheet, row, marker) {
+  var W = Schema.dataWidth;
+  var isAmz = (marker === Schema.amazonMarker);
+  var label = isAmz ? MASTHEAD.nameAmazon : MASTHEAD.nameDirect;
+  var open  = isAmz ? 'A28' : 'A18';
+  var wait  = isAmz ? 'A30' : 'A29';
+  var mark  = MASTHEAD.bandMarks[isAmz ? 'AMAZON' : 'DIRECT'];
 
-  rightMerge.setFormula(_nameplateFormula(nameLabel, sparkCell, waitCell))
-            .setBackground(BRAND.yellow)
-            .setFontColor(BRAND.ink)
-            .setFontFamily(BRAND.fontDisplay)
-            .setFontWeight('bold')
-            .setFontSize(10)
-            .setHorizontalAlignment('right')
-            .setVerticalAlignment('middle');
+  var whole = sheet.getRange(row, 1, 1, W);
+  whole.breakApart();
+  whole.clearDataValidations();
+  sheet.getRange(row, 2, 1, W - 1).clearContent();
+  whole.setBackground(BRAND.yellow).setFontColor(BRAND.ink).setVerticalAlignment('middle');
 
-  // Black borders top + bottom across the entire row — frames the yellow band
-  // so it reads as a defined section break (not just a colored row).
-  // ⚠ Stops at dataWidth. A "bleed past J" version was tried and reverted the same day.
-  sheet.getRange(boundary, 1, 1, Schema.dataWidth)
-       .setBorder(true, null, true, null, null, null,
+  var word = sheet.getRange(row, 1, 1, Schema.boundaryLeftWidth);                       // A:C
+  word.merge();
+  word.setValue(marker)                         // ← underlying value MUST be exactly this
+      .setNumberFormat('"▌  "@')                // ← display-only bar; the value is untouched
+      .setFontFamily(BRAND.fontDisplay).setFontWeight('bold').setFontSize(16)
+      .setHorizontalAlignment('left');
+
+  sheet.getRange(row, Schema.bandLogoCol)                                               // D
+       .setFormula('=IFERROR(IMAGE("' + MASTHEAD.baseUrl + mark.file + '",4,' + mark.h + ',' +
+                   mark.w + '),"")')
+       .setHorizontalAlignment('center');
+
+  var plate = sheet.getRange(row, Schema.bandPlateCol, 1, Schema.boundaryRightWidth);   // F:J
+  plate.merge();
+  sheet.getRange(row, Schema.bandPlateCol).setFormula(_nameplateFormula(label, open, wait));
+  plate.setFontFamily(BRAND.fontDisplay).setFontWeight('bold').setFontSize(10)
+       .setHorizontalAlignment('right');
+
+  // Thick black rules top + bottom frame the band. ⚠ Stops at dataWidth (a bleed past J
+  // was tried and reverted 2026-08-31).
+  whole.setBorder(true, null, true, null, null, null,
                   BRAND.ink, SpreadsheetApp.BorderStyle.SOLID_THICK);
-
-  sheet.setRowHeight(boundary, 40);
+  sheet.setRowHeight(row, MASTHEAD.bandHeight);
 }
 
 function _applyColumnLevelDataFormats(sheet) {
@@ -4416,32 +4429,29 @@ function _buildRow2(sheet, plate) {
  *   by hand — so the span may or may not actually be merged.
  */
 function _applyDividerNameplate(sheet) {
-  var boundary = _findBoundaryInSheet(sheet);
-  if (boundary <= 0) return '✗ divider: boundary row not found';
-  // ⭐ 2026-09-26 — BOTH bands, and a READ-BACK that checks for a FORMULA, not a prefix.
-  //   The DIRECT cell was found holding static text "… · 0 waiting": the old check passed
-  //   it because the text happened to contain "HQMS". A frozen count is the failure.
-  var bands = [[boundary, MASTHEAD.nameDirect, 'A18', 'A29']];
-  try {
-    var Lay = getTableLayout(sheet);
-    if (Lay.amazon > 0) bands.push([Lay.amazon, MASTHEAD.nameAmazon, 'A28', 'A30']);
-  } catch (e) {}
-  var col = Schema.boundaryLeftWidth + 1;                         // G
+  // ⭐ 2026-09-26 — rebuilds each band WHOLE through _styleTableBand (word · mark ·
+  //   nameplate), then reads back what the rest of the system depends on. Checks for a
+  //   FORMULA, not a prefix: static text containing "HQMS" is exactly the frozen state.
+  var Lay = getTableLayout(sheet);
+  if (!(Lay.direct > 0)) return '✗ divider: boundary row not found';
+  var bands = [[Lay.direct, Schema.boundaryMarker]];
+  if (Lay.amazon > 0) bands.push([Lay.amazon, Schema.amazonMarker]);
   var out = [];
   bands.forEach(function (b) {
     try {
-      sheet.getRange(b[0], col).setFormula(_nameplateFormula(b[1], b[2], b[3]));
-      sheet.getRange(b[0], col, 1, Schema.boundaryRightWidth)
-        .setFontFamily(BRAND.fontDisplay).setFontWeight('bold').setFontSize(10)
-        .setFontColor(BRAND.ink)
-        .setHorizontalAlignment('right').setVerticalAlignment('middle');
+      _styleTableBand(sheet, b[0], b[1]);
       SpreadsheetApp.flush();
-      var c = sheet.getRange(b[0], col);
-      var live = !!c.getFormula();
-      out.push((live ? '✓' : '✗') + ' ' + b[1] + ' nameplate row ' + b[0] + ': "' +
-               c.getDisplayValue() + '"' + (live ? '' : ' — NO FORMULA'));
+      var a = String(sheet.getRange(b[0], 1).getValue()).trim().toUpperCase();
+      var logo = sheet.getRange(b[0], Schema.bandLogoCol).getFormula();
+      var c = sheet.getRange(b[0], Schema.bandPlateCol);
+      var bad = [];
+      if (a !== b[1]) bad.push('marker reads "' + a + '"');
+      if (!/IMAGE\(/.test(logo)) bad.push('no logo formula in ' + String.fromCharCode(64 + Schema.bandLogoCol));
+      if (!c.getFormula()) bad.push('NO nameplate formula');
+      out.push((bad.length ? '✗ ' : '✓ ') + b[1] + ' band row ' + b[0] + ': "' + c.getDisplayValue() + '"' +
+               (bad.length ? ' — ' + bad.join(', ') : ''));
     } catch (e) {
-      out.push('✗ ' + b[1] + ' nameplate — ' + e);
+      out.push('✗ ' + b[1] + ' band — ' + e);
     }
   });
   return out.join('\n');
