@@ -678,6 +678,9 @@ soft('L', () => {
   ], -1);
   t('L7 two placeholder lines on one order are NOT counted as duplicates',
     scan.pairCounts[G._igSig('SO-25943', '000000')] || 0, 0);
+  const numScan = G._igScanRows([row(0, 'SO-25943', 'PENDING', '', 2)], -1);
+  t('L10 a 000000 typed as the NUMBER 0 is still a SKU, not "missing"',
+    G._igVerdict(numScan.rows[0], (setLog([received('SO-25943', 0, 2)]), known()), numScan.pairCounts).verdict, 'ok');
   t('L8 …while a real copied row still is', scan.pairCounts[G._igSig('SO-25943', '165114')], 2);
   const F = (read('BrandTheme.js').match(/function _identityFormulas\(anchorRow\)\s*\{[\s\S]*?\n\}/) || [''])[0];
   t('L9 the sheet\'s duplicate rule exempts the placeholder via the SAME constant',

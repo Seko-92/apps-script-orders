@@ -279,7 +279,10 @@ function _igScanRows(data, boundary) {
     } else if (boundary > 0 && (rowNum === boundary || rowNum === boundary + 1)) continue;
 
     var r = data[i];
-    var sku    = String(r[Schema.idx("SKU")] || "").trim();
+    // ⚠ NOT `|| ""` — a hand-typed 000000 that Sheets turned into the NUMBER 0 is falsy,
+    //   and the shortcut would call the row "SKU is missing". (2026-09-29)
+    var skuCell = r[Schema.idx("SKU")];
+    var sku    = String(skuCell == null ? "" : skuCell).trim();
     var so     = String(r[Schema.idx("SALES_ORDER")] || "").trim();
     var note   = String(r[Schema.idx("NOTE")] || "").trim();
     var status = r[Schema.idx("STATUS")];
