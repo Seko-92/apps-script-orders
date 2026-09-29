@@ -124,6 +124,13 @@ var IDENTITY_GUARD = {
   //   `↳ from KIT-` and `↳ added to KIT-`.
   kitNoteToken: "KIT-",
 
+  // ⭐ 2026-09-29 — THE PLACEHOLDER SKU. `000000` is a Zoho item reserved for a special
+  //   package: the order goes to the picker and the real SKU is filled in later. It is
+  //   the ONLY such SKU, and one order can legitimately carry it on several lines, so it
+  //   is never counted as a duplicate. ⚠ MUST stay in step with the REGEXMATCH in
+  //   _identityFormulas (BrandTheme.js) — a CF formula cannot call a function.
+  placeholderSkuPattern: "^0+$",
+
   alertedMax: 60,               // prune; a live-issue list, not a history
 
   // GONE · UNKNOWN · DUPLICATED · QTY. Kept here so the diagnostics cannot drift from
@@ -145,6 +152,32 @@ var IDENTITY_GUARD = {
 function _igSig(orderId, sku) {
   return String(orderId == null ? "" : orderId).trim().toLowerCase() + "|" +
          String(sku == null ? "" : sku).trim().toLowerCase();
+}
+
+
+/**
+ * The key a SKU is MATCHED against the Activity Log by — never the key that is published.
+ *
+ * ⚠⚠ 2026-09-29: THE LOG STORES "000000" AS THE NUMBER 0. Its SKU column has no text
+ *   format, so Sheets coerces an all-digit string and drops the leading zeros; the row on
+ *   All Orders still says 000000. Every real SKU is 6 digits with no leading zero, so only
+ *   the placeholder was hit — and it read as "never received" on every recent order.
+ *   Stripping leading zeros from an all-digit SKU makes both sides agree.
+ * ⚠ The PUBLISHED list keeps the raw _igSig, because the CF rule rebuilds its lookup key
+ *   from the cell text and must find the exact same string.
+ */
+function _igSkuKey(sku) {
+  var s = String(sku == null ? "" : sku).trim().toLowerCase();
+  return /^\d+$/.test(s) ? (s.replace(/^0+/, "") || "0") : s;
+}
+function _igMatchSig(orderId, sku) {
+  return String(orderId == null ? "" : orderId).trim().toLowerCase() + "|" + _igSkuKey(sku);
+}
+
+/** Is this the placeholder SKU (all zeros)? See IDENTITY_GUARD.placeholderSkuPattern. */
+function _igIsPlaceholderSku(sku) {
+  return new RegExp(IDENTITY_GUARD.placeholderSkuPattern)
+           .test(String(sku == null ? "" : sku).trim());
 }
 
 
@@ -259,7 +292,7 @@ function _igScanRows(data, boundary) {
                   qtySig: _igQtySig(so, sku, qty) };
     rows.push(entry);
 
-    if (sku && so && !_igIsDeltaRow(note) && !_igIsKitRow(note)) {
+    if (sku && so && !_igIsDeltaRow(note) && !_igIsKitRow(note) && !_igIsPlaceholderSku(sku)) {
       pairCounts[entry.sig] = (pairCounts[entry.sig] || 0) + 1;
     }
   }
@@ -299,7 +332,8 @@ function _igVerdict(row, known, pairCounts) {
                                     : (!orderId ? "SALES ORDER is missing" : "SKU is missing") };
   }
 
-  var sig = _igSig(orderId, sku);
+  var sig  = _igSig(orderId, sku);        // pairCounts are keyed on the raw sheet value
+  var msig = _igMatchSig(orderId, sku);   // the log is matched on the normalised one
 
   if (!known || !known.pairs) {
     // Cannot judge without the record. Duplication is still knowable from the sheet
@@ -310,13 +344,13 @@ function _igVerdict(row, known, pairCounts) {
     return { verdict: "skip", reason: "Activity Log unreadable — no verdict possible" };
   }
 
-  if (!known.pairs[sig]) {
+  if (!known.pairs[msig]) {
     // ⚠⚠ ONLY FLAG WHERE THERE IS EVIDENCE. If neither the order nor the SKU appears in
     //   the tail at all, this row simply predates what we can see. Flagging it would be
     //   an accusation built on an absence — the same "mistook 'I could not read it' for
     //   'there is nothing there'" bug already fixed once in the stock audit.
     var haveOrder = !!known.orders[orderId.toLowerCase()];
-    var haveSku   = !!known.skus[sku.toLowerCase()];
+    var haveSku   = !!known.skus[_igSkuKey(sku)];
     if (haveOrder || haveSku) {
       return { verdict: "mismatch", reason: "this order/SKU pair was never received" };
     }
@@ -332,7 +366,7 @@ function _igVerdict(row, known, pairCounts) {
   //   problem per row, and the more fundamental one wins.
   var qtyRaw = String(row.qty == null ? "" : row.qty).trim();
   if (qtyRaw && known.qtyByPair) {
-    var seen = known.qtyByPair[sig];
+    var seen = known.qtyByPair[msig];
     if (seen && !seen[qtyRaw]) {
       return { verdict: "qty",
                reason: "we received " + Object.keys(seen).join(" or ") + " of this, not " + qtyRaw };
@@ -538,9 +572,12 @@ function _igKnownFromLog(ss) {
       //   NOT counted — an alteration is not a receipt. See _mrClassify.
       if (String(rows[i][ACTIVITY_LOG.idx("EVENT")] || "").trim().toUpperCase() !== "RECEIVED") continue;
       var oid = String(rows[i][ACTIVITY_LOG.idx("ORDER_ID")] || "").trim();
-      var sku = String(rows[i][ACTIVITY_LOG.idx("SKU")] || "").trim();
+      // ⚠ NOT `|| ""` — the log stores "000000" as the NUMBER 0, which is falsy, so the
+      //   shortcut silently threw the placeholder's receipt away. (2026-09-29)
+      var skuCell = rows[i][ACTIVITY_LOG.idx("SKU")];
+      var sku = String(skuCell == null ? "" : skuCell).trim();
       if (!oid || !sku) continue;
-      var psig = _igSig(oid, sku);
+      var psig = _igMatchSig(oid, sku);
       pairs[psig] = 1;
       // ⚠ EVERY qty ever received for this pair, not just the latest. A pair can be
       //   received more than once — a re-entry, or Zoho Pull's delta row — and each is
@@ -551,8 +588,8 @@ function _igKnownFromLog(ss) {
         qtyByPair[psig][q] = 1;
       }
       orders[oid.toLowerCase()] = 1;
-      skus[sku.toLowerCase()] = 1;
-      var k = sku.toLowerCase();
+      skus[_igSkuKey(sku)] = 1;
+      var k = _igSkuKey(sku);
       if (!bySku[k]) bySku[k] = [];
       if (bySku[k].indexOf(oid) === -1 && bySku[k].length < 4) bySku[k].push(oid);
     }
@@ -566,7 +603,7 @@ function _igKnownFromLog(ss) {
 
 /** Which orders legitimately carry this SKU — the recovery hint. */
 function _igOrdersForSku(known, sku) {
-  var k = String(sku == null ? "" : sku).trim().toLowerCase();
+  var k = _igSkuKey(sku);
   return (known && known.bySku && known.bySku[k]) ? known.bySku[k] : [];
 }
 

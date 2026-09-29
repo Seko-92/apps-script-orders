@@ -649,6 +649,42 @@ soft('K', () => {
 });
 
 
+// =====================================================================================
+section('L · THE PLACEHOLDER SKU 000000 — 2026-09-29, SO-25943 row 16');
+// =====================================================================================
+soft('L', () => {
+  // The log's SKU column has no text format, so Sheets stored "000000" as the NUMBER 0.
+  // getValues() hands back 0; All Orders still says "000000".
+  setLog([received('SO-25943', '165114', 5), received('SO-25943', 0, 2)]);
+  t('L1 ⚠ the live incident: 000000 row vs a log that stored 0 → ok, not mismatch',
+    G._igVerdict({ orderId: 'SO-25943', sku: '000000', status: 'PENDING', qty: 2 }, known(), {}).verdict, 'ok');
+  t('L2 …and its qty still matches the received 2',
+    G._igVerdict({ orderId: 'SO-25943', sku: '000000', status: 'PENDING', qty: 3 }, known(), {}).verdict, 'qty');
+  t('L3 a log that DID keep the text also matches',
+    (setLog([received('SO-25943', '000000', 2)]),
+     G._igVerdict({ orderId: 'SO-25943', sku: '000000', status: 'PENDING', qty: 2 }, known(), {}).verdict), 'ok');
+  setLog([received('SO-25943', '165114', 5)]);
+  t('L4 a 000000 row that was genuinely never received still flags',
+    G._igVerdict({ orderId: 'SO-25943', sku: '000000', status: 'PENDING', qty: 2 }, known(), {}).verdict, 'mismatch');
+  t('L5 normalising never touches a real SKU',
+    G._igSkuKey(' 165447 '), '165447');
+  t('L6 the published sig stays the raw cell text (the CF rebuilds it from the cell)',
+    G._igSig('SO-25943', '000000'), 'so-25943|000000');
+  const scan = G._igScanRows([
+    row('000000', 'SO-25943', 'PENDING', 'Hardware kits x 2', 2),
+    row('000000', 'SO-25943', 'PENDING', 'Ship 7 of 163872', 3),
+    row('165114', 'SO-25943', 'PENDING', '', 5),
+    row('165114', 'SO-25943', 'PENDING', '', 5)
+  ], -1);
+  t('L7 two placeholder lines on one order are NOT counted as duplicates',
+    scan.pairCounts[G._igSig('SO-25943', '000000')] || 0, 0);
+  t('L8 …while a real copied row still is', scan.pairCounts[G._igSig('SO-25943', '165114')], 2);
+  const F = (read('BrandTheme.js').match(/function _identityFormulas\(anchorRow\)\s*\{[\s\S]*?\n\}/) || [''])[0];
+  t('L9 the sheet\'s duplicate rule exempts the placeholder via the SAME constant',
+    /REGEXMATCH\(TRIM\(' \+ a \+ '&""\),"' \+ IDENTITY_GUARD\.placeholderSkuPattern/.test(F), true);
+});
+
+
 console.log('\n' + (fail === 0 ? '✅' : '❌') +
             ' test-identity-guard: ' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail === 0 ? 0 : 1);

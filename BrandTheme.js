@@ -3481,7 +3481,10 @@ function _identityFormulas(anchorRow) {
            All three are normal, and all three went red before 2026-09-03.
        ⚠ Open-ended $A$4:$A, never a bounded absolute range — n8n inserts at the top all
          day and a fixed end drifts. */
+    // ⚠ The placeholder SKU (000000) may sit on several lines of one order — never a dup.
+    //   Pattern shared with _igScanRows via IDENTITY_GUARD.placeholderSkuPattern.
     duplicated: '=AND(' + established + ', ' + bothPresent + ', ' +
+                'NOT(REGEXMATCH(TRIM(' + a + '&""),"' + IDENTITY_GUARD.placeholderSkuPattern + '")), ' +
                 pairCount + '-' + deltaCount + '-' + kitCount + '>1)',
 
     /* QTY — the identity is right and the quantity is not.
