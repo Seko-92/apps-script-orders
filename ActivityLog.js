@@ -367,7 +367,7 @@ function logActivity(event, orderId, sku, qty, source, detail, picker, note) {
       new Date(),
       String(event || "").toUpperCase(),
       String(orderId || ""),
-      String(sku || ""),
+      _logSkuCell(sku),
       qty || "",
       String(source || ""),
       String(detail || ""),
@@ -419,7 +419,7 @@ function logActivityBatch(rows) {
         now,
         String(r[0] || "").toUpperCase(),
         String(r[1] || ""),
-        String(r[2] || ""),
+        _logSkuCell(r[2]),
         r[3] || "",
         src,
         String(r[5] || ""),
@@ -433,6 +433,19 @@ function logActivityBatch(rows) {
   } catch (err) {
     try { Logger.log("logActivityBatch error: " + err); } catch (_) { }
   }
+}
+
+
+/**
+ * The SKU as it should land in the log. ⚠ 2026-09-29: the SKU column has no text format,
+ * so Sheets turned the placeholder "000000" into the NUMBER 0 and the identity guard
+ * lost the receipt. A leading apostrophe is Sheets' own "this is text" marker — it is not
+ * stored, getValues() returns "000000" — and it costs no extra call on a write that runs
+ * inside doPost. Only SKUs that would lose a leading zero are touched.
+ */
+function _logSkuCell(sku) {
+  var s = String(sku == null ? "" : sku);
+  return /^0\d*$/.test(s.trim()) ? "'" + s.trim() : s;
 }
 
 
