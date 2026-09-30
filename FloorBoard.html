@@ -3054,7 +3054,7 @@ body.ch-amazon #pickListAmazon { display: block; }
     }
 
     function fillPickRow(li, r) {
-      li.setAttribute('data-key', pickKey(r));
+      li.setAttribute('data-key', r._key || pickKey(r));
       li.innerHTML = '';
       // Set by withSections: this row sits under an order band, so it drops
       // its own order id rather than repeating the band on every line.
@@ -4476,7 +4476,23 @@ body.ch-amazon #pickListAmazon { display: block; }
         // A shut order contributes its band and nothing else — but in walk mode
         // there IS no band, so hiding the rows would simply lose them.
         if (flat || !(ch === 'DIRECT' && oid && !isOrderOpen(oid))) {
-          out.push({ key: pickKey(r), kind: 'row', channel: ch, row: r });
+          // ⚠ 2026-09-30 — a ROW key must be unique too. One order can carry the
+          // same SKU twice (SO-25792: 164979 from a kit AND 164979 ×2 loose), and
+          // pickKey (channel|order|sku) gave both the same key, so the reconcile
+          // matched two rows to one node and ORPHANED the other on screen — a
+          // stray line hanging under the wrong order until a full rebuild.
+          // The repeat marker goes INSIDE the key, never at the end:
+          // cheerFixedRow finds rows by a `|sku` suffix. pickOverride stays on
+          // pickKey on purpose — a pick flips every line of that order+SKU.
+          var rk = pickKey(r);
+          if (usedKeys[rk]) {
+            var rn = 2;
+            while (usedKeys[(r.channel || '') + '|' + (r.orderId || '') + '#' + rn + '|' + (r.sku || '')]) rn++;
+            rk = (r.channel || '') + '|' + (r.orderId || '') + '#' + rn + '|' + (r.sku || '');
+          }
+          usedKeys[rk] = 1;
+          r._key = rk;
+          out.push({ key: rk, kind: 'row', channel: ch, row: r });
         }
       }
       return out;
