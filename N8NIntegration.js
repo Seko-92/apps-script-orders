@@ -251,6 +251,23 @@ function triggerZohoBackfill(query) {
       return { ok: false, code: code, message: "n8n returned malformed JSON: " + body.substring(0, 200) };
     }
 
+    // ⚠ 2026-09-30 — HTTP 200 is not "it landed". n8n relays Apps Script's own
+    // verdict, and upsertPendingSalesOrder SKIPS non-direct SOs by design. This
+    // used to return ok:true regardless, so fetching SO-25564 (an eBay-channel SO
+    // Zoho auto-created) showed "✓ Fetched", then Preview found nothing in Pending.
+    var st = String((parsed && parsed.status) || "").toLowerCase();
+    if (st === "skipped" || st === "error") {
+      var reason = String(parsed.reason || parsed.message || "no reason given");
+      var soNum  = parsed.soNumber || String(query).trim();
+      var chan   = /Non-direct channel:\s*(\S+)/i.exec(reason);
+      var msg = chan
+        ? soNum + " is an " + chan[1] + " order in Zoho, not a direct sale — only direct SOs can be pulled. "
+          + "eBay orders arrive through the eBay pipeline; for a missing or replacement part use /missing "
+          + "(Telegram), the board's ⋯ menu, or the sidebar Missing card."
+        : "Zoho found " + soNum + " but it was not added to Pending: " + reason;
+      return { ok: false, code: code, message: msg, data: parsed };
+    }
+
     return {
       ok:      true,
       code:    code,

@@ -8841,13 +8841,12 @@ function fetchFromZoho() {
         return;
       }
       var data = result.data || {};
-      var soNum = data.salesorder_number || so;
+      var soNum = data.soNumber || data.salesorder_number || so;
       var matchedVia = data.matched_via || '';
-      var lineCount = data.line_items_count || 0;
       var matchedNote = matchedVia === 'invoice' ? ' (matched via invoice)' : '';
 
       status.className = 'success';
-      status.textContent = '✅ Fetched ' + soNum + matchedNote + ' · ' + lineCount + ' items';
+      status.textContent = '✅ Fetched ' + soNum + matchedNote;
       if (typeof playSound === 'function') { try { playSound('syncDone'); } catch (e) {} }
 
       // Auto-refresh preview to show the now-populated Pending row.
@@ -8855,7 +8854,7 @@ function fetchFromZoho() {
       panel.innerHTML =
         '<div class="zp-msg zp-msg-success">'
         + '✓ Fetched <strong>' + _olEsc(soNum) + '</strong>' + _olEsc(matchedNote) + '<br/>'
-        + '<span style="font-size:0.85em;">' + lineCount + ' line items · loading preview…</span>'
+        + '<span style="font-size:0.85em;">loading preview…</span>'
         + '</div>';
 
       setTimeout(function() {
