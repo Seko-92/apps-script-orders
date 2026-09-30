@@ -393,6 +393,22 @@
       -webkit-print-color-adjust: exact;
       print-color-adjust: exact;
     }
+    /* K chips (2026-10-01): outlined on a kit's parts, solid on its parent line, the
+       box you build. Boxed ink, no colour, so any black-and-white printer keeps them.
+       18px tall sits inside the existing row height, so rows do not grow and the
+       hand-tuned page capacities stay true. Numbered by the sheet's own rule. */
+    td.c-sku .sku-wrap { white-space: nowrap; }
+    td.c-sku .kchip {
+      display: inline-block; height: 18px; min-width: 28px; padding: 0 4px;
+      box-sizing: border-box; border: 2px solid var(--ink); border-radius: 2px;
+      font-family: 'Oswald', sans-serif; font-weight: 700; font-size: 12px; line-height: 14px;
+      letter-spacing: 0.03em; text-align: center; margin-right: 6px; vertical-align: middle;
+      color: var(--ink);
+    }
+    td.c-sku .kchip.par {
+      background: var(--ink); color: #fff;
+      -webkit-print-color-adjust: exact; print-color-adjust: exact;
+    }
     td.c-note {
       min-width: 70px;
       font-size: 10px;
@@ -1080,7 +1096,7 @@
                var eHandLow = (String(eHand) !== '' && parseFloat(eHand) <= 20) ? ' low-stock' : '';
           ?>
             <tr>
-              <td class="c-sku"><?= ebayItems[i][0] ?></td>
+              <td class="c-sku"><span class="sku-wrap"><? var kt = ebayItems[i][10] || ""; if (kt) { ?><span class="kchip<?= kt.charAt(0) === "P" ? " par" : "" ?>"><?= kt.charAt(0) === "P" ? "▣ K" : "K" ?><?= kt.slice(1) ?></span><? } ?><?= ebayItems[i][0] ?></span></td>
               <td class="c-qty"><?= ebayItems[i][1] ?></td>
               <td class="c-loc"><?= ebayItems[i][2] ?></td>
               <td class="c-order"><? if (eBadge) { ?><span class="so-badge"><?= eBadge ?></span><? } ?><?= ebayItems[i][3] ?></td>
@@ -1195,7 +1211,7 @@
               }
           ?>
             <tr>
-              <td class="c-sku"><?= directItems[i][0] ?></td>
+              <td class="c-sku"><span class="sku-wrap"><? var kt = directItems[i][10] || ""; if (kt) { ?><span class="kchip<?= kt.charAt(0) === "P" ? " par" : "" ?>"><?= kt.charAt(0) === "P" ? "▣ K" : "K" ?><?= kt.slice(1) ?></span><? } ?><?= directItems[i][0] ?></span></td>
               <td class="c-qty"><?= directItems[i][1] ?></td>
               <td class="c-loc"><?= directItems[i][2] ?></td>
               <td class="c-order"><? if (dBadge) { ?><span class="so-badge"><?= dBadge ?></span><? } ?><?= directItems[i][3] ?></td>
@@ -1268,7 +1284,7 @@
               }
           ?>
             <tr>
-              <td class="c-sku"><?= amazonItems[i][0] ?></td>
+              <td class="c-sku"><span class="sku-wrap"><? var kt = amazonItems[i][10] || ""; if (kt) { ?><span class="kchip<?= kt.charAt(0) === "P" ? " par" : "" ?>"><?= kt.charAt(0) === "P" ? "▣ K" : "K" ?><?= kt.slice(1) ?></span><? } ?><?= amazonItems[i][0] ?></span></td>
               <td class="c-qty"><?= amazonItems[i][1] ?></td>
               <td class="c-loc"><?= amazonItems[i][2] ?></td>
               <td class="c-order"><? if (aBadge) { ?><span class="so-badge"><?= aBadge ?></span><? } ?><?= amazonItems[i][3] ?></td>

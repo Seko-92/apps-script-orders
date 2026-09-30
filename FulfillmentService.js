@@ -95,6 +95,23 @@ function preparePrintSheet(opts) {
   var isDirectSection = false; // Flag to track which section we are in
   var isAmazonSection = false;
 
+  // ⭐ 2026-10-01 OrderLook part 3 — K chips on paper. Computed over the WHOLE sheet with
+  //   the SAME rule the sheet uses (_kitTagPlan), because a kit's number depends on every
+  //   line of its order, and a parent line is often still PENDING (so not printed). Only
+  //   while the switch is on, so removeOrderLook() takes the chips off paper too.
+  var kitTags = {};
+  try {
+    if (typeof _orderLookOn === 'function' && _orderLookOn()) {
+      var kitSet = new Set();
+      buildKitMap().forEach(function (_v, k) { kitSet.add(String(k).toUpperCase().trim()); });
+      var first = Schema.dataStartRow - 1;
+      var kp = _kitTagPlan(data.slice(first).map(function (rw) {
+        return { sku: rw[Schema.idx("SKU")], so: rw[Schema.idx("SALES_ORDER")], note: rw[Schema.idx("NOTE")] };
+      }), kitSet);
+      kp.forEach(function (e, j) { if (e) kitTags[first + j] = (e.parent ? 'P' : 'C') + e.k; });
+    }
+  } catch (ktErr) { console.log('print kit tags skipped: ' + ktErr); }   // paper without chips, never no paper
+
   // Iterate through data rows
   for (var i = Schema.dataStartRow - 1; i < data.length; i++) {
     var row = data[i];
@@ -130,7 +147,8 @@ function preparePrintSheet(opts) {
         row[Schema.idx("LEFT")] || "",     // 6: LEFT
         row[Schema.idx("SHIPPING")] || "", // 7: SHIPPING
         row[Schema.idx("SHIP_COST")] || "",// 8: SHIP_COST
-        _badgeFromFormat(soBadgeFormats[i][0]) // 9: SO badge glyph ("" if none)
+        _badgeFromFormat(soBadgeFormats[i][0]), // 9: SO badge glyph ("" if none)
+        kitTags[i] || ""                   // 10: K chip — "P3" parent / "C3" part / ""
       ];
 
       if (isAmazonSection) {
