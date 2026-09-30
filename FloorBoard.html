@@ -1132,6 +1132,12 @@ body.ch-amazon #pickListAmazon { display: block; }
       font-family: 'Oswald', sans-serif; font-size: 13px; letter-spacing: 0.06em;
     }
 .drw-link.ghost { background: transparent; color: var(--paper); border: 1px solid var(--rule); }
+/* the same-SKU question (2026-10-01): one row per line so the picker SEES both */
+.same-line { display: grid; grid-template-columns: 70px 44px 1fr; gap: 10px; align-items: baseline;
+  padding: 10px 2px; border-bottom: 1px solid var(--rule); }
+.same-line b { font-family: 'Oswald', sans-serif; font-size: 20px; color: var(--brand-yellow); }
+.same-line span { font-family: 'Roboto Mono', monospace; font-size: 15px; }
+.same-line i { font-style: normal; opacity: .75; }
 .drw-empty { color: var(--mute); font-size: 13px; padding: 18px 0; text-align: center; }
 .drw-spin { text-align: center; padding: 40px 0; color: var(--mute); font-size: 13px; }
 .connlost {
@@ -4686,7 +4692,43 @@ body.ch-amazon #pickListAmazon { display: block; }
        on a five-line box that marked four parts picked that were still on
        their shelves, and it made the kit strip useless by jumping 0 of 5
        straight to 5 of 5. */
-    function markPicked(orderId, sku, btn) {
+    /* ⚠ ONE SKU, TWO LINES, ONE TAP (2026-10-01). ✓ Pick names the line by
+       {orderId, sku}, and the server flips EVERY open row that matches — so on an
+       order carrying the same part twice (a kit part + the same part sold loose,
+       SO-25792 · 164979) picking one silently marked both. Picking one line alone
+       needs a server change; until that is worth it, the board ASKS instead of
+       surprising: it shows both lines and lets the picker say "mark both" or
+       "not yet". Only PENDING lines count — an already-picked twin changes nothing. */
+    function samePickLines(orderId, sku) {
+      var rows = (lastTick && lastTick.openOrders) || [];
+      var o = String(orderId).trim(), k = String(sku).trim().toLowerCase();
+      return rows.filter(function (r) {
+        return r && String(r.orderId).trim() === o && String(r.sku).trim().toLowerCase() === k &&
+               String(r.status || '').toUpperCase() === 'PENDING';
+      });
+    }
+    function askSamePick(orderId, sku, lines, btn) {
+      drwShow('This part is on ' + lines.length + ' lines', orderId + ' · ' + sku);
+      var total = lines.reduce(function (a, r) { return a + (parseInt(r.qty, 10) || 0); }, 0);
+      var h = '<div class="drw-banner">✓ Pick marks <b>every</b> line of this order that carries ' + esc(sku) +
+              '. Mark them picked once all ' + total + ' are off the shelf.</div>';
+      lines.forEach(function (r) {
+        var kit = /^↳ (?:from|added to) KIT-(\S+)/.exec(String(r.note || ''));
+        h += '<div class="same-line"><b>' + esc(r.location || '—') + '</b><span>×' + esc(r.qty) + '</span><i>' +
+             (kit ? 'kit part · ' + esc(kit[1]) : 'on its own') + '</i></div>';
+      });
+      h += '<button class="drw-link" id="sameYes" style="display:flex;justify-content:center;width:100%;margin:14px 0 8px;">Mark all ' +
+           lines.length + ' picked</button>' +
+           '<button class="drw-link ghost" id="sameNo" style="display:flex;justify-content:center;width:100%;margin:0;">Not yet</button>';
+      var body = document.getElementById('drwBody');
+      body.innerHTML = h;
+      body.onclick = function (ev) {
+        if (ev.target.closest('#sameYes')) { drwClose(); markPicked(orderId, sku, btn, true); }
+        else if (ev.target.closest('#sameNo')) drwClose();
+      };
+    }
+
+    function markPicked(orderId, sku, btn, sameConfirmed) {
       if (!orderId) return;
 
       /* ⚠ WHO IS PICKING — asked HERE, not only at PRINT (2026-08-14).
@@ -4700,6 +4742,11 @@ body.ch-amazon #pickListAmazon { display: block; }
       if (!currentPickerName()) {
         return requirePicker('required before picking',
                              function () { markPicked(orderId, sku, btn); });
+      }
+
+      if (!sameConfirmed) {
+        var same = samePickLines(orderId, sku);
+        if (same.length > 1) return askSamePick(orderId, sku, same, btn);
       }
 
       if (btn) { btn.disabled = true; btn.textContent = '…'; }
