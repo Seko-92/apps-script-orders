@@ -14,7 +14,7 @@ function showSidebar() {
   // simply means "use the live google.script.run path", which is the old behaviour.
   t.boardApiUrl = (typeof HQ_BOARD_API_URL === 'string') ? HQ_BOARD_API_URL : '';
 
-  SpreadsheetApp.getUi().showSidebar(t.evaluate().setTitle('⚙️ Control Panel'));
+  SpreadsheetApp.getUi().showSidebar(t.evaluate().setTitle('HQ · Control Panel'));
 }
 
 /**

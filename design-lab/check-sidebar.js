@@ -126,7 +126,7 @@ const HTML=fs.readFileSync(SRC,'utf8').replace("'<?!= boardApiUrl ?>'","''");
   // an astral-surrogate trap made this a 3-pass fix, so it gets a real net.
   ok('button marks rendered',r.btnMarks>=35,r.btnMarks);
   ok('no unmapped <use> on a button',r.btnBroken.length===0,r.btnBroken);
-  ok('only the arcade keeps an emoji',r.btnEmoji.length===1&&/Arcade/.test(r.btnEmoji[0]),r.btnEmoji);
+  ok('only the arcade keeps an emoji',r.btnEmoji.length===1&&/Arcade/i.test(r.btnEmoji[0]),r.btnEmoji);
   // 29 → 27 on 2026-09-03: two card merges (Out of Stock+Low Stock → Restock,
   // Order Lookup+Investigations → Order Case) each removed one card head mark.
   ok('marks rendered', r.marks>=28, r.marks);
@@ -227,6 +227,52 @@ const HTML=fs.readFileSync(SRC,'utf8').replace("'<?!= boardApiUrl ?>'","''");
     return out;
   });
   ok('no flex row of buttons is misaligned', misaligned.length===0, misaligned);
+
+  /* ── v4 (2026-10-01): one card open, folded help, the keeping-up bar, and the
+     emoji net that catches text written AFTER the first paint — the blind spot
+     that let colour emoji come back through status lines, restored buttons,
+     server messages and the header toggles. */
+  const EMO=/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]️|[\u{1F300}-\u{1FAFF}]/u;
+  const v=await p.evaluate(async()=>{
+    const out={};
+    out.flowCells=document.querySelectorAll('#cockpitFlow .hqf-c').length;
+    out.tapeGone=!document.getElementById('cockpitTape');
+    const tops=[...document.querySelectorAll('.cockpit-queue-pill')].map(e=>Math.round(e.getBoundingClientRect().top));
+    out.queueOneRow=tops.length===4&&new Set(tops).size===1;
+    document.querySelectorAll('#modules .card').forEach(c=>c.classList.add('collapsed'));
+    toggleCollapse(document.querySelector('.card[data-id="kits"] .card-header'));
+    toggleCollapse(document.querySelector('.card[data-id="order-case"] .card-header'));
+    out.openAfterTwo=[...document.querySelectorAll('#modules .card:not(.collapsed)')].map(c=>c.dataset.id);
+    out.longHintsLoose=[...document.querySelectorAll('#modules .empty-hint')]
+      .filter(h=>h.textContent.trim().length>90&&!h.closest('.card-help')&&!h.querySelector('.card-help')).length;
+    out.helpFolds=document.querySelectorAll('#modules .card-help').length;
+    // text written after load
+    const st=document.getElementById('status'); st.textContent='⏳ Loading… ✅ done ⚠️ check';
+    const host=document.querySelector('.card[data-id="kits"] .card-body');
+    const d=document.createElement('div'); d.id='v4probe'; d.innerHTML='🟢 alive · ❌ failed · 📦 12 kits'; host.appendChild(d);
+    const btn=[...document.querySelectorAll('#modules button')].find(b=>/Expand Selected/i.test(b.textContent));
+    if(btn) btn.innerHTML='📦 Expand Selected →';
+    toggleTheme(); toggleTheme(); toggleMute(); toggleMute();
+    await new Promise(r=>setTimeout(r,60));
+    out.status=st.textContent; out.probe=d.textContent; out.dots=d.querySelectorAll('.hq-dot').length;
+    out.btn=btn?btn.textContent.trim():null; out.btnMark=btn?!!btn.querySelector('svg use'):null;
+    out.hdr=[...document.querySelectorAll('.top-controls .ctrl-btn')].map(b=>b.textContent.replace(/\d|\+/g,'').trim()).join('');
+    out.hdrMarks=document.querySelectorAll('.top-controls .ctrl-btn svg').length;
+    _rpPaintWalk(false,{openOrders:[{status:'PENDING',location:'A-43',sku:'1',qty:1},{status:'PENDING',location:'A-9',sku:'2',qty:2},
+      {status:'PREPARING',location:'A-1',sku:'3',qty:1},{status:'PENDING',location:'NOT FOUND',sku:'4',qty:1}]});
+    out.walk=[...document.querySelectorAll('#rpWalk .rp-walk-r b')].map(b=>b.textContent);
+    return out;
+  });
+  ok('the day tape is gone', v.tapeGone);
+  ok('the keeping-up bar is mounted (28 cells)', v.flowCells===28, v.flowCells);
+  ok('all four queue pills sit on one row', v.queueOneRow);
+  ok('opening a second card closes the first', v.openAfterTwo.length===1&&v.openAfterTwo[0]==='order-case', v.openAfterTwo);
+  ok('long help text is folded behind "How it works"', v.longHintsLoose===0&&v.helpFolds>0, v);
+  ok('a status line written later carries no colour emoji', !EMO.test(v.status)&&/✓ done/.test(v.status), v.status);
+  ok('a server message keeps its words and loses its emoji', !EMO.test(v.probe)&&/12 kits/.test(v.probe)&&v.dots===1, v.probe);
+  ok('a button rewritten later gets its drawn mark back', v.btnMark===true&&!EMO.test(v.btn||''), v.btn);
+  ok('header toggles draw marks, never emoji', v.hdr===''&&v.hdrMarks===5, v.hdr);
+  ok('first walk: pending only, aisle order, no NOT FOUND', JSON.stringify(v.walk)==='["A-9","A-43"]', v.walk);
   ok('no console errors', errs.length===0, errs.slice(0,3));
   await p.screenshot({path:path.join(__dirname,'renders','sidebar-final.png'),clip:{x:0,y:0,width:310,height:820}});
   console.log('\n'+(fail?('XX '+fail+' FAILED'):'OK all checks passed'));

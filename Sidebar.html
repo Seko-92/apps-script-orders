@@ -715,37 +715,6 @@ body {
   flex: 1;
   min-width: 0;          /* allow svg to shrink in flex */
 }
-.cockpit-tape-svg {
-  display: block;
-  width: 100%;
-  height: 22px;
-  background: repeating-linear-gradient(90deg,
-    transparent 0px, transparent 49px,
-    rgba(255,217,102,0.05) 49px, rgba(255,217,102,0.05) 50px);
-  border-radius: 2px;
-}
-/* Day Tape event dots — hover bumps radius + opacity for a tactile micro-zoom.
-   `transform-box: fill-box` + `transform-origin: center` makes the scale
-   pivot from the dot's own center, not the SVG origin. */
-.cockpit-tape-svg circle {
-  transition: opacity 180ms ease, r 180ms ease, filter 180ms ease;
-  transform-box: fill-box;
-  transform-origin: center;
-  cursor: default;
-}
-.cockpit-tape-svg circle:hover {
-  opacity: 1 !important;
-  r: 4.5;
-  filter: drop-shadow(0 0 4px rgba(255, 217, 102, 0.7));
-}
-.cockpit-tape-axis {
-  display: flex;
-  justify-content: space-between;
-  font-size: 9px;
-  color: #6c6a64;
-  letter-spacing: 0.04em;
-  margin-top: 1px;
-}
 
 /* SYSTEM PULSE — compact, sits at the right end of the tape row */
 .cockpit-pulse {
@@ -909,15 +878,6 @@ body {
 [data-theme="light"] .cockpit-stat.received .cockpit-stat-value { color: #b8860b; }
 [data-theme="light"] .cockpit-stat.oldest.warn .cockpit-stat-value { color: #c47800; }
 [data-theme="light"] .cockpit-stat.oldest.urgent .cockpit-stat-value { color: #c62828; }
-[data-theme="light"] .cockpit-tape-axis { color: #6c6a64; }
-[data-theme="light"] .cockpit-tape-svg {
-  background:
-    repeating-linear-gradient(90deg,
-      transparent 0px,
-      transparent 49px,
-      rgba(184,134,11,0.07) 49px,
-      rgba(184,134,11,0.07) 50px);
-}
 [data-theme="light"] .cockpit-pulse-text { color: #1d1d1b; }
 
 /* Queue strip — light theme */
@@ -3836,6 +3796,170 @@ body.dark-theme .footer-version { border-color: #2c2c2c; }
     -webkit-backdrop-filter:none !important; backdrop-filter:none !important; }
   .rp-top,.rp-dialwrap,.rp-flank,.rp-rows,.rp-ledger,.rp-count,.rp-hint{ opacity:1 !important; }
 }
+
+/* ═════════════════════════════════════════════════════════════════════════════
+   SIDEBAR v4 (2026-10-01) — the panel takes the SHEET's language.
+   The sheet opens every table with a black band, Oswald caps and a thick yellow
+   rule, then cream and white rows with sharp corners; yellow means ACT. The card
+   list below the cockpit had drifted into a generic settings panel (soft grey
+   rounded cards, pastel gradients), and the dark cockpit sat on it with no seam.
+   ⚠ Kept LAST in the sheet on purpose: it restyles rules defined far above.
+   ═════════════════════════════════════════════════════════════════════════════ */
+/* ── HQ FLOW — "are we keeping up?" · rests quietly, moves on EVENTS ──────────
+   Same energy as the row-1 movie: a still home, then an engine-born move when
+   something actually happens. Ship → cells fire in 1-3-4-2 firing order and the
+   OUT drum rolls. Receive → an intake stroke runs in from the IN end. Every 45s
+   of quiet → one scan-light pass, the movie's pause rhythm. */
+.hqf{ --f-lit:#ffd400; --f-dim:rgba(255,217,102,.13); --f-ink:#e8e2d0; --f-mute:#8a8373;
+  display:flex; flex-direction:column; gap:4px; flex:1; min-width:0; }
+.hqf-row{ display:flex; align-items:center; gap:7px; }
+.hqf-k{ font-family:'Oswald',sans-serif; font-size:8.5px; font-weight:600; letter-spacing:.14em;
+  color:var(--f-mute); text-transform:uppercase; }
+.hqf-n{ font-family:'Oswald',sans-serif; font-size:14px; font-weight:600; color:var(--f-ink);
+  display:inline-block; height:16px; line-height:16px; overflow:hidden; position:relative;
+  min-width:1.3em; text-align:center; font-variant-numeric:tabular-nums; }
+.hqf-out .hqf-n{ color:var(--f-lit); }
+.hqf-n > span{ display:block; }
+.hqf-n.roll > span{ animation:hqfRoll .55s cubic-bezier(.2,.9,.25,1.25); }
+@keyframes hqfRoll{ 0%{ transform:translateY(100%); filter:blur(2px); opacity:.2 }
+  55%{ filter:blur(0) } 100%{ transform:none; opacity:1 } }
+.hqf-bar{ position:relative; flex:1; min-width:0; height:12px; display:grid; gap:2px;
+  grid-template-columns:repeat(28,1fr); }
+.hqf-c{ background:var(--f-dim); border-radius:1px; transition:background .35s ease; }
+.hqf-c.lit{ background:var(--f-lit); }
+.hqf-c.ghost{ background:transparent; box-shadow:inset 0 0 0 1px rgba(255,212,0,.32); }
+.hqf-c.fire{ animation:hqfFire .42s ease-out; }
+@keyframes hqfFire{ 0%{ background:#fff8d6; box-shadow:0 0 8px 2px rgba(255,236,150,.9) }
+  100%{ box-shadow:0 0 0 0 rgba(255,212,0,0) } }
+.hqf-c.land{ animation:hqfLand .6s cubic-bezier(.2,1.6,.4,1); transform-origin:bottom; }
+@keyframes hqfLand{ 0%{ transform:scaleY(.2); background:#fff; } 60%{ transform:scaleY(1.35) } 100%{ transform:none } }
+.hqf-c.intake{ animation:hqfIntake .38s ease-out; }
+@keyframes hqfIntake{ 0%{ background:rgba(232,226,208,.75) } 100%{} }
+.hqf-mark{ position:absolute; top:-3px; bottom:-3px; width:2px; background:var(--f-ink);
+  border-radius:1px; transform:translateX(-1px); transition:left .5s cubic-bezier(.2,.9,.25,1); }
+.hqf-scan{ opacity:0; position:absolute; top:-4px; bottom:-4px; width:22px; left:-30px; pointer-events:none;
+  background:linear-gradient(90deg,transparent,rgba(255,244,190,.55),transparent); filter:blur(1.5px);
+  mix-blend-mode:screen; }
+.hqf-scan.go{ animation:hqfScan 1.25s cubic-bezier(.45,0,.2,1) forwards; }
+@keyframes hqfScan{ from{ left:-30px; opacity:1 } 90%{ opacity:1 } to{ left:calc(100% + 8px); opacity:0 } }
+.hqf-cap{ font-family:'Roboto Mono',monospace; font-size:9.5px; color:var(--f-mute); letter-spacing:.02em;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.hqf-cap b{ color:var(--f-ink); font-weight:500; }
+.hqf-cap.behind b{ color:#ff8a65; }
+@media (prefers-reduced-motion:reduce){ .hqf *{ animation:none !important; transition:none !important; } }
+
+/* ── v2: the spark, the owed gap, the caught-up moment, the arrival ── */
+.hqf-bar{ overflow:visible; }
+.hqf-c.lit{ background:linear-gradient(180deg,#ffe24d,#ffc800); }
+.hqf-c.owed{ background:repeating-linear-gradient(135deg,rgba(255,150,60,.42) 0 2px,rgba(255,150,60,.12) 2px 4px); }
+.hqf-spark{ position:absolute; top:50%; left:0; width:10px; height:10px; margin:-5px 0 0 -5px; border-radius:50%;
+  background:radial-gradient(circle,#fff 0 30%,#ffe98a 55%,rgba(255,212,0,0) 72%); pointer-events:none; opacity:0;
+  filter:drop-shadow(0 0 5px rgba(255,220,90,.95)); }
+.hqf-spark::before{ content:''; position:absolute; right:5px; top:3px; height:4px; width:42px;
+  background:linear-gradient(90deg,rgba(255,212,0,0),rgba(255,236,150,.85)); filter:blur(1.5px); border-radius:2px; }
+.hqf-mark.ring{ animation:hqfRing .9s ease-out; }
+@keyframes hqfRing{ 0%{ box-shadow:0 0 0 0 rgba(158,214,154,.9); background:#9ed69a }
+  100%{ box-shadow:0 0 0 9px rgba(158,214,154,0) } }
+.hqf-gold{ position:absolute; inset:-3px 0; pointer-events:none; opacity:0;
+  background:linear-gradient(90deg,transparent 0%,rgba(255,240,170,.85) 45%,rgba(255,255,255,.95) 50%,rgba(255,240,170,.85) 55%,transparent 100%);
+  background-size:300% 100%; mix-blend-mode:screen; }
+.hqf-gold.go{ animation:hqfGold 1.4s cubic-bezier(.5,0,.2,1); }
+@keyframes hqfGold{ 0%{ opacity:1; background-position:100% 0 } 85%{ opacity:1 } 100%{ opacity:0; background-position:0 0 } }
+.hqf-cap.win b{ color:#9ed69a; }
+.hqf.arrive .hqf-c{ animation:hqfArrive .5s cubic-bezier(.2,.9,.3,1.2) backwards; }
+@keyframes hqfArrive{ from{ transform:scaleY(0); opacity:0 } }
+
+.hqf-c.wave{ animation:hqfWave .7s ease-out; }
+@keyframes hqfWave{ 0%{ background:#fffbe6; box-shadow:0 0 10px 3px rgba(255,240,170,.95); transform:scaleY(1.45) }
+  100%{ box-shadow:0 0 0 0 rgba(255,212,0,0); transform:none } }
+
+/* the queue row holds FOUR pills since Amazon — one row, not three plus an orphan */
+.cockpit-queue{ grid-template-columns:repeat(4,1fr); gap:4px; }
+.cockpit-queue-pill{ position:relative; flex-direction:column; align-items:center; gap:2px; padding:4px 2px 5px; }
+.cockpit-queue-label{ font-size:8px; letter-spacing:.12em; }
+.cockpit-queue-value{ font-size:15px; }
+.cockpit-queue-pill .zoho-dot{ position:absolute; top:4px; right:4px; }
+
+/* the seam: a yellow rule where the dark head meets the paper (the sheet's row 3) */
+#modules{ border-top:3px solid #ffd400; }
+body:not(.dark-theme) #modules{ background:#fff8e7; }
+
+/* zone labels are table-header bands */
+.zone-header{ background:#1a1a1a; color:#ffd966; letter-spacing:.2em; font-size:10px;
+  padding:6px 10px 5px; margin:14px 0 6px; border-bottom:2px solid #ffd400;
+  justify-content:flex-start; border-radius:0; }
+.zone-header:first-child{ margin-top:2px; padding-top:6px; }
+.zone-header::before{ content:'◈'; flex:none; height:auto; background:none; color:#ffd400; font-size:9px; }
+.zone-header::after{ display:none; }
+body.dark-theme .zone-header{ color:#ffd966; }
+body.dark-theme .zone-header::before{ background:none; }
+
+/* cards: sharp, flat rows; the OPEN card's title is a black band */
+.card{ border-radius:2px; box-shadow:none; }
+.card:hover{ transform:none; box-shadow:none; }
+.card:not(.collapsed){ box-shadow:0 1px 0 rgba(0,0,0,.04); }
+.card-icon{ background:transparent !important; }
+.card:not(.collapsed) .card-header{ background:#1a1a1a; }
+.card:not(.collapsed) .card-title h3{ color:#ffd966; }
+.card:not(.collapsed) .card-icon svg{ stroke:#ffd966 !important; }
+.card:not(.collapsed) .card-toggle,.card:not(.collapsed) .drag-handle{ color:#ffd966; opacity:.6; }
+.card-body{ border-top:2px solid #ffd400; }
+body:not(.dark-theme) .card{ background:#fff; border:1px solid #e6dcc4; }
+body:not(.dark-theme) .card:hover{ border-color:#cdbf98; }
+body:not(.dark-theme) .card:not(.collapsed){ border-color:#d9cba4; }
+body:not(.dark-theme) .card-header{ background:#fff; }
+body:not(.dark-theme) .card-header:hover{ background:#fffbef; }
+body:not(.dark-theme) .card:not(.collapsed) .card-header{ background:#1a1a1a; }
+body:not(.dark-theme) .card-body{ background:#fff8e7; }
+body:not(.dark-theme) .card-title h3{ color:#1a1a1a; }
+body.dark-theme .card{ border-color:#2e2a24; }
+body.dark-theme .card:not(.collapsed) .card-header{ background:#0d0c0a; }
+body.dark-theme .card-body{ background:#1b1814; }
+
+/* buttons: solid yellow = act, a black outline = also possible */
+.btn-primary{ background:#ffd400; color:#1a1a1a; border:0; border-radius:2px;
+  box-shadow:inset 0 -2px 0 rgba(0,0,0,.18); font-family:'Oswald',sans-serif;
+  letter-spacing:.06em; text-transform:uppercase; font-weight:600; }
+.btn-primary:hover{ background:#ffdf33; box-shadow:inset 0 -2px 0 rgba(0,0,0,.25); }
+body.dark-theme .btn-primary{ background:#ffd400; color:#1a1a1a; }
+.btn-secondary{ border-radius:2px; }
+body:not(.dark-theme) .btn-secondary{ background:#fff; border:1px solid #1a1a1a; color:#1a1a1a; }
+body:not(.dark-theme) .btn-secondary:hover{ background:#fff4b0; border-color:#1a1a1a; }
+body.dark-theme .btn-secondary{ background:transparent; border:1px solid #d8d0bc; color:#efe9d8; }
+body.dark-theme .btn-secondary:hover{ background:rgba(255,212,0,.10); border-color:#ffd400; }
+.card-body input,.card-body select{ border-radius:2px; }
+
+/* help folds behind one link */
+.card-help{ margin-top:8px; }
+.card-help > summary{ list-style:none; cursor:pointer; font-family:'Oswald',sans-serif;
+  font-size:10px; letter-spacing:.14em; text-transform:uppercase; color:#8a7434; user-select:none; }
+.card-help > summary::-webkit-details-marker{ display:none; }
+.card-help > summary::before{ content:'ⓘ '; }
+.card-help[open] > summary{ color:var(--text-primary); }
+.card-help .empty-hint,.card-help-body{ text-align:left; margin-top:5px; }
+.empty-hint:has(> .card-help){ text-align:left; padding:0; }
+body.dark-theme .card-help > summary{ color:#c9b36a; }
+
+/* the resting panel: the same header grammar, and the next walk */
+.rp-top{ border-bottom:2px solid #ffd400; padding-bottom:8px; }
+.rp-rlab{ color:#ffd966; }
+.rp-walk{ margin-top:14px; flex:none; position:relative; z-index:2; }
+.rp-walk:empty{ display:none; }
+.rp-walk-h{ font-family:'Oswald',sans-serif; font-size:9px; letter-spacing:.2em; font-weight:600;
+  text-transform:uppercase; color:#ffd966; border-bottom:1px solid rgba(255,212,0,.35);
+  padding-bottom:5px; display:flex; justify-content:space-between; }
+.rp-walk-h span:last-child{ color:#7d7666; letter-spacing:.1em; }
+.rp-walk-r{ display:grid; grid-template-columns:52px 1fr auto; gap:8px; padding:5px 0;
+  border-bottom:1px solid rgba(255,255,255,.05); font-family:'Roboto Mono',monospace;
+  font-size:10.5px; color:#a49d8b; align-items:baseline; }
+.rp-walk-r b{ font-family:'Oswald',sans-serif; font-size:13px; color:#ffd966; font-weight:600; }
+.rp-walk-r i{ font-style:normal; color:#e2dccb; }
+
+/* no colour emoji: text symbols stay text; the arcade keeps its own */
+body{ font-variant-emoji:text; }
+[data-id="arcade"]{ font-variant-emoji:emoji; }
+.hq-dot{ font-size:.85em; }
+.hq-dot-ok{ color:#2e9e4f; } .hq-dot-warn{ color:#e0a100; } .hq-dot-bad{ color:#d0453a; } .hq-dot-off{ color:#8a8373; }
 </style>
 </head>
 
@@ -3865,6 +3989,8 @@ body.dark-theme .footer-version { border-color: #2c2c2c; }
 <symbol id="m-pull" viewBox="0 0 24 24"><path d="M12 3.6v11.6"/><path d="M7.2 10.4 12 15.2l4.8-4.8"/><path d="M4.5 20h15"/></symbol>
 <symbol id="m-moon" viewBox="0 0 24 24"><path d="M20 14.2A8.4 8.4 0 0 1 9.8 4 8.4 8.4 0 1 0 20 14.2z"/></symbol>
 <symbol id="m-bell" viewBox="0 0 24 24"><path d="M18 15.5V10a6 6 0 1 0-12 0v5.5L4.4 18h15.2z"/><path d="M10 20.4a2.2 2.2 0 0 0 4 0"/></symbol>
+<symbol id="m-bell-off" viewBox="0 0 24 24"><path d="M18 15.5V10a6 6 0 0 0-9.3-5"/><path d="M6.4 7.6A6 6 0 0 0 6 10v5.5L4.4 18H16"/><path d="M10 20.4a2.2 2.2 0 0 0 4 0"/><path d="M3.5 3.5l17 17"/></symbol>
+<symbol id="m-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.5v2.3M12 19.2v2.3M2.5 12h2.3M19.2 12h2.3M5.3 5.3l1.6 1.6M17.1 17.1l1.6 1.6M5.3 18.7l1.6-1.6M17.1 6.9l1.6-1.6"/></symbol>
 <symbol id="m-wave" viewBox="0 0 24 24"><path d="M3 12h2.6l2-5 3 10 2.4-7 1.7 4H21"/></symbol>
 <symbol id="m-cmd" viewBox="0 0 24 24"><path d="M9 9h6v6H9z"/><path d="M9 9V6.6a2.6 2.6 0 1 0-2.6 2.6H9zm6 0V6.6a2.6 2.6 0 1 1 2.6 2.6H15zM9 15v2.4a2.6 2.6 0 1 1-2.6-2.6H9zm6 0v2.4a2.6 2.6 0 1 0 2.6-2.6H15z"/></symbol>
 <symbol id="m-type" viewBox="0 0 24 24"><path d="M4 19 9.5 5l5.5 14M6 14.6h7"/><path d="M16.6 19 19.4 11l2.8 8M17.6 16.4h3.6"/></symbol>
@@ -3951,14 +4077,11 @@ body.dark-theme .footer-version { border-color: #2c2c2c; }
     </div>
   </div>
 
-  <!-- Tape row — Day Tape on the left, System Pulse compact on the right -->
+  <!-- KEEPING-UP ROW (2026-10-01) — the day tape retired. One bar answers the one
+       question worth asking mid-shift: are we keeping up? Out vs in, the gap still
+       to ship, where today is heading. System Pulse keeps its place on the right. -->
   <div class="cockpit-tape-row">
-    <div class="cockpit-tape">
-      <svg class="cockpit-tape-svg" id="cockpitTape" viewBox="0 0 1000 22" preserveAspectRatio="none"></svg>
-      <div class="cockpit-tape-axis">
-        <span>6a</span><span>9a</span><span>12p</span><span>3p</span><span>6p</span><span>9p</span>
-      </div>
-    </div>
+    <div class="cockpit-tape" id="cockpitFlow"></div>
     <div class="cockpit-pulse unknown" id="cockpitPulse" title="System Pulse — n8n sync freshness">
       <div class="cockpit-pulse-icon">
         <svg viewBox="0 0 60 14" xmlns="http://www.w3.org/2000/svg">
@@ -5253,6 +5376,10 @@ body.dark-theme .footer-version { border-color: #2c2c2c; }
   <!-- the quiet rows — appended only when they have something to say -->
   <div class="rp-rows" id="rpRows"></div>
 
+  <!-- the first shelves of the next walk, in aisle order (2026-10-01). Blank when
+       nothing is pending, like every other row on this panel. -->
+  <div class="rp-walk" id="rpWalk"></div>
+
   <!-- the closing group, held at the base so the face can sit under the header.
        The ledger is the day's bookends: the ring says WHEN each shipment went,
        this says from when to when. Empty before the first one. -->
@@ -5472,8 +5599,8 @@ function _paintCockpit(snap) {
   _setCockpitValue('cockpitReceived', snap.receivedToday);
   _setOldestPending(snap.oldestPendingMinutes);
 
-  // ---- Day Tape ----
-  _renderDayTape(snap.timeline || []);
+  // ---- Keeping up (replaced the day tape 2026-10-01) ----
+  _paintFlow(snap);
 
   // ---- System Pulse ----
   _renderSystemPulse(snap.lastSyncMinutes);
@@ -5601,101 +5728,7 @@ function _setOldestPending(minutes) {
  * brighter "now" line marks the current time. If today has no events yet,
  * shows an italic "no activity yet" label.
  */
-function _renderDayTape(events) {
-  var svg = document.getElementById('cockpitTape');
-  if (!svg) return;
-  // Clear children
-  while (svg.firstChild) svg.removeChild(svg.firstChild);
-
-  var W = 1000, H = 22;
-  var dayStart = 6, dayEnd = 22;   // 6am → 10pm
-  var span = dayEnd - dayStart;     // 16
-  var padX = 18;
-
-  function xFromHour(hourFraction) {
-    var clamped = Math.max(dayStart, Math.min(dayEnd, hourFraction));
-    return padX + ((clamped - dayStart) / span) * (W - 2 * padX);
-  }
-
-  // Hour grid (every 3 hours from 6 to 21)
-  for (var h = 6; h <= 21; h += 3) {
-    var x = xFromHour(h);
-    var ln = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-    ln.setAttribute('x1', x); ln.setAttribute('x2', x);
-    ln.setAttribute('y1', 3); ln.setAttribute('y2', H - 3);
-    ln.setAttribute('stroke', 'rgba(255,217,102,0.13)');
-    ln.setAttribute('stroke-width', '1');
-    svg.appendChild(ln);
-  }
-
-  // Empty state — no events today
-  if (!events || events.length === 0) {
-    var t = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-    t.setAttribute('x', W / 2);
-    t.setAttribute('y', H / 2 + 3);
-    t.setAttribute('text-anchor', 'middle');
-    t.setAttribute('fill', '#6c6a64');
-    t.setAttribute('font-size', '9');
-    t.setAttribute('font-style', 'italic');
-    t.setAttribute('letter-spacing', '0.10em');
-    t.textContent = 'NO ACTIVITY YET';
-    svg.appendChild(t);
-  } else {
-    // Event color map (matches Activity Log CF colors)
-    var COLORS = {
-      RECEIVED:  '#fff4b0',
-      PREPARING: '#ffd966',
-      SHIPPED:   '#8fcf9b',
-      CANCELED:  '#a8a6a0',
-      PRINTED:   '#7eb8e6'
-    };
-
-    events.forEach(function(ev, i) {
-      var cx = xFromHour(ev.hourFraction);
-      var c = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-      c.setAttribute('cx', cx);
-      c.setAttribute('cy', H / 2);
-      c.setAttribute('r', 3);
-      c.setAttribute('fill', COLORS[ev.event] || '#e8e6df');
-      // Cascading fade-in — left-to-right sweep as dots populate.
-      // Caps total duration at ~600ms even for very long event lists.
-      c.setAttribute('opacity', '0');
-      c.style.transition = 'opacity 280ms ease-out';
-      c.style.transitionDelay = Math.min(i * 18, 600) + 'ms';
-      // queue the opacity bump after the SVG attaches so the transition fires
-      requestAnimationFrame(function() { c.setAttribute('opacity', '0.92'); });
-      // Native title tooltip — survives Apps Script's HTML sanitizer
-      var title = document.createElementNS('http://www.w3.org/2000/svg', 'title');
-      var hh = Math.floor(ev.hourFraction);
-      var mm = Math.round((ev.hourFraction - hh) * 60);
-      var hour12 = ((hh % 12) || 12);
-      var meridiem = hh < 12 ? 'a' : 'p';
-      var timeLabel = hour12 + ':' + (mm < 10 ? '0' : '') + mm + meridiem;
-      title.textContent = timeLabel + ' · ' + ev.event +
-        (ev.orderId ? ' · ' + ev.orderId : '') +
-        (ev.picker ? ' · by ' + ev.picker : '');
-      c.appendChild(title);
-      svg.appendChild(c);
-    });
-  }
-
-  // "Now" indicator — a bright vertical line at the current Chicago time.
-  // ⚠ WAS the viewer's local clock, on the stated assumption that they are
-  //   "presumably in Houston too". They are not — this panel is read from Riyadh,
-  //   and the tape plots HOUSTON events, so a local "now" line sat 8-9 hours away
-  //   from the dots it was marking.
-  var nowFrac = _hqHourFrac();
-  if (nowFrac >= dayStart && nowFrac <= dayEnd) {
-    var nowX = xFromHour(nowFrac);
-    var nowLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-    nowLine.setAttribute('x1', nowX); nowLine.setAttribute('x2', nowX);
-    nowLine.setAttribute('y1', 1); nowLine.setAttribute('y2', H - 1);
-    nowLine.setAttribute('stroke', '#ffd966');
-    nowLine.setAttribute('stroke-width', '1.2');
-    nowLine.setAttribute('opacity', '0.6');
-    svg.appendChild(nowLine);
-  }
-}
+/* _renderDayTape() removed 2026-10-01 with the day tape — see the keeping-up bar. */
 
 /**
  * System Pulse renderer. Three states based on minutes since last n8n sync:
@@ -5898,15 +5931,25 @@ function toggleMute() {
   }
 }
 
+/* ⚠ A HEADER ICON IS A DRAWN MARK, NEVER A GLYPH (2026-10-01). These two used to
+   write 🔕/🔔 and ☀️/🌙 into the button on every toggle, so the load-time marks lasted
+   exactly until the first click. _hdrMark swaps only the <svg>, so the bell keeps
+   its live badge. */
+function _hdrMark(btn, id) {
+  if (!btn) return;
+  var old = btn.querySelector('svg');
+  var w = document.createElement('span');
+  w.innerHTML = '<svg><use href="#' + id + '"/></svg>';
+  if (old) btn.replaceChild(w.firstChild, old);
+  else { Array.prototype.slice.call(btn.childNodes).forEach(function (n) {
+           if (n.nodeType === 3) btn.removeChild(n); });
+         btn.insertBefore(w.firstChild, btn.firstChild); }
+}
+
 function updateMuteBtn() {
   var btn = document.getElementById('muteBtn');
-  if (isMuted) {
-    btn.classList.add('muted');
-    btn.textContent = '🔕';
-  } else {
-    btn.classList.remove('muted');
-    btn.textContent = '🔔';
-  }
+  btn.classList.toggle('muted', !!isMuted);
+  _hdrMark(btn, isMuted ? 'm-bell-off' : 'm-bell');
 }
 
 function updateBadge() {
@@ -6538,6 +6581,9 @@ function _sidebarNoteSource(src) {
 /* ONE painter for both tiers, so the two paths can never drift into painting
    different things — the format-drift class this codebase keeps getting bitten by. */
 function _sidebarPaint(cockpit, lastSync, api, alerts, picker, full) {
+  // The pace estimate rides the published tick only; remember it for the
+  // on-demand cockpit refreshes that arrive without it.
+  if (full && full.paceCar) _flowPace = full.paceCar;
   _paintCockpit(cockpit);
   _paintLastSync(lastSync);
   _paintApiMetrics(api);
@@ -7799,11 +7845,31 @@ function _paintLastSync(cellValue) {
    A probe that only said "failed" would have us fixing the wrong one. */
 /* probeReach() removed 2026-08-19 with its card — see the note in the markup. */
 
+/* ⚠ ONE CARD OPEN AT A TIME, and the opened card lands at the top (2026-10-01).
+   Reported from use: with several big cards open the panel became a scroll hunt.
+   The others SNAP shut (transition off for one frame) so the scroll target is
+   measured on the final layout, not a half-collapsed one; only the opening card
+   animates. Scrolling only on OPEN — closing a card never moves the list. */
 function toggleCollapse(header) {
-  if (event && event.target.closest('.drag-handle')) return;
+  if (window.event && event.target.closest('.drag-handle')) return;
   var card = header.closest('.card');
+  var opening = card.classList.contains('collapsed');
+  if (opening) {
+    document.querySelectorAll('#modules .card:not(.collapsed)').forEach(function (c) {
+      if (c === card) return;
+      var b = c.querySelector('.card-body');
+      if (b) b.style.transition = 'none';
+      c.classList.add('collapsed');
+      if (b) { void b.offsetHeight; b.style.transition = ''; }
+    });
+  }
   card.classList.toggle('collapsed');
   saveState();
+  var modules = document.getElementById('modules');
+  if (opening && modules) {
+    var top = card.offsetTop - modules.offsetTop - 4;
+    modules.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
+  }
 }
 
 function saveState() {
@@ -7821,6 +7887,12 @@ if (savedCollapsed) {
     if (card) card.classList.add('collapsed');
   });
 }
+/* One card open at a time holds from the first paint too — a state saved before
+   2026-10-01 can carry several open cards; keep the first, fold the rest. */
+(function () {
+  var open = document.querySelectorAll('#modules .card:not(.collapsed)');
+  for (var i = 1; i < open.length; i++) open[i].classList.add('collapsed');
+})();
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // FONT SCALING
@@ -9053,13 +9125,13 @@ function toggleTheme() {
   isDark = !isDark;
   document.body.classList.toggle('dark-theme', isDark);
   localStorage.setItem('hq-theme', isDark ? 'dark' : 'light');
-  document.getElementById('themeBtn').textContent = isDark ? '☀️' : '🌙';
+  _hdrMark(document.getElementById('themeBtn'), isDark ? 'm-sun' : 'm-moon');
 }
 
 // Restore theme
 if (isDark) {
   document.body.classList.add('dark-theme');
-  document.getElementById('themeBtn').textContent = '☀️';
+  _hdrMark(document.getElementById('themeBtn'), 'm-sun');
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -9961,7 +10033,8 @@ window.addEventListener('load',function(){
     var ic=c.querySelector('.card-icon'); if(!ic) return;
     mark(ic, CARD[c.dataset.id] || 'm-board');
   });
-  var HDR=['m-moon','m-bell','m-wave','m-cmd','m-type'];
+  /* ⚠ the theme and bell marks follow their STATE, not their position. */
+  var HDR=[isDark?'m-sun':'m-moon', isMuted?'m-bell-off':'m-bell','m-wave','m-cmd','m-type'];
   document.querySelectorAll('.top-controls .ctrl-btn').forEach(function(b,i){
     var badge=b.querySelector('.badge');
     b.innerHTML='<svg><use href="#'+(HDR[i]||'m-cmd')+'"/></svg>';
@@ -9997,6 +10070,7 @@ window.addEventListener('load',function(){
        tell the picker nothing. This one puts stock ON the shelf — which is both what
        m-stock draws and the whole point of the action. */
     '🔧':'m-stock'};
+  window.HQ_BTN_MARKS = BTN;
   var RE=/^(\s*)(\S)(\uFE0F?)\s*/u;
   function mkSvg(id){ var w=document.createElement('span');
     w.innerHTML='<svg><use href="#'+id+'"/></svg>'; return w.firstChild; }
@@ -10325,6 +10399,7 @@ function _rpPaint() {
   _rpRenderPips(c.timeline);
   _rpPaintLedger(c.timeline);
   _rpPaintRows(open, c, full);
+  _rpPaintWalk(open, full);
   _rpBuildEmbers();
 }
 
@@ -10456,6 +10531,247 @@ function _rpNoteTick(cockpit, alerts, full) {
   setInterval(_rpAmbient, 1000);
   _rpArm();
 })();
+
+/* ═══ KEEPING UP — the bar that replaced the day tape (2026-10-01) ═════════════
+   Same energy as the row-1 movie: a still home, and an engine-born move only when
+   something happens. Ship → a spark rides the lit cells in 1-3-4-2 firing order
+   and stamps the new one. Receive → an intake stroke from the far end. Out
+   reaches in → the one reward move. 45s of quiet → one light pass.
+   ⚠ It carries NO numbers of its own: Shipped and Received sit right above it,
+   and the first cut repeating them read as clutter. */
+/* HQ FLOW v2 — HQFlow.mount(el) → { update({shipped,received,projection,inside}), scan() } */
+window.HQFlow = (function () {
+  var N = 28, ORDER = [0, 2, 3, 1];                          // cylinders fire 1-3-4-2
+  function mount(host) {
+    host.innerHTML = '<div class="hqf-row"><div class="hqf-bar"></div></div><div class="hqf-cap"></div>';
+    host.classList.add('hqf');
+    var bar = host.querySelector('.hqf-bar'), cap = host.querySelector('.hqf-cap'), cells = [];
+    for (var i = 0; i < N; i++) { var c = document.createElement('i'); c.className = 'hqf-c'; bar.appendChild(c); cells.push(c); }
+    function add(cls) { var e = document.createElement('b'); e.className = cls; bar.appendChild(e); return e; }
+    var mark = add('hqf-mark'), scan = add('hqf-scan'), spark = add('hqf-spark');
+    var prev = null, quietT = null, capT = null;
+    var reduce = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+    function retrig(el, cls, delay) {
+      setTimeout(function () { el.classList.remove(cls); void el.offsetWidth; el.classList.add(cls); }, delay || 0);
+    }
+    function armQuiet() {
+      clearTimeout(quietT);
+      quietT = setTimeout(function () { if (!reduce) retrig(scan, 'go'); armQuiet(); }, 45000);
+    }
+    function caption(d, win) {
+      var diff = d.shipped - d.received;
+      var rel = diff > 0 ? diff + ' more out than in' : diff < 0 ? (-diff) + (-diff === 1 ? ' order' : ' orders') + ' still to ship' : 'every order in is out';
+      var pace = (d.inside && d.projection) ? ' · ~' + d.projection + ' by 5 PM' : '';
+      cap.innerHTML = '<b>' + (win ? 'caught up' : rel) + '</b>' + (win ? ' · ' + rel : pace);
+      cap.classList.toggle('behind', diff < 0 && !win);
+      cap.classList.toggle('win', !!win);
+    }
+    function paint(d) {
+      var max = Math.max(d.shipped, d.received, d.projection || 0, 1);
+      var lit = Math.round(d.shipped / max * N), inAt = Math.round(d.received / max * N),
+          proj = Math.round((d.projection || 0) / max * N);
+      cells.forEach(function (c, i) {
+        c.classList.toggle('lit', i < lit);
+        c.classList.toggle('owed', i >= lit && i < inAt);
+        c.classList.toggle('ghost', i >= Math.max(lit, inAt) && i < proj);
+      });
+      mark.style.left = (d.received / max * 100) + '%';
+      return lit;
+    }
+    /* the spark rides out along the lit cells, igniting each as it passes (with a
+       small 1-3-4-2 stagger inside every group of four), and stamps the new cell. */
+    function fire(lit) {
+      if (!lit) return;
+      var dur = 260 + lit * 14, target = lit / N * 100;
+      if (spark.animate) {
+        spark.animate([{ left: '0%', opacity: 0 }, { opacity: 1, offset: .08 }, { left: target + '%', opacity: 1, offset: .92 },
+                       { left: target + '%', opacity: 0 }], { duration: dur + 120, easing: 'cubic-bezier(.5,0,.25,1)' });
+      }
+      for (var i = 0; i < lit - 1; i++) retrig(cells[i], 'fire', (i + .5) / lit * dur + ORDER[i % 4] * 18);
+      retrig(cells[lit - 1], 'land', dur);
+    }
+    return {
+      update: function (d) {
+        d = { shipped: +d.shipped || 0, received: +d.received || 0, projection: +d.projection || 0, inside: !!d.inside };
+        var lit = paint(d);
+        var shipped = prev && d.shipped > prev.shipped, recv = prev && d.received > prev.received;
+        var caught = shipped && prev.shipped < prev.received && d.shipped >= d.received;
+        if (!prev && !reduce) { retrig(host, 'arrive');                   // one short build on open
+          setTimeout(function () { host.classList.remove('arrive'); }, 1400); }
+        if (!prev) cells.forEach(function (c, i) { c.style.animationDelay = (i * 18) + 'ms'; });
+        else cells.forEach(function (c) { c.style.animationDelay = ''; });
+        caption(d, caught);
+        if (!reduce) {
+          if (shipped) fire(lit);
+          if (recv) for (var j = N - 1, k = 0; j >= 0; j--, k++) retrig(cells[j], 'intake', k * 14);
+          if (caught) {                                                   // the one reward move
+            var t0 = 300 + lit * 14;                                      // after the spark lands
+            for (var w = 0; w < lit; w++) retrig(cells[w], 'wave', t0 + w * 22);
+            retrig(mark, 'ring', t0 + lit * 22);
+          }
+        }
+        clearTimeout(capT);
+        if (caught) capT = setTimeout(function () { caption(d, false); }, 6000);
+        prev = d; armQuiet();
+      },
+      scan: function () { retrig(scan, 'go'); }
+    };
+  }
+  return { mount: mount };
+})();
+
+var _flow = null, _flowPace = null;
+/* Mounted at load, so the row is never empty while the first tick is in flight. */
+function _flowMount() {
+  var host = document.getElementById('cockpitFlow');
+  if (!_flow && host && window.HQFlow) _flow = HQFlow.mount(host);
+  return _flow;
+}
+_flowMount();
+function _paintFlow(snap) {
+  try {
+    if (!_flowMount()) return;
+    var pc = _flowPace || {};
+    _flow.update({ shipped: snap.shippedToday, received: snap.receivedToday,
+                   projection: pc.projection, inside: pc.insideWorkday });
+  } catch (e) { console.warn('flow: ' + e); }
+}
+
+/* ═══ FIRST WALK — the resting panel's next shelves (2026-10-01) ════════════════
+   The pick list already rides the tick; the first PENDING shelves in aisle order
+   are the most useful thing to see before a shift. Zero server work. */
+function _rpShelfKey(s) {
+  var m = /^([A-Z]+)-(\d+)/i.exec(String(s || '').trim());
+  return m ? [m[1].toUpperCase(), parseInt(m[2], 10)] : ['~', 1e9];
+}
+function _rpPaintWalk(open, full) {
+  var host = document.getElementById('rpWalk');
+  if (!host) return;
+  var list = ((full && full.openOrders) || []).filter(function (r) {
+    return String(r.status).toUpperCase() === 'PENDING' && r.location && !/NOT FOUND/i.test(r.location);
+  }).sort(function (a, b) {
+    var x = _rpShelfKey(a.location), y = _rpShelfKey(b.location);
+    return x[0] < y[0] ? -1 : x[0] > y[0] ? 1 : x[1] - y[1];
+  });
+  if (!list.length) { host.innerHTML = ''; return; }
+  var esc = function (v) { return String(v == null ? '' : v).replace(/[&<>"]/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); };
+  host.innerHTML = '<div class="rp-walk-h"><span>' + (open ? 'Next on the walk' : 'First walk tomorrow') +
+    '</span><span>' + list.length + (list.length === 1 ? ' line' : ' lines') + '</span></div>' +
+    list.slice(0, 5).map(function (r) {
+      return '<div class="rp-walk-r"><b>' + esc(r.location) + '</b><i>' + esc(r.sku) + '</i><span>×' + esc(r.qty) + '</span></div>';
+    }).join('');
+}
+
+/* ═══ HELP FOLDS AWAY (2026-10-01) ═══════════════════════════════════════════════
+   Long explanations sat between the picker and the rest of each card. You read
+   them once; after that they only cost height. One-line hints stay visible. */
+function _foldCardHelp() {
+  /* ⚠ A hint WITH an id is a card's RESULT PANEL showing its starting help (e.g.
+     #kitResult). The panel must stay where it is — results are written into it —
+     so only its starting content folds, in place. The next result replaces it. */
+  document.querySelectorAll('#modules .empty-hint[id]').forEach(function (h) {
+    if ((h.textContent || '').trim().length <= 90 || h.querySelector('.card-help')) return;
+    h.innerHTML = '<details class="card-help"><summary>How it works</summary><div class="card-help-body">' +
+                  h.innerHTML + '</div></details>';
+  });
+  document.querySelectorAll('#modules .card-body').forEach(function (body) {
+    var hints = Array.prototype.filter.call(body.querySelectorAll('.empty-hint'), function (h) {
+      return (h.textContent || '').trim().length > 90 && !h.closest('.card-help') && !h.id;
+    });
+    if (!hints.length) return;
+    var d = document.createElement('details');
+    d.className = 'card-help';
+    d.innerHTML = '<summary>How it works</summary>';
+    hints[0].parentNode.insertBefore(d, hints[0]);
+    hints.forEach(function (h) { d.appendChild(h); });
+  });
+}
+_foldCardHelp();
+
+/* ═══ NO COLOUR EMOJI, EVER — the net under every writer (2026-10-01) ══════════
+   The load-time mark swap only ever saw the FIRST paint. Anything written later —
+   a button restored after its spinner, a status line, a result panel, a message
+   the SERVER composed — brought colour emoji straight back. Rather than chase ~20
+   server files, one observer cleans text as it lands:
+     · a button's leading glyph that has a drawn mark → the mark (HQ_BTN_MARKS)
+     · ✅ ❌ ⚠️ → the text symbols ✓ ✗ ⚠ this panel already speaks
+     · 🟢 🟡 🔴 ⚫ → a coloured ● (the colour WAS the message)
+     · any other colour emoji → removed, with its trailing space
+   Text-default symbols (✓ ✗ ⚠ ⏱ ☰ ⌘ ▣ ◫ →) stay, pinned to text by CSS.
+   ⚠ THE ARCADE KEEPS ITS EMOJI — the 2026-08-19 ruling; its card is skipped. */
+var HQ_EMOJI_TEXT = { '✅': '✓', '✔️': '✓', '❌': '✗', '⚠️': '⚠', '⛔': '✗', '❗': '!', '➡️': '→', '⬅️': '←' };
+var HQ_EMOJI_DOT  = { '🟢': 'ok', '🟡': 'warn', '🟠': 'warn', '🔴': 'bad', '⚫': 'off', '⚪': 'off' };
+var HQ_EMOJI_RE = /(\p{Extended_Pictographic})(️?)( ?)/gu;
+function _hqEmojiSkip(node) {
+  var el = node.parentElement;
+  if (!el) return true;
+  return !!el.closest('script,style,textarea,svg,[data-id="arcade"],.rp');
+}
+function _hqCleanText(node) {
+  var t = node.nodeValue;
+  if (!t || !/\p{Extended_Pictographic}/u.test(t) || _hqEmojiSkip(node)) return;
+  // a button's leading glyph becomes its drawn mark
+  var btn = node.parentElement.closest('button');
+  var marks = window.HQ_BTN_MARKS || {};
+  var lead = t.match(/^(\s*)(\S)(️?)\s*/u);
+  if (btn && lead && marks[lead[2]] && !btn.querySelector('svg')) {
+    node.nodeValue = t.slice(lead[0].length);
+    var w = document.createElement('span');
+    w.innerHTML = '<svg><use href="#' + marks[lead[2]] + '"/></svg>';
+    btn.insertBefore(w.firstChild, btn.firstChild);
+    t = node.nodeValue;
+  }
+  var parts = [], last = 0, m, dirty = false;
+  HQ_EMOJI_RE.lastIndex = 0;
+  while ((m = HQ_EMOJI_RE.exec(t))) {
+    var ch = m[1], sel = m[2], sp = m[3];
+    var txt = HQ_EMOJI_TEXT[ch + sel] || HQ_EMOJI_TEXT[ch];
+    var colour = /\p{Emoji_Presentation}/u.test(ch) || sel;
+    if (!txt && !HQ_EMOJI_DOT[ch] && !colour) continue;          // text symbol — keep
+    parts.push(t.slice(last, m.index));
+    if (txt) parts.push(txt + sp);
+    else if (HQ_EMOJI_DOT[ch]) parts.push({ dot: HQ_EMOJI_DOT[ch] }, sp);
+    last = m.index + m[0].length; dirty = true;
+  }
+  if (!dirty) return;
+  parts.push(t.slice(last));
+  if (!parts.some(function (x) { return typeof x === 'object'; })) {
+    node.nodeValue = parts.join('');
+    return;
+  }
+  var frag = document.createDocumentFragment();
+  parts.forEach(function (x) {
+    if (typeof x === 'object') {
+      var d = document.createElement('span'); d.className = 'hq-dot hq-dot-' + x.dot; d.textContent = '●';
+      frag.appendChild(d);
+    } else if (x) frag.appendChild(document.createTextNode(x));
+  });
+  node.parentNode.replaceChild(frag, node);
+}
+function _hqCleanTree(root) {
+  if (!root) return;
+  if (root.nodeType === 3) { _hqCleanText(root); return; }
+  if (root.nodeType !== 1) return;
+  var w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT), n, list = [];
+  while ((n = w.nextNode())) list.push(n);
+  list.forEach(_hqCleanText);
+}
+/* ⚠ STARTS ON 'load', REGISTERED AFTER the mark swap above — listeners run in
+   registration order. Started earlier, it would strip a button's glyph before
+   the swap could turn it into that button's drawn mark. */
+window.addEventListener('load', function () {
+  try {
+    _hqCleanTree(document.body);
+    new MutationObserver(function (muts) {
+      muts.forEach(function (m) {
+        if (m.type === 'characterData') _hqCleanText(m.target);
+        else m.addedNodes.forEach(_hqCleanTree);
+      });
+    }).observe(document.body, { childList: true, subtree: true, characterData: true });
+  } catch (e) { console.warn('emoji net: ' + e); }
+});
 </script>
 
 </body>
