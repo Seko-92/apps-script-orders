@@ -2971,6 +2971,15 @@ function refreshKitSkuMarkers() {
   var notes = sheet.getRange(startRow, Schema.cols.NOTE, lastRow - startRow + 1, 1).getValues();
   var formats = [];
   var kitCount = 0;
+  // ⭐ 2026-10-01 OrderLook part 2 — K tags. One plan per refresh from the shared rule
+  //   (_kitTagPlan), so the numbering cannot differ between this and the print.
+  var plan = null, tagged = 0;
+  if (typeof _orderLookOn === 'function' && _orderLookOn()) {
+    var sos = sheet.getRange(startRow, Schema.cols.SALES_ORDER, lastRow - startRow + 1, 1).getValues();
+    plan = _kitTagPlan(values.map(function (v, i) {
+      return { sku: v[0], so: sos[i][0], note: notes[i][0] };
+    }), kitSkus);
+  }
 
   for (var i = 0; i < values.length; i++) {
     var raw = String(values[i][0] || "").trim();
@@ -2984,6 +2993,13 @@ function refreshKitSkuMarkers() {
     if (isEmpty || isBoundary || isHeader) {
       // Preserve whatever was there (e.g. DIRECT divider's '"▌  "@' glyph).
       formats.push([existingFormats[i][0]]);
+      continue;
+    }
+    var tagFmt = plan ? _kitTagFormat(plan[i]) : null;
+    if (tagFmt) {
+      formats.push([tagFmt]);
+      tagged++;
+      if (plan[i].parent) kitCount++;
       continue;
     }
     if (isExpansionComponent) {
@@ -3002,7 +3018,8 @@ function refreshKitSkuMarkers() {
 
   range.setNumberFormats(formats);
   SpreadsheetApp.flush();
-  return "✅ Kit markers refreshed — " + kitCount + " row(s) marked with ▣ prefix.";
+  return "✅ Kit markers refreshed — " + kitCount + " row(s) marked with ▣ prefix" +
+         (plan ? " · " + tagged + " line(s) carry a K tag." : ".");
 }
 
 /**
@@ -3037,6 +3054,13 @@ function kitSkuOnEdit(e) {
 
   // Skip banner rows entirely
   if (e.range.getRow() < Schema.dataStartRow) return;
+
+  // ⭐ 2026-10-01 — with K tags on, a row's tag depends on OTHER rows (which kits the order
+  //   carries), so a per-cell write here would wipe tags. Let the full pass decide.
+  if (typeof _orderLookOn === 'function' && _orderLookOn()) {
+    try { refreshKitSkuMarkers(); } catch (err) {}
+    return;
+  }
 
   // Build kit-SKU set. Cache for 60s in CacheService — a paste of N rows
   // fires this handler once with a multi-row range, but rapid successive

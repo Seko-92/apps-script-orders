@@ -491,7 +491,10 @@ function removeDuplicateHighlightRules(sheet) {
             break;
           }
         }
-        if (isSkuColumn && (formula.indexOf('COUNTIF') !== -1 || formula.indexOf('UPPER(TRIM(') !== -1)) {
+        // ⚠ 2026-10-01 — OrderLook's kit-ready rule lives on column A alone and needs
+        //   COUNTIFS; without this exemption Find Duplicates would silently delete it.
+        if (isSkuColumn && formula.indexOf('hq-look') === -1 &&
+            (formula.indexOf('COUNTIF') !== -1 || formula.indexOf('UPPER(TRIM(') !== -1)) {
           continue;
         }
       }

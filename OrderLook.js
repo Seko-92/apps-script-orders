@@ -16,6 +16,15 @@
  *   4. The DIRECT band's nameplate ends "· N ready" — orders with every line picked and
  *      none waiting (__SparkData!A31). Hidden at 0.
  *
+ *   PART 2 (2026-10-01) — kits:
+ *   5. K TAGS. Within one order, every EXPANDED kit is numbered K1, K2… in sheet order.
+ *      The parent's SKU cell shows "▣ K1 157644", each of its parts "K1 164979" — display
+ *      only, the ▣ number-format trick; the cell still holds the plain SKU. An unexpanded
+ *      kit keeps today's plain "▣". _kitTagPlan() is the ONE numbering rule; the printed
+ *      pick list (part 3) must call it too, so a part is K3 on screen and K3 on paper.
+ *   6. KIT READY. The parent's SKU cell turns green once no part of that kit is still
+ *      PENDING (and the parent itself is live). A live colour rule — flips on the pick.
+ *
  * ⭐ ONE SWITCH. setupOrderLook() turns it on; removeOrderLook() is the whole rollback.
  *   The switch is a Script Property because the box painter runs on every edit and must
  *   know, cheaply, whether to draw the pale state.
@@ -72,8 +81,79 @@ function _orderLookFormulas(r) {
     note: '=AND(' + tag + ',' + below + ',$E' + r + '<>"",$D' + r + '<>"",$D' + r + '=$D' + prev + ',' +
           '$E' + r + '=INDEX($E:$E,MATCH($D' + r + ',$D:$D,0)),' +
           'LEFT($E' + r + ',1)<>"↳",LEFT($E' + r + ',1)<>"⚠",' +
-          'NOT(REGEXMATCH($E' + r + '&"","(?i)\\bhold\\b")))'
+          'NOT(REGEXMATCH($E' + r + '&"","(?i)\\bhold\\b")))',
+    // A kit PARENT whose parts are all picked. A part's note reads "↳ from KIT-<sku>…"
+    // (or "added to", or after a ⚠ Zoho flag line) — matched as "*↳ * KIT-<sku>" alone or
+    // followed by a space, so KIT-1586 can never match KIT-158652's parts.
+    kit:  (function () {
+      var D = '$D$' + Schema.dataStartRow + ':$D', E = '$E$' + Schema.dataStartRow + ':$E',
+          Fs = '$F$' + Schema.dataStartRow + ':$F';
+      var p1 = '"*↳ * KIT-"&$A' + r, p2 = '"*↳ * KIT-"&$A' + r + '&" *"';
+      return '=AND(' + tag + ',$A' + r + '<>"",$D' + r + '<>"",' +
+             '$F' + r + '<>"SHIPPED",$F' + r + '<>"CANCELED",LEFT($E' + r + ',1)<>"↳",' +
+             'COUNTIFS(' + D + ',$D' + r + ',' + E + ',' + p1 + ')+COUNTIFS(' + D + ',$D' + r + ',' + E + ',' + p2 + ')>0,' +
+             'COUNTIFS(' + D + ',$D' + r + ',' + E + ',' + p1 + ',' + Fs + ',"PENDING")+' +
+             'COUNTIFS(' + D + ',$D' + r + ',' + E + ',' + p2 + ',' + Fs + ',"PENDING")=0)';
+    })()
   };
+}
+
+/**
+ * ⭐ THE ONE K-NUMBERING RULE (sheet now, print in part 3). Pure — Node-testable.
+ *
+ * @param {Array<{sku,so,note}>} rows  sheet order
+ * @param {Set} kitSkus  registered kit SKUs, UPPERCASE
+ * @returns {Array<{k:number, parent:boolean}|null>}  per row: its kit number, whether it is
+ *   the parent line, or null (not part of an expanded kit)
+ *
+ * A kit is numbered only when it is EXPANDED in that order (a part's note names it).
+ * ⚠ NUMBERED BY THE KIT'S OWN SKU, LOWEST FIRST — never by row position. The DIRECT sort
+ *   reorders an order's lines when statuses change, so position-numbering would turn K2
+ *   into K3 after a sort and disagree with a pick list printed ten minutes earlier. The
+ *   SKU order never moves while the same kits are on the order.
+ * A part whose parent line is not on the sheet gets no number — a tag pointing at nothing
+ * would send someone looking.
+ */
+function _kitTagPlan(rows, kitSkus) {
+  var partsOf = {};                                   // "SO|PARENTSKU" → true
+  rows.forEach(function (r) {
+    var p = kitComponentTag(r.note);
+    if (p && r.so) partsOf[String(r.so).trim() + '|' + String(p).toUpperCase()] = true;
+  });
+  function isParent(r) {
+    var so = String(r.so || '').trim(), sku = String(r.sku || '').trim().toUpperCase();
+    return so && sku && !kitComponentTag(r.note) && kitSkus.has(sku) && partsOf[so + '|' + sku];
+  }
+  var kitsBySo = {};
+  rows.forEach(function (r) {
+    if (!isParent(r)) return;
+    var so = String(r.so).trim(), sku = String(r.sku).trim().toUpperCase();
+    (kitsBySo[so] = kitsBySo[so] || {})[sku] = true;
+  });
+  var numOf = {};
+  Object.keys(kitsBySo).forEach(function (so) {
+    Object.keys(kitsBySo[so]).sort(function (a, b) {
+      var na = Number(a), nb = Number(b);
+      return (isFinite(na) && isFinite(nb)) ? na - nb : (a < b ? -1 : a > b ? 1 : 0);
+    }).forEach(function (sku, i) { numOf[so + '|' + sku] = i + 1; });
+  });
+  var out = rows.map(function (r) {
+    if (!isParent(r)) return null;
+    return { k: numOf[String(r.so).trim() + '|' + String(r.sku).trim().toUpperCase()], parent: true };
+  });
+  rows.forEach(function (r, i) {
+    var p = kitComponentTag(r.note);
+    if (!p) return;
+    var key = String(r.so || '').trim() + '|' + String(p).toUpperCase();
+    if (key in numOf) out[i] = { k: numOf[key], parent: false };
+  });
+  return out;
+}
+
+/** The number format a SKU cell wears for a plan entry (null = decide as before). */
+function _kitTagFormat(entry) {
+  if (!entry) return null;
+  return entry.parent ? '"▣ K' + entry.k + ' "@' : '"K' + entry.k + ' "@';
 }
 
 /** The rules, in the order they are appended (all LAST — see the header). */
@@ -92,7 +172,12 @@ function _buildOrderLookRules(sheet) {
     sheet.getRange(r0, 1, n, Schema.cols.STATUS - 1),                         // A:E
     sheet.getRange(r0, Schema.cols.STATUS + 1, n, W - Schema.cols.STATUS)      // G:J
   ];
+  var kitReady = SpreadsheetApp.newConditionalFormatRule()
+    .whenFormulaSatisfied(F.kit)
+    .setBackground('#c8e6c9').setFontColor('#1b5e20').setBold(true)
+    .setRanges([sheet.getRange(r0, Schema.cols.SKU, n, 1)]).build();
   return [
+    kitReady,
     rule(F.done, doneRanges),
     rule(F.so,   [sheet.getRange(r0, Schema.cols.SALES_ORDER, n, 1)]),
     rule(F.note, [sheet.getRange(r0, Schema.cols.NOTE, n, 1)])
@@ -127,7 +212,8 @@ function setupOrderLook() {
 
   var rules = _stripOrderLookRules(sheet.getConditionalFormatRules());
   sheet.setConditionalFormatRules(rules.concat(_buildOrderLookRules(sheet)));
-  out.push('✓ colour rules installed (finished orders · grey SO# · repeated notes)');
+  out.push('✓ colour rules installed (finished orders · grey SO# · repeated notes · kit ready)');
+  try { out.push(refreshKitSkuMarkers()); } catch (e) { out.push('✗ kit tags: ' + e); }
 
   try { _ensureSparkData(ss); out.push('✓ ready count formula (__SparkData!' + ORDER_LOOK.readyCell + ')'); }
   catch (e) { out.push('✗ ready count: ' + e); }
@@ -162,5 +248,6 @@ function removeOrderLook() {
   sheet.setConditionalFormatRules(_stripOrderLookRules(sheet.getConditionalFormatRules()));
   try { _applyDividerNameplate(sheet); } catch (e) {}
   try { setupDuplicateSalesOrderHighlighting(); } catch (e) {}
+  try { refreshKitSkuMarkers(); } catch (e) {}          // K tags back to plain ▣
   return '✅ Quieter DIRECT table OFF — rules removed, band and boxes back to today.';
 }

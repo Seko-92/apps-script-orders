@@ -78,11 +78,11 @@ const S = ctx.Schema;
 console.log('\nA · the three rules');
 let rules = [];
 try { rules = ctx._buildOrderLookRules(makeSheet({ col: () => '' })); } catch (e) {}
-ok('three rules built', rules.length === 3, rules.length);
-const fx = rules.map(r => r._o.formula || '');
-ok('every rule carries the hq-look marker', fx.length === 3 && fx.every(f => f.indexOf('N("hq-look")') !== -1), fx);
-ok('no rule range touches STATUS (F)', rules.length === 3 && rules.every(r => r._o.ranges.every(g => !(g.c <= S.cols.STATUS && g.c + g.w - 1 >= S.cols.STATUS))));
-ok('all rules only set a quiet font', rules.length === 3 && rules.every(r => r._o.font === '#a39b86'));
+ok('four rules built', rules.length === 4, rules.length);
+const fx = rules.slice(1).map(r => r._o.formula || '');   // [0] is kit-ready, checked in G
+ok('every rule carries the hq-look marker', rules.length === 4 && rules.every(r => (r._o.formula || '').indexOf('N("hq-look")') !== -1));
+ok('no rule range touches STATUS (F)', rules.length === 4 && rules.every(r => r._o.ranges.every(g => !(g.c <= S.cols.STATUS && g.c + g.w - 1 >= S.cols.STATUS))));
+ok('the three quiet rules only set a quiet font', rules.slice(1).every(r => r._o.font === '#a39b86'));
 const note = fx[2] || '';
 ok('HOLD regex reaches Sheets as \\b (not a backspace)', note.indexOf('(?i)\\bhold\\b') !== -1 && note.indexOf('\b') === -1, note);
 ok('kit (↳) and Zoho-flag (⚠) notes exempt', /LEFT\(\$E4,1\)<>"↳"/.test(note) && /LEFT\(\$E4,1\)<>"⚠"/.test(note));
@@ -95,10 +95,10 @@ const legacyD = mkRule({ formula: '=COUNTIF($D:$D,$D4)>1', ranges: [mkRange(4, S
 const legacyA = mkRule({ formula: '=UPPER(TRIM(A4))="X"', ranges: [mkRange(4, S.cols.SKU, 1000, 1)] });
 cfRules = rules.concat([legacyD, legacyA]);
 try { ctx.removeLegacySalesOrderCFRules(makeSheet({ col: () => '' })); } catch (e) { console.log('  ' + e.message); }
-ok('col-D stripper keeps all three', rules.every(r => cfRules.indexOf(r) !== -1));
+ok('col-D stripper keeps all four', rules.every(r => cfRules.indexOf(r) !== -1));
 ok('…and still removes a real legacy col-D rule', cfRules.indexOf(legacyD) === -1);
 try { ctx.removeDuplicateHighlightRules(makeSheet({ col: () => '' })); } catch (e) { console.log('  ' + e.message); }
-ok('col-A stripper keeps all three', rules.every(r => cfRules.indexOf(r) !== -1));
+ok('col-A stripper keeps all four (incl. the col-A kit rule with COUNTIFS)', rules.every(r => cfRules.indexOf(r) !== -1));
 ok('…and still removes a real duplicate-SKU rule', cfRules.indexOf(legacyA) === -1);
 
 // ---- C ---------------------------------------------------------------------
@@ -110,11 +110,11 @@ function themeRun() {
 }
 props.ORDER_LOOK_ON = 'on';
 let look = themeRun();
-ok('ON: exactly three look rules after a re-apply (no duplicates, none lost)', look.length === 3, look.length);
+ok('ON: exactly four look rules after a re-apply (no duplicates, none lost)', look.length === 4, look.length);
 const idIdx = cfRules.findIndex(r => /INDIRECT\("'__Identity'|__Identity/.test(r._o.formula || ''));
 const firstLook = cfRules.findIndex(r => String(r._o.formula || '').indexOf('hq-look') !== -1);
 ok('ON: look rules come AFTER the identity rules', idIdx !== -1 && firstLook > idIdx, [idIdx, firstLook]);
-ok('ON: look rules are the very last rules', firstLook === cfRules.length - 3, [firstLook, cfRules.length]);
+ok('ON: look rules are the very last rules', firstLook === cfRules.length - 4, [firstLook, cfRules.length]);
 delete props.ORDER_LOOK_ON;
 look = themeRun();
 ok('OFF: a re-apply removes them', look.length === 0, look.length);
@@ -149,6 +149,58 @@ const plain = ctx._nameplateFormula('DIRECT ORDERS', 'A18', 'A29');
 const withReady = ctx._nameplateFormula('DIRECT ORDERS', 'A18', 'A29', 'A31');
 ok('no ready cell → no "ready" text', plain.indexOf('ready') === -1);
 ok('ready cell → "· N ready", hidden at 0 / blank', /OR\('__SparkData'!A31="",'__SparkData'!A31=0\)/.test(withReady) && withReady.indexOf('" ready"') !== -1, withReady);
+
+// ---- F ---------------------------------------------------------------------
+console.log('\nF · K numbering (the one rule the print will share)');
+const kits = new Set(['217205', '157644', '158679']);
+const R = (sku, so, note) => ({ sku, so, note: note || '' });
+const plan = ctx._kitTagPlan ? ctx._kitTagPlan([
+  R('164979', 'SO-1', '↳ from KIT-217205 · Miguel'),   // 0 part of 217205
+  R('217205', 'SO-1', 'Miguel'),                        // 1 parent → K2 (157644 < 217205)
+  R('157644', 'SO-1', ''),                              // 2 parent → K1
+  R('172539', 'SO-1', '↳ from KIT-157644'),             // 3 part of 157644
+  R('199999', 'SO-1', '↳ added to KIT-157644'),         // 4 custom add → K1
+  R('158679', 'SO-1', ''),                              // 5 kit NOT expanded here → plain
+  R('171111', 'SO-1', 'Miguel'),                        // 6 loose
+  R('157644', 'SO-2', ''),                              // 7 other order: parent → K1 there
+  R('160000', 'SO-2', '⚠️ QTY: 2 → 1 IN ZOHO\n↳ from KIT-157644'),  // 8 flagged part → K1
+  R('155555', 'SO-3', '↳ from KIT-217205')              // 9 orphan part: parent not in SO-3
+], kits) : [];
+const fmt = e => e ? (e.parent ? 'P' : 'C') + e.k : '-';
+ok('numbered by kit SKU, lowest first (157644=K1, 217205=K2)', plan.map(fmt).join(' ') === 'C2 P2 P1 C1 C1 - - P1 C1 -', plan.map(fmt).join(' '));
+ok('parent format "▣ K1 "@, part "K1 "@', ctx._kitTagFormat && ctx._kitTagFormat({ k: 1, parent: true }) === '"▣ K1 "@' && ctx._kitTagFormat({ k: 3, parent: false }) === '"K3 "@');
+const re = ctx._kitTagPlan ? ctx._kitTagPlan([2,0,1,3,4,5,6,7,8,9].map(i => [
+  R('164979','SO-1','↳ from KIT-217205 · Miguel'), R('217205','SO-1','Miguel'), R('157644','SO-1',''),
+  R('172539','SO-1','↳ from KIT-157644'), R('199999','SO-1','↳ added to KIT-157644'), R('158679','SO-1',''),
+  R('171111','SO-1','Miguel'), R('157644','SO-2',''), R('160000','SO-2','⚠️ QTY: 2 → 1 IN ZOHO\n↳ from KIT-157644'),
+  R('155555','SO-3','↳ from KIT-217205')][i]), kits) : [];
+ok('re-sorting the rows never renumbers a kit', re.length && re[0].k === 1 && re[1].k === 2 && re[2].k === 2, re.map(fmt));
+
+// ---- G ---------------------------------------------------------------------
+console.log('\nG · kit ready + the marker routine');
+const kitRule = rules[0] || { _o: {} };
+const kf = kitRule._o.formula || '';
+ok('kit-ready sits on the SKU column only', kitRule._o.ranges && kitRule._o.ranges.length === 1 && kitRule._o.ranges[0].c === S.cols.SKU && kitRule._o.ranges[0].w === 1);
+ok('matches "…KIT-<sku>" alone or followed by a space (no prefix collision)', kf.indexOf('"*↳ * KIT-"&$A4)') !== -1 && kf.indexOf('"*↳ * KIT-"&$A4&" *"') !== -1, kf);
+ok('green only while parent is live and no part PENDING', /\$F4<>"SHIPPED"/.test(kf) && /"PENDING"\)=0\)$/.test(kf));
+// refreshKitSkuMarkers end to end on a fake sheet
+const colVals = { 1: ['157644','172539','171111','217205','164979'], 4: ['SO-1','SO-1','SO-1','SO-1','SO-1'],
+                  5: ['', '↳ from KIT-157644', 'x', '', '↳ from KIT-217205'] };
+let written = null;
+const sheetK = { getLastRow: () => S.dataStartRow + 4, getRange: (r, c, n) => ({
+  getValues: () => (colVals[c] || []).slice(0, n).map(v => [v]),
+  getNumberFormats: () => Array.from({ length: n }, () => ['@']),
+  setNumberFormats: f => { written = f.map(x => x[0]); } }) };
+ctx.SpreadsheetApp.openById = () => ({ getSheetByName: () => sheetK });
+ctx.SpreadsheetApp.flush = () => {};
+ctx._obIsOwner = () => true;
+ctx.buildKitMap = () => new Map([['157644', {}], ['217205', {}]]);
+props.ORDER_LOOK_ON = 'on';
+try { ctx.refreshKitSkuMarkers(); } catch (e) { console.log('  ' + e.message); }
+ok('ON: parents and parts wear their K tags', JSON.stringify(written) === JSON.stringify(['"▣ K1 "@', '"K1 "@', '@', '"▣ K2 "@', '"K2 "@']), written);
+delete props.ORDER_LOOK_ON;
+try { ctx.refreshKitSkuMarkers(); } catch (e) {}
+ok('OFF: exactly today\'s marks (▣ on parents, parts plain)', JSON.stringify(written) === JSON.stringify(['"▣ "@', '@', '@', '"▣ "@', '@']), written);
 
 console.log('\n' + (fails ? `✗ ${fails} FAILED` : '✓ ALL PASSED'));
 process.exit(fails ? 1 : 0);
