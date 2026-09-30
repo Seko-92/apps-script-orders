@@ -653,9 +653,18 @@ function setupDuplicateSalesOrderHighlighting() {
     }
   }
 
+  // ⚠ 2026-09-30 — a table's HEADER row is reset to '@' too; only the divider
+  //   rows keep their own format. Preserving the header's format meant a badge
+  //   that ever landed there ("1️⃣ SALES ORDER" on the DIRECT header) could never
+  //   be cleared — most likely left by a repaint that briefly saw DIRECT's and
+  //   AMAZON's two identical "SALES ORDER" headers as one order group.
   for (var f = 0; f < bandFormats.length; f++) {
     var fRow = Schema.dataStartRow + f;
-    if (isStructuralRowNum(fRow, layout)) continue;
+    if (isStructuralRowNum(fRow, layout)) {
+      if ((layout.direct > 0 && fRow === layout.direct + 1) ||
+          (layout.amazon > 0 && fRow === layout.amazon + 1)) bandFormats[f][0] = '@';
+      continue;
+    }
     bandFormats[f][0] = '@';
   }
 
