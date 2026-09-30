@@ -873,6 +873,26 @@ function _paintDirectOrderDividers(sheet, boundary, colDData, lastRow, stopRow) 
   // continuing thing rather than two tidy complete ones. Same rule the rest of
   // this system runs on — never show a number or a boundary you can't stand
   // behind (OOS BUILDABLE, Kit Health computed price, the ripple's "frees alone").
+  // ⭐ 2026-09-30 — OrderLook: a FINISHED order (every line SHIPPED/CANCELED) gets a thin
+  //   pale box instead of gold. Two orders share one edge on the sheet and the LAST write
+  //   wins, so finished blocks are drawn FIRST and live ones after: a live order always
+  //   owns the line it shares with a finished one. Off → exactly today's drawing.
+  var lookOn = (typeof _orderLookOn === 'function') && _orderLookOn();
+  var doneSO = {};
+  if (lookOn && dataN > 0) {
+    var stVals = sheet.getRange(firstData, Schema.cols.STATUS, dataN, 1).getValues();
+    var openSO = {};
+    for (var sv = 0; sv < dataN; sv++) {
+      var svSO = (firstData + sv - Schema.dataStartRow) < colDData.length
+                 ? String(colDData[firstData + sv - Schema.dataStartRow][0]).trim() : '';
+      if (!svSO) continue;
+      var st = String(stVals[sv][0]).trim().toUpperCase();
+      if (st === 'SHIPPED' || st === 'CANCELED') { if (!(svSO in openSO)) doneSO[svSO] = true; }
+      else { openSO[svSO] = true; delete doneSO[svSO]; }
+    }
+    blocks.sort(function (x, y) { return (doneSO[y.so] ? 1 : 0) - (doneSO[x.so] ? 1 : 0); });
+  }
+
   var seenBlocks = {};
   for (var k = 0; k < blocks.length; k++) {
     var blk    = blocks[k];
@@ -886,9 +906,11 @@ function _paintDirectOrderDividers(sheet, boundary, colDData, lastRow, stopRow) 
     var bottom  = (!isSplit || nth === blockCount[blk.so]);
     if (stopRow > 0 && blk.end >= stopRow) bottom = null;   // that edge is the AMAZON band's border
 
+    var pale = lookOn && !isSplit && doneSO[blk.so];   // a split order stays loud red, finished or not
     sheet.getRange(blk.start, 1, blk.end - blk.start + 1, boxW)
          .setBorder(top, true, bottom, true, false, false,
-                    isSplit ? splitColor : boxColor, boxStyle);
+                    isSplit ? splitColor : (pale ? ORDER_LOOK.paleBox : boxColor),
+                    pale ? SpreadsheetApp.BorderStyle.SOLID : boxStyle);
   }
 }
 

@@ -2609,7 +2609,7 @@ function _styleHeaderRow(sheet, row) {
  * getBoundaryRow() matches column A only, and n8n's All-Orders readers take
  * UNFORMATTED_VALUE -- which returns the computed string exactly as today.
  */
-function _nameplateFormula(label, sparkCell, waitCell) {
+function _nameplateFormula(label, sparkCell, waitCell, readyCell) {
   var SD = "'__SparkData'!";
   // Single-count form (row 2's eBay plate, parked): "· N waiting", as before.
   if (!waitCell) {
@@ -2623,7 +2623,9 @@ function _nameplateFormula(label, sparkCell, waitCell) {
   return '="' + MASTHEAD.namePrefix + ' \u00b7 ' + label + '"&' +
          'IF(' + SD + sparkCell + '="","",' +
          '" \u00b7 "&' + SD + sparkCell + '&" open"&' +
-         'IF(' + SD + waitCell + '="",""," \u00b7 "&' + SD + waitCell + '&" waiting"))';
+         'IF(' + SD + waitCell + '="",""," \u00b7 "&' + SD + waitCell + '&" waiting"))' +
+         // ⭐ 2026-09-30 OrderLook: "· N ready", hidden at 0 and when unreadable.
+         (readyCell ? '&IF(OR(' + SD + readyCell + '="",' + SD + readyCell + '=0),""," \u00b7 "&' + SD + readyCell + '&" ready")' : '');
 }
 
 /**
@@ -2688,7 +2690,8 @@ function _styleTableBand(sheet, row, marker) {
 
   var plate = sheet.getRange(row, Schema.bandPlateCol, 1, Schema.boundaryRightWidth);   // F:J
   plate.merge();
-  sheet.getRange(row, Schema.bandPlateCol).setFormula(_nameplateFormula(label, open, wait));
+  var ready = (!isAmz && typeof _orderLookOn === 'function' && _orderLookOn()) ? ORDER_LOOK.readyCell : null;
+  sheet.getRange(row, Schema.bandPlateCol).setFormula(_nameplateFormula(label, open, wait, ready));
   // ⚠ Reset the number format: the pre-2026-09-26 band carried '"▌  "@' across the row,
   //   and it survived breakApart onto F — the DIRECT plate read "▌  HQMS · …".
   plate.setNumberFormat('@');
@@ -3166,6 +3169,13 @@ function _applyAllConditionalFormatting(sheet) {
   // a theme re-apply would silently remove the whole feature — and, because the mark is
   // a display layer, leave no trace that it had ever been there.
   keep.push.apply(keep, _buildIdentityRules(sheet));
+  // ⭐ 2026-09-30 — OrderLook's NOTE rule is single-column E, so the strip above removes it.
+  //   Rebuild all three LAST (they only quiet cells nothing else claimed), and only while
+  //   the switch is on — off, a theme re-apply must not bring them back.
+  if (typeof _orderLookOn === 'function') {
+    keep = _stripOrderLookRules(keep);
+    if (_orderLookOn()) keep.push.apply(keep, _buildOrderLookRules(sheet));
+  }
 
   sheet.setConditionalFormatRules(keep);
 }
@@ -3875,6 +3885,15 @@ function _ensureSparkData(ss) {
   // ⭐ 2026-09-26 — the "waiting" half of each band's nameplate: PENDING LINES only
   //   (A21 counts ORDERS and skips HOLD — a different question, kept for the band alarm).
   sheet.getRange('A29').setFormula('=IF(A20="","",COUNTIF(' + directStatus + ',"PENDING"))');
+  // ⭐ 2026-09-30 — OrderLook "· N ready": DIRECT ORDERS with at least one line picked and
+  //   none still PENDING. Counted per ORDER over the unique SOs. BLANK when the marker is
+  //   unreadable (the A20 rule); IFERROR → 0 covers an empty table (FILTER finds nothing).
+  var directSO = _sdDirectCol('D');
+  var soList = 'UNIQUE(FILTER(' + directSO + ',' + directSO + '<>""))';
+  sheet.getRange('A31').setFormula(
+    '=IF(A20="","",IFERROR(SUMPRODUCT((COUNTIFS(' + directSO + ',' + soList + ',' + directStatus + ',"PENDING")=0)*' +
+    '(COUNTIFS(' + directSO + ',' + soList + ',' + directStatus + ',"PREPARING")>0)),0))'
+  );
   sheet.getRange('A30').setFormula('=IF(A27="","",COUNTIF(' + amazonStatus + ',"PENDING"))');
 
   sheet.getRange('A7').setFormula(pubNum('oldestPendingMinutes'));
