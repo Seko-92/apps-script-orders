@@ -1139,6 +1139,66 @@ body.ch-amazon #pickListAmazon { display: block; }
 .same-line span { font-family: 'Roboto Mono', monospace; font-size: 15px; }
 .same-line i { font-style: normal; opacity: .75; }
 .drw-empty { color: var(--mute); font-size: 13px; padding: 18px 0; text-align: center; }
+/* ── PARTS FINDER on the board (2026-10-01) — same one box as the sidebar ── */
+.drw-res {
+      flex: 0 0 auto; height: 44px; padding: 0 14px; border-radius: 10px; cursor: pointer;
+      background: rgba(255,212,0,0.10); border: 1px solid rgba(255,212,0,0.40); color: var(--brand-rim);
+      font-family: 'Oswald', sans-serif; font-size: 13px; letter-spacing: 0.05em;
+    }
+.drw-res:active { background: rgba(255,212,0,0.22); }
+.fnd-form { display: flex; gap: 8px; margin-bottom: 10px; }
+.fnd-in {
+      flex: 1; min-width: 0; height: 48px; padding: 0 14px; border-radius: 10px;
+      background: rgba(245,245,242,0.06); border: 1px solid var(--rule); color: var(--paper);
+      font-family: 'Roboto Mono', monospace; font-size: 16px; outline: none;
+    }
+.fnd-in:focus { border-color: var(--brand-yellow); }
+.fnd-go {
+      flex: 0 0 auto; height: 48px; padding: 0 20px; border-radius: 10px; border: 0; cursor: pointer;
+      background: var(--brand-yellow); color: var(--ink);
+      font-family: 'Oswald', sans-serif; font-size: 15px; letter-spacing: 0.06em;
+    }
+.fnd-mode { font-size: 12px; color: var(--mute); margin: 2px 0 10px; line-height: 1.6; }
+.fnd-mode b { color: var(--brand-rim); font-weight: 600; }
+.fnd-mode a { color: var(--paper); text-decoration: underline; cursor: pointer; padding: 4px 2px; }
+.fnd-note { display: block; color: var(--amber-warn); }
+.fnd-q { font-family: 'Roboto Mono', monospace; font-size: 13px; color: var(--brand-rim); margin: 14px 0 4px; }
+.fnd-q span { color: var(--mute); font-family: 'Oswald', sans-serif; font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; margin-left: 8px; }
+.fnd-item {
+      display: flex; gap: 12px; align-items: center; padding: 10px 6px; min-height: 64px;
+      border-bottom: 1px solid rgba(255,255,255,0.06); cursor: pointer; border-radius: 8px;
+    }
+.fnd-item:active { background: rgba(255,212,0,0.08); }
+.fnd-thumb { width: 52px; height: 52px; flex: 0 0 auto; border-radius: 8px; background: #fff center/contain no-repeat; border: 1px solid var(--rule); }
+.fnd-thumb.none { background: transparent; border-style: dashed; color: var(--mute-soft); font-size: 9px; display: flex; align-items: center; justify-content: center; }
+.fnd-info { min-width: 0; flex: 1; }
+.fnd-l1 { display: flex; gap: 8px; align-items: baseline; }
+.fnd-sku { font-family: 'Roboto Mono', monospace; font-weight: 700; font-size: 15px; color: var(--paper); }
+.fnd-tag { font-family: 'Oswald', sans-serif; font-size: 9.5px; letter-spacing: 0.08em; text-transform: uppercase; padding: 1px 6px; border-radius: 6px; background: rgba(245,245,242,0.10); color: var(--mute); }
+.fnd-tag.kit { background: rgba(167,139,250,0.22); color: #c9b8ff; }
+.fnd-title { font-size: 12.5px; color: var(--mute); line-height: 1.35; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.fnd-meta { display: flex; gap: 12px; font-size: 13px; margin-top: 3px; align-items: baseline; }
+.fnd-meta .loc { font-family: 'Roboto Mono', monospace; font-weight: 700; color: var(--paper); }
+.fnd-meta .q { color: var(--green-soft); font-weight: 700; }
+.fnd-meta .q.zero { color: var(--red-alert); }
+.fnd-meta .pr { margin-left: auto; font-family: 'Roboto Mono', monospace; color: var(--mute); }
+.fnd-item.ended { opacity: 0.55; }
+.fnd-miss { margin-top: 14px; padding: 10px 12px; border: 1px dashed var(--rule); border-radius: 9px; font-size: 12px; color: var(--mute); }
+.fnd-miss span { display: inline-block; font-family: 'Roboto Mono', monospace; color: var(--paper); margin: 4px 8px 0 0; }
+.fnd-more { font-size: 12px; color: var(--mute); text-align: center; padding: 12px 0; }
+/* other sizes + numbers inside the part drawer */
+.drw-sizes { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; }
+.drw-size { flex: 0 0 auto; min-width: 104px; padding: 8px 11px; border-radius: 9px; border: 1px solid var(--rule); background: rgba(245,245,242,0.05); cursor: pointer; }
+.drw-size.self { background: var(--brand-yellow); border-color: var(--brand-yellow); color: var(--ink); cursor: default; }
+.drw-size.ended { opacity: 0.5; }
+.drw-size b { display: block; font-family: 'Oswald', sans-serif; font-size: 20px; line-height: 1.1; }
+.drw-size i { display: block; font-style: normal; font-family: 'Roboto Mono', monospace; font-size: 11px; opacity: 0.8; }
+.drw-size span { display: block; font-size: 12px; margin-top: 3px; }
+.drw-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.drw-chip { font-family: 'Roboto Mono', monospace; font-size: 12.5px; padding: 3px 8px; border-radius: 7px; border: 1px solid var(--rule); background: rgba(245,245,242,0.05); color: var(--paper); }
+.drw-chip.main { background: var(--brand-yellow); color: var(--ink); border-color: var(--brand-yellow); }
+.drw-fit { font-size: 12.5px; color: var(--mute); line-height: 1.5; margin-top: 8px; }
+.drw-fit b { color: var(--paper); font-weight: 600; }
 .drw-spin { text-align: center; padding: 40px 0; color: var(--mute); font-size: 13px; }
 .connlost {
       position: fixed;
@@ -1276,6 +1336,9 @@ body.ch-amazon #pickListAmazon { display: block; }
              mis-tap on Print costs a document, so the picker chip sits between
              them. The WORD, never a glyph — ⛶ rendered as "::" on the real
              tablet (2026-08-07). -->
+        <!-- PARTS FINDER (2026-10-01) — the same one box as the sidebar: a SKU, part
+             numbers, or words ("v2203 piston"). A lookup, never a write. -->
+        <button class="ftr-btn" id="findBtn" title="Find a part — SKU, part numbers, or words">Find</button>
         <button class="ftr-btn" id="fsToggle" title="Fullscreen (tap on the tablet)">Full</button>
         <button class="ftr-picker" id="footPicker" title="Tap to set who is picking">picker —</button>
         <button class="ftr-btn primary" id="printBtn" title="Print the pick list — PREPARING rows">Print</button>
@@ -1401,6 +1464,7 @@ body.ch-amazon #pickListAmazon { display: block; }
         <div class="drw-title" id="drwTitle">—</div>
         <div class="drw-sub" id="drwSub"></div>
       </div>
+      <button class="drw-res hidden" id="drwRes">&larr; results</button>
       <button class="drw-x" id="drwX" aria-label="Close">&#10005;</button>
     </div>
     <div class="drw-body" id="drwBody"></div>
@@ -1627,6 +1691,9 @@ body.ch-amazon #pickListAmazon { display: block; }
        purpose and must stay absent. */
     var HQ_RETRYABLE = { boardTick: 1, boardPickers: 1, boardPart: 1,
                          boardPartLite: 1, boardOrder: 1, boardRadio: 1 };
+    /* ⚠ boardFind is a read but deliberately NOT retryable: a retry would run the search
+       (and write the MPN Search Log) twice, and it gets the longer 25 s bound because a
+       live Master Inventory search is ~4 s of server work before the proxy hop. */
 
     /* ⚠⚠ THE WRITES, AND WHY THEY GET A STRICTER TEST (2026-08-17).
        Every one of these four answers with an EXPLICIT `ok` — checked against
@@ -3484,6 +3551,7 @@ body.ch-amazon #pickListAmazon { display: block; }
       document.getElementById('drwTitle').textContent = title || '';
       document.getElementById('drwSub').textContent   = sub || '';
       document.getElementById('drwBody').innerHTML    = '<div class="drw-spin">loading…</div>';
+      document.getElementById('drwRes').classList.add('hidden');   // only a finder result shows it
       document.getElementById('drwBack').classList.add('on');
       document.getElementById('drw').classList.add('on');
       drwOpen = true;
@@ -3524,6 +3592,115 @@ body.ch-amazon #pickListAmazon { display: block; }
     // Each stage only paints if it is still the current request, and a later
     // stage failing NEVER wipes an earlier one — a slow ripple leaves you with a
     // perfectly usable drawer instead of an error.
+    // ================= PARTS FINDER =================
+    // The same one box as the sidebar — findParts on the server decides SKU / part
+    // numbers / words and always says which, with a one-tap switch. Results stay in
+    // memory so "← results" comes straight back, and Find reopens the last search.
+    var findState = { text: '', res: null, items: [] };
+    var FIND_MODE = { sku: 'SKU', mpn: 'part numbers', keywords: 'words' };
+
+    function openFind() {
+      drwShow('Find a part', 'SKU · part numbers · or words like v2203 piston');
+      var body = document.getElementById('drwBody');
+      body.innerHTML =
+        '<div class="fnd-form"><input class="fnd-in" id="fndIn" type="search" enterkeyhint="search" ' +
+        'autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="157554 · 04270701 · v2203 piston">' +
+        '<button class="fnd-go" id="fndGo">Find</button></div><div id="fndOut"></div>';
+      var inp = document.getElementById('fndIn');
+      inp.value = findState.text;
+      inp.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); doFind(''); } });
+      document.getElementById('fndGo').addEventListener('click', function () { doFind(''); });
+      if (findState.res && findState.res.ok && findState.res.mode !== 'sku') paintFind(findState.res);
+      else { paintFindHint(); setTimeout(function () { try { inp.focus(); } catch (e) {} }, 280); }
+    }
+    function paintFindHint() {
+      document.getElementById('fndOut').innerHTML = '<div class="drw-empty">Type a SKU, part numbers, or a few words.<br>' +
+        'Every number on a listing is searched — not only the first one eBay looks at.</div>';
+    }
+    function doFind(force) {
+      var inp = document.getElementById('fndIn'); if (!inp) return;
+      var text = String(inp.value || '').trim();
+      if (!text) { inp.focus(); return; }
+      try { inp.blur(); } catch (e) {}               // put the keyboard away so results are visible
+      findState.text = text;
+      var out = document.getElementById('fndOut');
+      out.innerHTML = '<div class="drw-spin">searching…</div>';
+      var mySeq = ++drwSeq;
+      hqCall('boardFind', { text: text, force: force || '' }).then(function (res) {
+        if (mySeq !== drwSeq) return;
+        if (!res || !res.ok) {
+          out.innerHTML = '<div class="drw-empty">' + esc((res && res.reason) || 'Search failed') + '</div>'; return;
+        }
+        findState.res = res;
+        if (res.mode === 'sku') return openPartFromFind(res.sku, null);
+        paintFind(res);
+      }).catch(function (e) {
+        if (mySeq !== drwSeq) return;
+        out.innerHTML = '<div class="drw-empty">' + (e && e.timeout
+          ? 'The search is taking long — try again in a moment.'
+          : 'Could not reach the sheet just now — try again.') + '</div>';
+      });
+    }
+    function paintFind(res) {
+      var out = document.getElementById('fndOut'); if (!out) return;
+      var others = ['sku', 'mpn', 'keywords'].filter(function (m) { return m !== res.mode; });
+      var h = '<div class="fnd-mode">Searched as <b>' + FIND_MODE[res.mode] + '</b>' +
+        (res.auto ? ' · try as ' + others.map(function (m) {
+          return '<a data-force="' + m + '">' + FIND_MODE[m] + '</a>'; }).join(' or ') : '') +
+        (res.ms ? ' · ' + (res.ms / 1000).toFixed(1) + 's' : '') +
+        (res.note ? '<span class="fnd-note">' + esc(res.note) + '</span>' : '') + '</div>';
+      findState.items = [];
+      if (res.mode === 'mpn') {
+        var missing = [];
+        (res.results || []).forEach(function (x) {
+          if (!x.matches.length) { missing.push(x.query); return; }
+          h += '<div class="fnd-q">' + esc(x.query) + '<span>' + x.matches.length + ' listing' + (x.matches.length === 1 ? '' : 's') + '</span></div>';
+          x.matches.forEach(function (m) { h += findItem(m); });
+        });
+        if (missing.length) h += '<div class="fnd-miss">Not on any listing (' + missing.length + ')<br>' +
+          missing.map(function (q) { return '<span>' + esc(q) + '</span>'; }).join('') + '</div>';
+      } else {
+        (res.matches || []).forEach(function (m) { h += findItem(m); });
+        if (!res.total) h += '<div class="drw-empty">Nothing contains all of those words.<br>Try fewer words, or part of the model (bf4m, not bf4m1011f).</div>';
+        else if (res.total > (res.matches || []).length) h += '<div class="fnd-more">Best ' + res.matches.length + ' of ' + res.total + ' — add a word to narrow it.</div>';
+      }
+      out.innerHTML = h;
+    }
+    function findItem(m) {
+      var i = findState.items.length; findState.items.push(m);
+      var tags = (m.isKit ? '<span class="fnd-tag kit">kit</span>' : '') +
+                 (m.via && m.via !== 'main' ? '<span class="fnd-tag">' + esc(m.via) + '</span>' : '') +
+                 (m.active ? '' : '<span class="fnd-tag">' + esc(m.status || 'ended') + '</span>');
+      var thumb = m.image ? '<div class="fnd-thumb" style="background-image:url(\'' + esc(m.image).replace(/'/g, '%27') + '\')"></div>'
+                          : '<div class="fnd-thumb none">no photo</div>';
+      return '<div class="fnd-item' + (m.active ? '' : ' ended') + '" data-i="' + i + '">' + thumb +
+        '<div class="fnd-info"><div class="fnd-l1"><span class="fnd-sku">' + esc(m.sku) + '</span>' + tags + '</div>' +
+        '<div class="fnd-title">' + esc(m.title) + '</div>' +
+        '<div class="fnd-meta"><span class="loc">' + esc(m.location) + '</span>' +
+        '<span class="q' + ((m.available || 0) <= 0 ? ' zero' : '') + '">' + (m.available == null ? '—' : esc(String(m.available))) + ' on hand</span>' +
+        '<span class="pr">' + drwMoney(m.price) + '</span></div></div></div>';
+    }
+    function openPartFromFind(sku, m) {
+      openPartDrawer(sku, m ? { location: m.location, onHand: m.available } : null);
+      if (findState.res && findState.res.mode !== 'sku') document.getElementById('drwRes').classList.remove('hidden');
+    }
+    document.getElementById('findBtn').addEventListener('click', openFind);
+    document.getElementById('drwRes').addEventListener('click', openFind);
+    // One delegate on the drawer body: result rows, mode switch, and size cards.
+    document.getElementById('drwBody').addEventListener('click', function (e) {
+      var t = e.target && e.target.closest ? e.target : null; if (!t) return;
+      var f = t.closest('[data-force]');
+      if (f) { doFind(f.getAttribute('data-force')); return; }
+      var it = t.closest('.fnd-item');
+      if (it) { var m = findState.items[+it.getAttribute('data-i')]; if (m) openPartFromFind(m.sku, m); return; }
+      var g = t.closest('[data-goto]');
+      if (g) {
+        var back = !document.getElementById('drwRes').classList.contains('hidden');
+        openPartDrawer(g.getAttribute('data-goto'));
+        if (back) document.getElementById('drwRes').classList.remove('hidden');
+      }
+    });
+
     function openPartDrawer(sku, seedRow) {
       if (!sku) return;
       var mySeq = ++drwSeq;
@@ -3532,21 +3709,33 @@ body.ch-amazon #pickListAmazon { display: block; }
       // --- stage 1: zero-latency, straight from the row we already have ---
       if (seedRow) renderPartSeed(seedRow);
 
+      // ⚠⚠ STAGE 3 CAN LAND BEFORE STAGE 2 (measured live 2026-10-01: dossier at 25.6s,
+      // basics at 26.3s, right after a search kept Apps Script busy). Stage 2 REBUILDS the
+      // body, so it wiped the dossier and the drawer sat on "looking for kits…" forever.
+      // Remember what stage 3 said and paint it again after stage 2, whichever comes first.
+      var late = null;   // { dossier } or { note }
+      function paintLate() {
+        if (!late) return;
+        if (late.dossier) renderPart(late.dossier); else drwNote(late.note);
+      }
+
       // --- stage 2: identity + stock ---
       hqCall('boardPartLite', { sku: sku }).then(function (res) {
         if (mySeq !== drwSeq) return;
-        if (res && res.ok && res.basics) renderPartBasics(res.basics);
+        if (res && res.ok && res.basics) { renderPartBasics(res.basics); paintLate(); }
       }).catch(function () { /* stage 3 may still succeed */ });
 
       // --- stage 3: the intelligence ---
       hqCall('boardPart', { sku: sku }).then(function (res) {
         if (mySeq !== drwSeq) return;
-        if (!res || !res.ok || !res.dossier) {
-          return drwNote('Extra detail unavailable — stock above is current.');
-        }
-        renderPart(res.dossier);
+        late = (!res || !res.ok || !res.dossier)
+          ? { note: 'Extra detail unavailable — stock above is current.' }
+          : { dossier: res.dossier };
+        paintLate();
       }).catch(function () {
-        if (mySeq === drwSeq) drwNote('Extra detail unavailable — stock above is current.');
+        if (mySeq !== drwSeq) return;
+        late = { note: 'Extra detail unavailable — stock above is current.' };
+        paintLate();
       });
     }
 
@@ -3558,7 +3747,8 @@ body.ch-amazon #pickListAmazon { display: block; }
         '<div style="min-width:0;"><div class="drw-name" id="drwSeedName">…</div></div></div>' +
         '<div class="drw-grid">' +
           drwCell('shelf', esc(r.location || '—'), 'sm') +
-          drwCell('on this order', '×' + esc(num(r.qty) || 1)) +
+          (r.onHand !== undefined ? drwCell('on hand', drwNum(r.onHand), (r.onHand > 0 ? 'good' : 'bad'))
+                                  : drwCell('on this order', '×' + esc(num(r.qty) || 1))) +
         '</div>' +
         '<div id="drwMore"><div class="drw-spin">fetching stock…</div></div>';
     }
@@ -3638,6 +3828,27 @@ body.ch-amazon #pickListAmazon { display: block; }
       if (p.committed) {
         h += '<div class="drw-line"><span class="dim">committed to open orders</span>' +
              '<span class="push mono">' + drwNum(p.committed) + '</span></div>';
+      }
+
+      // OTHER SIZES — "do we have it in 0.50?" (same rule as the sidebar: _szSiblings)
+      if (d.sizes && d.sizes.length > 1) {
+        h += '<div class="drw-sec">Other sizes</div><div class="drw-sizes">';
+        d.sizes.forEach(function (x) {
+          h += '<div class="drw-size' + (x.self ? ' self' : '') + (x.active ? '' : ' ended') + '"' +
+               (x.self ? '' : ' data-goto="' + esc(x.sku) + '"') + '>' +
+               '<b>' + esc(x.size) + '</b><i>' + esc(x.sku) + (x.num ? ' · ' + esc(x.num) : '') + '</i>' +
+               '<span>' + esc(x.location || '—') + ' · ' + drwNum(x.available) + ' on hand</span></div>';
+        });
+        h += '</div>';
+      }
+      // PART NUMBERS + FIT — what a customer quotes, and the engines it goes on
+      var idn = d.identity;
+      if (idn && (idn.numbers.length || idn.engines.length)) {
+        h += '<div class="drw-sec">Part numbers &amp; fit</div>';
+        if (idn.numbers.length) h += '<div class="drw-chips">' + idn.numbers.map(function (n) {
+          return '<span class="drw-chip' + (n.main ? ' main' : '') + '">' + esc(n.num) + '</span>'; }).join('') + '</div>';
+        if (idn.engines.length) h += '<div class="drw-fit"><b>Engines</b> ' + esc(idn.engines.join(', ')) + '</div>';
+        if (idn.brands.length) h += '<div class="drw-fit"><b>Makes</b> ' + esc(idn.brands.join(', ')) + '</div>';
       }
 
       if (d.isKit && d.kit) {

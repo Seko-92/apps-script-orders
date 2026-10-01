@@ -92,7 +92,7 @@ section('C · SCOPE — nothing else changes behaviour', () => {
 });
 
 section('D · THE PRE-EXISTING ALLOWLIST IS UNTOUCHED — regression net', () => {
-  ['boardTick','boardRadio','boardPickers','boardPrint','boardPart','boardPartLite','boardOrder']
+  ['boardTick','boardRadio','boardPickers','boardPrint','boardPart','boardPartLite','boardOrder','boardFind']
     .forEach(a => t(a + ' stays lock-free', needsLock(a, {}), false));
 
   // ⚠ Locked BY DEFAULT is the safety boundary. Everything that writes must stay so.

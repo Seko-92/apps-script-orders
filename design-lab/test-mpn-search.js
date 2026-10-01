@@ -205,7 +205,35 @@ if (process.env.MI_JSON) {
   eq('J11 no size in the title → nothing', lad('199999'), []);
   eq('J12 size parse', ['Piston STD For X', 'Rings Oversize 0.50 For', 'Gasket 1.25MM for', 'Bearing 0.100 For', 'Pump For V2203'].map(ctx._szSize),
      ['STD', '0.50', '1.25MM', '0.100', null]);
+  const nums = sku => ctx._szSiblings(cat.find(c => c.sku === sku).title, sku, cat).map(x => x.num);
+  eq('J14 card part number keeps the dash form (Kubota)', nums('166527'), ['16423-21110', '16423-21910']);
+  eq('J15 card part number: plain 8-digit Deutz', nums('163485'), ['04179921', '04270701']);
+  eq('J16 card part number: Caterpillar 3-digit dash', nums('195072'), ['156-6977', '161-2629']);
   eq('J13 ranking STD < 0.10 < 0.25 < 0.50', ['0.50', 'STD', '0.25', '0.10'].sort((a, b) => ctx._szRank(a) - ctx._szRank(b)), ['STD', '0.10', '0.25', '0.50']);
+}
+
+// --- K · findParts on the board (lite SKU mode) ----------------------------------------
+{
+  const seen = { dossier: 0, mpn: [] };
+  ctx._mpnWho = () => '';
+  ctx._buildPartDossier = () => { seen.dossier++; return { found: true }; };
+  ctx.getPartBasics = q => ({ ok: true, basics: q === '157554' ? { found: true }
+                                           : q === '300001' ? { found: false, zohoAvailable: 4 } : { found: false, zohoAvailable: null } });
+  ctx.searchMpns = (t, o) => { seen.mpn.push(o.source); return { ok: true, results: [] }; };
+  ctx.searchKeywords = (t, o) => { seen.mpn.push('kw:' + o.source); return { ok: true, matches: [], total: 0 }; };
+  let r = ctx.findParts('157554', '', { source: 'board', lite: true });
+  eq('K1 lite: a known SKU comes back as just the SKU, no dossier built', [r.mode, r.sku, seen.dossier], ['sku', '157554', 0]);
+  r = ctx.findParts('300001', '', { source: 'board', lite: true });
+  eq('K2 lite: a Zoho-only SKU still counts as ours', [r.mode, r.sku], ['sku', '300001']);
+  r = ctx.findParts('412345', '', { source: 'board', lite: true });
+  eq('K3 lite: not our SKU → searched as a part number, logged as board', [r.mode, /not one of our SKUs/.test(r.note), seen.mpn[0]], ['mpn', true, 'board']);
+  r = ctx.findParts('v2203 piston', '', { source: 'board', lite: true });
+  eq('K4 words → keyword search, logged as board', [r.mode, seen.mpn[1]], ['keywords', 'kw:board']);
+  r = ctx.findParts('157554', '');
+  eq('K5 sidebar path unchanged: full dossier, logged as console', [r.mode, !!r.dossier, seen.dossier], ['sku', true, 1]);
+  ctx.findParts('04270701', '');
+  eq('K6 sidebar default source is console', seen.mpn[2], 'console');
+  eq('K7 empty text refused', ctx.findParts('  ', '', { lite: true }).ok, false);
 }
 
 if (process.env.MI_ALL_JSON) {

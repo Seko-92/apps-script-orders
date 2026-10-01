@@ -34,7 +34,11 @@ var HIDDEN_SHEET_NAME = "Telegram_Messages"; // Hidden sheet for message IDs
    nothing — including transitively. */
 var DOPOST_LOCK_FREE = {
   boardTick: 1, boardRadio: 1, boardPickers: 1, boardPrint: 1,
-  boardPart: 1, boardPartLite: 1, boardOrder: 1
+  boardPart: 1, boardPartLite: 1, boardOrder: 1,
+  // ⚠ boardFind writes ONE thing: an append to the MPN Search Log (a separate sheet, never
+  // All Orders), serialised by the DOCUMENT lock inside _mpnLog. Holding the script lock
+  // for a ~4 s search would queue every ✓ Pick behind it — the starvation 2026-08-17 fixed.
+  boardFind: 1
 };
 
 /* ⭐ DOES THIS REQUEST NEED THE SCRIPT LOCK? (2026-08-28)
@@ -356,6 +360,13 @@ function doPost(e) {
     if (payload.action === 'boardPart') {
       return ContentService.createTextOutput(JSON.stringify(
         getPartData(payload.sku)
+      )).setMimeType(ContentService.MimeType.JSON);
+    }
+    // Parts Finder on the tablet — same one box as the sidebar (SKU / part numbers / words).
+    if (payload.action === 'boardFind') {
+      var fForce = { sku: 1, mpn: 1, keywords: 1 }[payload.force] ? payload.force : "";
+      return ContentService.createTextOutput(JSON.stringify(
+        findParts(String(payload.text || "").slice(0, 2000), fForce, { source: "board", lite: true })
       )).setMimeType(ContentService.MimeType.JSON);
     }
     if (payload.action === 'boardOrder') {

@@ -443,10 +443,19 @@ function _mpnLog(results, source, who) {
               x.matches.map(function (m) { return m.sku; }).join(", "), source, who];
     });
     if (!rows.length) return;
-    // MPN as plain text, or Sheets turns 02102238 into 2102238 — the bug this file exists for.
-    var range = sh.getRange(sh.getLastRow() + 1, 1, rows.length, MPN_SEARCH.logHeaders.length);
-    range.offset(0, 1, rows.length, 1).setNumberFormat("@");
-    range.setValues(rows);
+    // ⚠ "last row + 1" is a read-then-write: two searches at once (console + tablet) would
+    // pick the same row and one would overwrite the other. Serialise on the DOCUMENT lock —
+    // NOT the script lock, which ✓ Pick and doPost's writes share; a search must never
+    // queue a pick. getDocumentLock() can be null outside a document context → write anyway.
+    var lock = null;
+    try { lock = LockService.getDocumentLock(); if (lock && !lock.tryLock(5000)) lock = null; } catch (_) { lock = null; }
+    try {
+      // MPN as plain text, or Sheets turns 02102238 into 2102238 — the bug this file exists for.
+      var range = sh.getRange(sh.getLastRow() + 1, 1, rows.length, MPN_SEARCH.logHeaders.length);
+      range.offset(0, 1, rows.length, 1).setNumberFormat("@");
+      range.setValues(rows);
+      SpreadsheetApp.flush();
+    } finally { if (lock) try { lock.releaseLock(); } catch (_) {} }
   } catch (e) {
     try { console.log("_mpnLog: " + e); } catch (_) {}
   }
@@ -735,7 +744,8 @@ function _szSiblings(title, sku, catalog) {
     var isSelf = k === _mpnSkuKey(sku);
     if (!isSelf && !_szIsSibling(me, _szParse(t))) return;
     seenSku[k] = true;
-    var num = (t.match(/\b(\d{5,}|[0-9A-Za-z]+-\d{3,}[0-9A-Za-z\-\/.]*)/) || [])[1] || "";
+    // the dashed form FIRST — "16423-21110" must not stop at "16423" (caught live 2026-10-01)
+    var num = (t.match(/\b([0-9A-Za-z]+-\d{3,}[0-9A-Za-z\-\/.]*|\d{5,})/) || [])[1] || "";
     var variant = (t.match(/\b(metal|composite)\b/i) || [])[1] || "";
     out.push({ sku: _mpnCellText(c.sku), size: isSelf ? me.size : _szSize(t), title: t, self: isSelf,
                num: num.replace(/[.,]+$/, ""), variant: variant });
@@ -768,7 +778,8 @@ function _pfDetectMode(text) {
  * @param {string} text
  * @param {string=} force   "sku" | "mpn" | "keywords" — the user's override
  */
-function findParts(text, force) {
+function findParts(text, force, opts) {
+  opts = opts || {};
   var t0 = Date.now();
   try {
     var raw = String(text == null ? "" : text).trim();
@@ -777,14 +788,23 @@ function findParts(text, force) {
     var note = "";
 
     if (mode === "sku") {
-      var d = _buildPartDossier(raw);
-      if (d.found || force === "sku") return { ok: true, mode: "sku", auto: !force, text: raw, dossier: d };
+      if (opts.lite) {
+        // The Floor Board paints a part in three fast stages of its own; building the full
+        // dossier here as well would cost ~4 s for nothing. Just confirm the SKU exists.
+        var b = getPartBasics(raw);
+        var bb = (b && b.ok && b.basics) || null;
+        if ((bb && (bb.found || bb.zohoAvailable != null)) || force === "sku")
+          return { ok: true, mode: "sku", auto: !force, text: raw, sku: raw, ms: Date.now() - t0 };
+      } else {
+        var d = _buildPartDossier(raw);
+        if (d.found || force === "sku") return { ok: true, mode: "sku", auto: !force, text: raw, dossier: d };
+      }
       mode = "mpn";                                  // not one of our SKUs — maybe someone's part number
       note = raw + " is not one of our SKUs — searched as a part number";
     }
-    var who = _mpnWho();
-    var res = (mode === "mpn") ? searchMpns(raw, { source: "console", who: who })
-                               : searchKeywords(raw, { source: "console", who: who });
+    var who = _mpnWho(), source = opts.source || "console";
+    var res = (mode === "mpn") ? searchMpns(raw, { source: source, who: who })
+                               : searchKeywords(raw, { source: source, who: who });
     res.mode = mode; res.auto = !force; res.text = raw; res.note = note;
     res.ms = Date.now() - t0;
     return res;
