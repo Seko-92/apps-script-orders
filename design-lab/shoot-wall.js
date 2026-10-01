@@ -28,8 +28,8 @@ const html = fs.readFileSync(path.join(__dirname, '..', 'wall.html'), 'utf8');
     ebayRows: document.querySelectorAll('#listE .wrow').length,
     directRows: document.querySelectorAll('#listD .wrow').length,
     bands: document.querySelectorAll('.wband').length,
-    feed: document.querySelectorAll('#feedList li').length,
-    beacon: document.getElementById('beacon').classList.contains('show'),
+    tick: document.querySelectorAll('.tick .tev').length,
+    attention: document.getElementById('attCount').textContent,
     rest: document.getElementById('restveil').classList.contains('show')
   }));
   console.log('state:', JSON.stringify(state));

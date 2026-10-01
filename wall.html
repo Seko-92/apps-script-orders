@@ -10,7 +10,17 @@
 <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@300;400;500;600;700&family=Roboto+Mono:wght@400;500;700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
 <style>
 /* ============================================================================
-   HQ WALL — the MONITOR CENTER · hq.yassinqurabi.com/wall          (v1.0)
+   HQ WALL — the MONITOR STATION · hq.yassinqurabi.com/wall        (v2.0)
+
+   v2.0 (2026-10-02) — designed with the owner on a mockup first. One page,
+   never scrolled, never touched. Everything the wall showed stays; added: a
+   NEEDS ATTENTION block (holds, past-3h, pickup deadline, paid shipping, quiet
+   sync) and FLOOR NOTES (one per order) in the left column; AS IT LANDS became
+   a one-line ticker; an empty channel narrows to a strip; the company logo
+   replaces the HQ chip. ⚠ QUIET BY DESIGN: the full-width NEW beacon, the edge
+   glow and the chime are gone — the board keeps the loud signals. A new order
+   tints its rows for 3 minutes instead. Lists that do not fit end in "+N more",
+   never in a scrollbar.
 
    READ-ONLY projection of the floor. Every metric visible, both channels
    always on screen, ZERO write surface — this link can hang on any display
@@ -27,6 +37,7 @@
                        amber money · cyan+violet kit threads · gray recedes
      position = meaning: left spine = kit membership ONLY · band = the box
      row height CONSTANT (46px) · one media-free fixed 16:9 layout
+   PICKUP — the carrier deadline lives in WALL_PICKUP at the top of the script.
    ============================================================================ */
 :root {
   --g0: #0e0e0d;  --g1: #161614;  --g2: #1d1d1a;  --g3: #26261f;
@@ -43,7 +54,7 @@
   /* ⚠ SYSTEM BARS. This page draws edge-to-edge (viewport-fit=cover), so on a
      tablet Android's gesture-nav bar and iOS's home indicator OVERLAY the last
      ~25px. Defined ONCE here, consumed by every element that touches an edge:
-     .hdr · .beacon · .rail · .chan-direct · .chan ul · .connlost · .restveil.
+     .hdr · .rail · .tick · .chan-amazon · .chan ul · .connlost · .restveil.
      Zero on a wall display / desktop, so the 16:9 layout is untouched.
      Headless has no system bars — see design-lab/diag-wall-safe.js, which
      overrides these tokens to prove the chain. A render alone CANNOT catch it. */
@@ -56,9 +67,12 @@
 html, body { height: 100%; }
 body { background: var(--g0); color: var(--t1); font-family: var(--body); overflow: hidden; }
 .wall { height: 100dvh; display: grid;
-        grid-template-rows: calc(64px + var(--safe-t)) auto 1fr;
-        grid-template-columns: 340px 1fr 1fr 1fr;
-        grid-template-areas: "hdr hdr hdr hdr" "beacon beacon beacon beacon" "rail ebay direct amazon"; }
+        grid-template-rows: calc(64px + var(--safe-t)) minmax(0, 1fr) calc(40px + var(--safe-b));
+        /* ⚠ set by paintColumns(): an EMPTY channel narrows to a 92px strip and
+           widens again the moment an order lands (matters once Amazon is live). */
+        grid-template-columns: var(--cols, 380px 1fr 1fr 1fr);
+        grid-template-areas: "hdr hdr hdr hdr" "rail ebay direct amazon" "tick tick tick tick"; }
+body.idle-cursor, body.idle-cursor * { cursor: none !important; }
 
 /* ── HEADER ────────────────────────────────────────────────────────────── */
 /* Height GROWS by the top inset (the grid row above) while the content lane
@@ -67,17 +81,16 @@ body { background: var(--g0); color: var(--t1); font-family: var(--body); overfl
 .hdr { grid-area: hdr; display: flex; align-items: center; gap: 24px;
        padding: var(--safe-t) calc(28px + var(--safe-r)) 0 calc(28px + var(--safe-l));
        background: var(--g1); border-bottom: 1px solid var(--line-brand); }
-.hdr-hq { background: var(--act); color: var(--g0); font-family: var(--disp);
-          font-weight: 700; font-size: 22px; padding: 3px 12px; letter-spacing: 0.04em; }
+.hdr-logo { height: 46px; width: auto; flex: none; fill: var(--t1); display: block; }
+.hdr-logo .cls-2 { fill: var(--act); }
+.hdr-logo .cls-1 { fill: none; stroke: var(--t1); stroke-width: .8px; }
+.hdr-sep { width: 1px; height: 30px; background: var(--line); flex: none; }
 .hdr-word { font-family: var(--disp); font-weight: 500; font-size: 16px;
             letter-spacing: 0.3em; text-transform: uppercase; color: var(--t2); }
-.hdr-mid { margin-left: auto; display: flex; gap: 26px; align-items: center;
+.hdr-mid { margin-left: auto; display: flex; gap: 22px; align-items: center; min-width: 0;
            font-family: var(--mono); font-size: var(--fs-sub); color: var(--t2); }
 .pray { display: none; }
 .pray.on { display: inline; }
-.snd { cursor: pointer; font-family: var(--mono); font-size: var(--fs-sub); color: var(--t3);
-       border: 1px solid var(--line); border-radius: 4px; padding: 3px 10px; user-select: none; }
-.snd.on { color: var(--act); border-color: var(--line-brand); }
 .hdr-live { display: flex; align-items: center; gap: 8px; font-family: var(--disp);
             font-size: var(--fs-lab); letter-spacing: 0.18em; text-transform: uppercase; color: var(--ok); }
 .hdr-live i { width: 10px; height: 10px; border-radius: 50%; background: var(--ok);
@@ -91,22 +104,6 @@ body { background: var(--g0); color: var(--t1); font-family: var(--body); overfl
 .hdr-clock { font-family: var(--disp); font-weight: 600; font-size: 30px; letter-spacing: 0.04em; color: var(--t1); }
 .hdr-date { font-family: var(--mono); font-size: var(--fs-lab); color: var(--t3); text-align: right; line-height: 1.5; }
 
-/* ── BEACON — full width, reaches across the floor ─────────────────────── */
-.beacon { grid-area: beacon; display: none; align-items: center; gap: 18px;
-          padding: 10px calc(28px + var(--safe-r)) 10px calc(28px + var(--safe-l));
-          background: rgba(255,212,0,0.14);
-          border-bottom: 1px solid var(--line-brand); cursor: pointer; }
-.beacon.show { display: flex; animation: bpulse 2.2s ease-in-out infinite; }
-@keyframes bpulse { 0%,100% { background: rgba(255,212,0,0.10); } 50% { background: rgba(255,212,0,0.20); } }
-.beacon b { font-family: var(--disp); font-weight: 700; font-size: var(--fs-row);
-            letter-spacing: 0.26em; color: var(--act); }
-.beacon span { font-family: var(--mono); font-size: var(--fs-row); color: var(--t1); }
-.beacon small { font-family: var(--mono); font-size: var(--fs-sub); color: var(--t3); margin-left: auto; }
-.edge { position: fixed; inset: 0; pointer-events: none; z-index: 40; opacity: 0;
-        box-shadow: inset 0 0 90px rgba(255,212,0,0.55); }
-.edge.show { animation: eglow 2.2s ease-in-out infinite; }
-@keyframes eglow { 0%,100% { opacity: 0.15; } 50% { opacity: 0.8; } }
-
 /* ── METRICS RAIL ──────────────────────────────────────────────────────── */
 .rail { grid-area: rail; display: flex; flex-direction: column; gap: 12px;
         padding: 16px 16px calc(16px + var(--safe-b)) calc(16px + var(--safe-l));
@@ -118,13 +115,15 @@ body { background: var(--g0); color: var(--t1); font-family: var(--body); overfl
 .m { background: var(--g2); border: 1px solid var(--line); padding: 12px 16px;
      flex: none; min-width: 0; }
 .m-lab { font-family: var(--disp); font-size: var(--fs-lab); letter-spacing: 0.2em;
-         text-transform: uppercase; color: var(--t3); margin-bottom: 2px; }
+         text-transform: uppercase; color: var(--t3); margin-bottom: 2px; white-space: nowrap; }
+.m-pair .m-lab { letter-spacing: 0.14em; }
 .m-hero { border-color: var(--line-brand); }
-.m-hero .m-num { font-family: var(--disp); font-weight: 600; font-size: var(--fs-hero);
+.m-hero .m-num { font-family: var(--disp); font-weight: 600; font-size: 60px;
                  line-height: 1; color: var(--act); font-variant-numeric: tabular-nums; }
-.m-hero.clear .m-num { color: var(--ok); font-size: 44px; padding: 8px 0; }
-.m-hero .m-split { display: flex; gap: 18px; margin-top: 6px; font-family: var(--mono);
+.m-hero.clear .m-num { color: var(--ok); font-size: 38px; padding: 6px 0; }
+.m-hero .m-split { display: flex; flex-wrap: wrap; gap: 4px 18px; margin-top: 6px; font-family: var(--mono);
                    font-size: var(--fs-sub); color: var(--t2); }
+.m-hero .m-split span { white-space: nowrap; }
 .m-hero .m-split b { color: var(--t1); }
 .sharebar { display: flex; height: 5px; margin-top: 10px; border-radius: 3px; overflow: hidden;
             background: var(--g3); }
@@ -136,35 +135,77 @@ body { background: var(--g0); color: var(--t1); font-family: var(--body); overfl
 .m-num2.warn { color: var(--alarm); }
 .m-num2.good { color: var(--ok); }
 .m-sub { font-family: var(--mono); font-size: var(--fs-lab); color: var(--t3); margin-top: 3px;
-         white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+         line-height: 1.35; overflow-wrap: anywhere; }
+/* ⚠ was nowrap + ellipsis — cut "inside the 3h …" and "eBay 19 · Dire…" on the
+   live wall (owner's screenshot, 2026-10-01). It wraps now; the texts are short. */
 .mbar { height: 4px; background: var(--g3); border-radius: 2px; margin-top: 8px; overflow: hidden; }
 .mbar i { display: block; height: 100%; background: var(--act); }
-.m-paid { border-color: rgba(255,184,77,0.5); display: none; align-items: center; gap: 12px; }
-.m-paid.on { display: flex; }
-.m-paid .m-num2 { color: var(--money); }
-.m-paid .m-text { font-family: var(--disp); font-size: var(--fs-sub); letter-spacing: 0.06em;
-                  text-transform: uppercase; color: var(--money); }
-.m-paid small { display: block; font-family: var(--body); font-size: var(--fs-lab);
-                color: var(--t3); text-transform: none; letter-spacing: 0; margin-top: 2px; }
-.m-pipe { display: flex; gap: 16px; font-family: var(--mono); font-size: var(--fs-sub);
-          color: var(--t2); flex-wrap: wrap; }
+/* the pipeline + carrier pickup live in the header's middle (moved out of the
+   left column 2026-10-02 so Floor notes keep their room) */
+.m-pipe { display: flex; gap: 18px; font-family: var(--mono); font-size: var(--fs-sub);
+          color: var(--t2); white-space: nowrap; padding-right: 22px; border-right: 1px solid var(--line); }
+.m-pipe .pk b { color: var(--t1); }
+.m-pipe .am { color: var(--money); }
 .m-pipe b { color: var(--t1); }
 
-.feed { flex: 1; min-height: 0; display: flex; flex-direction: column; background: var(--g2);
-        border: 1px solid var(--line); padding: 12px 0 4px; }
-.feed .m-lab { padding: 0 16px 8px; border-bottom: 1px solid var(--line); }
-.feed ul { list-style: none; overflow: hidden; flex: 1; }
-.feed li { display: flex; gap: 10px; align-items: center; padding: 7px 16px;
-           border-bottom: 1px solid var(--line); font-family: var(--mono); font-size: var(--fs-sub); }
-.feed li.empty { color: var(--t3); border: none; }
-.feed time { color: var(--t3); font-size: var(--fs-lab); width: 46px; flex: none; }
+/* ── NEEDS ATTENTION — every alert lives here and nowhere else. Severity is the
+   stripe: red = act now (hold unanswered, past 3h) · amber = a deadline or a
+   person has it · green = resolved, ok to ship · slate = system health.
+   An entry leaves by itself when the thing behind it is resolved. ──────── */
+.att { border-color: var(--line-brand); }
+.att-head, .nt-head { display: flex; justify-content: space-between; align-items: baseline; }
+.att-head .c { font-family: var(--mono); font-size: var(--fs-sub); color: var(--t3); }
+.att-head .c.hot { color: var(--alarm); }
+.al { display: grid; grid-template-columns: 4px 1fr auto; gap: 10px; margin-top: 8px;
+      background: var(--g1); padding: 8px 10px 8px 0; }
+.al::before { content: ''; background: var(--sev, var(--t3)); }
+.al.red { --sev: var(--alarm); } .al.amber { --sev: var(--money); }
+.al.green { --sev: var(--ok); }  .al.slate { --sev: #9fb3c8; }
+.al.fresh { box-shadow: inset 0 0 0 1px rgba(255,212,0,0.55); }
+.al-t { font-family: var(--disp); font-weight: 500; font-size: 16px; line-height: 1.15;
+        letter-spacing: 0.04em; text-transform: uppercase; color: var(--sev); }
+.al-d { font-family: var(--mono); font-size: var(--fs-lab); color: var(--t2); margin-top: 3px;
+        line-height: 1.4; overflow-wrap: anywhere; }
+.al-d em { font-style: normal; font-family: var(--mono); font-weight: 700; color: var(--act); }
+.al-a { font-family: var(--mono); font-size: var(--fs-lab); color: var(--t3); white-space: nowrap; }
+.att-calm { margin-top: 6px; font-family: var(--disp); font-size: 17px; letter-spacing: 0.06em;
+            text-transform: uppercase; color: var(--ok); }
+.att-calm small { display: block; font-family: var(--mono); font-size: var(--fs-lab); letter-spacing: 0;
+                  text-transform: none; color: var(--t3); margin-top: 2px; }
+.att-more, .nt-more { font-family: var(--mono); font-size: var(--fs-lab); color: var(--t3); margin-top: 6px; }
+
+/* ── FLOOR NOTES — one entry per ORDER (today a note sits on every line of its
+   order, so one customer note became sixteen pins). Takes the rest of the
+   column; whatever does not fit becomes "+N more". ─────────────────────── */
+.notes { flex: 1 1 auto; min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
+.nt-list { flex: 1 1 auto; min-height: 0; overflow: hidden; }
+.nt { border-left: 3px solid var(--act); padding: 1px 0 1px 10px; margin-top: 10px; }
+.nt.buyer { border-left-color: #c9a64a; }
+.nt.warn { border-left-color: var(--money); }
+.nt-o { font-family: var(--mono); font-size: var(--fs-lab); color: var(--t3); }
+.nt-x { font-family: var(--body); font-size: 16px; line-height: 1.35; color: var(--t1);
+        overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.nt.buyer .nt-x { font-style: italic; color: #e8d9a8; }
+.nt.warn .nt-x { color: var(--money); }
+.nt-none { font-family: var(--mono); font-size: var(--fs-lab); color: var(--t3); margin-top: 8px; }
+
+/* ── TICKER — "as it lands", one line across the bottom. Newest first; items
+   that do not fit are simply not drawn. ───────────────────────────────── */
+.tick { grid-area: tick; display: flex; align-items: center; gap: 26px; overflow: hidden;
+        padding: 0 calc(28px + var(--safe-r)) var(--safe-b) calc(28px + var(--safe-l));
+        background: var(--g1); border-top: 1px solid var(--line); white-space: nowrap; }
+.tick-lbl { font-family: var(--disp); font-size: var(--fs-lab); letter-spacing: 0.22em;
+            text-transform: uppercase; color: var(--t3); flex: none; }
+.tev { display: inline-flex; align-items: center; gap: 8px; flex: none;
+       font-family: var(--mono); font-size: var(--fs-sub); color: var(--t2); }
+.tev time { color: var(--t3); font-size: var(--fs-lab); }
 .ftag { font-family: var(--disp); font-size: 10px; letter-spacing: 0.12em; padding: 1px 7px;
         border-radius: 3px; color: var(--g0); background: var(--t3); text-transform: uppercase; flex: none; }
 .ftag.new  { background: var(--act); }
 .ftag.ship { background: var(--ok); }
 .ftag.cancel { background: var(--alarm); }
-.feed .fid { color: var(--t2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.feed .fch { margin-left: auto; color: var(--t3); font-size: var(--fs-lab); flex: none; }
+.tick-ro { margin-left: auto; flex: none; font-family: var(--disp); font-size: 11px; letter-spacing: 0.18em;
+           color: var(--t3); border: 1px solid var(--line); padding: 2px 8px; }
 
 /* ── CHANNEL COLUMNS ───────────────────────────────────────────────────── */
 .chan { min-width: 0; overflow: hidden; display: flex; flex-direction: column; min-height: 0; }
@@ -174,11 +215,12 @@ body { background: var(--g0); color: var(--t1); font-family: var(--body); overfl
    right safe-area inset that Direct used to. */
 .chan-amazon { grid-area: amazon; padding-right: var(--safe-r); }
 .chan-head { display: flex; align-items: baseline; gap: 14px; padding: 14px 24px 10px;
-             border-bottom: 2px solid var(--line-brand); flex: none; }
+             border-bottom: 2px solid var(--line-brand); flex: none; white-space: nowrap; overflow: hidden; }
+.chan-head .cnt { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .chan-head h2 { font-family: var(--disp); font-weight: 600; font-size: 22px;
                 letter-spacing: 0.14em; text-transform: uppercase; }
 .chan-head .cnt { font-family: var(--mono); font-size: var(--fs-sub); color: var(--t2); }
-.chan-head .over { margin-left: auto; font-family: var(--mono); font-size: var(--fs-sub); color: var(--alarm); }
+.chan-head .over { margin-left: auto; font-family: var(--mono); font-size: var(--fs-sub); color: var(--t3); white-space: nowrap; }
 /* ⚠ MARGIN, not padding. `overflow` clips at the PADDING box, so padding-bottom
    would let rows flow into the reserved strip and stay visible UNDER the system
    bar — the list caps at 24 rows, so it always overflows and always would.
@@ -187,6 +229,11 @@ body { background: var(--g0); color: var(--t1); font-family: var(--body); overfl
 .chan ul { list-style: none; overflow: hidden; flex: 1; min-height: 0;
            margin-bottom: var(--safe-b); }
 .chan .none { padding: 26px 24px; font-family: var(--mono); font-size: var(--fs-sub); color: var(--t3); }
+/* an empty channel, narrowed to a strip */
+.chan.slim .chan-head { flex-direction: column; align-items: center; gap: 10px; padding: 18px 0 10px; }
+.chan.slim .chan-head h2 { writing-mode: vertical-rl; transform: rotate(180deg); font-size: 18px; letter-spacing: 0.2em; }
+.chan.slim .chan-head .cnt { writing-mode: vertical-rl; transform: rotate(180deg); font-size: var(--fs-lab); color: var(--t3); }
+.chan.slim .chan-head .over, .chan.slim ul { display: none; }
 
 .wband { display: flex; align-items: center; gap: 14px; min-height: 42px; padding: 4px 24px;
          background: var(--g2); border-top: 1px solid var(--line); flex-wrap: wrap; }
@@ -195,6 +242,19 @@ body { background: var(--g0); color: var(--t1); font-family: var(--body); overfl
                  text-transform: uppercase; color: var(--t3); }
 .wband .age { margin-left: auto; font-family: var(--mono); font-size: var(--fs-sub); color: var(--t3); }
 .wband .age.late { color: var(--alarm); }
+.wband .hold { font-family: var(--disp); font-weight: 600; font-size: var(--fs-lab); letter-spacing: 0.12em;
+               padding: 1px 8px; border-radius: 3px; background: var(--alarm); color: var(--g0); }
+.wband .hold.seen { background: var(--money); }
+.wband .hold-why { font-family: var(--disp); font-size: var(--fs-lab); letter-spacing: 0.12em;
+                   text-transform: uppercase; color: var(--alarm); }
+.wband .bnote { font-family: var(--body); font-size: var(--fs-sub); color: #e9dca8; min-width: 0;
+                max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wband .fresh-tag, .wrow .fresh-tag { font-family: var(--disp); font-size: 10px; letter-spacing: 0.14em;
+                   padding: 1px 6px; border-radius: 3px; background: var(--act); color: var(--g0); }
+.wband.held { background: rgba(255,107,107,0.10); box-shadow: inset 4px 0 0 var(--alarm); }
+.wband.held.seen { background: rgba(255,184,77,0.08); box-shadow: inset 4px 0 0 var(--money); }
+.wrow.fresh { background: rgba(255,212,0,0.07); }
+.wrow.held-row { opacity: 0.85; }
 .wband .split-warn { font-family: var(--disp); font-size: var(--fs-lab); letter-spacing: 0.1em;
                      color: var(--alarm); text-transform: uppercase; }
 .kitchip { display: inline-flex; align-items: center; gap: 6px; font-family: var(--mono);
@@ -229,7 +289,7 @@ body { background: var(--g0); color: var(--t1); font-family: var(--body); overfl
 .wqty.multi { color: var(--act); }
 .wst { font-family: var(--disp); font-size: var(--fs-lab); letter-spacing: 0.14em;
        text-transform: uppercase; color: var(--t3); text-align: right; }
-.wmore { padding: 12px 24px; font-family: var(--mono); font-size: var(--fs-sub); color: var(--alarm); }
+.wmore { padding: 12px 24px; font-family: var(--mono); font-size: var(--fs-sub); color: var(--t2); border-top: 1px solid var(--line); }
 
 /* ── STATES ────────────────────────────────────────────────────────────── */
 .connlost { position: fixed; left: 50%; bottom: calc(26px + var(--safe-b)); transform: translateX(-50%);
@@ -360,8 +420,41 @@ body { background: var(--g0); color: var(--t1); font-family: var(--body); overfl
 .rest-straggler { font-family: var(--mono); font-size: 12px; color: var(--t3); letter-spacing: 0.08em; }
 .rest-straggler:empty { display: none; }
 
+/* ⚠ SHORTER SCREENS (a 1366×768 monitor or a laptop). The left column holds a
+   fixed stack, and at 768px tall it ran 130px past the bottom — so below 900px
+   everything in it tightens. Proven by design-lab/shoot-wall-v2.js. */
+.hdr-word, .hdr-clock, .hdr-live, .hdr-date { white-space: nowrap; }
+/* narrower monitors: the header keeps the clock, the pipe and the live dot */
+@media (max-width: 1500px) {
+  .hdr-word, .hdr-sep, .hdr-date { display: none; }
+  .hdr-clock { font-size: 26px; }
+}
+
+@media (max-width: 1100px) {
+  .m-pipe { display: none; }
+}
+
+@media (max-height: 900px) {
+  .rail { gap: 8px; padding-top: 10px; }
+  .m { padding: 8px 12px; }
+  .m-hero .m-num { font-size: 44px; }
+  .m-hero.clear .m-num { font-size: 30px; padding: 2px 0; }
+  .m-hero .m-split { margin-top: 2px; }
+  .sharebar { margin-top: 6px; }
+  .m-num2 { font-size: 26px; }
+  .m-pair { gap: 8px; }
+  .m-pair .mbar { margin-top: 5px; }
+  .al { margin-top: 6px; padding: 6px 8px 6px 0; }
+  .al-t { font-size: 14px; }
+  .nt { margin-top: 6px; }
+  .nt-x { font-size: 14px; -webkit-line-clamp: 2; }
+  .wrow { height: 40px; }
+  .wshelf { font-size: 20px; }
+  .wsku, .wqty { font-size: 16px; }
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .beacon.show, .edge.show, .dial-bezel, .dial-sweep, .ember { animation: none !important; }
+  .dial-bezel, .dial-sweep, .ember { animation: none !important; }
 }
 
     /* ⚠⚠ TEXT PRESENTATION, NOT COLOUR. Every glyph on this surface renders as
@@ -378,26 +471,27 @@ body { background: var(--g0); color: var(--t1); font-family: var(--body); overfl
 </style>
 </head>
 <body>
-<div class="edge" id="edge"></div>
 <div class="wall">
 
   <div class="hdr">
-    <span class="hdr-hq">HQ</span>
+    <svg class="hdr-logo" viewBox="0 0 500 157.8" role="img" aria-label="High Quality Motor Service"><g> <g> <g> <path class="cls-2" d="M70.2,17.7C36.4,22.5,12.9,53.8,17.7,87.6c4.8,33.8,36.1,57.3,69.9,52.5,14.3-2,26.7-8.8,35.9-18.4l-5.7-3.6c-8.1,8.1-18.9,13.7-31.1,15.5-30.2,4.3-58.2-16.7-62.5-46.9-4.3-30.2,16.7-58.2,46.9-62.5,30.2-4.3,58.2,16.7,62.5,46.9,1.8,12.3-.7,24.3-6.3,34.5l5.6,3.5c6.4-11.4,9.2-24.9,7.3-38.9-4.8-33.8-36.1-57.3-69.9-52.5h-.1Z"/> <polygon points="176.7 14 176.7 73.5 168.1 73.5 168.1 47 157.6 47 157.6 47 143.3 47 143.3 39.5 168.1 39.5 168.1 14 176.7 14"/> <path d="M184.9,73.5V14h8.5v59.4h-8.5Z"/> <path d="M201.2,28c0-2.4.4-4.5,1.3-6.3s1.9-3.4,3.3-4.6c1.3-1.2,2.9-2.1,4.6-2.7,1.7-.6,3.4-.9,5.1-.9s3.4.3,5.1.9c1.7.6,3.2,1.5,4.6,2.7,1.3,1.2,2.4,2.8,3.3,4.6s1.3,4,1.3,6.3v3h-8.5v-3c0-2.1-.6-3.6-1.7-4.6-1.1-1-2.5-1.5-4-1.5s-2.9.5-4,1.5-1.7,2.5-1.7,4.6v31.4c0,2.1.6,3.6,1.7,4.6,1.1,1,2.5,1.5,4,1.5s2.9-.5,4-1.5,1.7-2.5,1.7-4.6v-11.2h-6.8v-7.5h15.3v18.7c0,2.5-.4,4.6-1.3,6.4-.8,1.8-1.9,3.3-3.3,4.4-1.4,1.2-2.9,2.1-4.6,2.8-1.7.6-3.4.9-5.1.9s-3.4-.3-5.1-.9c-1.7-.6-3.2-1.5-4.6-2.8-1.4-1.2-2.5-2.6-3.3-4.4s-1.3-3.9-1.3-6.4v-31.4Z"/> <path d="M237.3,73.5V14h8.5v25.5h10.5V14h8.5v59.4h-8.5v-26.5h-10.5v26.5h-8.5,0Z"/> <path d="M287.9,28c0-2.4.4-4.5,1.3-6.3.8-1.8,1.9-3.4,3.3-4.6,1.3-1.2,2.9-2.1,4.5-2.7,1.7-.6,3.4-.9,5.1-.9s3.4.3,5.1.9c1.7.6,3.2,1.5,4.6,2.7,1.3,1.2,2.4,2.8,3.3,4.6s1.3,4,1.3,6.3v31.4c0,2.3-.4,4.4-1.3,6.1l5.3,4.3-4.3,5.2-5-4.1c-2.6,2.1-5.5,3.1-8.9,3.1s-3.4-.3-5.1-.9-3.2-1.5-4.5-2.8c-1.4-1.2-2.5-2.6-3.3-4.4s-1.3-3.9-1.3-6.4v-31.4h-.1ZM296.4,59.4c0,2.1.6,3.6,1.7,4.6s2.5,1.5,4,1.5,1.4,0,1.8-.3l-3.8-3.1,4.3-5.2,3.4,2.8v-31.6c0-2.1-.6-3.6-1.7-4.6s-2.5-1.5-4-1.5-2.9.5-4,1.5-1.7,2.5-1.7,4.6v31.4h0Z"/> <path d="M351.5,14v46.1c0,1.9-.3,3.7-1,5.4-.7,1.6-1.7,3.1-3,4.4s-2.8,2.3-4.4,3c-1.7.7-3.5,1.1-5.3,1.1s-3.7-.4-5.3-1.1c-1.6-.7-3.1-1.7-4.4-3s-2.3-2.7-3-4.4c-.7-1.6-1.1-3.4-1.1-5.4V14h8.5v45.3c0,2.1.5,3.7,1.5,4.7s2.3,1.5,3.8,1.5,2.8-.5,3.8-1.5,1.5-2.6,1.5-4.7V14h8.5-.1Z"/> <path d="M354.7,73.5l13.3-59.4h7.1l13.3,59.4h-8.5l-2.5-12.8h-11.6l-2.5,12.8h-8.6,0ZM375.7,52.7l-4.2-21.5h-.2l-4.2,21.5h8.6Z"/> <path d="M392.5,73.5V14h8.5v50.9h16.9v8.5h-25.4Z"/> <path d="M423.6,73.5V14h8.5v59.4h-8.5Z"/> <path d="M446,73.5V22h-9.9v-8h28.2v8h-9.9v51.4h-8.5,0Z"/> <path d="M479.8,73.5v-25.1l-11.7-34.3h9l6.8,23.6h.2l6.8-23.6h9l-11.7,34.3v25.1h-8.5.1Z"/> <path d="M187,112.3c0-1.7.4-3.1,1.1-4.4s1.7-2.3,2.9-3.2c1.2-.8,2.5-1.4,4-1.8s3-.6,4.5-.6,3,.2,4.5.6,2.8,1,4,1.8,2.1,1.9,2.8,3.2,1.1,2.7,1.1,4.4v21.7c0,1.7-.4,3.2-1.1,4.4-.7,1.2-1.7,2.2-2.8,3.1-1.2.8-2.6,1.5-4,1.9-1.5.4-3,.6-4.5.6s-3-.2-4.5-.6c-1.5-.4-2.8-1.1-4-1.9-1.2-.8-2.2-1.8-2.9-3.1-.7-1.2-1.1-2.7-1.1-4.4v-21.7ZM194.4,133.9c0,1.4.5,2.5,1.5,3.1,1,.7,2.2,1,3.5,1s2.5-.3,3.5-1,1.5-1.7,1.5-3.1v-21.7c0-1.4-.5-2.5-1.5-3.1-1-.7-2.2-1-3.5-1s-2.5.3-3.5,1-1.5,1.7-1.5,3.1v21.7Z"/> <path d="M222.5,143.6v-35.5h-8.6v-5.5h24.6v5.5h-8.6v35.5h-7.4Z"/> <path d="M240.4,112.3c0-1.7.4-3.1,1.1-4.4.7-1.3,1.7-2.3,2.9-3.2,1.2-.8,2.5-1.4,4-1.8s3-.6,4.5-.6,3,.2,4.5.6,2.8,1,4,1.8,2.1,1.9,2.8,3.2,1.1,2.7,1.1,4.4v21.7c0,1.7-.4,3.2-1.1,4.4s-1.7,2.2-2.8,3.1c-1.2.8-2.6,1.5-4,1.9-1.5.4-3,.6-4.5.6s-3-.2-4.5-.6c-1.5-.4-2.8-1.1-4-1.9-1.2-.8-2.2-1.8-2.9-3.1-.7-1.2-1.1-2.7-1.1-4.4v-21.7ZM247.8,133.9c0,1.4.5,2.5,1.5,3.1,1,.7,2.2,1,3.5,1s2.5-.3,3.5-1c1-.7,1.5-1.7,1.5-3.1v-21.7c0-1.4-.5-2.5-1.5-3.1-1-.7-2.2-1-3.5-1s-2.5.3-3.5,1-1.5,1.7-1.5,3.1v21.7h0Z"/> <path d="M271.9,143.6v-41h11.9c8.7,0,13.1,4,13.1,12s-.5,4.5-1.4,6.2-2.6,3.1-5,4.1l8,18.7h-7.9l-6.9-17.5h-4.4v17.5h-7.4ZM279.3,108.1v12.8h4.2c1.3,0,2.4,0,3.1-.4.8-.3,1.4-.7,1.8-1.2s.7-1.2.8-2c.1-.8.2-1.7.2-2.7s0-1.9-.2-2.7c-.1-.8-.4-1.5-.9-2-.9-1.1-2.7-1.6-5.2-1.6h-3.9v-.2h.1Z"/> <path d="M340.4,114.4h-7.4v-1.3c0-1.3-.4-2.5-1.2-3.5-.8-1-2.1-1.5-4-1.5s-1.8.2-2.5.5c-.6.3-1.1.7-1.5,1.2s-.7,1.1-.8,1.7c-.1.6-.2,1.3-.2,2s0,1.5.1,2c0,.5.3,1,.5,1.4.3.4.7.8,1.3,1.1.6.3,1.3.6,2.3.9l5.7,1.8c1.6.5,3,1.1,4,1.8,1,.7,1.8,1.4,2.4,2.3.5.9.9,2,1.1,3.1.2,1.2.3,2.5.3,4s-.2,3.3-.7,4.8c-.4,1.5-1.1,2.7-2.1,3.8s-2.4,1.9-4,2.5-3.7.9-6,.9-3.5-.2-5-.7c-1.6-.5-2.9-1.2-4-2.1-1.1-.9-2-1.9-2.7-3.1-.7-1.2-1-2.4-1-3.8v-2.2h7.4v1.8c0,1.1.4,2,1.2,2.9.8.9,2.1,1.3,4,1.3s2.2-.1,2.9-.4c.7-.3,1.2-.7,1.6-1.2s.6-1.2.7-1.9.1-1.6.1-2.5,0-2-.1-2.6c0-.7-.3-1.2-.6-1.7-.3-.4-.8-.8-1.3-1-.6-.3-1.3-.6-2.2-.9l-5.3-1.7c-3.2-1-5.3-2.4-6.4-4.1s-1.6-3.8-1.6-6.4.3-3,.8-4.4,1.3-2.6,2.4-3.6c1-1,2.3-1.8,3.9-2.4s3.5-.9,5.6-.9,3.5.3,5.1.8c1.5.5,2.8,1.2,4,2.1,2.2,1.8,3.3,4,3.3,6.3v2.9h0Z"/> <path d="M345.9,143.6v-41h22.1v5.5h-14.7v12h12.8v5.5h-12.8v12h14.7v5.9h-22.1Z"/> <path d="M372.8,143.6v-41h11.9c8.7,0,13.1,4,13.1,12s-.5,4.5-1.4,6.2-2.6,3.1-5,4.1l8,18.7h-7.9l-6.9-17.5h-4.4v17.5h-7.4ZM380.3,108.1v12.8h4.2c1.3,0,2.4,0,3.1-.4.8-.3,1.4-.7,1.8-1.2s.7-1.2.8-2c.1-.8.2-1.7.2-2.7s0-1.9-.2-2.7c-.1-.8-.4-1.5-.9-2-.9-1.1-2.7-1.6-5.2-1.6h-3.9v-.2h.1Z"/> <path d="M429,102.6l-10.6,41h-6.5l-10.5-41h7.9l5.9,28.6h.1l6-28.6h7.9-.2,0Z"/> <path d="M433.7,143.6v-41h7.4v41h-7.4Z"/> <path d="M471.8,131.9v2.5c0,1.3-.3,2.5-.9,3.6s-1.4,2.1-2.5,3-2.3,1.6-3.7,2.1c-1.4.5-3,.8-4.6.8s-2.8-.2-4.3-.5-2.8-.8-3.9-1.6c-1.2-.8-2.1-1.8-2.9-3s-1.1-2.8-1.1-4.6v-22.6c0-1.3.3-2.6.9-3.7.6-1.2,1.4-2.1,2.5-3,1.1-.8,2.3-1.5,3.8-2s3.1-.7,4.9-.7c3.5,0,6.3.9,8.5,2.7,1.1.9,1.9,1.9,2.5,3.1s.9,2.5.9,3.9v2.3h-7.4v-2c0-1.2-.4-2.1-1.2-3-.8-.8-1.9-1.3-3.3-1.3s-3.1.5-3.7,1.4-.9,2-.9,3.4v21c0,1.2.3,2.2,1,3s1.8,1.2,3.5,1.2,1,0,1.6-.2c.6-.1,1.1-.4,1.6-.7.4-.3.8-.7,1.1-1.3.3-.5.4-1.2.4-2v-2h7.4l-.2.2h0Z"/> <path d="M477.9,143.6v-41h22.1v5.5h-14.7v12h12.8v5.5h-12.8v12h14.7v5.9h-22.1Z"/> <polygon points="157.6 47 168.1 47 168.1 47 157.6 47"/> <polygon points="181.3 102.3 181.3 143.3 174.6 143.3 174.6 116.1 174.1 117.6 167 143.3 159.9 143.3 150.5 112 147.7 102.3 154.2 102.3 163.8 135.6 173.5 102.3 181.3 102.3"/> <g> <path d="M45.2,105.9v-54.9h7.9v23.5h9.7v-23.5h7.9v54.9h-7.9v-24.4h-9.7v24.4h-7.9Z"/> <path d="M86.2,63.9c0-2.2.4-4.2,1.2-5.9.8-1.7,1.8-3.1,3.1-4.2,1.2-1.1,2.6-1.9,4.2-2.5s3.1-.8,4.7-.8,3.2.3,4.7.8c1.6.6,3,1.4,4.3,2.5,1.2,1.1,2.2,2.5,3,4.2s1.2,3.6,1.2,5.9v29c0,2.2-.4,4-1.2,5.6l4.9,3.9-4,4.8-4.6-3.8c-2.4,1.9-5.1,2.9-8.2,2.9s-3.2-.3-4.7-.8c-1.6-.6-3-1.4-4.2-2.5-1.3-1.1-2.3-2.4-3.1-4.1-.8-1.6-1.2-3.6-1.2-5.9v-29h-.1ZM94,92.9c0,1.9.5,3.3,1.6,4.2,1.1.9,2.3,1.3,3.7,1.3s1.3,0,1.7-.3l-3.5-2.9,4-4.8,3.2,2.5v-29.1c0-1.9-.5-3.3-1.6-4.2s-2.3-1.3-3.7-1.3-2.7.5-3.7,1.3c-1.1.9-1.6,2.3-1.6,4.2v29h0Z"/> </g> <rect class="cls-2" x="77.6" y="39.4" width="2.6" height="78.9"/> <rect class="cls-2" x="184.9" y="84.3" width="315.1" height="5.3"/> <g> <path d="M496.6,7.2l-.8-1.2h-1.2v1.2h-.6v-3.8h1.5c1,0,1.6.5,1.6,1.3s-.3,1-.8,1.2l.9,1.3h-.6,0ZM496.6,4.7c0-.5-.3-.8-1.1-.8h-.9v1.7h.9c.7,0,1.1-.3,1.1-.9Z"/> <circle class="cls-1" cx="495.6" cy="5.3" r="3.3"/> </g> <path d="M144.1,102.3h10.1c-9.6,30.9-37.3,53.1-70.1,55.3C40.6,160.5,3.1,127.6.2,84.1-2.7,40.6,30.2,3.1,73.7.2c43.2-2.9,80.7,29.7,83.9,72.8h-9.6c-2.6-30.2-24.6-55.1-54.2-61.5C56.5,3.5,19.8,27.2,11.7,64.4c-8,37.3,15.6,74,52.9,82,34.2,7.4,68-12,79.5-44.2h0Z"/> </g> </g> </g></svg>
+    <span class="hdr-sep"></span>
     <span class="hdr-word">Warehouse Floor</span>
     <span class="hdr-mid">
+      <span class="m-pipe" id="pipe"></span>
       <span class="pray" id="pray"></span>
-      <span class="snd" id="snd" title="Beacon chime">♪ on</span>
       <span class="hdr-live" id="live"><i></i><span id="liveText">connecting</span></span>
       <span class="hdr-clock" id="clock">—:—</span>
       <span class="hdr-date" id="dateBox">—</span>
     </span>
   </div>
 
-  <div class="beacon" id="beacon" title="Tap to dismiss">
-    <b>NEW</b><span id="beaconBody"></span><small>tap to dismiss</small>
-  </div>
-
   <div class="rail">
+    <div class="m att" id="attCard">
+      <div class="att-head"><span class="m-lab">Needs attention</span><span class="c" id="attCount">—</span></div>
+      <div id="attList"><div class="att-calm">Connecting…</div></div>
+    </div>
+
     <div class="m m-hero" id="heroCard">
       <div class="m-lab">Orders to grab</div>
       <div class="m-num" id="grabNum">—</div>
@@ -435,36 +529,29 @@ body { background: var(--g0); color: var(--t1); font-family: var(--body); overfl
       </div>
     </div>
 
-    <div class="m m-paid" id="paidCard">
-      <span class="m-num2" id="paidNum">0</span>
-      <span class="m-text">Paid shipping waiting<small>match the exact label level</small></span>
-    </div>
-
-    <div class="m">
-      <div class="m-lab">Pipeline</div>
-      <div class="m-pipe" id="pipe">—</div>
-    </div>
-
-    <div class="feed">
-      <div class="m-lab">As it lands</div>
-      <ul id="feedList"><li class="empty">waiting for today's first event…</li></ul>
+    <div class="m notes" id="notesCard">
+      <div class="nt-head"><span class="m-lab">Floor notes</span><span class="m-lab" id="ntCount"></span></div>
+      <div class="nt-list" id="ntList"></div>
+      <div class="nt-more" id="ntMore"></div>
     </div>
   </div>
 
-  <div class="chan chan-ebay">
+  <div class="chan chan-ebay" id="chanE">
     <div class="chan-head"><h2>eBay</h2><span class="cnt" id="cntE">—</span><span class="over" id="overE"></span></div>
     <ul id="listE"><li class="none">…</li></ul>
   </div>
 
-  <div class="chan chan-direct">
+  <div class="chan chan-direct" id="chanD">
     <div class="chan-head"><h2>Direct</h2><span class="cnt" id="cntD">—</span><span class="over" id="overD"></span></div>
     <ul id="listD"><li class="none">…</li></ul>
   </div>
 
-  <div class="chan chan-amazon">
+  <div class="chan chan-amazon" id="chanA">
     <div class="chan-head"><h2>Amazon</h2><span class="cnt" id="cntA">—</span><span class="over" id="overA"></span></div>
     <ul id="listA"><li class="none">…</li></ul>
   </div>
+
+  <div class="tick" id="tick"><span class="tick-lbl">As it lands</span><span class="tick-ro">View only</span></div>
 
 </div>
 
@@ -529,6 +616,17 @@ var TZ = 'America/Chicago';
 var API = '/api/board';
 var POLL_MS = 20000, POLL_MAX_MS = 90000;
 var REDLINE_MIN = 180;
+
+// ⭐ THE CARRIER DEADLINE — the one setting on this page. UPS or USPS, mostly
+// 3:30 PM Houston, Mon–Fri. Change the time here and scp the file; nothing else
+// reads it. The "pickup" alert appears ALERT_MIN minutes before it, and only
+// while eBay/Amazon lines are picked but not yet labelled (Direct orders are
+// left out: they are often customer pickups or freight and would never clear).
+var WALL_PICKUP = { hour: 15, minute: 30, carriers: 'UPS · USPS', alertMin: 30 };
+var LIFT_SHOW_MS = 30 * 60 * 1000;     // a lifted hold stays green this long
+var FRESH_MS = 3 * 60 * 1000;          // a new order's rows stay tinted this long
+var SYNC_QUIET_MIN = 45;               // work-hours sync silence worth a line
+var ATT_MAX = 4;
 
 function num(v) { var n = parseFloat(v); return isFinite(n) ? n : 0; }
 function fmtDur(mins) {
@@ -782,73 +880,84 @@ function setLive(state, text) {
   document.getElementById('liveText').textContent = text;
 }
 
-// ---------- beacon: an id is announced ONCE, chime repeats for an empty room --
-var seenIds = {};                       // id -> ms first seen (45-min memory)
+// ---------- quiet arrivals: an order seen for the first time tints its rows --
+// ⚠ 2026-10-02: the full-width beacon, the edge glow and the chime are retired
+// (owner: the wall is a monitor, the board already carries the loud signals).
+// An id is still remembered for 45 min so a payload flapping between cache tiers
+// can never re-announce the same order.
+var seenIds = {};
 var SEEN_TTL = 45 * 60 * 1000;
-var beaconUntil = 0, beaconTimer = null, lastChime = 0;
-var soundOn = localStorage.getItem('wallSound') !== 'off';
-function paintSound() {
-  var el = document.getElementById('snd');
-  el.textContent = soundOn ? '♪ on' : '♪ off';
-  el.classList.toggle('on', soundOn);
-}
-document.getElementById('snd').addEventListener('click', function () {
-  soundOn = !soundOn;
-  localStorage.setItem('wallSound', soundOn ? 'on' : 'off');
-  paintSound();
-});
-paintSound();
-
-var audioCtx = null;
-function chime() {
-  if (!soundOn) return;
-  try {
-    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
-    var t0 = audioCtx.currentTime;
-    [659.25, 783.99].forEach(function (f, i) {
-      var o = audioCtx.createOscillator(), g = audioCtx.createGain();
-      o.type = 'sine'; o.frequency.value = f;
-      g.gain.setValueAtTime(0, t0 + i * 0.18);
-      g.gain.linearRampToValueAtTime(0.12, t0 + i * 0.18 + 0.03);
-      g.gain.exponentialRampToValueAtTime(0.0001, t0 + i * 0.18 + 0.9);
-      o.connect(g); g.connect(audioCtx.destination);
-      o.start(t0 + i * 0.18); o.stop(t0 + i * 0.18 + 1);
-    });
-  } catch (e) {}
-}
-function beaconCheck(rows) {
+var freshUntil = {};
+function arrivalsCheck(rows) {
   var now = Date.now();
   for (var k in seenIds) if (now - seenIds[k] > SEEN_TTL) delete seenIds[k];
-  var fresh = null;
+  for (var f in freshUntil) if (freshUntil[f] < now) delete freshUntil[f];
   for (var i = 0; i < rows.length; i++) {
     var id = String(rows[i].orderId || '').trim();
-    if (!id) continue;
-    if (!seenIds[id]) {
-      seenIds[id] = now;
-      if (!firstTick && String(rows[i].status).toUpperCase() === 'PENDING') fresh = rows[i];
+    if (!id || seenIds[id]) continue;
+    seenIds[id] = now;
+    if (!firstTick && String(rows[i].status).toUpperCase() === 'PENDING') freshUntil[id] = now + FRESH_MS;
+  }
+}
+function isFresh(id) { return !!(freshUntil[id] && freshUntil[id] > Date.now()); }
+
+// ---------- holds: the session remembers which were held, so a lift can be told --
+// A hold is lifted by deleting the word from the note; the order then simply
+// leaves tick.held. Three or more leaving at once is a cleanup (or the 1 AM
+// shipped-row sweep), not a person — stay quiet, same rule as the board.
+var LIFT_SWEEP_MAX = 2;
+var heldPrev = null, lifted = {}, attFreshUntil = {};
+function holdsCheck(held) {
+  var now = Date.now(), cur = {};
+  for (var i = 0; i < held.length; i++) cur[String(held[i].orderId)] = held[i];
+  if (heldPrev) {
+    var gone = Object.keys(heldPrev).filter(function (id) { return !cur[id]; });
+    if (gone.length && gone.length <= LIFT_SWEEP_MAX) {
+      gone.forEach(function (id) { lifted[id] = { at: now, h: heldPrev[id] }; });
     }
+    Object.keys(cur).forEach(function (id) { if (!heldPrev[id]) attFreshUntil['h:' + id] = now + 60000; });
   }
-  if (fresh) {
-    document.getElementById('beaconBody').textContent =
-      (wallCh(fresh) === 'AMAZON' ? 'Amazon' : (wallCh(fresh) === 'DIRECT' ? 'Direct' : 'eBay')) + ' · ' +
-      (fresh.location && fresh.location !== 'NOT FOUND' ? fresh.location : 'no shelf') +
-      ' · ' + fresh.orderId;
-    document.getElementById('beacon').classList.add('show');
-    document.getElementById('edge').classList.add('show');
-    beaconUntil = now + 3 * 60 * 1000;
-    chime(); lastChime = now;
-    if (!beaconTimer) beaconTimer = setInterval(function () {
-      if (Date.now() > beaconUntil) return beaconClear();
-      if (Date.now() - lastChime >= 20000) { chime(); lastChime = Date.now(); }
-    }, 1000);
-  }
+  for (var l in lifted) if (now - lifted[l].at > LIFT_SHOW_MS || cur[l]) delete lifted[l];
+  heldPrev = cur;
 }
-function beaconClear() {
-  document.getElementById('beacon').classList.remove('show');
-  document.getElementById('edge').classList.remove('show');
-  if (beaconTimer) { clearInterval(beaconTimer); beaconTimer = null; }
+function noteHasHold(n) { return /\bhold\b/i.test(String(n || '')); }
+
+// ---------- time helpers for the pickup deadline ----------
+function houstonParts() {
+  var now = new Date();
+  var hp = now.toLocaleTimeString('en-US', { timeZone: TZ, hour12: false, hour: '2-digit', minute: '2-digit' }).split(':');
+  var wd = now.toLocaleDateString('en-US', { timeZone: TZ, weekday: 'short' });
+  return { min: (parseInt(hp[0], 10) % 24) * 60 + parseInt(hp[1], 10), weekday: wd !== 'Sat' && wd !== 'Sun' };
 }
-document.getElementById('beacon').addEventListener('click', beaconClear);
+function pickupLabel() {
+  var h = WALL_PICKUP.hour % 12 || 12, m = WALL_PICKUP.minute;
+  return h + ':' + (m < 10 ? '0' + m : m) + (WALL_PICKUP.hour >= 12 ? ' PM' : ' AM');
+}
+function minsToPickup() {   // null on weekends; negative once it has passed
+  var p = houstonParts();
+  if (!p.weekday) return null;
+  return WALL_PICKUP.hour * 60 + WALL_PICKUP.minute - p.min;
+}
+
+// ---------- the screen stays awake, the cursor goes away (nobody touches it) --
+var wakeLock = null;
+function keepAwake() {
+  try {
+    if (!('wakeLock' in navigator) || document.visibilityState !== 'visible' || wakeLock) return;
+    navigator.wakeLock.request('screen').then(function (l) {
+      wakeLock = l; l.addEventListener('release', function () { wakeLock = null; });
+    }).catch(function () {});
+  } catch (e) {}
+}
+document.addEventListener('visibilitychange', keepAwake);
+setInterval(keepAwake, 60000);
+keepAwake();
+var cursorTimer = null;
+document.addEventListener('mousemove', function () {
+  document.body.classList.remove('idle-cursor');
+  clearTimeout(cursorTimer);
+  cursorTimer = setTimeout(function () { document.body.classList.add('idle-cursor'); }, 3000);
+});
 
 // ---------- machine-note classifier (the ** rule, retired 2026-08-11) ------
 // Show every HUMAN note; hide only machine kit-tags. Legacy ** markers are
@@ -913,17 +1022,12 @@ function onTick(tick) {
   var ship = num(c.shippedToday), recv = num(c.receivedToday);
   document.getElementById('shipVal').textContent = ship;
   document.getElementById('shipSub').textContent =
-    recv > 0 ? Math.round((ship / recv) * 100) + '% of today out' : ' ';
+    recv > 0 ? Math.round((ship / recv) * 100) + '% of received' : ' ';
   document.getElementById('shipBar').style.width = (recv > 0 ? Math.min(100, (ship / recv) * 100) : 0) + '%';
   document.getElementById('recvVal').textContent = recv;
   document.getElementById('recvSub').textContent = 'eBay ' + num(c.receivedEbay) + ' · Direct ' + num(c.receivedDirect) +
     (num(c.receivedAmazon) ? ' · Amazon ' + num(c.receivedAmazon) : '');
   document.getElementById('recvBar').style.width = Math.min(100, recv) + '%';
-
-  // paid
-  var paid = num(tick.alerts && tick.alerts.paidShipping && tick.alerts.paidShipping.count);
-  document.getElementById('paidCard').classList.toggle('on', paid > 0);
-  document.getElementById('paidNum').textContent = paid;
 
   // pipeline
   // ⚠ tick.lastSync is the RAW E1 CELL — "⏱ Last sync · 4:15 PM   🟡 IDLE  22m
@@ -932,23 +1036,34 @@ function onTick(tick) {
   // MINUTES, formatted the same way every other duration on this page is.
   var sync = num(c.lastSyncMinutes != null ? c.lastSyncMinutes : tick.lastSyncMinutes);
   var syncTxt = sync > 0 ? fmtDur(sync) : 'now';
+  var mp = minsToPickup(), pkTxt;
+  if (mp === null) pkTxt = 'no pickup today';
+  else if (mp > 0) pkTxt = 'in ' + fmtDur(mp);
+  else pkTxt = 'passed';
   document.getElementById('pipe').innerHTML =
+    '<span class="pk">' + esc(WALL_PICKUP.carriers) + ' <b>' + esc(pickupLabel()) + '</b> ' +
+    '<span class="' + (mp !== null && mp > 0 && mp <= WALL_PICKUP.alertMin ? 'am' : '') + '">' + esc(pkTxt) + '</span></span>' +
     '<span>prep <b>' + num(c.prepQueueCount) + '</b></span>' +
     '<span>zoho <b>' + num(c.zohoPending) + '</b> to pull</span>' +
     '<span>sync <b style="color:' + (sync < 15 ? 'var(--ok)' :
                                     (sync < 60 ? 'var(--money)' : 'var(--alarm)')) +
     '">' + esc(syncTxt) + '</b></span>';
 
-  // channels
-  paintChannel('EBAY', 'listE', 'cntE', 'overE', rows, by, kits);
-  paintChannel('DIRECT', 'listD', 'cntD', 'overD', rows, by, kits);
-  paintChannel('AMAZON', 'listA', 'cntA', 'overA', rows, by, kits);
+  // arrivals + holds first — the channels and the attention block both read them
+  var held = tick.held || [];
+  arrivalsCheck(rows);
+  holdsCheck(held);
 
-  // feed
-  paintFeed(c.timeline || []);
+  // channels: an empty one narrows to a strip
+  paintColumns(rows, held);
+  paintChannel('EBAY', 'listE', 'cntE', 'overE', rows, by, kits, held);
+  paintChannel('DIRECT', 'listD', 'cntD', 'overD', rows, by, kits, held);
+  paintChannel('AMAZON', 'listA', 'cntA', 'overA', rows, by, kits, held);
 
-  // beacon reads RAW rows
-  beaconCheck(rows);
+  // the left column's two new blocks + the ticker
+  paintAttention(tick, c, rows, held, sync);
+  paintNotes(rows, held);
+  paintTicker(c.timeline || []);
 
   // live + rest
   // Same tiers as the tool, so the two surfaces can never disagree about the
@@ -962,7 +1077,10 @@ function onTick(tick) {
 
   // The night dial takes the screen only when the shop is closed AND there is
   // effectively nothing left waiting — the same rule the veil v1 used.
-  var resting = off && grab <= 1;
+  // ⚠ An UNANSWERED hold keeps the working screen up even after hours — that box
+  // is still in the building, and the night dial would hide the attention block.
+  var openHold = held.some(function (h) { return !h.acked; });
+  var resting = off && grab <= 1 && !openHold;
   document.getElementById('restveil').classList.toggle('show', resting);
   if (resting) { paintRest(tick, c); updateRestAmbient(); }
 
@@ -981,41 +1099,74 @@ function kitIndex(kits) {
   return m;
 }
 
-function paintChannel(ch, listId, cntId, overId, rows, by, kits) {
+function chanHasWork(ch, rows, held) {
+  return rows.some(function (r) { return wallCh(r) === ch; }) ||
+         held.some(function (h) { return wallCh(h) === ch && h.shipped; });
+}
+function paintColumns(rows, held) {
+  var chs = [['EBAY', 'chanE'], ['DIRECT', 'chanD'], ['AMAZON', 'chanA']];
+  var busy = chs.map(function (c) { return chanHasWork(c[0], rows, held); });
+  var any = busy.some(Boolean);
+  var cols = ['380px'];
+  chs.forEach(function (c, i) {
+    var slim = any && !busy[i];
+    document.getElementById(c[1]).classList.toggle('slim', slim);
+    cols.push(slim ? '92px' : 'minmax(0, 1fr)');
+  });
+  document.querySelector('.wall').style.setProperty('--cols', cols.join(' '));
+}
+
+function paintChannel(ch, listId, cntId, overId, rows, by, kits, held) {
   var mine = rows.filter(function (r) { return wallCh(r) === ch; });
   var kIdx = kitIndex(kits);
+  var heldBy = {};
+  held.forEach(function (h) { heldBy[String(h.orderId)] = h; });
 
-  // counts + honesty
+  // ⭐ A held order whose label is already bought is no longer an open line, so the
+  // tick does not list it — but that is exactly the box that must not leave. Draw
+  // it at the top of its channel from the hold's own item list.
+  var shippedHeld = held.filter(function (h) { return wallCh(h) === ch && h.shipped; });
+  var heldRows = [];
+  shippedHeld.forEach(function (h) {
+    (h.items || []).forEach(function (it) {
+      heldRows.push({ orderId: h.orderId, sku: it.sku, qty: it.qty, location: it.loc, status: 'SHIPPED', _held: true });
+    });
+  });
+  var list = heldRows.concat(mine);
+
   var orders = {}, nOrders = 0;
   mine.forEach(function (r) {
     var id = String(r.orderId || '').trim();
     if (id && !orders[id]) { orders[id] = 1; nOrders++; }
   });
   var open = num(by[ch]) || mine.length;
-  var hidden = Math.max(0, open - mine.length);
-  document.getElementById(cntId).textContent = open + ' line' + (open === 1 ? '' : 's') + ' · ' + nOrders + ' orders';
-  document.getElementById(overId).textContent = hidden ? '+' + hidden + ' past the cap' : '';
+  var capHidden = Math.max(0, open - mine.length);
+  document.getElementById(cntId).textContent = open + ' line' + (open === 1 ? '' : 's') + ' · ' +
+    nOrders + ' order' + (nOrders === 1 ? '' : 's');
+  var ul = document.getElementById(listId);
 
-  if (!mine.length) {
-    document.getElementById(listId).innerHTML = '<li class="none">nothing open</li>';
+  if (!list.length) {
+    ul.innerHTML = '<li class="none">nothing open</li>';
+    document.getElementById(overId).textContent = '';
     return;
   }
 
-  // kits per order — spine only when an order holds MORE THAN ONE kit
   var kitsPerOrder = {};
-  mine.forEach(function (r) {
+  list.forEach(function (r) {
     var id = String(r.orderId || '').trim();
     if (!id || !r.kit) return;
     (kitsPerOrder[id] = kitsPerOrder[id] || {})[r.kit] = 1;
   });
 
-  var html = '', prev = null;
-  for (var i = 0; i < mine.length; i++) {
-    var r = mine[i];
+  var html = '', prev = null, banded = {};
+  for (var i = 0; i < list.length; i++) {
+    var r = list[i];
     var oid = String(r.orderId || '').trim();
     if (oid !== prev) {
-      var run = mine.filter(function (x) { return String(x.orderId || '').trim() === oid; });
-      if (oid && (ch === 'DIRECT' || ch === 'AMAZON' || run.length > 1)) {
+      var run = list.filter(function (x) { return String(x.orderId || '').trim() === oid; });
+      var h = heldBy[oid];
+      if (oid && (ch === 'DIRECT' || ch === 'AMAZON' || run.length > 1 || h || isFresh(oid))) {
+        banded[oid] = 1;
         var chips = '';
         Object.keys(kitsPerOrder[oid] || {}).forEach(function (k) {
           var kk = kIdx[oid + '|' + k];
@@ -1023,20 +1174,51 @@ function paintChannel(ch, listId, cntId, overId, rows, by, kits) {
           chips += '<span class="kitchip k' + (num(kk.hue) % 2) + (num(kk.dash) ? ' kd' : '') + '"><i></i>' +
                    esc(k) + ' · ' + num(kk.done) + '/' + num(kk.total) + '</span>';
         });
-        if (run.some(function (x) { return x.isKit; })) {
-          chips += '<span class="kitchip k0"><i></i>KIT · decide</span>';
+        if (run.some(function (x) { return x.isKit; })) chips += '<span class="kitchip k0"><i></i>KIT · decide</span>';
+        var holdChip = '';
+        if (h) {
+          holdChip = '<span class="hold' + (h.acked ? ' seen' : '') + '">HOLD</span>' +
+            (h.shipped ? '<span class="hold-why">label bought</span>' : '');
+        }
+        var bn = '';
+        for (var q = 0; q < run.length && !bn; q++) {
+          var hn = humanNote(run[q].note) || humanNote(run[q].kitNote);
+          if (hn && !noteHasHold(hn)) bn = hn.replace(/^Buyer Note:\s*/i, '');
         }
         var age = orderAgeText(oid);
-        html += '<li class="wband"><span class="band-id">' + esc(oid) + '</span>' +
+        html += '<li class="wband' + (h ? ' held' + (h.acked ? ' seen' : '') : '') + '">' +
+                '<span class="band-id">' + esc(oid) + '</span>' + holdChip +
+                (isFresh(oid) ? '<span class="fresh-tag">NEW</span>' : '') +
                 '<span class="band-n">' + run.length + ' line' + (run.length > 1 ? 's' : '') + '</span>' +
-                chips +
+                chips + (bn ? '<span class="bnote">📌 ' + esc(bn) + '</span>' : '') +
                 '<span class="age' + (age.late ? ' late' : '') + '">' + esc(age.text) + '</span></li>';
       }
       prev = oid;
     }
-    html += wallRow(r, kitsPerOrder[oid] || {}, kIdx, oid);
+    html += wallRow(r, kitsPerOrder[oid] || {}, kIdx, oid, !!banded[oid]);
   }
-  document.getElementById(listId).innerHTML = html;
+  ul.innerHTML = html;
+  fitList(ul, capHidden, overId);
+}
+
+// ⚠ NEVER A SCROLLBAR. Nobody touches this screen, so whatever does not fit is
+// taken off the end and counted. A band left with no lines under it goes too.
+function fitList(ul, capHidden, overId) {
+  var removed = 0, more = null;
+  var fits = function () { return ul.scrollHeight <= ul.clientHeight + 1; };
+  while (!fits() && ul.children.length > 1) {
+    if (more) { ul.removeChild(more); more = null; }
+    var last = ul.lastElementChild;
+    if (last.classList.contains('wrow')) removed++;
+    ul.removeChild(last);
+    while (ul.lastElementChild && ul.lastElementChild.classList.contains('wband')) ul.removeChild(ul.lastElementChild);
+    more = document.createElement('li');
+    more.className = 'wmore';
+    more.textContent = '+' + (removed + capHidden) + ' more line' + (removed + capHidden === 1 ? '' : 's') + ' · on the board';
+    ul.appendChild(more);
+  }
+  var hidden = removed + capHidden;
+  document.getElementById(overId).textContent = hidden ? '+' + hidden + ' not shown' : '';
 }
 
 var orderAge = {};
@@ -1046,7 +1228,7 @@ function orderAgeText(oid) {
   return { text: fmtDur(m), late: m >= REDLINE_MIN };
 }
 
-function wallRow(r, orderKits, kIdx, oid) {
+function wallRow(r, orderKits, kIdx, oid, banded) {
   var loc = String(r.location || '').trim();
   var shelf;
   if (!loc || loc.toUpperCase() === 'NOT FOUND') shelf = '<span class="wshelf gone">—</span>';
@@ -1065,45 +1247,186 @@ function wallRow(r, orderKits, kIdx, oid) {
   }
   var prep = String(r.status).toUpperCase() === 'PREPARING';
   var qn = num(r.qty) || 1;
-  var noted = !!humanNote(r.note);
-  return '<li class="wrow' + spine + (prep ? ' prep-row' : '') + (noted ? ' noted' : '') + '">' +
+  // the note shows ONCE on the band (and in Floor notes); a lone eBay line keeps its pin
+  var noted = !banded && !!humanNote(r.note);
+  var fresh = isFresh(oid);
+  return '<li class="wrow' + spine + (prep ? ' prep-row' : '') + (noted ? ' noted' : '') +
+    (fresh ? ' fresh' : '') + (r._held ? ' held-row' : '') + '">' +
     shelf +
     '<span class="wsku">' + esc(r.sku || '') + (r.isKit ? '<span class="kitflag">KIT</span>' : '') + '</span>' +
     '<span class="wqty' + (qn > 1 ? ' multi' : '') + '">×' + qn + '</span>' +
-    '<span class="wst">' + (prep ? 'Prep' : '') + '</span></li>';
+    '<span class="wst">' + (r._held ? 'Shipped' : prep ? 'Prep' : (fresh && !banded ? '<span class="fresh-tag">NEW</span>' : '')) + '</span></li>';
 }
 
-function paintFeed(timeline) {
+// ---------- NEEDS ATTENTION ---------------------------------------------------
+var attLastNonEmpty = 0, attWasBusy = false, attLastWhat = '';
+function paintAttention(tick, c, rows, held, sync) {
+  var items = [], now = Date.now();
+  var add = function (sev, key, title, detail, age) {
+    items.push({ sev: sev, key: key, t: title, d: detail, a: age || '' });
+  };
+  var shelves = function (list) {
+    var seen = {}, out = [];
+    list.forEach(function (it) { var l = String(it.loc || it.location || '').trim(); if (l && l !== 'NOT FOUND' && !seen[l]) { seen[l] = 1; out.push(l); } });
+    return out.slice(0, 3).map(function (l) { return '<em>' + esc(l) + '</em>'; }).join(' ');
+  };
+
+  // 1 · holds — unanswered first, then the ones a person has
+  held.slice().sort(function (x, y) { return (x.acked ? 1 : 0) - (y.acked ? 1 : 0); }).forEach(function (h) {
+    var why = h.shipped ? 'label bought' : (h.urgent ? 'being picked' : 'not started');
+    var where = shelves(h.items || []);
+    if (!h.acked) {
+      add('red', 'h:' + h.orderId, 'Hold · ' + why,
+          esc(h.orderId) + (where ? ' · ' + where : '') + '<br>' +
+          (h.shipped ? 'set the box aside · ' : '') + (h.escalated ? 'shipping desk told · ' : '') + 'acknowledge on the board',
+          orderAgeText(h.orderId).text);
+    } else {
+      add('amber', 'h:' + h.orderId, 'Hold · ' + why,
+          esc(h.orderId) + (where ? ' · ' + where : '') + '<br>' + esc(String(h.ackText || 'acknowledged').replace(/^✓\s*/, '')));
+    }
+  });
+  Object.keys(lifted).forEach(function (id) {
+    add('green', 'l:' + id, 'Hold lifted · ok to ship', esc(id) + (lifted[id].h ? ' · ' + shelves(lifted[id].h.items || []) : ''),
+        new Date(lifted[id].at).toLocaleTimeString('en-US', { timeZone: TZ, hour: 'numeric', minute: '2-digit' }));
+  });
+
+  // 2 · past the 3h line — PENDING orders only (a picked order is moving)
+  var late = {};
+  rows.forEach(function (r) {
+    var id = String(r.orderId || '').trim();
+    if (id && String(r.status).toUpperCase() === 'PENDING' && num(orderAge[id]) >= REDLINE_MIN) {
+      (late[id] = late[id] || []).push(r);
+    }
+  });
+  var lateIds = Object.keys(late).sort(function (a, b) { return num(orderAge[b]) - num(orderAge[a]); });
+  if (lateIds.length) {
+    add('red', 'late', lateIds.length + ' past the 3h line',
+        lateIds.slice(0, 2).map(function (id) { return esc(id) + ' · ' + shelves(late[id]); }).join('<br>') +
+        (lateIds.length > 2 ? '<br>+' + (lateIds.length - 2) + ' more' : ''),
+        fmtDur(num(orderAge[lateIds[0]])));
+  }
+
+  // 3 · pickup deadline — eBay/Amazon lines picked but not yet labelled
+  var mp = minsToPickup();
+  if (mp !== null && mp > 0 && mp <= WALL_PICKUP.alertMin) {
+    var picked = rows.filter(function (r) { return wallCh(r) !== 'DIRECT' && String(r.status).toUpperCase() === 'PREPARING'; });
+    if (picked.length) {
+      add('amber', 'pickup', 'Pickup in ' + fmtDur(mp),
+          picked.length + ' picked, no label yet · ' + shelves(picked), pickupLabel());
+    }
+  }
+
+  // 4 · paid shipping waiting for its label (it used to be its own card)
+  var paid = num(tick.alerts && tick.alerts.paidShipping && tick.alerts.paidShipping.count);
+  if (paid > 0) add('amber', 'paid', 'Paid shipping · ' + paid, 'buyer paid for a service — match the exact label level');
+
+  // 5 · the pipe has gone quiet during the working day
+  if (!isOffHours() && sync >= SYNC_QUIET_MIN) {
+    add('slate', 'sync', 'eBay sync quiet', 'no new data for ' + esc(fmtDur(sync)) + ' · orders may not be arriving', fmtDur(sync));
+  }
+
+  var box = document.getElementById('attList'), cnt = document.getElementById('attCount');
+  var real = items.filter(function (it) { return it.sev !== 'green'; }).length;
+  cnt.textContent = real;
+  cnt.className = 'c' + (items.some(function (it) { return it.sev === 'red'; }) ? ' hot' : '');
+
+  if (real) { attLastNonEmpty = now; attWasBusy = true; attLastWhat = items[0].t; }
+  if (!items.length) {
+    var since = attWasBusy && attLastNonEmpty
+      ? 'last cleared ' + new Date(attLastNonEmpty).toLocaleTimeString('en-US', { timeZone: TZ, hour: 'numeric', minute: '2-digit' }) +
+        ' · ' + attLastWhat.toLowerCase()
+      : 'holds, late orders and deadlines appear here';
+    box.innerHTML = '<div class="att-calm">Nothing needs anyone<small>' + esc(since) + '</small></div>';
+    return;
+  }
+  var html = '';
+  items.slice(0, ATT_MAX).forEach(function (it) {
+    var fresh = attFreshUntil[it.key] && attFreshUntil[it.key] > now;
+    html += '<div class="al ' + it.sev + (fresh ? ' fresh' : '') + '"><div><div class="al-t">' + esc(it.t) +
+            '</div><div class="al-d">' + it.d + '</div></div><div class="al-a">' + esc(it.a) + '</div></div>';
+  });
+  if (items.length > ATT_MAX) html += '<div class="att-more">+' + (items.length - ATT_MAX) + ' more on the board</div>';
+  box.innerHTML = html;
+}
+
+// ---------- FLOOR NOTES — one per order ----------------------------------------
+function paintNotes(rows, held) {
+  var heldIds = {};
+  held.forEach(function (h) { heldIds[String(h.orderId)] = 1; });
+  var byOrder = {}, order = [];
+  ['EBAY', 'DIRECT', 'AMAZON'].forEach(function (ch) {
+    rows.forEach(function (r) {
+      if (wallCh(r) !== ch) return;
+      var id = String(r.orderId || '').trim();
+      if (!id || heldIds[id]) return;               // a held order already speaks in Needs attention
+      var o = byOrder[id];
+      if (!o) { o = byOrder[id] = { id: id, ch: ch, lines: 0, texts: [] }; order.push(o); }
+      o.lines++;
+      [r.note, r.kitNote].forEach(function (n) {
+        var hn = humanNote(n);
+        if (hn && !noteHasHold(hn) && o.texts.indexOf(hn) === -1) o.texts.push(hn);
+      });
+    });
+  });
+  var notes = order.filter(function (o) { return o.texts.length; });
+  var list = document.getElementById('ntList'), more = document.getElementById('ntMore');
+  document.getElementById('ntCount').textContent = notes.length || '';
+  if (!notes.length) {
+    list.innerHTML = '<div class="nt-none">no notes on open orders</div>';
+    more.textContent = '';
+    return;
+  }
+  var chName = { EBAY: 'eBay', DIRECT: 'Direct', AMAZON: 'Amazon' };
+  list.innerHTML = notes.map(function (o) {
+    var t = o.texts.join(' · ');
+    var buyer = /^Buyer Note:/i.test(t), warn = /^⚠/.test(t);
+    return '<div class="nt' + (buyer ? ' buyer' : warn ? ' warn' : '') + '">' +
+      '<div class="nt-o">' + esc(o.id) + ' · ' + chName[o.ch] + ' · ' + o.lines + ' line' + (o.lines > 1 ? 's' : '') +
+      (buyer ? ' · buyer' : '') + '</div>' +
+      '<div class="nt-x">' + esc(t.replace(/^Buyer Note:\s*/i, '')) + '</div></div>';
+  }).join('');
+  var hidden = 0;
+  while (list.scrollHeight > list.clientHeight + 1 && list.children.length > 0) {
+    list.removeChild(list.lastElementChild); hidden++;
+  }
+  more.textContent = hidden ? '+' + hidden + ' more note' + (hidden > 1 ? 's' : '') : '';
+}
+
+// ---------- TICKER — as it lands, one line --------------------------------------
+function paintTicker(timeline) {
+  var bar = document.getElementById('tick');
+  var ro = bar.querySelector('.tick-ro');
+  Array.prototype.slice.call(bar.querySelectorAll('.tev')).forEach(function (n) { bar.removeChild(n); });
   if (!timeline.length) return;
   var sorted = timeline.slice().sort(function (x, y) { return (y.hourFraction || 0) - (x.hourFraction || 0); });
-  var rows = [], gidx = {};
+  var rowsT = [], gidx = {};
   for (var i = 0; i < sorted.length; i++) {
     var ev = sorted[i], gk = String(ev.event) + '|' + String(ev.orderId);
-    if (gidx[gk] !== undefined) { rows[gidx[gk]]._n++; }
-    else { var cp = { event: ev.event, orderId: ev.orderId, hourFraction: ev.hourFraction, _n: 1 };
-           gidx[gk] = rows.length; rows.push(cp); }
+    if (gidx[gk] !== undefined) { rowsT[gidx[gk]]._n++; }
+    else { gidx[gk] = rowsT.length; rowsT.push({ event: ev.event, orderId: ev.orderId, hourFraction: ev.hourFraction, _n: 1 }); }
   }
-  rows = rows.slice(0, 14);
   var tag = function (e) {
     switch (String(e).toUpperCase()) {
       case 'RECEIVED': return ['new', 'Received'];
       case 'SHIPPED': return ['ship', 'Shipped'];
       case 'CANCELED': return ['cancel', 'Canceled'];
-      case 'PREPARING': return ['', 'Prepping'];
+      case 'PREPARING': return ['', 'Picked'];
       case 'PRINTED': return ['', 'Printed'];
       default: return ['', e || '—'];
     }
   };
-  var html = '';
-  for (var j = 0; j < rows.length; j++) {
-    var e = rows[j], t = tag(e.event);
-    var label = e.orderId ? (e.orderId + (e._n > 1 ? ' · ' + e._n + ' items' : '')) : (e._n > 1 ? e._n + ' items' : '—');
-    html += '<li><time>' + esc(fmtClock(e.hourFraction)) + '</time>' +
-            '<span class="ftag ' + t[0] + '">' + esc(t[1]) + '</span>' +
-            '<span class="fid">' + esc(label) + '</span>' +
-            '<span class="fch">' + esc(inferChannel(e.orderId)) + '</span></li>';
+  for (var j = 0; j < Math.min(rowsT.length, 16); j++) {
+    var e = rowsT[j], t = tag(e.event);
+    var label = e.orderId ? (e.orderId + (e._n > 1 ? ' · ' + e._n + ' items' : '')) : (e._n > 1 ? e._n + ' items' : '');
+    var span = document.createElement('span');
+    span.className = 'tev';
+    span.innerHTML = '<time>' + esc(fmtClock(e.hourFraction)) + '</time><span class="ftag ' + t[0] + '">' + esc(t[1]) +
+                     '</span>' + esc(label);
+    bar.insertBefore(span, ro);
   }
-  document.getElementById('feedList').innerHTML = html;
+  // drop the oldest until the line fits — never scroll, never wrap
+  var evs = bar.querySelectorAll('.tev');
+  for (var k = evs.length - 1; k > 0 && bar.scrollWidth > bar.clientWidth + 1; k--) bar.removeChild(evs[k]);
 }
 
 tickClock();
