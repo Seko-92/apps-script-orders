@@ -76,6 +76,26 @@ const kans = ctx._mpnAnswer(ctx._mpnParseQuery('0427 0701'), kidx, i => Object.a
 eq('F1 parts first (stocked first), then kits', kans[0].matches.map(m => m.sku), ['P0', 'P1', 'K1', 'K2']);
 eq('F2 SKU key agrees across number/text', ctx._mpnSkuKey(157554), ctx._mpnSkuKey('157554.0'));
 
+// --- G · keyword search -------------------------------------------------------------
+eq('G1 plural folds', ['gaskets', 'valves', 'glass', 'bus'].map(w => ctx._kwNorm(w)), ['gasket', 'valve', 'glass', 'bus']);
+eq('G2 query words deduped, 1-char dropped', ctx._kwParseQuery('Head  gasket, head x'), ['head', 'gasket']);
+const toks = ctx._kwTokens(['Cylinder Head Gasket for Deutz F3L912', 'BF6 M1013, 6 Cylinder']);
+eq('G3 prefix', ctx._kwHit('gask', toks), true);
+eq('G4 split model code glued', ctx._kwHit('bf6m1013', toks), true);
+eq('G5 digits match the end of a model code', ctx._kwHit('912', toks), true);
+eq('G6 digits do not match inside a plain number', ctx._kwHit('013', ctx._kwTokens(['part 4013'])), false);
+eq('G7 absent word', ctx._kwHit('piston', toks), false);
+const docs = [
+  { title: 'Piston With Ring STD For Kubota V2203', other: ['V2203', 'Piston'] },
+  { title: 'Engine Overhaul Kit', other: ['V2203, V2003', 'Overhaul Kit', 'piston rings included'] },
+  { title: 'Piston For Deutz 912', other: ['912', 'Piston'] },
+  { title: 'Head Gasket For Kubota V2203', other: ['V2203'] }
+];
+const km = ctx._kwMatch(ctx._kwParseQuery('v2203 pistons'), docs);
+eq('G8 every word must appear (AND)', km.map(m => m.row).sort(), [0, 1]);
+eq('G9 title match outranks spec-only', km.sort((a, b) => b.score - a.score).map(m => m.row), [0, 1]);
+eq('G10 nothing matches', ctx._kwMatch(['crankshaft'], docs).length, 0);
+
 // --- E · real MI export ---------------------------------------------------------------
 if (process.env.MI_JSON) {
   const mi = JSON.parse(fs.readFileSync(process.env.MI_JSON, 'utf8'));
@@ -97,6 +117,19 @@ if (process.env.MI_JSON) {
   const desc = i => ({ sku: mi.rows[i][sk], active: mi.rows[i][st] === 'Active', available: 1 });
   const sample = ctx._mpnAnswer(ctx._mpnParseQuery('02102238\n0429 2547'), idx, desc);
   sample.forEach(x => console.log(`  sample ${x.query} → ${x.matches.map(m => m.sku + ' (' + m.via + ')').join(', ') || 'none'}`));
+}
+
+if (process.env.MI_ALL_JSON) {
+  const mi = JSON.parse(fs.readFileSync(process.env.MI_ALL_JSON, 'utf8'));
+  const H = mi.headers, ti = H.indexOf('title'), sk = H.indexOf('sku');
+  const fi = ctx.KW_SEARCH.fields.map(f => H.indexOf(f)).filter(i => i >= 0);
+  const docs2 = mi.rows.map(r => ({ title: r[ti], other: fi.map(i => r[i]) }));
+  ['deutz 912 head gasket', 'v2203 piston', 'bf4m1011 crankshaft', 'perkins 404 gasket set',
+   'yanmar 4tnv98 water pump', 'lister'].forEach(q => {
+    const t0 = Date.now(), hits = ctx._kwMatch(ctx._kwParseQuery(q), docs2).sort((a, b) => b.score - a.score);
+    console.log(`  "${q}" → ${hits.length} listings in ${Date.now() - t0}ms` +
+      (hits[0] ? ` · top: ${mi.rows[hits[0].row][sk]} ${String(mi.rows[hits[0].row][ti]).slice(0, 55)}` : ''));
+  });
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

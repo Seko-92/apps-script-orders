@@ -459,6 +459,16 @@ var TG_ROUTES = {
     }
   },
 
+  "/search": {
+    help:  "find listings by words — engine model, part name (e.g. v2203 piston)",
+    usage: "<words>",
+    run: function (argStr, args, msg) {
+      if (!argStr) return "Usage: /search <words>\nExample: /search deutz 912 head gasket";
+      var who = (msg && msg.from && (msg.from.first_name || msg.from.username)) || "";
+      return _tgFormatSearch(argStr, who);
+    }
+  },
+
   "/status": {
     help: "today at a glance — to grab, oldest pending, shipped, last sync",
     run: function () { return _tgFormatStatus(); }

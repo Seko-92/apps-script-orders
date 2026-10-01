@@ -5015,11 +5015,12 @@ body{ font-variant-emoji:text; }
       <!-- MPN Finder (2026-10-01): paste the numbers from an engine lookup, see which
            ones we carry — every number on a listing, not only the one eBay searches. -->
       <textarea id="mfQuery" class="mf-side" rows="3" spellcheck="false"
-                placeholder="Part numbers — paste one or the whole SERPIC list"></textarea>
+                placeholder="Part numbers (paste the SERPIC list) — or words: v2203 piston"></textarea>
       <div class="btn-group">
-        <button class="btn-primary" id="mfBtn" onclick="openMpnFinderFromSidebar()">Find MPNs →</button>
-        <button class="btn-info" onclick="run('openMpnSearchLog')">Search log</button>
+        <button class="btn-primary" id="mfBtn" onclick="openMpnFinderFromSidebar('mpn')">Part numbers →</button>
+        <button class="btn-secondary" id="mfKwBtn" onclick="openMpnFinderFromSidebar('keywords')">Keywords →</button>
       </div>
+      <button class="btn-info" onclick="run('openMpnSearchLog')">Search log</button>
       <div class="empty-hint">
         One window for a part: <strong>stock · price · location · images</strong>, which <strong>kits use it</strong> (with each kit's buildable + what this part <strong>blocks</strong>), OOS + open demand. Search part after part in-window. Press <strong>Enter</strong>.
       </div>
@@ -8443,20 +8444,24 @@ function openPartConsoleFromSidebar() {
 }
 /* openMpnFinderFromSidebar() — MpnSearch.js → openMpnSearch. The modal runs the
    search on open and keeps its own search box, like the other consoles. */
-function openMpnFinderFromSidebar() {
+function openMpnFinderFromSidebar(mode) {
+  mode = (mode === 'keywords') ? 'keywords' : 'mpn';
   var input = document.getElementById('mfQuery');
   var text = input ? (input.value || '').trim() : '';
   if (typeof google === 'undefined' || !google.script) return;
-  var btn = document.getElementById('mfBtn');
+  var btn = document.getElementById(mode === 'keywords' ? 'mfKwBtn' : 'mfBtn');
+  var label = mode === 'keywords' ? 'Keywords →' : 'Part numbers →';
   if (btn) { btn.disabled = true; btn.textContent = 'Searching…'; }
   status.className = 'running';
   status.textContent = text ? 'Searching part numbers…' : 'Opening MPN finder…';
   google.script.run
     .withSuccessHandler(function(res) {
-      if (btn) { btn.disabled = false; btn.textContent = 'Find MPNs →'; }
+      if (btn) { btn.disabled = false; btn.textContent = label; }
       if (res && res.ok) {
         status.className = 'success';
-        status.textContent = text ? ('MPN finder · ' + res.found + ' carried · ' + res.missing + ' not') : 'MPN finder';
+        status.textContent = !text ? 'Parts finder'
+          : (mode === 'keywords' ? 'Parts finder · ' + res.found + ' listing(s)'
+                                 : 'Parts finder · ' + res.found + ' carried · ' + res.missing + ' not');
       } else {
         status.className = 'error';
         status.textContent = (res && res.reason) || 'Could not open MPN finder';
@@ -8464,11 +8469,11 @@ function openMpnFinderFromSidebar() {
       setTimeout(function() { status.className = ''; status.textContent = 'Ready'; }, 3000);
     })
     .withFailureHandler(function(err) {
-      if (btn) { btn.disabled = false; btn.textContent = 'Find MPNs →'; }
+      if (btn) { btn.disabled = false; btn.textContent = label; }
       status.className = 'error';
-      status.textContent = 'MPN finder error: ' + (err && err.message ? err.message : String(err));
+      status.textContent = 'Parts finder error: ' + (err && err.message ? err.message : String(err));
     })
-    .openMpnSearch(text);
+    .openMpnSearch(text, mode);
 }
 (function() {
   var mf = document.getElementById('mfQuery');

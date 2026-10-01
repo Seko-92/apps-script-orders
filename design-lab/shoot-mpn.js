@@ -7,8 +7,12 @@ const res = { ok: true, found: 2, missing: 2, columns: 21, ms: 2140, results: [
   { query: '0415 7075', matches: [
     { sku: '163872', title: 'Cylinder Head Gasket for Deutz F3L912', location: 'A-9', available: 3, price: 39.99, via: 'Interchange Part Number', active: true, url: 'https://ebay.com/itm/2' } ] },
   { query: '04292547', matches: [] }, { query: '1C010-74110', matches: [] } ] };
+const KW = process.env.KW ? { ok: true, mode: 'keywords', query: 'v2203 piston', total: 16, ms: 3900, matches: [
+  { sku: '173817', title: 'Piston With Rings 0.50 For Kubota, 16423-21910, V2203 Indirect Injection', location: 'B-12', available: 14, price: 59.99, active: true, url: 'x' },
+  { sku: '173808', title: 'Piston With Rings STD For Kubota V2203', location: 'B-12', available: 0, price: 54.99, active: true, url: 'x' },
+  { sku: '215756', isKit: true, title: 'Engine Overhaul Kit 0.50, 16423-21910 For Kubota V2203', location: 'K-12', available: 1, price: 440, active: true, url: 'x' } ] } : null;
 let html = fs.readFileSync(path.join(__dirname, '..', 'MpnSearchModal.html'), 'utf8')
-  .replace('<?!= initJson ?>', JSON.stringify({ text: '1  0429 2547  Seal ring  1\n2  0415 7075  Gasket  2', res }));
+  .replace('<?!= initJson ?>', JSON.stringify(KW ? { text: 'v2203 piston', mode: 'keywords', res: KW } : { text: '1  0429 2547  Seal ring  1\n2  0415 7075  Gasket  2', res }));
 html = html.replace('<head>', '<head><meta charset="utf-8"><script>window.google={script:{run:{}}};</script>');
 (async () => {
   const b = await chromium.launch(); const p = await b.newPage({ viewport: { width: 1080, height: 720 } });

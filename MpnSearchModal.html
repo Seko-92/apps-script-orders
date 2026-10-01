@@ -10,6 +10,12 @@
   .mf-wrap { display:flex; flex-direction:column; height:100vh; }
 
   .mf-head { background:#1d1d1b; padding:12px 18px; display:flex; gap:12px; align-items:stretch; }
+  .mf-side-l { display:flex; flex-direction:column; gap:8px; justify-content:center; }
+  .mf-mode { display:flex; border:1px solid #4a4a46; border-radius:6px; overflow:hidden; }
+  .mf-mode button { flex:1; border:none; background:#2a2a27; color:#9a9a90; padding:6px 10px; cursor:pointer; font-family:'Oswald',sans-serif; font-size:11px; letter-spacing:.05em; text-transform:uppercase; white-space:nowrap; }
+  .mf-mode button.on { background:#ffd400; color:#1d1d1b; font-weight:600; }
+  .mf-kwtable { background:#fff; border:1px solid #e5ddc7; border-radius:10px; overflow:hidden; }
+  .mf-more { color:#8a8a80; font-size:11px; text-align:center; margin:10px 0; }
   .mf-head h1 { margin:0; font-family:'Oswald',sans-serif; font-weight:600; font-size:16px; letter-spacing:.05em; color:#ffd400; white-space:nowrap; align-self:center; }
   #mfInput { flex:1; min-height:58px; max-height:120px; resize:vertical; padding:8px 10px; border:1px solid #4a4a46; border-radius:6px; background:#2a2a27; color:#fff; font-family:'Roboto Mono',monospace; font-size:13px; }
   #mfInput::placeholder { color:#8a8a84; }
@@ -58,7 +64,13 @@
 <body>
 <div class="mf-wrap">
   <div class="mf-head">
-    <h1>MPN FINDER</h1>
+    <div class="mf-side-l">
+      <h1>PARTS FINDER</h1>
+      <div class="mf-mode" id="mfMode">
+        <button data-m="mpn" onclick="setMode('mpn')">Part numbers</button>
+        <button data-m="keywords" onclick="setMode('keywords')">Keywords</button>
+      </div>
+    </div>
     <textarea id="mfInput" placeholder="Paste part numbers — one, many, or the whole list from SERPIC (0415 7075 is fine)" spellcheck="false"></textarea>
     <div class="mf-btns">
       <button class="mf-btn" id="mfGo" onclick="run()">Find</button>
@@ -67,8 +79,9 @@
   </div>
   <div class="mf-summary" id="mfSummary"></div>
   <div class="mf-body" id="mfBody">
-    <div class="mf-empty">Paste the part numbers from the engine lookup and press <b>Find</b> (Ctrl+Enter).<br>
-      Every number on a listing is searched — not just the first one eBay matches.</div>
+    <div class="mf-empty"><b>Part numbers</b> — paste the numbers from the engine lookup, press <b>Find</b> (Ctrl+Enter).
+      Every number on a listing is searched, not just the first one eBay matches.<br>
+      <b>Keywords</b> — engine model and part name, e.g. <i>v2203 piston</i>. Every word must appear.</div>
   </div>
 </div>
 <div class="mf-veil" id="mfVeil">SEARCHING MASTER INVENTORY…</div>
@@ -77,6 +90,23 @@
 <script>
 var INIT = <?!= initJson ?>;
 var last = null;
+var mode = 'mpn';
+var PH = {
+  mpn: 'Paste part numbers — one, many, or the whole list from SERPIC (0415 7075 is fine)',
+  keywords: 'Type words — engine model and part, e.g.  deutz 912 head gasket   or   v2203 piston'
+};
+
+function setMode(m) {
+  mode = (m === 'keywords') ? 'keywords' : 'mpn';
+  Array.prototype.forEach.call(document.querySelectorAll('#mfMode button'), function (b) {
+    b.className = (b.getAttribute('data-m') === mode) ? 'on' : '';
+  });
+  var inp = document.getElementById('mfInput');
+  inp.placeholder = PH[mode];
+  inp.rows = mode === 'keywords' ? 1 : 3;
+  document.getElementById('mfCopy').style.display = mode === 'keywords' ? 'none' : '';
+  inp.focus();
+}
 
 function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]; }); }
 function money(v) { return (v == null) ? '—' : '$' + Number(v).toFixed(2); }
@@ -88,7 +118,7 @@ function run() {
   google.script.run
     .withSuccessHandler(function (res) { setBusy(false); render(res); })
     .withFailureHandler(function (e) { setBusy(false); render({ ok:false, reason: (e && e.message) || String(e) }); })
-    .getMpnSearch(text);
+    [mode === 'keywords' ? 'getKeywordSearch' : 'getMpnSearch'](text);
 }
 
 function setBusy(on) {
@@ -96,8 +126,38 @@ function setBusy(on) {
   document.getElementById('mfGo').disabled = on;
 }
 
+function row(m) {
+  var tags = m.via ? '<span class="tag' + (m.via === 'main' ? '' : ' extra') + '">' +
+             (m.via === 'main' ? 'main MPN' : esc(m.via)) + '</span>' : '';
+  if (m.isKit) tags = '<span class="tag kit">kit</span> ' + tags;
+  if (!m.active) tags += ' <span class="tag ended">' + esc(m.status || 'ended') + '</span>';
+  return '<tr' + (m.isKit ? ' class="is-kit"' : '') + '>' +
+    '<td class="c-sku">' + (m.url ? '<a href="' + esc(m.url) + '" target="_blank">' + esc(m.sku) + '</a>' : esc(m.sku)) + '</td>' +
+    '<td class="c-title" title="' + esc(m.title) + '">' + esc(m.title) + '</td>' +
+    '<td class="c-loc' + (m.location === 'NOT FOUND' ? ' nf' : '') + '">' + esc(m.location) + '</td>' +
+    '<td class="c-qty' + ((m.available || 0) <= 0 ? ' zero' : '') + '">' + (m.available == null ? '—' : m.available) + '</td>' +
+    '<td class="c-price">' + money(m.price) + '</td>' +
+    '<td class="c-via">' + tags + '</td></tr>';
+}
+
+function renderKeywords(res) {
+  var sum = document.getElementById('mfSummary'), body = document.getElementById('mfBody');
+  sum.innerHTML = '<span><b>' + res.total + '</b> listing' + (res.total === 1 ? '' : 's') +
+    ' contain every word of <b>' + esc(res.query) + '</b></span>' +
+    '<span class="mf-dim">' + (res.ms / 1000).toFixed(1) + 's</span>';
+  if (!res.total) {
+    body.innerHTML = '<div class="mf-empty">Nothing on any listing contains all of those words.<br>' +
+      'Try fewer words, or a shorter piece of the model (bf4m instead of bf4m1011f).</div>';
+    return;
+  }
+  body.innerHTML = '<div class="mf-kwtable"><table>' + res.matches.map(row).join('') + '</table></div>' +
+    (res.total > res.matches.length ? '<div class="mf-more">Showing the best ' + res.matches.length +
+      ' of ' + res.total + ' — add a word to narrow it.</div>' : '');
+}
+
 function render(res) {
   last = res;
+  if (res && res.ok && res.mode === 'keywords') { document.getElementById('mfCopy').disabled = true; return renderKeywords(res); }
   var sum = document.getElementById('mfSummary'), body = document.getElementById('mfBody');
   document.getElementById('mfCopy').disabled = !(res && res.ok && res.found);
   if (!res || !res.ok) {
@@ -115,19 +175,7 @@ function render(res) {
     if (!x.matches.length) { missing.push(x.query); return; }
     html += '<div class="mf-group"><div class="mf-qhead"><span class="mf-q">' + esc(x.query) + '</span>' +
             '<span class="mf-n">' + x.matches.length + ' listing' + (x.matches.length === 1 ? '' : 's') + '</span></div><table>';
-    x.matches.forEach(function (m) {
-      var tags = '<span class="tag' + (m.via === 'main' ? '' : ' extra') + '">' +
-                 (m.via === 'main' ? 'main MPN' : esc(m.via)) + '</span>';
-      if (m.isKit) tags = '<span class="tag kit">kit</span> ' + tags;
-      if (!m.active) tags += ' <span class="tag ended">' + esc(m.status || 'ended') + '</span>';
-      html += '<tr' + (m.isKit ? ' class="is-kit"' : '') + '>' +
-        '<td class="c-sku">' + (m.url ? '<a href="' + esc(m.url) + '" target="_blank">' + esc(m.sku) + '</a>' : esc(m.sku)) + '</td>' +
-        '<td class="c-title" title="' + esc(m.title) + '">' + esc(m.title) + '</td>' +
-        '<td class="c-loc' + (m.location === 'NOT FOUND' ? ' nf' : '') + '">' + esc(m.location) + '</td>' +
-        '<td class="c-qty' + ((m.available || 0) <= 0 ? ' zero' : '') + '">' + (m.available == null ? '—' : m.available) + '</td>' +
-        '<td class="c-price">' + money(m.price) + '</td>' +
-        '<td class="c-via">' + tags + '</td></tr>';
-    });
+    html += x.matches.map(row).join('');
     html += '</table></div>';
   });
   if (missing.length) {
@@ -164,9 +212,12 @@ function toast(t) {
 }
 
 document.getElementById('mfInput').addEventListener('keydown', function (e) {
-  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); run(); }
+  // Keywords are one line, so Enter searches. Part numbers are a pasted list, so
+  // Enter is a new line and Ctrl+Enter searches.
+  if (e.key === 'Enter' && (mode === 'keywords' || e.ctrlKey || e.metaKey)) { e.preventDefault(); run(); }
 });
 
+setMode(INIT.mode || 'mpn');
 if (INIT.text) document.getElementById('mfInput').value = INIT.text;
 if (INIT.res) render(INIT.res);
 document.getElementById('mfInput').focus();
