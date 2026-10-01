@@ -2,6 +2,7 @@
 //   node shoot-mpn.js out.png            keyword result, first row selected, full dossier arrived
 //   MODE=mpn node shoot-mpn.js out.png   SERPIC paste result
 //   MODE=loading ...                     the instant before the full dossier arrives
+//   SIZES_JSON=s.json ...                the 'Other sizes' ladder from a real _szSiblings output
 //   IDENT_JSON=id.json ...               right pane's numbers & fit from a real _pfPartIdentity output
 const fs = require('fs'), path = require('path'); const { chromium } = require('playwright');
 const img = 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80"><rect width="80" height="80" fill="#ddd"/><circle cx="40" cy="40" r="22" fill="#999"/></svg>');
@@ -20,6 +21,7 @@ const mpn = { ok: true, mode: 'mpn', auto: true, ms: 4000, found: 2, missing: 1,
 const dossier = { sku: '155430', found: true, isKit: false, ebayUrl: 'x', unblock: [],
   part: { title: 'Piston rings STD For Kubota, 1G790-21050', images: [img, img, img], location: 'J-29', available: 85,
           zohoAvailable: 85, miAvailable: 86, sold: 412, ebayPrice: 22, zohoPrice: 22, listingStatus: 'Active', committed: 2 },
+  sizes: process.env.SIZES_JSON ? JSON.parse(fs.readFileSync(process.env.SIZES_JSON, 'utf8')) : [],
   identity: process.env.IDENT_JSON ? JSON.parse(fs.readFileSync(process.env.IDENT_JSON, 'utf8')) :
     { numbers: [{ num: '1G790-21050', main: true, via: '' }], engines: ['V2203', 'V2203-M-DI'], brands: ['Bobcat', 'Kubota'],
       machines: ['Bobcat', 'Dynapac', 'MFWD Tractor', 'TERRAIN Vehicle', 'Steer Loader', 'Truck Loader', 'Multi Terrain Loader',

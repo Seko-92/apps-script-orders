@@ -162,6 +162,52 @@ if (process.env.MI_JSON) {
   eq('I9 null-safe', ctx._pfPartIdentity(null, null).numbers, []);
 }
 
+// --- J · other sizes ------------------------------------------------------------------
+{
+  const cat = [
+    ['166527', 'Piston With Rings STD For Kubota, 16423-21110, V2203 IDI, D1703, F2803, 87mm.'],
+    ['173817', 'Piston With Rings 0.50 For Kubota, 16423-21910, V2203 IDI, D1703, F2803, 87mm.'],
+    ['163332', 'Piston With Ring STD For Kubota, 1G796-21112, V2403-DI, V2403-MDI, V2203, 87mm.'],
+    ['199095', 'Piston With Ring 0.50 For Kubota, 1G796-21110, V2403-DI, V2403-MDI, V2203, 87mm.'],
+    ['216350', 'Piston With Rings STD For Kubota, 1J881-21110, V2403, V2203, 87mm.'],
+    ['175617', 'Piston With Rings STD For Kubota 16641-21112, V2203 DI, D1803, 87mm.'],
+    ['176724', 'Piston With Rings 0.50 For Kubota 16641-21912, V2203 DI, D1803, 87mm.'],
+    ['155430', 'Piston rings STD For Kubota, 1G790-21050. V2203, V2403, V2203-M-DI For 1 Piston'],
+    ['163413', 'Piston rings 0.50 For Kubota, 1G790-21053 V2203, V2203-M-DI, (For 1 Piston)'],
+    ['163485', 'Piston With Ring STD For Deutz, 04179921, BF 1011.'],
+    ['207069', 'Piston With Ring 0.50 For Deutz, 04270701, BF1011, 1011, 91.50mm.'],
+    ['157572', 'Engine Overhaul, Rebuild Kit, Deutz STD, 04179914 F 4L1011F, 1011, 4 Cylinder.'],
+    ['157590', 'Engine Overhaul, Rebuild Kit, For Deutz 0.50, 04179916, F 4L1011F, 1011.'],
+    ['157599', 'Engine Overhaul, Rebuild Kit, Deutz 0.50, 04179916, F 3L1011F, 1011, 3 Cylinder'],
+    ['195072', 'Main Bearing Set STD For Caterpillar, 156-6977, 3013C, C1.5, C1.7'],
+    ['195090', 'Main Bearing Set 0.20 For Caterpillar, 161-2629, 3013C, C1.5, C1.7'],
+    ['173214', 'Main Bearing Set STD For Caterpillar, 308-1854, C1.1'],
+    ['175428', 'Main Bearing Set 0.20 For Caterpillar, 308-1854B, 294-4916B, C1.1'],
+    ['172575', 'Main Bearing STD For Deutz 04231079, BF6L 913, F6L 914, TCD 914'],
+    ['166122', 'Main Bearing 0.50 For Deutz 04231081, BF6L 913, F6L 914, TCD 914'],
+    ['172508', 'Crankshaft Bushing STD For Kubota 1A091-23470, D1403, D1503, D1703'],
+    ['158382', 'Main Bearing Set 0.50 For Kubota 1A091-23920, D1403, D1503, D1703, D1803, 60MM.'],
+    ['171909', 'Fuel Injection Compensate Gasket for Deutz 04178523, 2011 Thickness 0.45mm'],
+    ['172017', 'Fuel Injection Compensate Gasket for Deutz 04272924, 2011, Thickness 1.15mm'],
+    ['199999', 'Water Pump For Kubota V2203, 1C010-73030'],
+  ].map(([sku, title]) => ({ sku, title }));
+  const lad = sku => ctx._szSiblings(cat.find(c => c.sku === sku).title, sku, cat).map(x => x.sku + ':' + x.size + (x.self ? '*' : ''));
+  eq('J1 Kubota 16423 STD ↔ its own 0.50 only (not 1G796 / 16641 / 1J881)', lad('166527'), ['166527:STD*', '173817:0.50']);
+  eq('J2 Kubota 1G796 family stays separate', lad('199095'), ['163332:STD', '199095:0.50*']);
+  eq('J3 1J881 has no other size → no ladder', lad('216350'), []);
+  eq('J4 rings ≠ pistons, rings pair with rings', lad('155430'), ['155430:STD*', '163413:0.50']);
+  eq('J5 Deutz: different numbers, BF 1011 = BF1011, 91.50mm ignored', lad('163485'), ['163485:STD*', '207069:0.50']);
+  eq('J6 kits: 4-cyl does not pair with 3-cyl', lad('157572'), ['157572:STD*', '157590:0.50']);
+  eq('J7 Caterpillar C1.5/C1.7 ≠ C1.1', lad('195072'), ['195072:STD*', '195090:0.20']);
+  eq('J8 Deutz main bearing STD ↔ 0.50', lad('172575'), ['172575:STD*', '166122:0.50']);
+  eq('J9 bushing ≠ main bearing set', lad('172508'), []);
+  eq('J10 mm thickness series, smallest first', lad('172017'), ['171909:0.45MM', '172017:1.15MM*']);
+  eq('J11 no size in the title → nothing', lad('199999'), []);
+  eq('J12 size parse', ['Piston STD For X', 'Rings Oversize 0.50 For', 'Gasket 1.25MM for', 'Bearing 0.100 For', 'Pump For V2203'].map(ctx._szSize),
+     ['STD', '0.50', '1.25MM', '0.100', null]);
+  eq('J13 ranking STD < 0.10 < 0.25 < 0.50', ['0.50', 'STD', '0.25', '0.10'].sort((a, b) => ctx._szRank(a) - ctx._szRank(b)), ['STD', '0.10', '0.25', '0.50']);
+}
+
 if (process.env.MI_ALL_JSON) {
   const mi = JSON.parse(fs.readFileSync(process.env.MI_ALL_JSON, 'utf8'));
   const H = mi.headers, ti = H.indexOf('title'), sk = H.indexOf('sku');

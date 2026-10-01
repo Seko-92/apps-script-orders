@@ -263,7 +263,7 @@ function _partMasterInfoFromRow(snap, normSku) {
 
 function _pcMasterSnapshot(normSku) {
   var out = { locationMap: new Map(), inventoryMap: new Map(), priceMap: new Map(),
-              row: null, headers: [], rowIndex: -1 };
+              catalog: [], row: null, headers: [], rowIndex: -1 };
   try {
     var sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(DB_SHEET_NAME);
     if (!sheet) return out;
@@ -285,7 +285,11 @@ function _pcMasterSnapshot(normSku) {
       sold:  col(DB_QUANTITY_SOLD_HEADER),
       loc:   col(DB_LOCATION_HEADER),
       cur:   col('currentPrice'),
-      strt:  col('startPrice')
+      strt:  col('startPrice'),
+      // title + status ride the SAME block (cols 3 and 14, inside the 2–40 span) — they feed
+      // the "other sizes" ladder at no extra read
+      title: col(DB_TITLE_HEADER),
+      status: col(DB_LISTING_STATUS_HEADER)
     };
     if (want.sku < 1) return out;
 
@@ -335,6 +339,8 @@ function _pcMasterSnapshot(normSku) {
       var ps = parseFloat(at(block[i], want.strt));
       var price = (!isNaN(pc) && pc > 0) ? pc : ((!isNaN(ps) && ps > 0) ? ps : null);
       if (price != null) out.priceMap.set(key, price);
+      if (want.title > 0) out.catalog.push({ sku: raw, title: String(at(block[i], want.title) || ""),
+                                             status: want.status > 0 ? String(at(block[i], want.status) || "").trim() : "" });
     }
 
     // the target row's rich fields — one row, cheap at any width
@@ -527,6 +533,20 @@ function _buildPartDossier(raw) {
     kit:      kitView,
     usedIn:   usedIn,
     unblock:  unblock,
+    sizes:    (function () {
+      // the same part in its other sizes — titles already in memory from the snapshot
+      try {
+        return _szSiblings(part.title, rawTrim, snap.catalog).map(function (x) {
+          var k = _normPartSku(x.sku), av = resolveAvail(k);
+          var c = snap.catalog.filter(function (r) { return _normPartSku(r.sku) === k; })[0];
+          var st = c ? c.status : "";
+          return { sku: x.sku, size: x.size, title: x.title, self: x.self, num: x.num, variant: x.variant,
+                   location: (snap.locationMap.get(k) || "").trim() || "NOT FOUND",
+                   available: av, price: snap.priceMap.has(k) ? snap.priceMap.get(k) : null,
+                   active: !st || st === "Active", status: st };
+        });
+      } catch (e) { try { console.log("sizes: " + e); } catch (_) {} return []; }
+    })(),
     // every part number + what it fits — from the row the snapshot ALREADY read (no extra read)
     identity: (function () { try { return _pfPartIdentity(snap.headers, snap.row); } catch (e) { return null; } })(),
     zohoSyncedAt: (function () { try { var d = getZohoStockSyncedAt(); return d ? d.getTime() : null; } catch (e) { return null; } })()

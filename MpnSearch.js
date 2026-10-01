@@ -630,6 +630,121 @@ function _pfPartIdentity(headers, row) {
   return out;
 }
 
+// ---------------------------------------------------------------------------------------
+// OTHER SIZES — "do you have it in 0.50?" (2026-10-01)
+// ---------------------------------------------------------------------------------------
+//
+// Pistons, rings and bearings come in STD and oversizes (0.25 / 0.50 …, Lister 0.10–0.40,
+// Deutz compensating gaskets 0.40–1.25 mm). Each size is its own listing with its OWN
+// part number — Deutz STD 04179921, 0.50 04270701 — so the number can't link them.
+//
+// ⚠⚠ THE DANGER IS THE WRONG FAMILY, NOT A MISSED SIZE. Kubota V2203 alone has four piston
+// families (16423 IDI · 16641 DI · 1G796 · 1J881), each with its own STD and 0.50. Offering
+// another family's 0.50 as "your size" ships a piston that does not fit. So a sibling must:
+//   • have a different size, and be the same kind (kit ↔ kit, part ↔ part)
+//   • have the SAME part name ("Piston With Ring" ≠ "Piston Rings")
+//   • share the brand, and share ≥ half its engine codes (BF 1011 → bf1011, glued)
+//   • not carry a DIFFERENT Kubota number stem (16423-21… vs 1G796-21…) — the size lives
+//     in the last digits of a Kubota number, so a different stem is a different family.
+// Measured on the 2026-09-12 export: 967 titles carry a size; 629 get a sibling list.
+
+var SIZE_RE = /(^|[\s,(])(STD|STANDARD|oversize|undersize|\+?0?\.\d{2,3}(\s?mm)?|[01]\.\d{2}\s?mm)(?=$|[\s,.)])/ig;
+var SIZE_FILLER = ("rebuild overhaul for metal composite cylinder cyl ring rings piston pistons set pair 1pair " +
+  "pc pcs engine engines kit only new oversize undersize direct indirect injection injected idi di and " +
+  "with the a of air compressor backhoe").split(" ");
+var SIZE_BRANDS = /^(deutz|kubota|perkins|lister|petter|yanmar|shibaura|mitsubishi|jcb|isuzu|hatz|onan|bobcat|caterpillar|cat|doosan|volvo|thermo|kohler|ford|betico)$/;
+
+/** The size a title names: "STD", "0.50", "0.95MM"… or null. Pure. */
+function _szSize(title) {
+  var m, re = new RegExp(SIZE_RE.source, "ig");
+  while ((m = re.exec(String(title == null ? "" : title)))) {
+    var s = m[2].toUpperCase().replace(/\s/g, "");
+    if (/^OVER|^UNDER/.test(s)) continue;
+    return s === "STANDARD" ? "STD" : s;
+  }
+  return null;
+}
+
+/** Sort key: STD first, then by the number. Pure. */
+function _szRank(size) {
+  if (!size || size === "STD") return -1;
+  var n = parseFloat(String(size).replace(/MM$/, ""));
+  return isNaN(n) ? 999 : n;
+}
+
+function _szIsPartNumber(w) { return /^\d{5,}$/.test(w) || /^[0-9a-z]+-\d{3,}/.test(w); }
+
+/** Title → { size, kit, name, codes:Set, brands:Set, stems:Set }. Pure. */
+function _szParse(title) {
+  var t = String(title == null ? "" : title);
+  var size = _szSize(t);
+  var low = t.toLowerCase()
+    .replace(/\d+(\.\d+)?\s?mm\b/g, " ")                 // 91.50mm is a dimension, not an engine
+    .replace(/\(?for \d+ pistons?\)?/g, " ").replace(/\(?\d+\s?pairs?\)?/g, " ")
+    .replace(new RegExp(SIZE_RE.source, "ig"), " ");
+  var name = low.split(/\bfor\b|,/)[0].replace(/[^a-z ]+/g, " ").split(/\s+/).filter(Boolean)
+    .map(function (w) { return (w.length > 3 && /s$/.test(w) && !/ss$/.test(w)) ? w.slice(0, -1) : w; }).join(" ");
+  var nameW = {}; name.split(" ").forEach(function (w) { nameW[w] = true; });
+  var toks = low.replace(/\b([a-z]{1,4})\s+(\d)/g, "$1$2")      // "bf 1011" → "bf1011"
+    .replace(/\.(?!\d)/g, " ").split(/[\s,()\/;]+/)
+    .map(function (w) { return w.replace(/^-+|-+$/g, ""); }).filter(Boolean);
+  var codes = {}, brands = {}, stems = {};
+  toks.forEach(function (w) {
+    if (/^[0-9a-z]{5}-\d{5}$/.test(w)) stems[w.slice(0, 8)] = true;
+    if (SIZE_BRANDS.test(w)) { brands[w] = true; return; }
+    if (SIZE_FILLER.indexOf(w) >= 0 || nameW[w] || nameW[w.replace(/s$/, "")]) return;
+    if (_szIsPartNumber(w) || /^\d$/.test(w) || /^0\d*$/.test(w) || !/^[a-z0-9.-]+$/.test(w)) return;
+    codes[w.replace(/-/g, "")] = true;
+  });
+  function set(o) { return Object.keys(o); }
+  return { size: size, kit: /overhaul|rebuild kit|repair kit/i.test(t), name: name,
+           codes: set(codes), brands: set(brands), stems: set(stems) };
+}
+
+function _szJaccard(a, b) {
+  if (!a.length && !b.length) return 1;
+  var inB = {}, hit = 0; b.forEach(function (x) { inB[x] = true; });
+  a.forEach(function (x) { if (inB[x]) hit++; });
+  return hit / (a.length + b.length - hit);
+}
+
+/** Two parsed titles → the same part in another size? Pure. */
+function _szIsSibling(a, b) {
+  if (!a.size || !b.size || a.size === b.size || a.kit !== b.kit || a.name !== b.name || !a.name) return false;
+  if (a.brands.length && b.brands.length && !_szJaccard(a.brands, b.brands)) return false;
+  if (!a.codes.length || !b.codes.length || _szJaccard(a.codes, b.codes) < 0.5) return false;
+  if (a.stems.length && b.stems.length && !a.stems.some(function (s) { return b.stems.indexOf(s) >= 0; })) return false;
+  return true;
+}
+
+/**
+ * Pure. The size ladder for one listing: itself + its siblings, STD first.
+ * @param {string} title   the part's title
+ * @param {Array<{sku,title}>} catalog
+ * @return {Array<{sku,size,title,self:boolean}>}  [] when the part has no size or no siblings
+ */
+function _szSiblings(title, sku, catalog) {
+  var me = _szParse(title);
+  if (!me.size) return [];
+  var out = [], seenSku = {};
+  (catalog || []).forEach(function (c) {
+    var t = String(c.title || "");
+    if (!t || !_szSize(t)) return;                        // cheap gate before the full parse
+    var k = _mpnSkuKey(c.sku);
+    if (seenSku[k]) return;
+    var isSelf = k === _mpnSkuKey(sku);
+    if (!isSelf && !_szIsSibling(me, _szParse(t))) return;
+    seenSku[k] = true;
+    var num = (t.match(/\b(\d{5,}|[0-9A-Za-z]+-\d{3,}[0-9A-Za-z\-\/.]*)/) || [])[1] || "";
+    var variant = (t.match(/\b(metal|composite)\b/i) || [])[1] || "";
+    out.push({ sku: _mpnCellText(c.sku), size: isSelf ? me.size : _szSize(t), title: t, self: isSelf,
+               num: num.replace(/[.,]+$/, ""), variant: variant });
+  });
+  if (out.length < 2) return [];
+  out.sort(function (x, y) { return _szRank(x.size) - _szRank(y.size) || String(x.sku).localeCompare(String(y.sku)); });
+  return out;
+}
+
 /** Pure. "sku" | "mpn" | "keywords". */
 function _pfDetectMode(text) {
   var raw = _mpnJoinSplitNumbers(String(text == null ? "" : text)).trim();

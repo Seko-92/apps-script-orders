@@ -134,6 +134,24 @@
 
   .pc-empty { color:#9a9a90; font-style:italic; padding:8px 0; }
 
+  /* other sizes: STD / 0.25 / 0.50 … of the same part */
+  .pc-sizes { display:flex; gap:8px; flex-wrap:wrap; }
+  .pc-size { background:#fff; border:1px solid #e5ddc7; border-radius:10px; padding:8px 12px; min-width:118px; cursor:pointer; }
+  .pc-size:hover { border-color:#e0c96a; background:#fffbe6; }
+  .pc-size.self { background:#1d1d1b; border-color:#1d1d1b; color:#fff; cursor:default; }
+  .pc-size.ended { opacity:.55; }
+  .pc-size .sz { font-family:'Oswald',sans-serif; font-weight:700; font-size:20px; line-height:1.1; }
+  .pc-size.self .sz { color:#ffd400; }
+  .pc-size .nm { font-family:'Roboto Mono',monospace; font-size:12px; font-weight:700; color:#333; }
+  .pc-size.self .nm { color:#fff; }
+  .pc-size .sk { font-family:'Roboto Mono',monospace; font-size:11.5px; color:#5f5f5f; }
+  .pc-size.self .sk { color:#bdbdb4; }
+  .pc-size .ln { font-size:11.5px; margin-top:4px; display:flex; gap:8px; }
+  .pc-size .ln .q.zero { color:#b71c1c; font-weight:700; }
+  .pc-size .ln .q.ok { color:#1b5e20; font-weight:700; }
+  .pc-size.self .ln .q.ok { color:#8fd694; }
+  .pc-size .tag { font-family:'Oswald',sans-serif; font-size:9px; text-transform:uppercase; letter-spacing:.05em; color:#9a9a90; }
+
   /* identity: every number the part answers to + what it fits */
   .pc-id { background:#fff; border:1px solid #e5ddc7; border-radius:10px; padding:10px 14px; }
   .pc-idrow { display:flex; gap:12px; padding:6px 0; border-bottom:1px solid #f1ead6; align-items:flex-start; }
@@ -206,6 +224,7 @@
         <div class="pc-images" id="pcImages"></div>
         <div class="pc-facts" id="pcFacts"></div>
       </div>
+      <div id="pcSizes"></div>
       <div id="pcIdentity"></div>
       <div id="pcKit"></div>
       <div id="pcRipple"></div>
@@ -284,6 +303,25 @@
         + '<div class="pc-sub">committed to open orders</div></div>';
 
       host.innerHTML = stock + price + where + demand;
+    }
+
+    /** The same part in its other sizes. Click a size → open that part. */
+    function renderSizes(D) {
+      var host = document.getElementById('pcSizes');
+      var list = D.sizes || [];
+      if (D._loading || list.length < 2) { host.innerHTML = ''; return; }
+      var html = '<div class="pc-sec"><svg class="mk"><use href="#m-part"/></svg>Other sizes <span class="pc-count">· ' + (list.length - 1) + ' more</span></div><div class="pc-sizes">';
+      list.forEach(function (x) {
+        var av = x.available, qCls = (av == null) ? '' : (av > 0 ? 'ok' : 'zero');
+        html += '<div class="pc-size' + (x.self ? ' self' : '') + (x.active ? '' : ' ended') + '"'
+          + (x.self ? ' title="This part"' : ' onclick="nav(\'' + esc(x.sku) + '\')" title="' + esc(x.title) + '"') + '>'
+          + '<div class="sz">' + esc(x.size) + '</div>'
+          + (x.num || x.variant ? '<div class="nm">' + esc(x.num) + (x.variant ? (x.num ? ' · ' : '') + esc(x.variant) : '') + '</div>' : '')
+          + '<div class="sk">' + esc(x.sku) + (x.self ? ' <span class="tag">this one</span>' : '') + (x.active ? '' : ' <span class="tag">' + esc(x.status || 'ended') + '</span>') + '</div>'
+          + '<div class="ln"><span>' + esc(x.location) + '</span><span class="q ' + qCls + '">' + (av == null ? '—' : av) + ' on hand</span><span>' + money(x.price) + '</span></div>'
+          + '</div>';
+      });
+      host.innerHTML = html + '</div>';
     }
 
     /** Every number this part answers to, and what it fits. Click a number → search it. */
@@ -424,10 +462,12 @@
         document.getElementById('pcFacts').innerHTML = '<div class="pc-empty">No part found for “' + esc(D.sku) + '”. Check the SKU, or search again above.</div>';
         document.getElementById('pcKit').innerHTML = '';
         document.getElementById('pcIdentity').innerHTML = '';
+        document.getElementById('pcSizes').innerHTML = '';
         document.getElementById('pcRipple').innerHTML = '';
       } else {
         renderImages(D.part);
         renderFacts(D.part);
+        renderSizes(D);
         renderIdentity(D);
         renderKit(D);
         renderRipple(D);
