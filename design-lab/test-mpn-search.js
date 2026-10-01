@@ -65,6 +65,17 @@ eq('D4 inactive sorted last', ans[0].matches[ans[0].matches.length - 1].sku, '22
 eq('D5 main match', ans[1].matches.map(m => m.sku + ':' + m.via), ['111111:main']);
 eq('D6 miss', ans[2].matches.length, 0);
 
+// --- F · the part before the kits that contain it ---------------------------------
+const kidx = ctx._mpnBuildIndex([['K1', '04270701'], ['P1', '04270701'], ['K2', '04270701'], ['P0', '04270701']],
+                                [{ name: 'C:MPN', off: 1 }]);
+const kdesc = { 0: { sku: 'K1', isKit: true,  active: true, available: 9 },
+                1: { sku: 'P1', isKit: false, active: true, available: 0 },
+                2: { sku: 'K2', isKit: true,  active: true, available: 1 },
+                3: { sku: 'P0', isKit: false, active: true, available: 203 } };
+const kans = ctx._mpnAnswer(ctx._mpnParseQuery('0427 0701'), kidx, i => Object.assign({}, kdesc[i]));
+eq('F1 parts first (stocked first), then kits', kans[0].matches.map(m => m.sku), ['P0', 'P1', 'K1', 'K2']);
+eq('F2 SKU key agrees across number/text', ctx._mpnSkuKey(157554), ctx._mpnSkuKey('157554.0'));
+
 // --- E · real MI export ---------------------------------------------------------------
 if (process.env.MI_JSON) {
   const mi = JSON.parse(fs.readFileSync(process.env.MI_JSON, 'utf8'));

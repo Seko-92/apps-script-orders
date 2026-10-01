@@ -2,7 +2,7 @@
 const fs = require('fs'), path = require('path'); const { chromium } = require('playwright');
 const res = { ok: true, found: 2, missing: 2, columns: 21, ms: 2140, results: [
   { query: '02102238', matches: [
-    { sku: '157149', title: 'Main Bearing Set STD for Deutz 912 913 Engines', location: 'E-17', available: 6, price: 85, via: 'main', active: true, url: 'https://ebay.com/itm/1' },
+    { sku: '157554', isKit: true, title: 'Engine Overhaul, Rebuild Kit, For Deutz BF4M1011F', location: 'E-17', available: 6, price: 85, via: 'main', active: true, url: 'https://ebay.com/itm/1' },
     { sku: '171729', title: 'Main Bearing Set STD Deutz BF4M1012', location: 'NOT FOUND', available: 0, price: 92.5, via: 'extra MPN', active: false, status: 'Completed', url: '' } ] },
   { query: '0415 7075', matches: [
     { sku: '163872', title: 'Cylinder Head Gasket for Deutz F3L912', location: 'A-9', available: 3, price: 39.99, via: 'Interchange Part Number', active: true, url: 'https://ebay.com/itm/2' } ] },

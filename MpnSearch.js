@@ -59,6 +59,9 @@ function _mpnKey(s) {
   return stripped || k;
 }
 
+/** SKU comparison key — numbers read back as 157554 or "157554.0" must agree. */
+function _mpnSkuKey(s) { return _mpnCellText(s).toLowerCase(); }
+
 /** A cell value as a string — a number stored as 4201560 or 4201560.0 reads "4201560". */
 function _mpnCellText(v) {
   if (v == null || v === "") return "";
@@ -158,10 +161,14 @@ function _mpnAnswer(query, index, describe) {
       m.via = h.via;
       return m;
     });
-    // Active listings first, then whatever has stock, then by SKU — deterministic.
+    // Active listings first, then the PART before the kits that contain it (someone
+    // asking for a piston wants the piston, not three overhaul kits — 2026-10-01 floor
+    // feedback), then whatever has stock, then by SKU — deterministic.
     hits.sort(function (a, b) {
       var aa = a.active ? 0 : 1, bb = b.active ? 0 : 1;
       if (aa !== bb) return aa - bb;
+      var ak = a.isKit ? 1 : 0, bk = b.isKit ? 1 : 0;
+      if (ak !== bk) return ak - bk;
       var as = (a.available || 0) > 0 ? 0 : 1, bs = (b.available || 0) > 0 ? 0 : 1;
       if (as !== bs) return as - bs;
       return String(a.sku).localeCompare(String(b.sku));
@@ -210,6 +217,11 @@ function searchMpns(text, opts) {
     var zoho = null;
     try { zoho = buildZohoStockMap(); } catch (e) { zoho = null; }
 
+    // Which SKUs are kits — the registry is the source, same as everywhere else.
+    // Best effort: if it can't be read, nothing is tagged rather than the search failing.
+    var kits = {};
+    try { buildKitMap().forEach(function (v, k) { kits[_mpnSkuKey(k)] = true; }); } catch (e) {}
+
     function get(row, name) { var o = r.idx[name]; return (o != null && o >= 0) ? row[o] : ""; }
     function describe(i) {
       var row = r.rows[i];
@@ -228,6 +240,7 @@ function searchMpns(text, opts) {
         price: (!isNaN(cur) && cur > 0) ? cur : ((!isNaN(st) && st > 0) ? st : null),
         status: status,
         active: !status || status === "Active",
+        isKit: !!kits[_mpnSkuKey(sku)],
         url: String(get(row, DB_VIEWURL_HEADER) || "").trim()
       };
     }
@@ -330,7 +343,7 @@ function _tgFormatFind(argStr, who) {
     x.matches.slice(0, 4).forEach(function (m, i) {
       L.push((i === 0 ? "✓ " + x.query : "   ") + " → " + m.sku + " · " + m.location +
              " · on hand " + _tgNum(m.available) + " · " + _tgMoney(m.price) +
-             (m.via === "main" ? "" : " (" + m.via + ")") + (m.active ? "" : " · " + (m.status || "ended")));
+             (m.isKit ? " · KIT" : "") + (m.via === "main" ? "" : " (" + m.via + ")") + (m.active ? "" : " · " + (m.status || "ended")));
       if (m.title) L.push("     " + _tgClip(m.title, 52));
     });
     if (x.matches.length > 4) L.push("     … +" + (x.matches.length - 4) + " more listings");

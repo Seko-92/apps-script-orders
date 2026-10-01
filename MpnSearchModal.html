@@ -43,6 +43,8 @@
   .tag { font-family:'Oswald',sans-serif; font-size:10px; letter-spacing:.05em; text-transform:uppercase; padding:2px 7px; border-radius:9px; background:#eee7cf; color:#6b5d2e; white-space:nowrap; }
   .tag.extra { background:#fff0b3; color:#6b5200; }
   .tag.ended { background:#e0e0e0; color:#555; }
+  .tag.kit { background:#5a3d91; color:#fff; }   /* same purple as the Part Console's KIT badge */
+  tr.is-kit td { background:#fbf9ff; }
   .mf-missing { background:#fff; border:1px dashed #d9c58a; border-radius:10px; padding:10px 12px; margin-top:14px; }
   .mf-missing h3 { margin:0 0 6px; font-family:'Oswald',sans-serif; font-size:12px; letter-spacing:.06em; text-transform:uppercase; color:#8a5a00; }
   .mf-missing span { display:inline-block; font-family:'Roboto Mono',monospace; background:#fdf6df; border-radius:5px; padding:2px 7px; margin:2px 4px 2px 0; }
@@ -116,8 +118,9 @@ function render(res) {
     x.matches.forEach(function (m) {
       var tags = '<span class="tag' + (m.via === 'main' ? '' : ' extra') + '">' +
                  (m.via === 'main' ? 'main MPN' : esc(m.via)) + '</span>';
+      if (m.isKit) tags = '<span class="tag kit">kit</span> ' + tags;
       if (!m.active) tags += ' <span class="tag ended">' + esc(m.status || 'ended') + '</span>';
-      html += '<tr>' +
+      html += '<tr' + (m.isKit ? ' class="is-kit"' : '') + '>' +
         '<td class="c-sku">' + (m.url ? '<a href="' + esc(m.url) + '" target="_blank">' + esc(m.sku) + '</a>' : esc(m.sku)) + '</td>' +
         '<td class="c-title" title="' + esc(m.title) + '">' + esc(m.title) + '</td>' +
         '<td class="c-loc' + (m.location === 'NOT FOUND' ? ' nf' : '') + '">' + esc(m.location) + '</td>' +
