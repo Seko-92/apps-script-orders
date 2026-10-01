@@ -134,6 +134,24 @@
 
   .pc-empty { color:#9a9a90; font-style:italic; padding:8px 0; }
 
+  /* identity: every number the part answers to + what it fits */
+  .pc-id { background:#fff; border:1px solid #e5ddc7; border-radius:10px; padding:10px 14px; }
+  .pc-idrow { display:flex; gap:12px; padding:6px 0; border-bottom:1px solid #f1ead6; align-items:flex-start; }
+  .pc-idrow:last-child { border-bottom:none; }
+  .pc-idlab { font-family:'Oswald',sans-serif; text-transform:uppercase; letter-spacing:.06em; font-size:10px; color:#8a8a80; width:88px; flex:none; padding-top:4px; }
+  .pc-chips { display:flex; flex-wrap:wrap; gap:5px; flex:1; min-width:0; }
+  .pc-chip { font-family:'Roboto Mono',monospace; font-size:12px; background:#f6f1e1; border:1px solid #e5ddc7; border-radius:6px; padding:2px 7px; }
+  .pc-chip.num { cursor:pointer; }
+  .pc-chip.num:hover { background:#fff4b0; border-color:#e0c96a; }
+  .pc-chip.main { background:#1d1d1b; color:#ffd966; border-color:#1d1d1b; }
+  .pc-idgrp { flex-basis:100%; font-family:'Oswald',sans-serif; font-size:9.5px; text-transform:uppercase; letter-spacing:.05em; color:#9a9a90; margin-top:4px; }
+  .pc-chip .via { font-family:'Oswald',sans-serif; font-size:9px; text-transform:uppercase; color:#9a9a90; margin-left:5px; letter-spacing:.04em; }
+  .pc-chip.main .via { color:#bfa94d; }
+  .pc-idtext { font-size:12.5px; line-height:1.5; color:#333; flex:1; min-width:0; }
+  .pc-more { color:#0a6ebd; cursor:pointer; font-size:12px; white-space:nowrap; }
+  .pc-idcopy { margin-left:auto; font-family:'Oswald',sans-serif; font-size:10px; letter-spacing:.05em; text-transform:uppercase; background:#fff; border:1px solid #cdba7f; color:#5f5f5f; border-radius:6px; padding:2px 8px; cursor:pointer; }
+  .pc-idcopy:hover { background:#fff4b0; }
+
   /* loading overlay */
   .pc-overlay { display:none; position:fixed; inset:0; background:rgba(20,20,18,.55); align-items:center; justify-content:center; flex-direction:column; z-index:50; }
   .pc-overlay.on { display:flex; }
@@ -188,6 +206,7 @@
         <div class="pc-images" id="pcImages"></div>
         <div class="pc-facts" id="pcFacts"></div>
       </div>
+      <div id="pcIdentity"></div>
       <div id="pcKit"></div>
       <div id="pcRipple"></div>
     </div>
@@ -267,6 +286,67 @@
       host.innerHTML = stock + price + where + demand;
     }
 
+    /** Every number this part answers to, and what it fits. Click a number → search it. */
+    function renderIdentity(D) {
+      var host = document.getElementById('pcIdentity');
+      if (D._loading) { host.innerHTML = ''; return; }
+      var id = D.identity;
+      if (!id || (!id.numbers.length && !id.engines.length && !id.brands.length && !id.machines.length)) { host.innerHTML = ''; return; }
+      var html = '<div class="pc-sec"><svg class="mk"><use href="#m-doc"/></svg>Part numbers &amp; fit'
+        + '<button class="pc-idcopy" onclick="copyIdentity()" title="Copy the numbers and what it fits">Copy</button></div><div class="pc-id">';
+      if (id.numbers.length) {
+        // grouped by the column they came from — one label per group, not per chip
+        var groups = [];
+        id.numbers.forEach(function (n) {
+          var g = groups[groups.length - 1];
+          if (!g || g.via !== n.via) groups.push(g = { via: n.via, nums: [] });
+          g.nums.push(n);
+        });
+        html += '<div class="pc-idrow"><div class="pc-idlab">Numbers <span class="pc-count">' + id.numbers.length + '</span></div><div class="pc-chips">'
+          + groups.map(function (g) {
+              return (g.via ? '<span class="pc-idgrp">' + esc(g.via) + '</span>' : '') + g.nums.map(function (n) {
+                var tip = n.main ? 'The main MPN — the only number eBay\'s own search matches. Click to find every listing with it.'
+                                 : 'Click to find every listing that carries this number';
+                return '<span class="pc-chip num' + (n.main ? ' main' : '') + '" title="' + esc(tip) + '" onclick="searchNumber(\'' + esc(n.num).replace(/'/g, "\\'") + '\')">' + esc(n.num) + '</span>';
+              }).join('');
+            }).join('') + '</div></div>';
+      }
+      if (id.engines.length) html += '<div class="pc-idrow"><div class="pc-idlab">Engines</div><div class="pc-chips">'
+        + id.engines.map(function (e) { return '<span class="pc-chip">' + esc(e) + '</span>'; }).join('') + '</div></div>';
+      if (id.brands.length) html += '<div class="pc-idrow"><div class="pc-idlab">Makes</div><div class="pc-idtext">' + esc(id.brands.join(', ')) + '</div></div>';
+      if (id.machines.length) {
+        var SHOW = 10, few = id.machines.slice(0, SHOW).join(', '), rest = id.machines.length - SHOW;
+        html += '<div class="pc-idrow"><div class="pc-idlab">Machines <span class="pc-count">' + id.machines.length + '</span></div><div class="pc-idtext" id="pcMach">'
+          + esc(few) + (rest > 0 ? ' <span class="pc-more" onclick="showAllMachines()">+' + rest + ' more</span>' : '') + '</div></div>';
+      }
+      host.innerHTML = html + '</div>';
+    }
+    function showAllMachines() {
+      var el = document.getElementById('pcMach');
+      if (el && current && current.identity) el.textContent = current.identity.machines.join(', ');
+    }
+    /** A number from the part → a part-number search (finds every listing sharing it). */
+    function searchNumber(num) {
+      var box = document.getElementById('pcSearch'); box.value = num; grow(); doSearch('mpn');
+    }
+    function copyIdentity() {
+      if (!current || !current.identity) return;
+      var id = current.identity, p = current.part || {}, L = [];
+      L.push(current.sku + (p.title ? ' — ' + p.title : ''));
+      if (id.numbers.length) L.push('Part numbers: ' + id.numbers.map(function (n) { return n.num; }).join(', '));
+      if (id.engines.length) L.push('Fits engines: ' + id.engines.join(', '));
+      if (id.brands.length) L.push('Makes: ' + id.brands.join(', '));
+      if (id.machines.length) L.push('Machines: ' + id.machines.join(', '));
+      var text = L.join('\n');
+      var done = function () { var b = document.querySelector('.pc-idcopy'); if (b) { b.textContent = 'Copied'; setTimeout(function(){ b.textContent = 'Copy'; }, 1400); } };
+      if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(done, function () { fallbackCopy(text); done(); });
+      else { fallbackCopy(text); done(); }
+    }
+    function fallbackCopy(text) {
+      var t = document.createElement('textarea'); t.value = text; document.body.appendChild(t); t.select();
+      try { document.execCommand('copy'); } catch (e) {} document.body.removeChild(t);
+    }
+
     function renderKit(D) {
       var host = document.getElementById('pcKit');
       if (!D.isKit || !D.kit) { host.innerHTML = ''; return; }
@@ -343,10 +423,12 @@
         document.getElementById('pcImages').innerHTML = '';
         document.getElementById('pcFacts').innerHTML = '<div class="pc-empty">No part found for “' + esc(D.sku) + '”. Check the SKU, or search again above.</div>';
         document.getElementById('pcKit').innerHTML = '';
+        document.getElementById('pcIdentity').innerHTML = '';
         document.getElementById('pcRipple').innerHTML = '';
       } else {
         renderImages(D.part);
         renderFacts(D.part);
+        renderIdentity(D);
         renderKit(D);
         renderRipple(D);
       }

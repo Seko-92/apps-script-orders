@@ -191,16 +191,18 @@ function _mpnAnswer(query, index, describe) {
  * kit registry, and hand back a `describe(i)` that turns row i into a result row.
  * @param {string[]=} extra   further optional MI columns the caller needs
  */
-function _mpnLoadMi(extra) {
+function _mpnLoadMi(extra, opts) {
   var sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(DB_SHEET_NAME);
   if (!sheet) throw new Error("Master Inventory not found.");
 
   var headers = MiSchema.headers(sheet);
-  var mpnNames = [];
+  var mpnNames = [], fitNames = [];
   headers.forEach(function (h) {
     var s = String(h == null ? "" : h).trim();
     if (MPN_SEARCH.colPattern.test(s) && mpnNames.indexOf(s) === -1) mpnNames.push(s);
+    else if (opts && opts.fit && _pfFitKind(s) && fitNames.indexOf(s) === -1) fitNames.push(s);
   });
+  extra = (extra || []).concat(fitNames);
 
   var fields = [DB_TITLE_HEADER, DB_LOCATION_HEADER, DB_QUANTITY_HEADER, DB_QUANTITY_SOLD_HEADER,
                 "currentPrice", "startPrice", DB_LISTING_STATUS_HEADER, DB_VIEWURL_HEADER, "pictureUrl1"];
@@ -242,7 +244,7 @@ function _mpnLoadMi(extra) {
       mpn: (_mpnSplitCell(get(row, MPN_SEARCH.mainHeader))[0] || "")
     };
   }
-  return { r: r, get: get, mpnCols: mpnCols, describe: describe };
+  return { r: r, get: get, mpnCols: mpnCols, fitNames: fitNames, describe: describe };
 }
 
 
@@ -385,8 +387,11 @@ function searchKeywords(text, opts) {
     var words = _kwParseQuery(text);
     if (!words.length) return { ok: false, reason: "Type a few words — e.g. deutz 912 head gasket" };
 
-    var mi = _mpnLoadMi(KW_SEARCH.fields);
-    var fieldsPresent = KW_SEARCH.fields.filter(function (f) { return mi.r.idx[f] >= 0; });
+    // fit: every model / engine / compatibility column by NAME — C:Model is on 3,501 rows,
+    // but ~80 engine codes live only in C:Additional Model, C:Model 2, C:More models…
+    var mi = _mpnLoadMi(KW_SEARCH.fields, { fit: true });
+    var fieldsPresent = KW_SEARCH.fields.concat(mi.fitNames).filter(function (f, i, a) {
+      return a.indexOf(f) === i && mi.r.idx[f] >= 0; });
     var docs = mi.r.rows.map(function (row) {
       var other = fieldsPresent.map(function (f) { return mi.get(row, f); });
       mi.mpnCols.forEach(function (c) { other.push(row[c.off]); });   // a part number typed among the words
@@ -529,6 +534,100 @@ function _pfIsMpnShaped(tok) {
   var t = String(tok || "").trim();
   if (/^\d{5,}$/.test(t)) return true;
   return /^[0-9A-Za-z]+-\d{4,}[A-Za-z]?$/.test(t) && /\d/.test(t.split("-")[0]);
+}
+
+// ---------------------------------------------------------------------------------------
+// THE PART'S IDENTITY — every number it answers to, and what it fits (2026-10-01)
+// ---------------------------------------------------------------------------------------
+//
+// The two questions a customer asks after "do you have it?": "is it the same as my number
+// X?" and "will it fit my engine/machine?". Both answers are already on the MI row the
+// dossier reads — spread over ~50 hand-typed C: columns (`C:Model 2`, `C:More models`,
+// `C:Additional Engine Models`, …) because eBay item specifics are typed per listing.
+// Matched by NAME pattern, so a newly-typed oddly-named column is picked up by itself.
+//
+// Measured 2026-09-12 on 3,604 active rows: C:Model 3,501 · Compatible Make 3,601 ·
+// Compatible Type 3,598 · every other model column ≤17 rows (~80 cells in all).
+// ⚠ C:Model Year is the SHELF, never a year — excluded by name.
+
+/** "engines" | "brands" | "machines" | null — which fit group a C: column feeds. Pure. */
+function _pfFitKind(name) {
+  var n = String(name == null ? "" : name).trim();
+  if (!/^C:/i.test(n) || /model\s*year/i.test(n)) return null;
+  if (/compatible equipment make/i.test(n)) return "brands";
+  if (/compatible equipment type|bobcat/i.test(n)) return "machines";
+  if (/model|engine/i.test(n)) return "engines";
+  return null;
+}
+
+/** A cell's comma/semicolon/newline-separated values, trimmed. Pure. */
+function _pfSplitList(v) {
+  var s = _mpnCellText(v);
+  if (!s) return [];
+  return s.split(/[,;\n]+/).map(function (x) { return x.trim(); }).filter(Boolean);
+}
+
+/**
+ * Pure. headers + one MI row → { numbers:[{num, via, main}], engines:[], brands:[], machines:[] }.
+ * `main` = the first number in C:MPN — the only one eBay's own search matches.
+ * Numbers dedupe on the MPN key (so 02102238 and 2102238 show once); fit values dedupe
+ * case-insensitively. Fuel words ("Diesel") are not an engine and are dropped.
+ */
+function _pfPartIdentity(headers, row) {
+  var out = { numbers: [], engines: [], brands: [], machines: [] };
+  if (!headers || !row) return out;
+  var seenNum = {}, seenFit = { engines: {}, brands: {}, machines: {} };
+  var mainLc = MPN_SEARCH.mainHeader.toLowerCase();
+
+  function addNumbers(name, v) {
+    var isMainCol = name.toLowerCase() === mainLc;
+    var first = true;
+    _mpnJoinSplitNumbers(_mpnCellText(v)).split(/[,;\/\n]+|\.\s+/).forEach(function (chunk) {
+      chunk = chunk.trim().replace(/[\s.-]+$/, "");
+      if (!chunk || !/\d/.test(chunk)) return;
+      // "04159098 04231515" is two numbers; "1A033- 03043", "Rear 02136911", "BF3M 2011"
+      // are one thing each — split on spaces only when EVERY piece is a full number.
+      var parts = chunk.split(/\s+/);
+      var nums = (parts.length > 1 && parts.every(function (x) { return _mpnKey(x).length >= 5 && /\d/.test(x); }))
+        ? parts : [chunk];
+      nums.forEach(function (num) {
+        var key = _mpnKey(num);
+        if (key.length < 3 || seenNum[key]) { first = false; return; }
+        seenNum[key] = true;
+        out.numbers.push({ num: num, main: isMainCol && first,
+                           via: isMainCol ? "" : name.replace(/^C:/i, "").replace(/:$/, "") });
+        first = false;
+      });
+    });
+  }
+
+  // C:MPN first, so its first number is always numbers[0]
+  var order = [];
+  headers.forEach(function (h, i) { if (String(h).trim().toLowerCase() === mainLc) order.push(i); });
+  headers.forEach(function (h, i) { if (String(h).trim().toLowerCase() !== mainLc) order.push(i); });
+
+  order.forEach(function (i) {
+    var name = String(headers[i] == null ? "" : headers[i]).trim();
+    if (!name || row[i] == null || row[i] === "") return;
+    if (MPN_SEARCH.colPattern.test(name)) { addNumbers(name, row[i]); return; }
+    var kind = _pfFitKind(name);
+    if (!kind) return;
+    var vals = [];
+    _pfSplitList(row[i]).forEach(function (val) {
+      // "AC1 AC2 AC1W LT1 …" is a list typed with spaces; "BF6 M1013" is one engine
+      var w = val.split(/\s+/);
+      if (w.length >= 3 && w.every(function (x) { return /\d/.test(x); })) vals = vals.concat(w);
+      else vals.push(val);
+    });
+    vals.forEach(function (val) {
+      if (kind === "engines" && /^(diesel|gas(oline)?|petrol|lpg|(\d+\s*)?cylinders?)$/i.test(val)) return;
+      var k = val.toLowerCase().replace(/\s+/g, " ");
+      if (seenFit[kind][k]) return;
+      seenFit[kind][k] = true;
+      out[kind].push(val);
+    });
+  });
+  return out;
 }
 
 /** Pure. "sku" | "mpn" | "keywords". */

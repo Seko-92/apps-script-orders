@@ -137,6 +137,31 @@ if (process.env.MI_JSON) {
   sample.forEach(x => console.log(`  sample ${x.query} → ${x.matches.map(m => m.sku + ' (' + m.via + ')').join(', ') || 'none'}`));
 }
 
+// --- I · the part's identity (numbers + fit) -----------------------------------------
+{
+  const H = ['sku', 'C:Model Year', 'C:MPN', 'C:Model', 'C:Compatible Equipment Make',
+             'C:Compatible Equipment Type', 'C:Engine Type', 'C:Additional Model',
+             'C:Replace Part Number', 'C:Bobcat Models', 'C:Brand', 'C:More Part Number:'];
+  const row = ['157554', 'M-16', '02102238, 0415 7075, 2102238', 'BF4M1011, 6 Cylinder', 'Deutz, Deutz-Fahr',
+               'G940 Motor Grader, EC240CL Excavator', 'Diesel', 'S2600, bf4m1011',
+               '1A033- 03043', '773, T190', 'HQ', '04292547'];
+  const id = ctx._pfPartIdentity(H, row);
+  eq('I1 main MPN first and flagged', id.numbers[0], { num: '02102238', main: true, via: '' });
+  eq('I2 numbers: zero-variant deduped, SERPIC joined, trailing dash trimmed, labelled',
+     id.numbers.map(n => n.num + '|' + n.via),
+     ['02102238|', '04157075|', '1A033- 03043|Replace Part Number', '04292547|More Part Number']);
+  eq('I3 engines: C:Model + extra model columns, cylinder/fuel dropped, case-deduped',
+     id.engines, ['BF4M1011', 'S2600']);
+  eq('I4 makes', id.brands, ['Deutz', 'Deutz-Fahr']);
+  eq('I5 machines incl. Bobcat models', id.machines, ['G940 Motor Grader', 'EC240CL Excavator', '773', 'T190']);
+  eq('I6 shelf (Model Year) and C:Brand never appear',
+     JSON.stringify(id).includes('M-16') || JSON.stringify(id).includes('"HQ"'), false);
+  eq('I7 fit kinds', ['C:Model Year', 'C:Model 2', 'C:Engine Info', 'C:Compatible Equipment Make', 'C:Bobcat Model', 'C:Part Type', 'title']
+     .map(ctx._pfFitKind), [null, 'engines', 'engines', 'brands', 'machines', null, null]);
+  eq('I8 empty row', ctx._pfPartIdentity(H, H.map(() => '')), { numbers: [], engines: [], brands: [], machines: [] });
+  eq('I9 null-safe', ctx._pfPartIdentity(null, null).numbers, []);
+}
+
 if (process.env.MI_ALL_JSON) {
   const mi = JSON.parse(fs.readFileSync(process.env.MI_ALL_JSON, 'utf8'));
   const H = mi.headers, ti = H.indexOf('title'), sk = H.indexOf('sku');

@@ -527,6 +527,8 @@ function _buildPartDossier(raw) {
     kit:      kitView,
     usedIn:   usedIn,
     unblock:  unblock,
+    // every part number + what it fits — from the row the snapshot ALREADY read (no extra read)
+    identity: (function () { try { return _pfPartIdentity(snap.headers, snap.row); } catch (e) { return null; } })(),
     zohoSyncedAt: (function () { try { var d = getZohoStockSyncedAt(); return d ? d.getTime() : null; } catch (e) { return null; } })()
   };
 }
