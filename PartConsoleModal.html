@@ -13,8 +13,8 @@
 
   .pc-head { background:#1d1d1b; color:#fff; padding:10px 18px; display:flex; align-items:center; gap:14px; flex-wrap:wrap; }
   .pc-head h1 { margin:0; font-family:'Oswald',sans-serif; font-weight:600; font-size:16px; letter-spacing:.05em; color:#ffd400; white-space:nowrap; }
-  .pc-searchwrap { display:flex; gap:6px; flex:1; min-width:220px; max-width:460px; }
-  #pcSearch { flex:1; padding:7px 10px; border:1px solid #4a4a46; border-radius:6px; background:#2a2a27; color:#fff; font-family:'Roboto Mono',monospace; font-size:13px; }
+  .pc-searchwrap { display:flex; gap:6px; flex:1; min-width:220px; align-items:stretch; }
+  #pcSearch { flex:1; resize:none; height:34px; max-height:110px; overflow-y:auto; line-height:18px; padding:7px 10px; border:1px solid #4a4a46; border-radius:6px; background:#2a2a27; color:#fff; font-family:'Roboto Mono',monospace; font-size:13px; }
   #pcSearch::placeholder { color:#8a8a84; }
   .pc-searchbtn { padding:7px 14px; border:none; border-radius:6px; cursor:pointer; background:#ffd400; color:#1d1d1b; font-family:'Oswald',sans-serif; font-weight:600; text-transform:uppercase; letter-spacing:.05em; font-size:12px; white-space:nowrap; }
   .pc-searchbtn:disabled { opacity:.5; cursor:default; }
@@ -30,7 +30,52 @@
   .pc-links { margin-left:auto; display:flex; gap:8px; }
   .pc-jump { display:inline-flex; align-items:center; gap:5px; text-decoration:none; background:#ffd400; color:#1d1d1b; font-family:'Oswald',sans-serif; font-weight:600; text-transform:uppercase; letter-spacing:.04em; font-size:11px; padding:5px 11px; border-radius:6px; }
 
-  .pc-body { flex:1; overflow-y:auto; padding:16px 18px; }
+  .pc-main { flex:1; display:flex; min-height:0; }
+  .pc-body { flex:1; overflow-y:auto; padding:16px 18px; min-width:0; }
+
+  /* ── PARTS FINDER: the result list (2026-10-01) ─────────────────────────── */
+  .pf-mode { background:#1d1d1b; color:#9a9a90; padding:0 18px 9px; font-size:11.5px; display:none; gap:6px; align-items:center; flex-wrap:wrap; }
+  .pf-mode.on { display:flex; }
+  .pf-mode b { color:#ffd966; font-family:'Oswald',sans-serif; letter-spacing:.04em; font-weight:500; }
+  .pf-mode a { color:#cfcfca; cursor:pointer; text-decoration:underline; text-decoration-color:rgba(255,255,255,.3); }
+  .pf-mode a:hover { color:#ffd400; }
+  .pf-mode .pf-note { color:#ffb74d; margin-left:6px; }
+  .pf-mode .pf-ms { margin-left:auto; }
+  .pf-list { width:440px; flex-shrink:0; border-right:1px solid #e5ddc7; background:#fffdf6; overflow-y:auto; display:none; }
+  .pf-list.on { display:block; }
+  .pf-sum { padding:9px 12px; font-size:12px; color:#5f5f5f; border-bottom:1px solid #efe5c8; display:flex; gap:10px; align-items:center; position:sticky; top:0; background:#fffdf6; z-index:2; }
+  .pf-sum .ok { color:#1b5e20; } .pf-sum .no { color:#b71c1c; }
+  .pf-copy { margin-left:auto; border:none; border-radius:5px; background:#1d1d1b; color:#ffd966; font-family:'Oswald',sans-serif; font-size:10.5px; letter-spacing:.05em; text-transform:uppercase; padding:4px 9px; cursor:pointer; }
+  .pf-q { font-family:'Roboto Mono',monospace; font-weight:700; font-size:12.5px; padding:8px 12px 4px; color:#1d1d1b; display:flex; gap:8px; align-items:baseline; }
+  .pf-q span { font-family:'Oswald',sans-serif; font-weight:400; font-size:10px; letter-spacing:.05em; text-transform:uppercase; color:#9a9a90; }
+  .pf-item { display:flex; gap:10px; padding:8px 12px; cursor:pointer; border-left:3px solid transparent; }
+  .pf-item:hover { background:#fdf3d6; }
+  .pf-item.sel { background:#fff4b0; border-left-color:#ffd400; }
+  .pf-item.kit { border-left-color:#c9b8e8; }
+  .pf-item.kit.sel { border-left-color:#ffd400; }
+  .pf-thumb { width:52px; height:52px; flex-shrink:0; border:1px solid #e5ddc7; border-radius:6px; background:#fff center/contain no-repeat; }
+  .pf-thumb.none { display:flex; align-items:center; justify-content:center; color:#cdba7f; font-size:9px; font-family:'Oswald',sans-serif; letter-spacing:.05em; }
+  .pf-info { min-width:0; flex:1; }
+  .pf-line1 { display:flex; gap:6px; align-items:center; }
+  .pf-sku { font-family:'Roboto Mono',monospace; font-weight:700; font-size:13px; }
+  .pf-title { font-size:12px; color:#3a3a36; line-height:1.35; margin-top:2px;
+              display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+  .pf-meta { display:flex; gap:10px; margin-top:4px; font-size:11.5px; color:#5f5f5f; align-items:baseline; }
+  .pf-meta .loc { font-family:'Roboto Mono',monospace; font-weight:700; color:#1d1d1b; }
+  .pf-meta .loc.nf { color:#b06a00; font-weight:400; }
+  .pf-meta .qty { font-family:'Oswald',sans-serif; font-weight:600; font-size:13px; color:#1b5e20; }
+  .pf-meta .qty.zero { color:#b71c1c; }
+  .pf-meta .price { font-family:'Roboto Mono',monospace; margin-left:auto; color:#1d1d1b; }
+  .pf-tag { font-family:'Oswald',sans-serif; font-size:9.5px; letter-spacing:.04em; text-transform:uppercase; padding:1px 6px; border-radius:8px; background:#eee7cf; color:#6b5d2e; white-space:nowrap; }
+  .pf-tag.kit { background:#5a3d91; color:#fff; }
+  .pf-tag.extra { background:#fff0b3; color:#6b5200; }
+  .pf-tag.ended { background:#e0e0e0; color:#555; }
+  .pf-missing { margin:10px 12px; padding:9px 10px; border:1px dashed #d9c58a; border-radius:8px; background:#fff; font-size:11.5px; color:#8a5a00; }
+  .pf-missing b { font-family:'Oswald',sans-serif; letter-spacing:.05em; text-transform:uppercase; font-weight:500; font-size:11px; }
+  .pf-missing span { display:inline-block; font-family:'Roboto Mono',monospace; background:#fdf6df; color:#1d1d1b; border-radius:4px; padding:1px 6px; margin:3px 4px 0 0; }
+  .pf-more { color:#8a8a80; font-size:11px; text-align:center; padding:10px; }
+  .pf-hint { color:#8a8a80; line-height:1.8; padding:40px 30px; text-align:center; }
+  .pc-loading { color:#9a9a90; font-style:italic; padding:8px 0; }
 
   /* top: images + facts */
   .pc-top { display:flex; gap:16px; flex-wrap:wrap; }
@@ -124,17 +169,20 @@
   </defs></svg>
   <div class="pc-wrap">
     <div class="pc-head">
-      <h1><svg class="mk"><use href="#m-part"/></svg>PART CONSOLE</h1>
+      <h1><svg class="mk"><use href="#m-part"/></svg>PARTS FINDER</h1>
       <button class="pc-searchbtn" id="pcBack" onclick="goBack()" title="Back to the previous SKU"
               style="display:none;background:#3a3a34;color:#ffd400;">← Back</button>
       <div class="pc-searchwrap">
-        <input type="text" id="pcSearch" placeholder="Look up a SKU (part or kit)…" autocomplete="off" spellcheck="false" />
-        <button class="pc-searchbtn" id="pcSearchBtn" onclick="doSearch()"><svg class="mk"><use href="#m-look"/></svg>Look up</button>
+        <textarea id="pcSearch" rows="1" placeholder="SKU · part numbers (paste the SERPIC list) · or words: v2203 piston" autocomplete="off" spellcheck="false"></textarea>
+        <button class="pc-searchbtn" id="pcSearchBtn" onclick="doSearch()"><svg class="mk"><use href="#m-look"/></svg>Find</button>
       </div>
     </div>
 
+    <div class="pf-mode" id="pfMode"></div>
     <div class="pc-context" id="pcContext"></div>
 
+    <div class="pc-main">
+    <aside class="pf-list" id="pfList"></aside>
     <div class="pc-body">
       <div class="pc-top">
         <div class="pc-images" id="pcImages"></div>
@@ -142,6 +190,7 @@
       </div>
       <div id="pcKit"></div>
       <div id="pcRipple"></div>
+    </div>
     </div>
   </div>
 
@@ -151,7 +200,8 @@
   </div>
 
   <script>
-    var current = <?!= dossierJson ?>;   // force-unescaped JSON (Gotcha 2)
+    var INIT = <?!= initJson ?>;   // force-unescaped JSON (Gotcha 2)
+    var current = null;
 
     function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
     function money(n){ return (n==null||isNaN(n)) ? '—' : '$' + Number(n).toFixed(2); }
@@ -211,7 +261,7 @@
         + '<div class="pc-sub">' + (part.listingStatus ? esc(part.listingStatus) : '') + '</div></div>';
 
       var demand = '<div class="pc-card"><div class="pc-card-label"><svg class="mk"><use href="#m-doc"/></svg>Open demand</div>'
-        + '<div class="pc-big">' + (part.committed || 0) + '</div>'
+        + '<div class="pc-big">' + (part.committed == null ? '…' : part.committed) + '</div>'
         + '<div class="pc-sub">committed to open orders</div></div>';
 
       host.innerHTML = stock + price + where + demand;
@@ -250,6 +300,7 @@
     function renderRipple(D) {
       var host = document.getElementById('pcRipple');
       var used = D.usedIn || [];
+      if (D._loading) { host.innerHTML = '<div class="pc-loading">Loading kits, open demand and the rest…</div>'; return; }
       if (!used.length) { host.innerHTML = D.found ? '<div class="pc-sec"><svg class="mk"><use href="#m-kit"/></svg>Used in kits</div><div class="pc-empty">Not a component of any registered kit.</div>' : ''; return; }
       var html = '<div class="pc-sec"><svg class="mk"><use href="#m-kit"/></svg>Used in ' + used.length + ' kit' + (used.length===1?'':'s') + '</div>';
       if (D.unblock && D.unblock.length) {
@@ -299,25 +350,29 @@
         renderKit(D);
         renderRipple(D);
       }
-      document.getElementById('pcSearch').value = D.sku || '';
       var bk = document.getElementById('pcBack'); if (bk) bk.style.display = navHist.length ? '' : 'none';
     }
 
     var navHist = [];
-    function loadPart(sku) {
+    var wantSku = null;   // the part the right pane SHOULD show — a slow reply for an older click is dropped
+    function loadPart(sku, quiet) {
       var q = String(sku || '').trim();
       if (!q) return;
-      var btn = document.getElementById('pcSearchBtn'); btn.disabled = true;
-      document.getElementById('pcOverlayTxt').textContent = 'Looking up ' + q + '…';
-      document.getElementById('pcOverlay').classList.add('on');
+      wantSku = q;
+      if (!quiet) {
+        document.getElementById('pcOverlayTxt').textContent = 'Looking up ' + q + '…';
+        document.getElementById('pcOverlay').classList.add('on');
+      }
       google.script.run
         .withSuccessHandler(function(res){
-          document.getElementById('pcOverlay').classList.remove('on'); btn.disabled = false;
+          document.getElementById('pcOverlay').classList.remove('on');
+          if (wantSku !== q) return;
           if (res && res.ok) renderDossier(res.dossier);
         })
         .withFailureHandler(function(err){
-          document.getElementById('pcOverlay').classList.remove('on'); btn.disabled = false;
-          alert('Lookup failed: ' + (err && err.message ? err.message : String(err)));
+          document.getElementById('pcOverlay').classList.remove('on');
+          if (wantSku !== q) return;
+          document.getElementById('pcRipple').innerHTML = '<div class="pc-empty">Could not load the rest: ' + esc(err && err.message ? err.message : String(err)) + '</div>';
         })
         .getPartData(q);
     }
@@ -328,14 +383,140 @@
       loadPart(sku);
     }
     function goBack() { if (navHist.length) loadPart(navHist.pop()); }
-    function doSearch() {
+    // ── THE ONE BOX ──────────────────────────────────────────────────────────
+    var results = null, items = [], lastText = '';
+    var MODE_NAME = { sku: 'SKU', mpn: 'part numbers', keywords: 'keywords' };
+
+    function doSearch(force) {
       var q = (document.getElementById('pcSearch').value || '').trim();
       if (!q) { document.getElementById('pcSearch').focus(); return; }
-      nav(q);
+      lastText = q;
+      var btn = document.getElementById('pcSearchBtn'); btn.disabled = true;
+      document.getElementById('pcOverlayTxt').textContent = 'Searching…';
+      document.getElementById('pcOverlay').classList.add('on');
+      google.script.run
+        .withSuccessHandler(function(res){
+          document.getElementById('pcOverlay').classList.remove('on'); btn.disabled = false;
+          showResult(res);
+        })
+        .withFailureHandler(function(err){
+          document.getElementById('pcOverlay').classList.remove('on'); btn.disabled = false;
+          showResult({ ok:false, reason: (err && err.message) || String(err) });
+        })
+        .findParts(q, force || '');
     }
-    document.getElementById('pcSearch').addEventListener('keydown', function(e){ if (e.key==='Enter'){ e.preventDefault(); doSearch(); } });
 
-    renderDossier(current);
+    function paintMode(res) {
+      var el = document.getElementById('pfMode');
+      if (!res || !res.ok) { el.className = 'pf-mode on'; el.innerHTML = '<span class="pf-note">' + esc((res && res.reason) || 'Search failed') + '</span>'; return; }
+      var others = ['sku', 'mpn', 'keywords'].filter(function (m) { return m !== res.mode; });
+      el.innerHTML = 'Searched as <b>' + MODE_NAME[res.mode] + '</b>' +
+        (res.auto ? ' · search as ' + others.map(function (m) {
+          return '<a onclick="doSearch(\'' + m + '\')">' + MODE_NAME[m] + '</a>'; }).join(' or ') + ' instead' : '') +
+        (res.note ? '<span class="pf-note">' + esc(res.note) + '</span>' : '') +
+        (res.ms ? '<span class="pf-ms">' + (res.ms / 1000).toFixed(1) + 's</span>' : '');
+      el.className = 'pf-mode on';
+    }
+
+    function showResult(res) {
+      results = res; navHist = [];
+      paintMode(res);
+      var list = document.getElementById('pfList');
+      if (!res || !res.ok) { list.className = 'pf-list'; return; }
+      if (res.mode === 'sku') { list.className = 'pf-list'; list.innerHTML = ''; renderDossier(res.dossier); return; }
+
+      items = [];
+      var html = '';
+      if (res.mode === 'mpn') {
+        html += '<div class="pf-sum"><span><b>' + res.results.length + '</b> number' + (res.results.length === 1 ? '' : 's') + '</span>' +
+                '<span class="ok">✓ ' + res.found + ' carried</span><span class="no">✗ ' + res.missing + ' not</span>' +
+                (res.found ? '<button class="pf-copy" onclick="copyReply()">Copy for customer</button>' : '') + '</div>';
+        var missing = [];
+        res.results.forEach(function (x) {
+          if (!x.matches.length) { missing.push(x.query); return; }
+          html += '<div class="pf-q">' + esc(x.query) + '<span>' + x.matches.length + ' listing' + (x.matches.length === 1 ? '' : 's') + '</span></div>';
+          x.matches.forEach(function (m) { html += itemHtml(m); });
+        });
+        if (missing.length) html += '<div class="pf-missing"><b>Not on any listing (' + missing.length + ')</b><br>' +
+          missing.map(function (q) { return '<span>' + esc(q) + '</span>'; }).join('') + '</div>';
+      } else {
+        html += '<div class="pf-sum"><span><b>' + res.total + '</b> listing' + (res.total === 1 ? '' : 's') + ' with every word</span></div>';
+        res.matches.forEach(function (m) { html += itemHtml(m); });
+        if (res.total > res.matches.length) html += '<div class="pf-more">Best ' + res.matches.length + ' of ' + res.total + ' — add a word to narrow it.</div>';
+        if (!res.total) html += '<div class="pf-hint">Nothing contains all of those words.<br>Try fewer words, or part of the model (bf4m, not bf4m1011f).</div>';
+      }
+      list.innerHTML = html;
+      list.className = 'pf-list on';
+      if (items.length) pick(0); else clearRight();
+    }
+
+    function itemHtml(m) {
+      var i = items.length; items.push(m);
+      var tags = '';
+      if (m.isKit) tags += '<span class="pf-tag kit">kit</span>';
+      if (m.via && m.via !== 'main') tags += '<span class="pf-tag extra">' + esc(m.via) + '</span>';
+      if (!m.active) tags += '<span class="pf-tag ended">' + esc(m.status || 'ended') + '</span>';
+      var thumb = m.image ? '<div class="pf-thumb" style="background-image:url(\'' + esc(m.image).replace(/'/g, '%27') + '\')"></div>'
+                          : '<div class="pf-thumb none">NO IMAGE</div>';
+      return '<div class="pf-item' + (m.isKit ? ' kit' : '') + '" id="pfi' + i + '" onclick="pick(' + i + ')">' + thumb +
+        '<div class="pf-info"><div class="pf-line1"><span class="pf-sku">' + esc(m.sku) + '</span>' + tags + '</div>' +
+        '<div class="pf-title">' + esc(m.title) + '</div>' +
+        '<div class="pf-meta"><span class="loc' + (m.location === 'NOT FOUND' ? ' nf' : '') + '">' + esc(m.location) + '</span>' +
+        '<span class="qty' + ((m.available || 0) <= 0 ? ' zero' : '') + '">' + (m.available == null ? '—' : m.available) + ' on hand</span>' +
+        '<span class="price">' + money(m.price) + '</span></div></div></div>';
+    }
+
+    /** Show a list item now from what the search already returned, then fill in the rest. */
+    function pick(i) {
+      var m = items[i]; if (!m) return;
+      var prev = document.querySelector('.pf-item.sel'); if (prev) prev.classList.remove('sel');
+      var el = document.getElementById('pfi' + i); if (el) el.classList.add('sel');
+      navHist = [];
+      renderDossier({ sku: m.sku, found: true, isKit: m.isKit, ebayUrl: m.url, usedIn: [], _loading: true,
+        part: { title: m.title, images: m.image ? [m.image] : [], location: m.location, available: m.available,
+                ebayPrice: m.price, listingStatus: m.status, oos: (m.available || 0) <= 0 && m.active } });
+      loadPart(m.sku, true);
+    }
+
+    function clearRight() {
+      current = null; wantSku = null;
+      document.getElementById('pcContext').innerHTML = '';
+      document.getElementById('pcImages').innerHTML = '';
+      document.getElementById('pcFacts').innerHTML = '<div class="pf-hint">Nothing to show.</div>';
+      document.getElementById('pcKit').innerHTML = '';
+      document.getElementById('pcRipple').innerHTML = '';
+    }
+
+    /** Plain text to send the customer: what we have, with links. */
+    function copyReply() {
+      if (!results || results.mode !== 'mpn') return;
+      var lines = [];
+      results.results.forEach(function (x) {
+        var m = x.matches.filter(function (y) { return y.active; })[0] || x.matches[0];
+        if (!m) return;
+        lines.push(x.query + ' — ' + m.title + (m.price != null ? ' — ' + money(m.price) : '') +
+                   ((m.available || 0) <= 0 ? ' (currently out of stock)' : '') + (m.url ? '\n' + m.url : ''));
+      });
+      var ta = document.createElement('textarea'); ta.value = lines.join('\n\n');
+      document.body.appendChild(ta); ta.select();
+      var ok = false; try { ok = document.execCommand('copy'); } catch (e) {}
+      document.body.removeChild(ta);
+      var b = document.querySelector('.pf-copy');
+      if (b) { b.textContent = ok ? 'Copied ' + lines.length : 'Copy blocked'; setTimeout(function(){ b.textContent = 'Copy for customer'; }, 2000); }
+    }
+
+    // Enter searches; Shift+Enter is a new line; a pasted list grows the box.
+    var box = document.getElementById('pcSearch');
+    box.addEventListener('keydown', function(e){ if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); doSearch(); } });
+    function grow() { box.style.height = '34px'; box.style.height = Math.min(110, box.scrollHeight) + 'px'; }
+    box.addEventListener('input', grow);
+
+    box.value = INIT.text || '';
+    grow();
+    if (INIT.res) showResult(INIT.res);
+    else { clearRight(); document.getElementById('pcFacts').innerHTML =
+      '<div class="pf-hint">Type a <b>SKU</b>, paste <b>part numbers</b> (the SERPIC list is fine), or type <b>words</b> like <i>v2203 piston</i>.</div>'; }
+    box.focus();
   </script>
 </body>
 </html>

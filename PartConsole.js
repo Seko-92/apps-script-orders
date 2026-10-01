@@ -563,20 +563,23 @@ function getPartData(query) {
   }
 }
 
-/** Open the Part console. Always opens on a non-empty SKU (even not-found → empty
- *  state + a working search bar), same console UX as Order Case. */
+/** Open the Part Console (the Parts Finder). Whatever was typed in the sidebar — a SKU,
+ *  pasted part numbers, or words — is run through findParts() first, so the window opens
+ *  on the answer. An empty box opens an empty console with its search ready. */
 function openPartConsole(query) {
   try {
     var raw = String(query == null ? "" : query).trim();
-    if (!raw) return { ok: false, reason: "Type a SKU first." };
-
-    var dossier = _buildPartDossier(raw);
+    var res = raw ? findParts(raw) : null;
     var template = HtmlService.createTemplateFromFile("PartConsoleModal");
-    template.dossierJson = JSON.stringify(dossier).replace(/<\//g, "<\\/");   // Gotcha #2
+    template.initJson = JSON.stringify({ text: raw, res: res }).replace(/<\//g, "<\\/");   // Gotcha #2
 
-    var html = template.evaluate().setWidth(1080).setHeight(720);
-    SpreadsheetApp.getUi().showModalDialog(html, "🧩 Part Console");
-    return { ok: true, found: dossier.found, isKit: dossier.isKit, usedIn: dossier.usedIn.length };
+    var html = template.evaluate().setWidth(1180).setHeight(760);
+    SpreadsheetApp.getUi().showModalDialog(html, "Parts Finder");
+    if (!res) return { ok: true, mode: "" };
+    if (!res.ok) return { ok: true, mode: "", reason: res.reason };
+    return { ok: true, mode: res.mode,
+             found: res.mode === "sku" ? (res.dossier.found ? 1 : 0) : (res.mode === "mpn" ? res.found : res.total),
+             missing: res.mode === "mpn" ? res.missing : 0 };
   } catch (err) {
     try { console.log("openPartConsole error: " + err + "\n" + (err.stack || "")); } catch (_) {}
     return { ok: false, reason: String(err.message || err) };

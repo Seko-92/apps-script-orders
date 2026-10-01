@@ -203,7 +203,7 @@ function _mpnLoadMi(extra) {
   });
 
   var fields = [DB_TITLE_HEADER, DB_LOCATION_HEADER, DB_QUANTITY_HEADER, DB_QUANTITY_SOLD_HEADER,
-                "currentPrice", "startPrice", DB_LISTING_STATUS_HEADER, DB_VIEWURL_HEADER];
+                "currentPrice", "startPrice", DB_LISTING_STATUS_HEADER, DB_VIEWURL_HEADER, "pictureUrl1"];
   var optional = fields.concat(extra || []).concat(
     mpnNames.filter(function (n) { return n !== MPN_SEARCH.mainHeader; }));
   var r = MiSchema.readColumns(sheet, [DB_SKU_HEADER, MPN_SEARCH.mainHeader], { optional: optional });
@@ -237,7 +237,9 @@ function _mpnLoadMi(extra) {
       status: status,
       active: !status || status === "Active",
       isKit: !!kits[_mpnSkuKey(sku)],
-      url: String(get(row, DB_VIEWURL_HEADER) || "").trim()
+      url: String(get(row, DB_VIEWURL_HEADER) || "").trim(),
+      image: String(get(row, "pictureUrl1") || "").trim(),
+      mpn: (_mpnSplitCell(get(row, MPN_SEARCH.mainHeader))[0] || "")
     };
   }
   return { r: r, get: get, mpnCols: mpnCols, describe: describe };
@@ -301,6 +303,7 @@ var KW_SEARCH = {
 /** Lowercase, letters+digits, simple plural fold. Pure. */
 function _kwNorm(w) {
   var t = String(w == null ? "" : w).toLowerCase().replace(/[^a-z0-9]/g, "");
+  if (/^\d+$/.test(t)) return t.replace(/^0+/, "") || t;   // 04157075 = 4157075, as in the MPN key
   if (t.length > 3 && /[a-z]s$/.test(t) && !/ss$/.test(t)) t = t.slice(0, -1);
   return t;
 }
@@ -308,7 +311,7 @@ function _kwNorm(w) {
 /** The words of a query, deduped. Pure. */
 function _kwParseQuery(text) {
   var seen = {}, out = [];
-  String(text == null ? "" : text).split(/[\s,;\/|]+/).forEach(function (w) {
+  _mpnJoinSplitNumbers(String(text == null ? "" : text)).split(/[\s,;\/|]+/).forEach(function (w) {
     var k = _kwNorm(w);
     if (k.length < KW_SEARCH.minWord || seen[k]) return;
     seen[k] = true; out.push(k);
@@ -420,11 +423,6 @@ function searchKeywords(text, opts) {
   }
 }
 
-/** In-window keyword search for the modal. */
-function getKeywordSearch(text) {
-  return searchKeywords(text, { source: "console", who: _mpnWho() });
-}
-
 
 // ---------------------------------------------------------------------------------------
 // THE LOG — best effort; a logging failure must never cost the person their answer
@@ -474,31 +472,6 @@ function openMpnSearchLog() {
 // SURFACES
 // ---------------------------------------------------------------------------------------
 
-/** In-window search for the modal. */
-function getMpnSearch(text) {
-  return searchMpns(text, { source: "console", who: _mpnWho() });
-}
-
-/** Open the finder modal, pre-run on whatever was typed in the sidebar.
- *  @param {string} text
- *  @param {string=} mode  "mpn" (default) or "keywords" */
-function openMpnSearch(text, mode) {
-  try {
-    mode = (mode === "keywords") ? "keywords" : "mpn";
-    var has = String(text || "").trim();
-    var res = has ? (mode === "keywords" ? getKeywordSearch(text) : getMpnSearch(text)) : null;
-    var t = HtmlService.createTemplateFromFile("MpnSearchModal");
-    t.initJson = JSON.stringify({ text: String(text || ""), mode: mode, res: res }).replace(/<\//g, "<\\/");
-    SpreadsheetApp.getUi().showModalDialog(t.evaluate().setWidth(1080).setHeight(720), "Parts Finder");
-    var summary = !res || !res.ok ? {} : (mode === "keywords"
-      ? { found: res.total, missing: 0 } : { found: res.found, missing: res.missing });
-    return { ok: true, mode: mode, found: summary.found || 0, missing: summary.missing || 0 };
-  } catch (err) {
-    try { console.log("openMpnSearch: " + err); } catch (_) {}
-    return { ok: false, reason: String(err.message || err) };
-  }
-}
-
 function _mpnWho() {
   try { var p = _currentPicker(); if (p) return String(p); } catch (_) {}
   return "";
@@ -538,4 +511,71 @@ function _tgFormatSearch(argStr, who) {
   });
   if (res.total > show.length) L.push("\n… +" + (res.total - show.length) + " more — add a word to narrow it");
   return L.join("\n");
+}
+
+
+// =======================================================================================
+// ONE BOX — the Part Console's search (2026-10-01)
+// =======================================================================================
+//
+// SKU, part numbers and keywords were three searches; the user asked for one. The box
+// decides, and ALWAYS says what it decided, with a one-click switch — so a wrong guess is
+// visible and costs one click instead of a silent wrong answer.
+
+/** An MPN-shaped token: all digits (5+), or a dash with 4+ digits after it
+ *  (1G790-21050, 129900-23611). Engine codes (V2203, 4TNV98, 404D-22, BF4M1011) are
+ *  WORDS — they belong to keyword search, which also searches every part-number field. */
+function _pfIsMpnShaped(tok) {
+  var t = String(tok || "").trim();
+  if (/^\d{5,}$/.test(t)) return true;
+  return /^[0-9A-Za-z]+-\d{4,}[A-Za-z]?$/.test(t) && /\d/.test(t.split("-")[0]);
+}
+
+/** Pure. "sku" | "mpn" | "keywords". */
+function _pfDetectMode(text) {
+  var raw = _mpnJoinSplitNumbers(String(text == null ? "" : text)).trim();
+  if (!raw) return "keywords";
+  var toks = raw.split(/[\s,;\/|]+/).filter(Boolean);
+  if (toks.length === 1 && (/^[1-9]\d{5}$/.test(toks[0]) || /^SUP-\d+$/i.test(toks[0]))) return "sku";
+  var nums = 0, words = 0;
+  toks.forEach(function (t) {
+    var clean = t.replace(/^[^0-9A-Za-z]+|[^0-9A-Za-z]+$/g, "");
+    if (!clean) return;
+    if (_pfIsMpnShaped(clean)) nums++;
+    else if (clean.length >= 2 && !/^\d{1,4}$/.test(clean)) words++;   // "1", "12" = SERPIC pos/qty
+  });
+  if (nums && /\n/.test(raw)) return "mpn";         // a pasted list
+  if (nums && !words) return "mpn";
+  return "keywords";
+}
+
+/**
+ * The Part Console's search.
+ * @param {string} text
+ * @param {string=} force   "sku" | "mpn" | "keywords" — the user's override
+ */
+function findParts(text, force) {
+  var t0 = Date.now();
+  try {
+    var raw = String(text == null ? "" : text).trim();
+    if (!raw) return { ok: false, reason: "Type a SKU, paste part numbers, or type words." };
+    var mode = (force === "sku" || force === "mpn" || force === "keywords") ? force : _pfDetectMode(raw);
+    var note = "";
+
+    if (mode === "sku") {
+      var d = _buildPartDossier(raw);
+      if (d.found || force === "sku") return { ok: true, mode: "sku", auto: !force, text: raw, dossier: d };
+      mode = "mpn";                                  // not one of our SKUs — maybe someone's part number
+      note = raw + " is not one of our SKUs — searched as a part number";
+    }
+    var who = _mpnWho();
+    var res = (mode === "mpn") ? searchMpns(raw, { source: "console", who: who })
+                               : searchKeywords(raw, { source: "console", who: who });
+    res.mode = mode; res.auto = !force; res.text = raw; res.note = note;
+    res.ms = Date.now() - t0;
+    return res;
+  } catch (err) {
+    try { console.log("findParts: " + err + "\n" + (err.stack || "")); } catch (_) {}
+    return { ok: false, reason: String(err.message || err) };
+  }
 }

@@ -3960,8 +3960,8 @@ body{ font-variant-emoji:text; }
 [data-id="arcade"]{ font-variant-emoji:emoji; }
 .hq-dot{ font-size:.85em; }
 .hq-dot-ok{ color:#2e9e4f; } .hq-dot-warn{ color:#e0a100; } .hq-dot-bad{ color:#d0453a; } .hq-dot-off{ color:#8a8373; }
-  /* MPN finder paste box (Part Console card) — same look as the SKU input above it */
-  .mf-side { width:100%; margin-top:8px; padding:7px 9px; border:1px solid var(--border); border-radius:4px;
+  /* Parts Finder box (Part Console card) — same look as the other sidebar inputs */
+  .mf-side { width:100%; margin-top:2px; padding:7px 9px; border:1px solid var(--border); border-radius:4px;
              font-family:'Roboto Mono',monospace; font-size:var(--fs-base); resize:vertical; background:var(--bg-card); color:var(--text-primary); }
   .mf-side:focus { outline:none; border-color:var(--hq-yellow); box-shadow:0 0 0 2px rgba(255, 217, 102, 0.22); }
 </style>
@@ -5004,25 +5004,20 @@ body{ font-variant-emoji:text; }
   <div class="card collapsed" data-id="part-console" draggable="true">
     <div class="card-header" onclick="toggleCollapse(this)">
       <div class="drag-handle" title="Drag to reorder">☰</div>
-      <div class="card-title"><div class="card-icon">🧩</div><h3>Part Console</h3></div>
+      <div class="card-title"><div class="card-icon">🧩</div><h3>Parts Finder</h3></div>
       <div class="card-toggle">▼</div>
     </div>
     <div class="card-body">
-      <div class="ol-search">
-        <input type="text" id="pcQuery" placeholder="SKU — a part or a kit…" autocomplete="off" spellcheck="false" />
-        <button class="btn-primary ol-go" id="pcBtn" onclick="openPartConsoleFromSidebar()">🧩 Open →</button>
-      </div>
-      <!-- MPN Finder (2026-10-01): paste the numbers from an engine lookup, see which
-           ones we carry — every number on a listing, not only the one eBay searches. -->
-      <textarea id="mfQuery" class="mf-side" rows="3" spellcheck="false"
-                placeholder="Part numbers (paste the SERPIC list) — or words: v2203 piston"></textarea>
+      <!-- ONE BOX (2026-10-01): a SKU, pasted part numbers (the SERPIC list), or words.
+           The Parts Finder decides which and says so. -->
+      <textarea id="pcQuery" class="mf-side" rows="2" spellcheck="false"
+                placeholder="SKU · part numbers · or words: v2203 piston"></textarea>
       <div class="btn-group">
-        <button class="btn-primary" id="mfBtn" onclick="openMpnFinderFromSidebar('mpn')">Part numbers →</button>
-        <button class="btn-secondary" id="mfKwBtn" onclick="openMpnFinderFromSidebar('keywords')">Keywords →</button>
+        <button class="btn-primary" id="pcBtn" onclick="openPartConsoleFromSidebar()">Find →</button>
+        <button class="btn-info" onclick="run('openMpnSearchLog')">Search log</button>
       </div>
-      <button class="btn-info" onclick="run('openMpnSearchLog')">Search log</button>
       <div class="empty-hint">
-        One window for a part: <strong>stock · price · location · images</strong>, which <strong>kits use it</strong> (with each kit's buildable + what this part <strong>blocks</strong>), OOS + open demand. Search part after part in-window. Press <strong>Enter</strong>.
+        One box for everything: a <strong>SKU</strong> opens that part · pasted <strong>part numbers</strong> (straight from SERPIC) show which ones we carry — every number on a listing, not just the one eBay searches · <strong>words</strong> like <em>v2203 piston</em> find listings by engine and part. Results on the left, the full part (photos, shelf, stock, kits) on the right. <strong>Enter</strong> searches, <strong>Shift+Enter</strong> a new line.
       </div>
     </div>
   </div>
@@ -8414,21 +8409,23 @@ function openPartConsoleFromSidebar() {
   var input = document.getElementById('pcQuery');
   if (!input) return;
   var query = (input.value || '').trim();
-  if (!query) { input.focus(); status.className = 'error'; status.textContent = 'Type a SKU first'; return; }
+  // An empty box still opens the finder, with its own search ready.
   if (typeof google === 'undefined' || !google.script) return;
 
   var btn = document.getElementById('pcBtn');
-  if (btn) { btn.disabled = true; btn.textContent = '⏳ Opening…'; }
+  if (btn) { btn.disabled = true; btn.textContent = 'Searching…'; }
   status.className = 'running';
-  status.textContent = 'Opening part console for ' + query + '…';
+  status.textContent = query ? 'Searching…' : 'Opening Parts Finder…';
 
   google.script.run
     .withSuccessHandler(function(res) {
-      if (btn) { btn.disabled = false; btn.textContent = '🧩 Open →'; }
+      if (btn) { btn.disabled = false; btn.textContent = 'Find →'; }
       if (res && res.ok) {
         status.className = 'success';
-        status.textContent = '🧩 Part console' + (res.isKit ? ' · KIT' : '')
-          + (res.usedIn ? ' · used in ' + res.usedIn + ' kit(s)' : '');
+        status.textContent = !res.mode ? 'Parts Finder'
+          : res.mode === 'mpn' ? 'Parts Finder · ' + res.found + ' carried · ' + res.missing + ' not'
+          : res.mode === 'keywords' ? 'Parts Finder · ' + res.found + ' listing(s)'
+          : 'Parts Finder · ' + query;
       } else {
         status.className = 'error';
         status.textContent = (res && res.reason) || 'Could not open part console';
@@ -8436,55 +8433,16 @@ function openPartConsoleFromSidebar() {
       setTimeout(function() { status.className = ''; status.textContent = 'Ready'; }, 3000);
     })
     .withFailureHandler(function(err) {
-      if (btn) { btn.disabled = false; btn.textContent = '🧩 Open →'; }
+      if (btn) { btn.disabled = false; btn.textContent = 'Find →'; }
       status.className = 'error';
-      status.textContent = 'Part console error: ' + (err && err.message ? err.message : String(err));
+      status.textContent = 'Parts Finder error: ' + (err && err.message ? err.message : String(err));
     })
     .openPartConsole(query);
 }
-/* openMpnFinderFromSidebar() — MpnSearch.js → openMpnSearch. The modal runs the
-   search on open and keeps its own search box, like the other consoles. */
-function openMpnFinderFromSidebar(mode) {
-  mode = (mode === 'keywords') ? 'keywords' : 'mpn';
-  var input = document.getElementById('mfQuery');
-  var text = input ? (input.value || '').trim() : '';
-  if (typeof google === 'undefined' || !google.script) return;
-  var btn = document.getElementById(mode === 'keywords' ? 'mfKwBtn' : 'mfBtn');
-  var label = mode === 'keywords' ? 'Keywords →' : 'Part numbers →';
-  if (btn) { btn.disabled = true; btn.textContent = 'Searching…'; }
-  status.className = 'running';
-  status.textContent = text ? 'Searching part numbers…' : 'Opening MPN finder…';
-  google.script.run
-    .withSuccessHandler(function(res) {
-      if (btn) { btn.disabled = false; btn.textContent = label; }
-      if (res && res.ok) {
-        status.className = 'success';
-        status.textContent = !text ? 'Parts finder'
-          : (mode === 'keywords' ? 'Parts finder · ' + res.found + ' listing(s)'
-                                 : 'Parts finder · ' + res.found + ' carried · ' + res.missing + ' not');
-      } else {
-        status.className = 'error';
-        status.textContent = (res && res.reason) || 'Could not open MPN finder';
-      }
-      setTimeout(function() { status.className = ''; status.textContent = 'Ready'; }, 3000);
-    })
-    .withFailureHandler(function(err) {
-      if (btn) { btn.disabled = false; btn.textContent = label; }
-      status.className = 'error';
-      status.textContent = 'Parts finder error: ' + (err && err.message ? err.message : String(err));
-    })
-    .openMpnSearch(text, mode);
-}
-(function() {
-  var mf = document.getElementById('mfQuery');
-  if (mf) mf.addEventListener('keydown', function(e) {
-    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); openMpnFinderFromSidebar(); }
-  });
-})();
 (function() {
   var pcInput = document.getElementById('pcQuery');
   if (pcInput) pcInput.addEventListener('keydown', function(e) {
-    if (e.key === 'Enter') { e.preventDefault(); openPartConsoleFromSidebar(); }
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); openPartConsoleFromSidebar(); }
   });
 })();
 

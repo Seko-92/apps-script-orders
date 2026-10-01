@@ -96,6 +96,24 @@ eq('G8 every word must appear (AND)', km.map(m => m.row).sort(), [0, 1]);
 eq('G9 title match outranks spec-only', km.sort((a, b) => b.score - a.score).map(m => m.row), [0, 1]);
 eq('G10 nothing matches', ctx._kwMatch(['crankshaft'], docs).length, 0);
 
+// --- H · ONE BOX: which search did it pick? ----------------------------------------
+const mode = t => ctx._pfDetectMode(t);
+eq('H1 a SKU', mode('163485'), 'sku');
+eq('H2 a supplies SKU', mode('SUP-118'), 'sku');
+eq('H3 a Deutz number (SERPIC spacing)', mode('0427 0701'), 'mpn');
+eq('H4 the user\'s real paste', mode('0427 0701\n0417 9234\n0417 9921'), 'mpn');
+eq('H5 SERPIC rows with pos/desc/qty', mode('1  0427 0701  Piston  1\n2  0417 3414  Piston pin  1'), 'mpn');
+eq('H6 a Kubota dash number', mode('1G790-21050'), 'mpn');
+eq('H7 several numbers on one line', mode('02102238, 1C010-74110'), 'mpn');
+eq('H8 engine + part', mode('v2203 piston'), 'keywords');
+eq('H9 engine code alone is a word', mode('4TNV98'), 'keywords');
+eq('H10 perkins model with dash is a word', mode('404D-22 gasket'), 'keywords');
+eq('H11 word + number on one line → keywords (AND)', mode('piston 04270701'), 'keywords');
+eq('H12 a 7-digit legacy number', mode('4201560'), 'mpn');
+eq('H13 leading-zero 6 digits is not a SKU', mode('041570'), 'mpn');
+eq('I1 keyword digits ignore leading zeros', ctx._kwNorm('04157075'), ctx._kwNorm('4157075'));
+eq('I2 keyword query joins SERPIC pairs', ctx._kwParseQuery('0415 7075 gasket'), ['4157075', 'gasket']);
+
 // --- E · real MI export ---------------------------------------------------------------
 if (process.env.MI_JSON) {
   const mi = JSON.parse(fs.readFileSync(process.env.MI_JSON, 'utf8'));
