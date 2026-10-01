@@ -233,6 +233,7 @@ function _buildDashboardTick() {
     // drawn ONLY when this has entries, so a quiet day costs nothing and any
     // ink on that strip is a finding.
     held:       (openOrders && openOrders.held) || [],
+    customers:  (openOrders && openOrders.customers) || {},
     serverTime: new Date().toISOString()
   };
 }
@@ -799,7 +800,53 @@ function _dashOpenOrders() {
   // the SAME `data` this scan already read, at full width, so the one surface
   // that was blind costs zero extra reads to open.
   capped.held = holdScanRows(data);
+  // ⭐ 2026-10-02 — the customer behind each open DIRECT order, ONCE per order (not
+  // per row: SO-25792 alone is 16 rows). Read by the alerts tab's Direct
+  // notification and the wall's Direct band. Best-effort — a failure leaves {}.
+  try { capped.customers = _dashDirectCustomers(ss, out); }
+  catch (e) { console.log('_dashOpenOrders customers: ' + e); capped.customers = {}; }
   return capped;
+}
+
+/**
+ * { "SO-25792": "Miguel Navarro-Trevino", … } for the DIRECT orders in `rows`.
+ * One 2-column read of Pending Sales Orders, cached 5 minutes — a customer name
+ * does not change while an order is open, and this runs inside every tick build.
+ * Orders typed by hand (not in Pending) simply have no entry.
+ */
+var DASH_CUSTOMER_CACHE_KEY = 'dash:directCustomers';
+function _dashDirectCustomers(ss, rows) {
+  var want = {}, any = false;
+  for (var i = 0; i < rows.length; i++) {
+    if (rows[i].channel === 'DIRECT' && rows[i].orderId) { want[rows[i].orderId] = 1; any = true; }
+  }
+  if (!any) return {};
+  var all = null, cache = CacheService.getScriptCache();
+  try { var hit = cache.get(DASH_CUSTOMER_CACHE_KEY); if (hit) all = JSON.parse(hit); } catch (e) { all = null; }
+  var missing = Object.keys(want).some(function (k) { return !all || !(k in all); });
+  if (!all || missing) {
+    all = {};
+    var sh = ss.getSheetByName(PENDING_SO.sheetName);
+    var last = sh ? sh.getLastRow() : 0;
+    if (last >= 2) {
+      var v = sh.getRange(2, PENDING_SO.cols.SO_NUMBER, last - 1, 2).getValues();
+      for (var r = 0; r < v.length; r++) {
+        var so = String(v[r][0] || '').trim();
+        if (so) all[so] = String(v[r][1] || '').trim();
+      }
+    }
+    // ⚠ Cache ONLY the open orders' names, never the whole Pending sheet — every
+    // direct SO ever mirrored would approach CacheService's 100 KB value limit.
+    // An SO typed by hand is never in Pending: remember it as "" so a miss does
+    // not force a re-read on every tick for the rest of the cache window.
+    var keep = {};
+    Object.keys(want).forEach(function (k) { keep[k] = all[k] || ''; });
+    all = keep;
+    try { cache.put(DASH_CUSTOMER_CACHE_KEY, JSON.stringify(all), 300); } catch (e) {}
+  }
+  var out = {};
+  Object.keys(want).forEach(function (k) { if (all[k]) out[k] = all[k]; });
+  return out;
 }
 
 

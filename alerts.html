@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#0e0e0d">
+<title>● HQ · all clear</title>
+<link rel="icon" id="fav" href="data:,">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600&family=Roboto+Mono:wght@400;500;700&family=Roboto:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* ============================================================================
+   HQ ALERTS — a pinned tab that taps the picker on the shoulder      (v1.0)
+
+   Built 2026-10-02 from an approved mockup. It sits PINNED behind the sheet on
+   each picker PC and speaks for exactly two things, through desktop
+   notifications and its own tab title/icon:
+     · NEW ORDERS (9–5 Houston, Mon–Fri) — eBay: ONE notification per pull,
+       closes by itself · Direct and Amazon: one each, stays until clicked
+     · HOLDS (any time) — an unanswered hold stays until clicked
+   Deliberately NOT: "OK to ship" (a cleared note is often just "SHIP NEXT DAY
+   AIR" — owner's call), past-3h / pickup / paid shipping (those live on the
+   wall), and sound. READ-ONLY: same published tick as the wall and the board,
+   so it costs the sheet nothing. ⚠ A blocked notification looks exactly like a
+   quiet day — that is why the page says loudly when they are off, and why the
+   test button exists.
+   ============================================================================ */
+:root {
+  --g0:#0e0e0d; --g1:#161614; --g2:#1d1d1a; --line:rgba(245,245,242,0.09); --line-brand:rgba(255,212,0,0.25);
+  --t1:#f5f5f2; --t2:rgba(245,245,242,0.66); --t3:rgba(245,245,242,0.4);
+  --act:#ffd400; --ok:#4caf50; --alarm:#ff6b6b; --money:#ffb84d;
+  --disp:'Oswald',sans-serif; --mono:'Roboto Mono',monospace; --body:'Roboto',sans-serif;
+}
+* { box-sizing:border-box; margin:0; padding:0; }
+html,body { height:100%; }
+body { background:var(--g0); color:var(--t1); font-family:var(--body); }
+.page { max-width:980px; margin:0 auto; padding:28px 24px 40px; display:flex; flex-direction:column; gap:26px; }
+.top { display:flex; align-items:center; gap:18px; border-bottom:2px solid var(--act); padding-bottom:16px; }
+.logo { height:44px; width:auto; fill:var(--t1); flex:none; }
+.logo .cls-2 { fill:var(--act); } .logo .cls-1 { fill:none; stroke:var(--t1); stroke-width:.8px; }
+.top .word { font-family:var(--disp); letter-spacing:.3em; text-transform:uppercase; color:var(--t2); font-size:15px; }
+.conn { margin-left:auto; font-family:var(--mono); font-size:13px; color:var(--ok); white-space:nowrap; }
+.conn::before { content:'● '; }
+.conn.bad { color:var(--alarm); } .conn.rest { color:var(--t3); }
+.grid { display:grid; grid-template-columns:minmax(0,1.15fr) minmax(0,1fr); gap:28px; }
+@media (max-width:760px) { .grid { grid-template-columns:1fr; } }
+.state { display:flex; flex-direction:column; gap:16px; }
+.big { font-family:var(--disp); font-weight:500; font-size:34px; line-height:1.05; text-transform:uppercase; }
+.big.ok { color:var(--t1); } .big.bad { color:var(--alarm); }
+.why { font-size:15px; color:var(--t2); line-height:1.5; max-width:52ch; }
+.why b { color:var(--t1); font-weight:500; }
+.chk { list-style:none; display:flex; flex-direction:column; gap:8px; font-family:var(--mono); font-size:13px; color:var(--t2); }
+.chk li::before { content:'✓  '; color:var(--ok); }
+.chk li.off::before { content:'–  '; color:var(--t3); }
+.btns { display:flex; gap:12px; flex-wrap:wrap; }
+button { font-family:var(--disp); letter-spacing:.14em; text-transform:uppercase; font-size:14px; cursor:pointer;
+         background:transparent; color:var(--act); border:2px solid var(--act); padding:9px 16px; }
+button.primary { background:var(--act); color:var(--g0); }
+button:focus-visible { outline:2px solid var(--t1); outline-offset:2px; }
+button[hidden] { display:none; }
+.log { border-left:1px solid var(--line); padding-left:22px; display:flex; flex-direction:column; gap:10px; min-width:0; }
+.log h2 { font-family:var(--disp); font-weight:400; font-size:12px; letter-spacing:.24em; text-transform:uppercase; color:var(--t3); }
+.log ol { list-style:none; display:flex; flex-direction:column; gap:9px; }
+.log li { display:grid; grid-template-columns:78px minmax(0,1fr); gap:10px; font-family:var(--mono); font-size:13px; color:var(--t2); }
+.log time { color:var(--t3); }
+.log .y { color:var(--act); } .log .r { color:var(--alarm); } .log .g { color:var(--ok); }
+.log .none { color:var(--t3); display:block; }
+.foot { font-family:var(--mono); font-size:12px; color:var(--t3); border-top:1px solid var(--line); padding-top:14px; line-height:1.6; }
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="top">
+    <svg class="logo" viewBox="0 0 500 157.8" role="img" aria-label="High Quality Motor Service"><g> <g> <g> <path class="cls-2" d="M70.2,17.7C36.4,22.5,12.9,53.8,17.7,87.6c4.8,33.8,36.1,57.3,69.9,52.5,14.3-2,26.7-8.8,35.9-18.4l-5.7-3.6c-8.1,8.1-18.9,13.7-31.1,15.5-30.2,4.3-58.2-16.7-62.5-46.9-4.3-30.2,16.7-58.2,46.9-62.5,30.2-4.3,58.2,16.7,62.5,46.9,1.8,12.3-.7,24.3-6.3,34.5l5.6,3.5c6.4-11.4,9.2-24.9,7.3-38.9-4.8-33.8-36.1-57.3-69.9-52.5h-.1Z"/> <polygon points="176.7 14 176.7 73.5 168.1 73.5 168.1 47 157.6 47 157.6 47 143.3 47 143.3 39.5 168.1 39.5 168.1 14 176.7 14"/> <path d="M184.9,73.5V14h8.5v59.4h-8.5Z"/> <path d="M201.2,28c0-2.4.4-4.5,1.3-6.3s1.9-3.4,3.3-4.6c1.3-1.2,2.9-2.1,4.6-2.7,1.7-.6,3.4-.9,5.1-.9s3.4.3,5.1.9c1.7.6,3.2,1.5,4.6,2.7,1.3,1.2,2.4,2.8,3.3,4.6s1.3,4,1.3,6.3v3h-8.5v-3c0-2.1-.6-3.6-1.7-4.6-1.1-1-2.5-1.5-4-1.5s-2.9.5-4,1.5-1.7,2.5-1.7,4.6v31.4c0,2.1.6,3.6,1.7,4.6,1.1,1,2.5,1.5,4,1.5s2.9-.5,4-1.5,1.7-2.5,1.7-4.6v-11.2h-6.8v-7.5h15.3v18.7c0,2.5-.4,4.6-1.3,6.4-.8,1.8-1.9,3.3-3.3,4.4-1.4,1.2-2.9,2.1-4.6,2.8-1.7.6-3.4.9-5.1.9s-3.4-.3-5.1-.9c-1.7-.6-3.2-1.5-4.6-2.8-1.4-1.2-2.5-2.6-3.3-4.4s-1.3-3.9-1.3-6.4v-31.4Z"/> <path d="M237.3,73.5V14h8.5v25.5h10.5V14h8.5v59.4h-8.5v-26.5h-10.5v26.5h-8.5,0Z"/> <path d="M287.9,28c0-2.4.4-4.5,1.3-6.3.8-1.8,1.9-3.4,3.3-4.6,1.3-1.2,2.9-2.1,4.5-2.7,1.7-.6,3.4-.9,5.1-.9s3.4.3,5.1.9c1.7.6,3.2,1.5,4.6,2.7,1.3,1.2,2.4,2.8,3.3,4.6s1.3,4,1.3,6.3v31.4c0,2.3-.4,4.4-1.3,6.1l5.3,4.3-4.3,5.2-5-4.1c-2.6,2.1-5.5,3.1-8.9,3.1s-3.4-.3-5.1-.9-3.2-1.5-4.5-2.8c-1.4-1.2-2.5-2.6-3.3-4.4s-1.3-3.9-1.3-6.4v-31.4h-.1ZM296.4,59.4c0,2.1.6,3.6,1.7,4.6s2.5,1.5,4,1.5,1.4,0,1.8-.3l-3.8-3.1,4.3-5.2,3.4,2.8v-31.6c0-2.1-.6-3.6-1.7-4.6s-2.5-1.5-4-1.5-2.9.5-4,1.5-1.7,2.5-1.7,4.6v31.4h0Z"/> <path d="M351.5,14v46.1c0,1.9-.3,3.7-1,5.4-.7,1.6-1.7,3.1-3,4.4s-2.8,2.3-4.4,3c-1.7.7-3.5,1.1-5.3,1.1s-3.7-.4-5.3-1.1c-1.6-.7-3.1-1.7-4.4-3s-2.3-2.7-3-4.4c-.7-1.6-1.1-3.4-1.1-5.4V14h8.5v45.3c0,2.1.5,3.7,1.5,4.7s2.3,1.5,3.8,1.5,2.8-.5,3.8-1.5,1.5-2.6,1.5-4.7V14h8.5-.1Z"/> <path d="M354.7,73.5l13.3-59.4h7.1l13.3,59.4h-8.5l-2.5-12.8h-11.6l-2.5,12.8h-8.6,0ZM375.7,52.7l-4.2-21.5h-.2l-4.2,21.5h8.6Z"/> <path d="M392.5,73.5V14h8.5v50.9h16.9v8.5h-25.4Z"/> <path d="M423.6,73.5V14h8.5v59.4h-8.5Z"/> <path d="M446,73.5V22h-9.9v-8h28.2v8h-9.9v51.4h-8.5,0Z"/> <path d="M479.8,73.5v-25.1l-11.7-34.3h9l6.8,23.6h.2l6.8-23.6h9l-11.7,34.3v25.1h-8.5.1Z"/> <path d="M187,112.3c0-1.7.4-3.1,1.1-4.4s1.7-2.3,2.9-3.2c1.2-.8,2.5-1.4,4-1.8s3-.6,4.5-.6,3,.2,4.5.6,2.8,1,4,1.8,2.1,1.9,2.8,3.2,1.1,2.7,1.1,4.4v21.7c0,1.7-.4,3.2-1.1,4.4-.7,1.2-1.7,2.2-2.8,3.1-1.2.8-2.6,1.5-4,1.9-1.5.4-3,.6-4.5.6s-3-.2-4.5-.6c-1.5-.4-2.8-1.1-4-1.9-1.2-.8-2.2-1.8-2.9-3.1-.7-1.2-1.1-2.7-1.1-4.4v-21.7ZM194.4,133.9c0,1.4.5,2.5,1.5,3.1,1,.7,2.2,1,3.5,1s2.5-.3,3.5-1,1.5-1.7,1.5-3.1v-21.7c0-1.4-.5-2.5-1.5-3.1-1-.7-2.2-1-3.5-1s-2.5.3-3.5,1-1.5,1.7-1.5,3.1v21.7Z"/> <path d="M222.5,143.6v-35.5h-8.6v-5.5h24.6v5.5h-8.6v35.5h-7.4Z"/> <path d="M240.4,112.3c0-1.7.4-3.1,1.1-4.4.7-1.3,1.7-2.3,2.9-3.2,1.2-.8,2.5-1.4,4-1.8s3-.6,4.5-.6,3,.2,4.5.6,2.8,1,4,1.8,2.1,1.9,2.8,3.2,1.1,2.7,1.1,4.4v21.7c0,1.7-.4,3.2-1.1,4.4s-1.7,2.2-2.8,3.1c-1.2.8-2.6,1.5-4,1.9-1.5.4-3,.6-4.5.6s-3-.2-4.5-.6c-1.5-.4-2.8-1.1-4-1.9-1.2-.8-2.2-1.8-2.9-3.1-.7-1.2-1.1-2.7-1.1-4.4v-21.7ZM247.8,133.9c0,1.4.5,2.5,1.5,3.1,1,.7,2.2,1,3.5,1s2.5-.3,3.5-1c1-.7,1.5-1.7,1.5-3.1v-21.7c0-1.4-.5-2.5-1.5-3.1-1-.7-2.2-1-3.5-1s-2.5.3-3.5,1-1.5,1.7-1.5,3.1v21.7h0Z"/> <path d="M271.9,143.6v-41h11.9c8.7,0,13.1,4,13.1,12s-.5,4.5-1.4,6.2-2.6,3.1-5,4.1l8,18.7h-7.9l-6.9-17.5h-4.4v17.5h-7.4ZM279.3,108.1v12.8h4.2c1.3,0,2.4,0,3.1-.4.8-.3,1.4-.7,1.8-1.2s.7-1.2.8-2c.1-.8.2-1.7.2-2.7s0-1.9-.2-2.7c-.1-.8-.4-1.5-.9-2-.9-1.1-2.7-1.6-5.2-1.6h-3.9v-.2h.1Z"/> <path d="M340.4,114.4h-7.4v-1.3c0-1.3-.4-2.5-1.2-3.5-.8-1-2.1-1.5-4-1.5s-1.8.2-2.5.5c-.6.3-1.1.7-1.5,1.2s-.7,1.1-.8,1.7c-.1.6-.2,1.3-.2,2s0,1.5.1,2c0,.5.3,1,.5,1.4.3.4.7.8,1.3,1.1.6.3,1.3.6,2.3.9l5.7,1.8c1.6.5,3,1.1,4,1.8,1,.7,1.8,1.4,2.4,2.3.5.9.9,2,1.1,3.1.2,1.2.3,2.5.3,4s-.2,3.3-.7,4.8c-.4,1.5-1.1,2.7-2.1,3.8s-2.4,1.9-4,2.5-3.7.9-6,.9-3.5-.2-5-.7c-1.6-.5-2.9-1.2-4-2.1-1.1-.9-2-1.9-2.7-3.1-.7-1.2-1-2.4-1-3.8v-2.2h7.4v1.8c0,1.1.4,2,1.2,2.9.8.9,2.1,1.3,4,1.3s2.2-.1,2.9-.4c.7-.3,1.2-.7,1.6-1.2s.6-1.2.7-1.9.1-1.6.1-2.5,0-2-.1-2.6c0-.7-.3-1.2-.6-1.7-.3-.4-.8-.8-1.3-1-.6-.3-1.3-.6-2.2-.9l-5.3-1.7c-3.2-1-5.3-2.4-6.4-4.1s-1.6-3.8-1.6-6.4.3-3,.8-4.4,1.3-2.6,2.4-3.6c1-1,2.3-1.8,3.9-2.4s3.5-.9,5.6-.9,3.5.3,5.1.8c1.5.5,2.8,1.2,4,2.1,2.2,1.8,3.3,4,3.3,6.3v2.9h0Z"/> <path d="M345.9,143.6v-41h22.1v5.5h-14.7v12h12.8v5.5h-12.8v12h14.7v5.9h-22.1Z"/> <path d="M372.8,143.6v-41h11.9c8.7,0,13.1,4,13.1,12s-.5,4.5-1.4,6.2-2.6,3.1-5,4.1l8,18.7h-7.9l-6.9-17.5h-4.4v17.5h-7.4ZM380.3,108.1v12.8h4.2c1.3,0,2.4,0,3.1-.4.8-.3,1.4-.7,1.8-1.2s.7-1.2.8-2c.1-.8.2-1.7.2-2.7s0-1.9-.2-2.7c-.1-.8-.4-1.5-.9-2-.9-1.1-2.7-1.6-5.2-1.6h-3.9v-.2h.1Z"/> <path d="M429,102.6l-10.6,41h-6.5l-10.5-41h7.9l5.9,28.6h.1l6-28.6h7.9-.2,0Z"/> <path d="M433.7,143.6v-41h7.4v41h-7.4Z"/> <path d="M471.8,131.9v2.5c0,1.3-.3,2.5-.9,3.6s-1.4,2.1-2.5,3-2.3,1.6-3.7,2.1c-1.4.5-3,.8-4.6.8s-2.8-.2-4.3-.5-2.8-.8-3.9-1.6c-1.2-.8-2.1-1.8-2.9-3s-1.1-2.8-1.1-4.6v-22.6c0-1.3.3-2.6.9-3.7.6-1.2,1.4-2.1,2.5-3,1.1-.8,2.3-1.5,3.8-2s3.1-.7,4.9-.7c3.5,0,6.3.9,8.5,2.7,1.1.9,1.9,1.9,2.5,3.1s.9,2.5.9,3.9v2.3h-7.4v-2c0-1.2-.4-2.1-1.2-3-.8-.8-1.9-1.3-3.3-1.3s-3.1.5-3.7,1.4-.9,2-.9,3.4v21c0,1.2.3,2.2,1,3s1.8,1.2,3.5,1.2,1,0,1.6-.2c.6-.1,1.1-.4,1.6-.7.4-.3.8-.7,1.1-1.3.3-.5.4-1.2.4-2v-2h7.4l-.2.2h0Z"/> <path d="M477.9,143.6v-41h22.1v5.5h-14.7v12h12.8v5.5h-12.8v12h14.7v5.9h-22.1Z"/> <polygon points="157.6 47 168.1 47 168.1 47 157.6 47"/> <polygon points="181.3 102.3 181.3 143.3 174.6 143.3 174.6 116.1 174.1 117.6 167 143.3 159.9 143.3 150.5 112 147.7 102.3 154.2 102.3 163.8 135.6 173.5 102.3 181.3 102.3"/> <g> <path d="M45.2,105.9v-54.9h7.9v23.5h9.7v-23.5h7.9v54.9h-7.9v-24.4h-9.7v24.4h-7.9Z"/> <path d="M86.2,63.9c0-2.2.4-4.2,1.2-5.9.8-1.7,1.8-3.1,3.1-4.2,1.2-1.1,2.6-1.9,4.2-2.5s3.1-.8,4.7-.8,3.2.3,4.7.8c1.6.6,3,1.4,4.3,2.5,1.2,1.1,2.2,2.5,3,4.2s1.2,3.6,1.2,5.9v29c0,2.2-.4,4-1.2,5.6l4.9,3.9-4,4.8-4.6-3.8c-2.4,1.9-5.1,2.9-8.2,2.9s-3.2-.3-4.7-.8c-1.6-.6-3-1.4-4.2-2.5-1.3-1.1-2.3-2.4-3.1-4.1-.8-1.6-1.2-3.6-1.2-5.9v-29h-.1ZM94,92.9c0,1.9.5,3.3,1.6,4.2,1.1.9,2.3,1.3,3.7,1.3s1.3,0,1.7-.3l-3.5-2.9,4-4.8,3.2,2.5v-29.1c0-1.9-.5-3.3-1.6-4.2s-2.3-1.3-3.7-1.3-2.7.5-3.7,1.3c-1.1.9-1.6,2.3-1.6,4.2v29h0Z"/> </g> <rect class="cls-2" x="77.6" y="39.4" width="2.6" height="78.9"/> <rect class="cls-2" x="184.9" y="84.3" width="315.1" height="5.3"/> <g> <path d="M496.6,7.2l-.8-1.2h-1.2v1.2h-.6v-3.8h1.5c1,0,1.6.5,1.6,1.3s-.3,1-.8,1.2l.9,1.3h-.6,0ZM496.6,4.7c0-.5-.3-.8-1.1-.8h-.9v1.7h.9c.7,0,1.1-.3,1.1-.9Z"/> <circle class="cls-1" cx="495.6" cy="5.3" r="3.3"/> </g> <path d="M144.1,102.3h10.1c-9.6,30.9-37.3,53.1-70.1,55.3C40.6,160.5,3.1,127.6.2,84.1-2.7,40.6,30.2,3.1,73.7.2c43.2-2.9,80.7,29.7,83.9,72.8h-9.6c-2.6-30.2-24.6-55.1-54.2-61.5C56.5,3.5,19.8,27.2,11.7,64.4c-8,37.3,15.6,74,52.9,82,34.2,7.4,68-12,79.5-44.2h0Z"/> </g> </g> </g></svg>
+    <span class="word">Alerts</span>
+    <span class="conn" id="conn">connecting</span>
+  </div>
+
+  <div class="grid">
+    <div class="state">
+      <div class="big" id="big">Checking notifications…</div>
+      <p class="why" id="why"></p>
+      <ul class="chk" id="chk">
+        <li>Direct · Amazon · holds stay until clicked</li>
+        <li>eBay grouped per pull, closes by itself</li>
+        <li id="chkHours">new orders 9 AM – 5 PM Houston, Mon–Fri</li>
+        <li class="off">sound off</li>
+      </ul>
+      <div class="btns">
+        <button class="primary" id="btnAllow" hidden>Turn on notifications</button>
+        <button id="btnTest">Send a test notification</button>
+      </div>
+    </div>
+    <div class="log">
+      <h2>Last sent from this PC</h2>
+      <ol id="log"><li><span class="none">nothing yet</span></li></ol>
+    </div>
+  </div>
+
+  <div class="foot">Keep this tab pinned and open behind the sheet. It only shows what the board already shows; it never changes anything.
+    Clicking a notification opens the board.</div>
+</div>
+
+<script>
+// ===========================================================================
+// HQ ALERTS client — read-only. Polls the published tick; never writes.
+// ===========================================================================
+var TZ = 'America/Chicago';
+var API = '/api/board';
+var POLL_MS = 20000, POLL_MAX_MS = 90000;
+var BURST_AGE_MAX = 20;            // an order older than this (min) is not news
+var SEEN_KEEP_MS = 2 * 86400000;   // remember notified ids for 2 days
+var BOARD_URL = '/';
+
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
+  return { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;' }[c]; }); }
+function num(v) { var n = parseFloat(v); return isFinite(n) ? n : 0; }
+function store(k, v) { try { if (v === undefined) return JSON.parse(localStorage.getItem(k) || 'null'); localStorage.setItem(k, JSON.stringify(v)); } catch (e) { return null; } }
+
+// ---------- working hours (Houston) ----------
+function houston() {
+  var now = new Date();
+  var h = parseInt(now.toLocaleString('en-US', { timeZone: TZ, hour: '2-digit', hour12: false }), 10) % 24;
+  var wd = now.toLocaleDateString('en-US', { timeZone: TZ, weekday: 'short' });
+  return { hour: h, weekday: wd !== 'Sat' && wd !== 'Sun' };
+}
+function inHours() { var t = houston(); return t.weekday && t.hour >= 9 && t.hour < 17; }
+function clockNow() { return new Date().toLocaleTimeString('en-US', { timeZone: TZ, hour: 'numeric', minute: '2-digit' }); }
+
+// ---------- shelf order: natural, like the pick list (A-9 before A-50) ----------
+function shelfKey(l) {
+  var m = String(l || '').trim().toUpperCase().match(/^([A-Z]+)\s*-\s*(\d+)/);
+  return m ? [0, m[1], parseInt(m[2], 10)] : [1, String(l || ''), 0];
+}
+function cmpShelf(a, b) {
+  var x = shelfKey(a), y = shelfKey(b);
+  for (var i = 0; i < 3; i++) { if (x[i] < y[i]) return -1; if (x[i] > y[i]) return 1; }
+  return 0;
+}
+function shelvesOf(rows, n) {
+  var seen = {}, out = [];
+  rows.forEach(function (r) { var l = String(r.location || '').trim(); if (l && l !== 'NOT FOUND' && !seen[l]) { seen[l] = 1; out.push(l); } });
+  return out.sort(cmpShelf).slice(0, n);
+}
+
+// ---------- the tab's own icon + title ----------
+function drawIcon(ring, dot) {
+  try {
+    var c = document.createElement('canvas'); c.width = c.height = 64;
+    var g = c.getContext('2d');
+    g.fillStyle = '#111'; g.beginPath(); g.arc(32, 32, 30, 0, Math.PI * 2); g.fill();
+    g.strokeStyle = ring; g.lineWidth = 7; g.beginPath(); g.arc(32, 32, 24, 0, Math.PI * 2); g.stroke();
+    g.fillStyle = '#f5f5f2'; g.font = 'bold 20px Arial'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('HQ', 32, 33);
+    if (dot) { g.fillStyle = dot; g.beginPath(); g.arc(52, 12, 11, 0, Math.PI * 2); g.fill(); g.strokeStyle = '#0e0e0d'; g.lineWidth = 3; g.stroke(); }
+    return c.toDataURL('image/png');
+  } catch (e) { return ''; }
+}
+var ICON_PLAIN = drawIcon('#ffd400', ''), ICON_NEW = drawIcon('#ffd400', '#ffd400'),
+    ICON_HOLD = drawIcon('#ff6b6b', '#ff6b6b'), ICON_OFF = drawIcon('#666', '');
+function setTab(title, icon) {
+  if (document.title !== title) document.title = title;
+  var f = document.getElementById('fav');
+  if (icon && f.getAttribute('href') !== icon) f.setAttribute('href', icon);
+}
+
+// ---------- notifications ----------
+var HAS = ('Notification' in window);
+function perm() { return HAS ? Notification.permission : 'unsupported'; }
+// Returns true only when the browser really showed it. ⚠ Nothing is logged as
+// "sent" otherwise — the log exists to answer "did it tell me?", so it must not lie.
+function notify(opts) {
+  if (perm() !== 'granted') return false;
+  try {
+    var n = new Notification(opts.title, {
+      body: opts.body, tag: opts.tag, icon: opts.icon || ICON_PLAIN,
+      requireInteraction: !!opts.sticky, renotify: !!opts.renotify, silent: true
+    });
+    n.onclick = function () {
+      try { var w = window.open(BOARD_URL, 'hq-board'); if (w) w.focus(); } catch (e) {}
+      n.close();
+    };
+    if (!opts.sticky) setTimeout(function () { try { n.close(); } catch (e) {} }, 12000);
+  } catch (e) { return false; }
+  logAdd(opts.logClass, opts.logText);
+  return true;
+}
+
+// ---------- "last sent" log, per PC ----------
+function logAdd(cls, text) {
+  var log = store('hqAlertsLog') || [];
+  log.unshift({ t: clockNow(), c: cls, x: text });
+  store('hqAlertsLog', log.slice(0, 12));
+  paintLog();
+}
+function paintLog() {
+  var log = store('hqAlertsLog') || [], ol = document.getElementById('log');
+  if (!log.length) { ol.innerHTML = '<li><span class="none">nothing yet</span></li>'; return; }
+  ol.innerHTML = log.map(function (e) { return '<li><time>' + esc(e.t) + '</time><span class="' + esc(e.c) + '">' + esc(e.x) + '</span></li>'; }).join('');
+}
+
+// ---------- permission + status panel ----------
+function paintPerm() {
+  var p = perm(), big = document.getElementById('big'), why = document.getElementById('why'),
+      allow = document.getElementById('btnAllow'), test = document.getElementById('btnTest');
+  allow.hidden = (p !== 'default'); test.hidden = (p !== 'granted');
+  big.className = 'big ' + (p === 'granted' ? 'ok' : 'bad');
+  if (p === 'granted') {
+    big.textContent = 'Notifications are on';
+    why.innerHTML = 'This tab can stay <b>pinned behind the sheet</b>. Keep it open.';
+  } else if (p === 'default') {
+    big.textContent = 'Notifications are off';
+    why.innerHTML = 'Click <b>Turn on notifications</b> and choose <b>Allow</b>. Until then this PC hears nothing.';
+  } else if (p === 'denied') {
+    big.textContent = 'Notifications are blocked';
+    why.innerHTML = 'This browser blocked them for this page. Click the icon left of the address bar, set <b>Notifications</b> to <b>Allow</b>, then reload.';
+  } else {
+    big.textContent = 'This browser cannot notify';
+    why.innerHTML = 'Open this page in <b>Chrome</b> or <b>Edge</b> on the PC.';
+  }
+}
+document.getElementById('btnAllow').addEventListener('click', function () {
+  if (!HAS) return;
+  var r = Notification.requestPermission(function () { paintPerm(); });
+  if (r && r.then) r.then(function () { paintPerm(); });
+});
+document.getElementById('btnTest').addEventListener('click', function () {
+  notify({ title: 'Test · HQ Alerts', body: 'This PC shows notifications. You are all set.', tag: 'hq-test',
+           logClass: 'g', logText: 'Test notification' });
+});
+
+// ---------- what is news ----------
+var seen = store('hqAlertsSeen') || { orders: {}, holds: {} };
+var unseen = 0, primed = false;
+function saveSeen() {
+  var now = Date.now();
+  ['orders', 'holds'].forEach(function (k) {
+    for (var id in seen[k]) if (now - seen[k][id] > SEEN_KEEP_MS) delete seen[k][id];
+  });
+  store('hqAlertsSeen', seen);
+}
+
+function onTick(t) {
+  var rows = t.openOrders || [], held = t.held || [], age = (t.cockpit && t.cockpit.orderAgeMin) || {},
+      customers = t.customers || {}, now = Date.now();
+
+  // 1 · HOLDS — any time. An unanswered hold not yet announced from this PC.
+  held.forEach(function (h) {
+    var id = String(h.orderId || '');
+    if (!id || h.acked || seen.holds[id]) return;
+    var it = (h.items || [])[0] || {};
+    var why = h.shipped ? 'label already bought' : (h.urgent ? 'being picked' : 'not started');
+    // remembered only once actually shown — a hold that lands while notifications
+    // are off is announced the moment someone turns them on
+    if (notify({
+      title: 'Hold · ' + why,
+      body: id + ' · ' + (it.loc || 'no shelf') + ' · ' + (it.sku || '') + ' ×' + (it.qty || 1) +
+            ((h.items || []).length > 1 ? ' (+' + ((h.items.length) - 1) + ' more)' : '') +
+            '\n' + (h.shipped ? 'Set the box aside. ' : '') + 'Acknowledge on the board.',
+      tag: 'hq-hold-' + id, sticky: true, icon: ICON_HOLD,
+      logClass: 'r', logText: 'Hold · ' + why + ' · ' + id
+    })) seen.holds[id] = now;
+  });
+
+  // 2 · NEW ORDERS — PENDING order ids this PC has not seen. The first tick after
+  // the page opens only REMEMBERS what is already there: history is not news.
+  var byOrder = {}, order = [];
+  rows.forEach(function (r) {
+    var id = String(r.orderId || '').trim();
+    if (!id) return;
+    if (!byOrder[id]) { byOrder[id] = { id: id, ch: r.channel || 'EBAY', rows: [], pending: false }; order.push(byOrder[id]); }
+    byOrder[id].rows.push(r);
+    if (String(r.status).toUpperCase() === 'PENDING') byOrder[id].pending = true;
+  });
+  var fresh = order.filter(function (o) {
+    if (seen.orders[o.id]) return false;
+    seen.orders[o.id] = now;
+    if (!primed || !o.pending) return false;
+    // ⚠ the board's list is capped, so an OLD order can scroll into view later —
+    // that is not an arrival. Same 20-minute guard the sidebar's order voices use.
+    if (age[o.id] !== undefined && num(age[o.id]) > BURST_AGE_MAX) return false;
+    return true;
+  });
+  if (fresh.length && inHours()) {
+    var ebay = fresh.filter(function (o) { return o.ch !== 'DIRECT' && o.ch !== 'AMAZON'; });
+    // eBay — ONE notification per pull, however many landed
+    if (ebay.length === 1) {
+      var r0 = ebay[0].rows[0];
+      notify({ title: 'New eBay order', body: (r0.location || 'no shelf') + ' · ' + r0.sku + ' ×' + (r0.qty || 1) +
+               (ebay[0].rows.length > 1 ? ' (+' + (ebay[0].rows.length - 1) + ' lines)' : '') + '\n' + ebay[0].id,
+               tag: 'hq-ebay-' + now, icon: ICON_NEW, logClass: 'y', logText: 'New eBay order · ' + (r0.location || ebay[0].id) });
+    } else if (ebay.length > 1) {
+      var all = []; ebay.forEach(function (o) { all = all.concat(o.rows); });
+      notify({ title: ebay.length + ' new eBay orders',
+               body: 'First walk ' + shelvesOf(all, 3).join(' · ') + '\n' + all.length + ' lines',
+               tag: 'hq-ebay-' + now, icon: ICON_NEW, logClass: 'y', logText: ebay.length + ' new eBay orders' });
+    }
+    // Direct + Amazon — one each, stays until clicked
+    fresh.filter(function (o) { return o.ch === 'DIRECT' || o.ch === 'AMAZON'; }).forEach(function (o) {
+      var r1 = o.rows[0], isA = o.ch === 'AMAZON';
+      var first = shelvesOf(o.rows, 1)[0];
+      var line1 = (first ? first + ' · ' : '') + r1.sku + ' ×' + (r1.qty || 1) +
+                  (o.rows.length > 1 ? ' (+' + (o.rows.length - 1) + ' lines)' : '');
+      // second line: who it is for (Direct) or the ship-by deadline (Amazon)
+      var line2 = isA ? ((String(r1.note || '').match(/ship by\s+([^·]+)/i) || [])[1] || '').trim()
+                      : (customers[o.id] || '');
+      if (isA && line2) line2 = 'ship by ' + line2;
+      notify({
+        title: (isA ? 'New Amazon order · ' : 'New Direct order · ') + o.id,
+        body: line1 + (line2 ? '\n' + line2 : ''),
+        tag: 'hq-' + o.id, sticky: true, icon: ICON_NEW,
+        logClass: 'y', logText: (isA ? 'New Amazon order · ' : 'New Direct order · ') + o.id
+      });
+    });
+    if (document.visibilityState !== 'visible') unseen += fresh.length;
+  }
+  primed = true;
+  saveSeen();
+
+  // 3 · the tab tells the state even with no notification on screen
+  var open = held.filter(function (h) { return !h.acked; });
+  if (open.length) setTab('⚠ HOLD · ' + open[0].orderId + (open.length > 1 ? ' +' + (open.length - 1) : ''), ICON_HOLD);
+  else if (unseen > 0) setTab('● ' + unseen + ' NEW · HQ', ICON_NEW);
+  else setTab('● HQ · all clear', ICON_PLAIN);
+
+  var c = document.getElementById('conn');
+  c.className = 'conn' + (inHours() ? '' : ' rest');
+  c.textContent = inHours() ? 'listening · ' + clockNow() : 'holds only until 9 AM · ' + clockNow();
+}
+document.addEventListener('visibilitychange', function () {
+  if (document.visibilityState === 'visible') setTimeout(function () { unseen = 0; if (lastTick) onTickTitleOnly(lastTick); }, 3000);
+});
+function onTickTitleOnly(t) {
+  var open = (t.held || []).filter(function (h) { return !h.acked; });
+  if (open.length) setTab('⚠ HOLD · ' + open[0].orderId, ICON_HOLD);
+  else setTab('● HQ · all clear', ICON_PLAIN);
+}
+
+// ---------- transport: fetch only, at most ONE tick in flight ----------
+var busy = false, timer = null, lastMs = 0, fails = 0, lastTick = null;
+function poll() {
+  if (busy) return;
+  busy = true;
+  var t0 = Date.now();
+  fetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'boardTick' }) })
+    .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+    .then(function (t) {
+      lastMs = Date.now() - t0;
+      if (!t || !t.cockpit) throw new Error('no tick');
+      fails = 0; lastTick = t; onTick(t);
+    })
+    .catch(function () {
+      lastMs = 0; fails++;
+      if (fails >= 2) {
+        var c = document.getElementById('conn'); c.className = 'conn bad'; c.textContent = 'cannot reach the server · retrying';
+        setTab('⚠ HQ · offline', ICON_OFF);
+      }
+    })
+    .then(schedule, schedule);
+}
+function schedule() {
+  busy = false;
+  clearTimeout(timer);
+  timer = setTimeout(poll, Math.min(Math.max(POLL_MS, lastMs), POLL_MAX_MS));
+}
+
+paintPerm();
+paintLog();
+setTab('● HQ · all clear', ICON_PLAIN);
+poll();
+</script>
+</body>
+</html>
