@@ -144,8 +144,24 @@ function handleTelegramCommand(update) {
 
     // Ignore ordinary conversation. The warehouse group is a real chat — the
     // bot must only speak when explicitly addressed with a slash command.
+    // ⭐ EXCEPT a PRIVATE chat with the bot (2026-10-01, Parts Finder item 6): there every
+    // message is meant for it, so a bare SKU / pasted part numbers / words runs the same
+    // one box as the sheet. Forward a customer's list → the answer comes back.
     if (text.charAt(0) !== "/") {
-      return { ok: true, handled: false, reason: "not a command", command: "", chatId: chatId };
+      var isPrivate = !!(msg.chat && msg.chat.type === "private");
+      if (!isPrivate || !text) {
+        return { ok: true, handled: false, reason: "not a command", command: "", chatId: chatId };
+      }
+      if (!_tgIsAllowed(chatId) && !_tgIsWebAppUser(msg.from && msg.from.id)) {
+        try { console.log("telegramCommand: ignored private text from non-allowlisted user " + (msg.from && msg.from.id)); } catch (_) {}
+        return { ok: true, handled: false, reason: "user not allowlisted", command: "", chatId: chatId };
+      }
+      var autoReply;
+      try { autoReply = _tgFormatAuto(text, (msg.from && (msg.from.first_name || msg.from.username)) || ""); }
+      catch (autoErr) { autoReply = "⚠ Search failed: " + String(autoErr.message || autoErr); }
+      if (autoReply && typeof autoReply === 'object') _tgSend(chatId, autoReply.text, autoReply.buttons);
+      else _tgSend(chatId, autoReply);
+      return { ok: true, handled: true, reason: "", command: "(auto)", chatId: chatId };
     }
 
     // Silent refusal for chats that are not on the allowlist.
@@ -435,7 +451,8 @@ var TG_ROUTES = {
         L.push(k + (TG_ROUTES[k].usage ? " " + TG_ROUTES[k].usage : "") + " — " + TG_ROUTES[k].help);
       });
       L.push("");
-      L.push("Read-only for now. Buttons on order cards still do PREP / PEND.");
+      L.push("💬 In a PRIVATE chat with me, just send a SKU, part numbers (a SERPIC list is fine) or words — no command needed. Forwarding a customer's message works.");
+      L.push("Buttons on order cards still do PREP / PEND.");
       return L.join("\n");
     }
   },
@@ -580,10 +597,11 @@ var TG_ROUTES = {
 
   "/pull": {
     help:  "pull a Zoho sales order into the DIRECT table",
-    usage: "<SO or INV>",
+    usage: "<SO or INV> [note <text>]",
     run: function (argStr) {
-      if (!argStr) return "Usage: /pull <SO or INV>\nExample: /pull SO-23219";
-      return _tgPullPreview(argStr);
+      if (!argStr) return "Usage: /pull <SO or INV> [note <text>]\nExample: /pull SO-23219 note hold for payment";
+      var a = _tgParsePullArgs(argStr);
+      return _tgPullPreview(a.query, a.note);
     }
   },
 
@@ -756,8 +774,48 @@ var TG_ACTIONS = {
 // finds nothing still "new" and refuses. Removing the button on success is
 // just the friendlier first line of defence.
 
+/** A Telegram user id on the Mini App allowlist (TelegramAuth.js) — the people already
+ *  trusted to expand kits from the phone. Used to admit their PRIVATE chats. */
+function _tgIsWebAppUser(userId) {
+  if (userId == null || userId === "") return false;
+  try { return listTelegramWebAppUsers().indexOf(String(userId)) >= 0; } catch (e) { return false; }
+}
+
+/**
+ * A plain message in a private chat → the Parts Finder's one box. Same detector as the
+ * sheet (_pfDetectMode), and the reply always LEADS with what it searched as.
+ *   SKU → /part (falls back to part numbers when it is not one of ours)
+ *   numbers / a SERPIC paste → /find      words → /search
+ */
+function _tgFormatAuto(text, who) {
+  var raw = String(text || "").trim();
+  var mode = _pfDetectMode(raw);
+  if (mode === "sku") {
+    var b = null;
+    try { var gb = getPartBasics(raw); b = gb && gb.ok ? gb.basics : null; } catch (e) { b = null; }
+    if (b && (b.found || b.zohoAvailable != null)) return _tgFormatPart(raw);
+    return "↪ " + raw + " is not one of our SKUs — searched it as a part number.\n\n" + _tgFormatFind(raw, who);
+  }
+  var tip = mode === "mpn" ? "(searched as part numbers — start with /search to search words instead)"
+                           : "(searched as words — start with /find to search part numbers instead)";
+  return (mode === "mpn" ? _tgFormatFind(raw, who) : _tgFormatSearch(raw, who)) + "\n\n" + tip;
+}
+
+/** "/pull SO-24609 note hold for payment" → { query, note }. "note" anywhere after the order. Pure. */
+function _tgParsePullArgs(argStr) {
+  var toks = String(argStr || "").trim().split(/\s+/).filter(Boolean);
+  var out = { query: toks.shift() || "", note: "" };
+  for (var i = 0; i < toks.length; i++) {
+    if (toks[i].toLowerCase() === "note") { out.note = toks.slice(i + 1).join(" ").trim(); break; }
+  }
+  out.note = out.note.slice(0, TG_PULL_NOTE_MAX);
+  return out;
+}
+var TG_PULL_NOTE_MAX = 200;
+
 /** Build the /pull confirmation card, or explain why this one needs the sheet. */
-function _tgPullPreview(query) {
+function _tgPullPreview(query, note) {
+  note = String(note || "").trim();
   var d = computeZohoSoDiff(query);
   if (!d || !d.ok) return "⚠ " + ((d && d.reason) || "Could not read that sales order.");
 
@@ -787,19 +845,37 @@ function _tgPullPreview(query) {
   L.push("");
   L.push("All " + s.new + " lines are new.");
 
+  // ⚠ The note cannot ride in callback_data (64 BYTES) — it waits in the script cache under
+  // a short token, the /missing + /amazon pattern. No note → the button is exactly as before.
+  var pullData = "pull:" + d.soNumber;
+  if (note) {
+    var token = Utilities.getUuid().replace(/-/g, "").slice(0, 10);
+    try { CacheService.getScriptCache().put("pn:" + token, note, 1800); } catch (e) { token = ""; }
+    if (!token) return head + "\n\n⚠ Could not hold the note just now — try again.";
+    pullData += ":" + token;
+    L.push("📝 Note on every row: " + note);
+  }
+
   // Returning {text, buttons} keeps the sending in ONE place (the entry point)
   // instead of handing routes a chat id to send with themselves.
   return {
     text: L.join("\n"),
     buttons: [[
-      { text: "✅ Pull all", data: "pull:" + d.soNumber },
+      { text: "✅ Pull all", data: pullData },
       { text: "✖ Cancel",   data: "cancel:" + d.soNumber }
     ]]
   };
 }
 
 /** Apply the pull for every line, then report. Called from the button tap. */
-function _tgPullApply(soNumber) {
+function _tgPullApply(arg) {
+  // "SO-24609" or "SO-24609:<token>" — the token fetches the note typed with /pull
+  var parts = String(arg || "").split(":"), soNumber = parts[0], token = parts[1] || "", note = "";
+  if (token) {
+    try { note = CacheService.getScriptCache().get("pn:" + token) || ""; } catch (e) { note = ""; }
+    // Never pull WITHOUT a note someone deliberately wrote — say so and let them resend.
+    if (!note) return "⬇ " + soNumber + "\n\n⚠ The note on this card has expired (30 min) — nothing was pulled.\nSend /pull again.";
+  }
   var d = computeZohoSoDiff(soNumber);
   if (!d || !d.ok) return "⚠ " + ((d && d.reason) || "Could not re-read that sales order.");
 
@@ -811,14 +887,15 @@ function _tgPullApply(soNumber) {
   }
 
   var selections = d.lines.map(function (ln) { return { sku: ln.sku, action: "insert" }; });
-  var r = applyZohoPullSelection(soNumber, selections, "");
+  var r = applyZohoPullSelection(soNumber, selections, note);
 
   if (!r || !r.ok) return "⬇ " + soNumber + "\n\n⚠ Pull failed: " + ((r && r.reason) || "unknown");
 
   return "✅ PULLED · " + r.soNumber +
          "\n\n" + r.applied.inserted + " row" + (r.applied.inserted === 1 ? "" : "s") +
-         " added to DIRECT." +
+         " added to DIRECT." + (note ? "\n📝 Note: " + note : "") +
          (r.skipped && r.skipped.length ? "\n⚠ " + r.skipped.length + " skipped." : "");
+  // (the cache entry simply expires — a re-tap after success is refused by the gate above)
 }
 
 
@@ -1023,6 +1100,22 @@ function _tgFormatPart(query) {
   }
   if (p.committed) L.push("  Committed to open orders: " + p.committed);
   L.push("  eBay " + _tgMoney(p.ebayPrice) + " · Zoho " + _tgMoney(p.zohoPrice));
+
+  // --- other sizes + every number it answers to (2026-10-01, from the same dossier) ---
+  if (d.sizes && d.sizes.length > 1) {
+    L.push("");
+    L.push("SIZES");
+    d.sizes.forEach(function (x) {
+      L.push("  " + (x.self ? "▶ " : "  ") + x.size + "  " + x.sku + "  " + (x.location || "—") +
+             "  on hand " + _tgNum(x.available) + (x.active ? "" : "  (" + (x.status || "ended") + ")"));
+    });
+  }
+  var idn = d.identity;
+  if (idn && idn.numbers && idn.numbers.length) {
+    L.push("");
+    L.push("PART #  " + _tgClip(idn.numbers.map(function (n) { return n.num; }).join(", "), 120));
+    if (idn.engines && idn.engines.length) L.push("FITS    " + _tgClip(idn.engines.join(", "), 120));
+  }
 
   // --- if this SKU is itself a kit ---
   if (d.isKit && d.kit) {

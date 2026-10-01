@@ -435,6 +435,13 @@ function _findKitComponentRows(sheet, soNumber, kitSku) {
  *   summary: string            — human-readable for status bar
  * }}
  */
+/** A note as a cell value: = + - @ at the start would make Sheets read a FORMULA, so it gets
+ *  Sheets' own text marker (a leading apostrophe — stored, never shown). Pure. */
+function _pullNoteCell(note) {
+  var n = String(note == null ? "" : note).trim();
+  return /^[=+\-@]/.test(n) ? "'" + n : n;
+}
+
 function applyZohoPullSelection(query, selections, note) {
   // ⚠ WRITES A PROTECTED SHEET. google.script.run runs as the INVOKING USER, so under
   //   the All Orders lock a staff call would be refused. Come back in through /exec,
@@ -459,6 +466,10 @@ function applyZohoPullSelection(query, selections, note) {
   // into the Activity Log via the insert's RECEIVED events). Operator notes stay
   // un-prefixed; only buyer notes get the "Buyer Note:" tag (existing convention).
   var userNote = String(note || "").trim();
+  // ⚠ A cell that STARTS with = + - @ is written as a FORMULA (Sheets reads the value).
+  //   Only a new row's note starts the cell — the delta row's note sits after its tag.
+  //   The leading apostrophe is Sheets' own "this is text" marker — stored, never shown.
+  var userNoteCell = _pullNoteCell(userNote);
   if (!q) {
     out.reason = "Empty query.";
     return out;
@@ -557,7 +568,7 @@ function applyZohoPullSelection(query, selections, note) {
             quantity:        line.zohoQty,
             name:            line.name,
             // Operator's Pull note (blank if none) — travels with the order.
-            _noteOverride:   userNote,
+            _noteOverride:   userNoteCell,
             _detailOverride: "Pulled from Zoho · " + (diff.customerName || "no customer")
           });
           break;
