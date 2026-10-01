@@ -449,6 +449,16 @@ var TG_ROUTES = {
     }
   },
 
+  "/find": {
+    help:  "which of these part numbers we carry — paste one or many (SERPIC format is fine)",
+    usage: "<mpn> [mpn …]",
+    run: function (argStr, args, msg) {
+      if (!argStr) return "Usage: /find <mpn> [mpn …]\nExample: /find 0415 7075, 1C010-74110";
+      var who = (msg && msg.from && (msg.from.first_name || msg.from.username)) || "";
+      return _tgFormatFind(argStr, who);
+    }
+  },
+
   "/status": {
     help: "today at a glance — to grab, oldest pending, shipped, last sync",
     run: function () { return _tgFormatStatus(); }

@@ -1,0 +1,92 @@
+// test-mpn-search.js — MPN Finder (MpnSearch.js), against the REAL file.
+//
+//   node test-mpn-search.js                     synthetic cases
+//   MI_JSON=/path/mi.json node test-mpn-search.js   + a pass over a real MI export
+//                                                  ({headers, rows} of sku/title/status + C: part-number columns)
+// SRC=/other/dir overrides where MpnSearch.js is read from (before/after proofs).
+const fs = require('fs'), path = require('path'), vm = require('vm');
+const SRC = process.env.SRC || path.join(__dirname, '..');
+const ctx = { console, Map, Date };
+vm.createContext(ctx);
+vm.runInContext(fs.readFileSync(path.join(SRC, 'MpnSearch.js'), 'utf8'), ctx);
+
+let pass = 0, fail = 0;
+function eq(name, got, want) {
+  const g = JSON.stringify(got), w = JSON.stringify(want);
+  if (g === w) { pass++; } else { fail++; console.log('✗ ' + name + '\n    got  ' + g + '\n    want ' + w); }
+}
+const keys = q => ctx._mpnParseQuery(q).map(x => x.key);
+
+// --- A · the match key ---------------------------------------------------------------
+eq('A1 leading zero dropped', ctx._mpnKey('02102238'), '2102238');
+eq('A2 stored-as-number reads the same', ctx._mpnKey(ctx._mpnCellText(2102238)), '2102238');
+eq('A3 .0 float text', ctx._mpnCellText('4201560.0'), '4201560');
+eq('A4 dashes/spaces ignored', ctx._mpnKey('1A033- 03043'), ctx._mpnKey('1A033-03043'));
+eq('A5 case', ctx._mpnKey('1c010-74110'), '1C01074110');
+eq('A6 all zeros keeps something', ctx._mpnKey('000000'), '000000');
+
+// --- B · parsing what gets pasted ----------------------------------------------------
+eq('B1 SERPIC spacing is one number', keys('0415 7075'), ['4157075']);
+eq('B2 several SERPIC numbers', keys('0415 7075\n0416 1234'), ['4157075', '4161234']);
+eq('B3 SERPIC row with position, description, qty',
+   keys('1   0415 7075   Gasket   2\n2   0429 2547   Seal ring   1'), ['4157075', '4292547']);
+eq('B4 comma list, mixed brands', keys('1C010-74110, 16851-22012; 02102238'),
+   ['1C01074110', '1685122012', '2102238']);
+eq('B5 dedupe incl. zero/no-zero', keys('02102238 2102238'), ['2102238']);
+eq('B6 lone short number still searched', keys('821'), ['821']);
+eq('B7 short noise dropped beside real numbers', keys('1 2 04157075 x2'), ['4157075']);
+eq('B8 empty', keys('  \n '), []);
+
+// --- C · cell splitting ---------------------------------------------------------------
+eq('C1 comma cell', ctx._mpnSplitCell('027-03824, 366-08126'), ['027-03824', '366-08126']);
+eq('C2 space-separated numbers + joined copy',
+   ctx._mpnSplitCell('16851-22012 16851-22015'), ['16851-22012', '16851-22015', '16851-22012 16851-22015']);
+eq('C3 Deutz pair joined', ctx._mpnSplitCell('0415 7075'), ['04157075']);
+eq('C4 numeric cell', ctx._mpnSplitCell(4201560), ['4201560']);
+eq('C5 blank', ctx._mpnSplitCell(''), []);
+
+// --- D · index + answer ---------------------------------------------------------------
+const rows = [
+  ['111111', '02102238, 04157075'],            // main + extra
+  ['222222', 4157075],                          // number, zero lost
+  ['333333', '1C010-74110'],
+  ['444444', '']
+];
+const cols = [{ name: 'C:MPN', off: 1 }, { name: 'C:Interchange Part Number', off: 2 }];
+rows[3][2] = '04157075';                         // only in a one-off column
+const index = ctx._mpnBuildIndex(rows, cols);
+const describe = i => ({ sku: rows[i][0], active: i !== 1, available: 1 });
+const ans = ctx._mpnAnswer(ctx._mpnParseQuery('0415 7075, 02102238, 9999999'), index, describe);
+eq('D1 three answers', ans.length, 3);
+eq('D2 0415 7075 hits all three listings', ans[0].matches.map(m => m.sku).sort(), ['111111', '222222', '444444']);
+eq('D3 via labels', ans[0].matches.map(m => m.sku + ':' + m.via).sort(),
+   ['111111:extra MPN', '222222:main', '444444:Interchange Part Number']);
+eq('D4 inactive sorted last', ans[0].matches[ans[0].matches.length - 1].sku, '222222');
+eq('D5 main match', ans[1].matches.map(m => m.sku + ':' + m.via), ['111111:main']);
+eq('D6 miss', ans[2].matches.length, 0);
+
+// --- E · real MI export ---------------------------------------------------------------
+if (process.env.MI_JSON) {
+  const mi = JSON.parse(fs.readFileSync(process.env.MI_JSON, 'utf8'));
+  const H = mi.headers, st = H.indexOf('listingStatus'), sk = H.indexOf('sku');
+  const mcols = H.map((h, i) => ({ name: h, off: i })).filter(c => ctx.MPN_SEARCH.colPattern.test(c.name));
+  const t0 = Date.now();
+  const idx = ctx._mpnBuildIndex(mi.rows, mcols);
+  console.log(`  real MI: ${mi.rows.length} rows · ${mcols.length} part-number columns · ` +
+              `${idx.size} distinct keys · index built in ${Date.now() - t0}ms`);
+  const multi = mi.rows.filter(r => r[st] === 'Active' && ctx._mpnSplitCell(r[H.indexOf('C:MPN')]).length > 1).length;
+  console.log(`  active listings whose extra MPNs eBay search misses: ${multi}`);
+  // every number in every cell must find its own row again
+  let lost = 0;
+  mi.rows.forEach((r, i) => mcols.forEach(c => ctx._mpnSplitCell(r[c.off]).forEach(n => {
+    const k = ctx._mpnKey(n);
+    if (k.length >= 3 && !(idx.get(k) || []).some(h => h.row === i)) lost++;
+  })));
+  eq('E1 every stored number finds its own listing', lost, 0);
+  const desc = i => ({ sku: mi.rows[i][sk], active: mi.rows[i][st] === 'Active', available: 1 });
+  const sample = ctx._mpnAnswer(ctx._mpnParseQuery('02102238\n0429 2547'), idx, desc);
+  sample.forEach(x => console.log(`  sample ${x.query} → ${x.matches.map(m => m.sku + ' (' + m.via + ')').join(', ') || 'none'}`));
+}
+
+console.log(`\n${pass} passed, ${fail} failed`);
+process.exit(fail ? 1 : 0);
