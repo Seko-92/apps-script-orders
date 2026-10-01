@@ -101,7 +101,13 @@ body.idle-cursor, body.idle-cursor * { cursor: none !important; }
 .hdr-live.rest i { background: var(--t3); box-shadow: none; }
 .hdr-live.idle { color: var(--money); }
 .hdr-live.idle i { background: var(--money); box-shadow: none; }
-.hdr-clock { font-family: var(--disp); font-weight: 600; font-size: 30px; letter-spacing: 0.04em; color: var(--t1); }
+.hdr-clock { font-family: var(--disp); font-weight: 600; font-size: 30px; letter-spacing: 0.04em; color: var(--t1);
+             /* ⚠ FIXED BOX. Oswald's digits are not equal width and it has no
+                tabular figures, so the clock changed width every second and shoved
+                the whole header line left and right (owner, 2026-10-02). Sized for
+                the widest time ("10:00:00 AM" ≈ 179px). */
+             display: inline-block; min-width: 186px; text-align: right; }
+.hdr-live { min-width: 104px; }
 .hdr-date { font-family: var(--mono); font-size: var(--fs-lab); color: var(--t3); text-align: right; line-height: 1.5; }
 
 /* ── METRICS RAIL ──────────────────────────────────────────────────────── */
@@ -427,7 +433,7 @@ body.idle-cursor, body.idle-cursor * { cursor: none !important; }
 /* narrower monitors: the header keeps the clock, the pipe and the live dot */
 @media (max-width: 1500px) {
   .hdr-word, .hdr-sep, .hdr-date { display: none; }
-  .hdr-clock { font-size: 26px; }
+  .hdr-clock { font-size: 26px; min-width: 162px; }
 }
 
 @media (max-width: 1100px) {
