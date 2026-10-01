@@ -3,6 +3,7 @@
 //   MODE=mpn node shoot-mpn.js out.png   SERPIC paste result
 //   MODE=loading ...                     the instant before the full dossier arrives
 //   SIZES_JSON=s.json ...                the 'Other sizes' ladder from a real _szSiblings output
+//   QUOTE=1 ...                          the quote basket filled + its panel open
 //   IDENT_JSON=id.json ...               right pane's numbers & fit from a real _pfPartIdentity output
 const fs = require('fs'), path = require('path'); const { chromium } = require('playwright');
 const img = 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80"><rect width="80" height="80" fill="#ddd"/><circle cx="40" cy="40" r="22" fill="#999"/></svg>');
@@ -40,6 +41,12 @@ const html = fs.readFileSync(path.join(__dirname, '..', 'PartConsoleModal.html')
   const errs = []; p.on('pageerror', e => errs.push(String(e)));
   await p.route('http://hq.test/', r => r.fulfill({ body: html, contentType: 'text/html; charset=utf-8' }));
   await p.goto('http://hq.test/'); await p.waitForTimeout(400);
+  if (process.env.QUOTE) {   // QUOTE=1 → add two parts + the not-available numbers, open the panel
+    await p.evaluate(() => { try { localStorage.clear(); } catch (e) {} });
+    await p.evaluate(() => { qbAddItem(0); qbAddItem(0); qbAddItem(2); if (results && results.mode === 'mpn') qbAddMissing();
+      qb.note = 'Deutz BF4M1011F'; qbOpen(true); });
+    await p.waitForTimeout(250);
+  }
   await p.screenshot({ path: process.argv[2] || 'renders/parts-finder.png' });
   console.log('errors:', errs.length ? errs : 'none'); await b.close();
 })();

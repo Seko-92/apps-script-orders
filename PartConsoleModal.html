@@ -31,6 +31,46 @@
   .pc-jump { display:inline-flex; align-items:center; gap:5px; text-decoration:none; background:#ffd400; color:#1d1d1b; font-family:'Oswald',sans-serif; font-weight:600; text-transform:uppercase; letter-spacing:.04em; font-size:11px; padding:5px 11px; border-radius:6px; }
 
   .pc-main { flex:1; display:flex; min-height:0; }
+
+  /* ── QUOTE BASKET (2026-10-01) — survives new searches; one message at the end ── */
+  .qb-bar { flex:none; position:relative; display:flex; align-items:center; gap:12px; padding:8px 18px; background:#1d1d1b; color:#cfcfca; border-top:2px solid #ffd400; font-size:12.5px; }
+  .qb-bar.empty { color:#8a8a80; border-top-color:#3a3a34; }
+  .qb-bar b { color:#ffd966; font-family:'Oswald',sans-serif; font-weight:600; letter-spacing:.03em; font-size:14px; }
+  .qb-toggle { background:none; border:1px solid #4a4a42; color:#cfcfca; border-radius:6px; padding:4px 10px; cursor:pointer; font-size:12px; }
+  .qb-toggle:hover { border-color:#ffd400; color:#ffd400; }
+  .qb-copy { margin-left:auto; background:#ffd400; color:#1d1d1b; border:none; border-radius:6px; padding:7px 16px; font-family:'Oswald',sans-serif; font-weight:600; letter-spacing:.05em; text-transform:uppercase; font-size:12px; cursor:pointer; }
+  .qb-copy:disabled { background:#4a4a42; color:#8a8a80; cursor:default; }
+  .qb-panel { display:none; position:absolute; left:0; right:0; bottom:100%; max-height:62vh; overflow-y:auto; background:#fffdf6; border-top:2px solid #ffd400; box-shadow:0 -10px 30px rgba(0,0,0,.25); color:#1d1d1b; padding:12px 18px; }
+  .qb-panel.on { display:block; }
+  .qb-opts { display:flex; gap:14px; align-items:center; flex-wrap:wrap; margin-bottom:10px; font-size:12px; color:#5f5f5f; }
+  .qb-opts input[type=text] { flex:1; min-width:220px; border:1px solid #e5ddc7; border-radius:6px; padding:6px 9px; font-size:12.5px; background:#fff; }
+  .qb-opts label { display:flex; gap:5px; align-items:center; cursor:pointer; white-space:nowrap; }
+  .qb-row { display:flex; gap:10px; align-items:center; padding:7px 0; border-bottom:1px solid #f1ead6; }
+  .qb-row .t { flex:1; min-width:0; }
+  .qb-row .t .n { font-size:12.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .qb-row .t .s { font-family:'Roboto Mono',monospace; font-size:11px; color:#8a8a80; }
+  .qb-row .t .s .oos { color:#b71c1c; font-family:'Roboto',sans-serif; }
+  .qb-qty { display:flex; align-items:center; gap:4px; }
+  .qb-qty button { width:26px; height:26px; border:1px solid #e5ddc7; background:#fff; border-radius:6px; cursor:pointer; font-size:14px; line-height:1; }
+  .qb-qty button:hover { background:#fff4b0; }
+  .qb-qty span { min-width:24px; text-align:center; font-family:'Roboto Mono',monospace; font-weight:700; }
+  .qb-row .p { width:110px; text-align:right; font-family:'Roboto Mono',monospace; font-size:12px; }
+  .qb-x { border:none; background:none; color:#b0a890; cursor:pointer; font-size:15px; padding:2px 6px; }
+  .qb-x:hover { color:#b71c1c; }
+  .qb-na { font-size:12px; color:#7a5c00; padding:8px 0 2px; }
+  .qb-na span { font-family:'Roboto Mono',monospace; background:#fff3b0; border-radius:5px; padding:1px 6px; margin-right:6px; display:inline-block; margin-top:3px; }
+  .qb-na span .qb-x { font-size:12px; padding:0 0 0 4px; }
+  .qb-foot { display:flex; gap:10px; align-items:center; margin-top:10px; font-size:12px; color:#5f5f5f; }
+  .qb-foot .tot { margin-left:auto; font-family:'Oswald',sans-serif; font-size:16px; color:#1d1d1b; }
+  .qb-clear { background:none; border:1px solid #e0c0c0; color:#b71c1c; border-radius:6px; padding:4px 10px; cursor:pointer; font-size:11.5px; }
+  .qb-empty { color:#9a9a90; font-style:italic; padding:8px 0; }
+  .pf-add { flex:none; align-self:center; width:30px; height:30px; border-radius:7px; border:1px solid #e0c96a; background:#fff; color:#7a5c00; font-size:17px; line-height:1; cursor:pointer; }
+  .pf-add:hover { background:#ffd400; color:#1d1d1b; border-color:#ffd400; }
+  .pf-add.in { background:#1d1d1b; color:#ffd966; border-color:#1d1d1b; font-size:13px; }
+  .pc-addq { display:inline-flex; align-items:center; gap:5px; border:1px solid #ffd400; background:transparent; color:#ffd400; font-family:'Oswald',sans-serif; font-weight:600; text-transform:uppercase; letter-spacing:.04em; font-size:11px; padding:4px 10px; border-radius:6px; cursor:pointer; }
+  .pc-addq:hover { background:#ffd400; color:#1d1d1b; }
+  .pc-addq.in { background:#3a3a34; border-color:#3a3a34; color:#ffd966; }
+  .pf-miss-add { border:none; background:none; color:#7a5c00; text-decoration:underline; cursor:pointer; font-size:11.5px; padding:4px 0 0; }
   .pc-body { flex:1; overflow-y:auto; padding:16px 18px; min-width:0; }
 
   /* ── PARTS FINDER: the result list (2026-10-01) ─────────────────────────── */
@@ -229,6 +269,14 @@
       <div id="pcKit"></div>
       <div id="pcRipple"></div>
     </div>
+    </div>
+
+    <!-- QUOTE BASKET — fills across searches; Copy quote = one message for the customer -->
+    <div class="qb-bar empty" id="qbBar">
+      <div class="qb-panel" id="qbPanel"></div>
+      <span id="qbSum">Quote is empty — use <b>+</b> on any result</span>
+      <button class="qb-toggle" id="qbToggle" onclick="qbOpen(!qbIsOpen)" style="display:none">▴ View</button>
+      <button class="qb-copy" id="qbCopy" onclick="qbCopy()" disabled>Copy quote</button>
     </div>
   </div>
 
@@ -453,7 +501,8 @@
         html += '<span class="pc-badge ' + (st.toLowerCase()==='active'?'active':'ended') + '">' + esc(st) + '</span>';
       }
       var links = '';
-      if (D.ebayUrl) links = '<a class="pc-jump" href="' + esc(D.ebayUrl) + '" target="_blank" rel="noopener">↗ eBay</a>';
+      if (D.found && D.sku) links += '<button class="pc-addq' + (qbHas(D.sku) ? ' in' : '') + '" id="pcAddQ" onclick="qbAddCurrent()">' + (qbHas(D.sku) ? '✓ In quote · add one' : '+ Add to quote') + '</button>';
+      if (D.ebayUrl) links += '<a class="pc-jump" href="' + esc(D.ebayUrl) + '" target="_blank" rel="noopener">↗ eBay</a>';
       html += '<span class="pc-links">' + links + '</span>';
       ctx.innerHTML = html;
 
@@ -552,7 +601,7 @@
       if (res.mode === 'mpn') {
         html += '<div class="pf-sum"><span><b>' + res.results.length + '</b> number' + (res.results.length === 1 ? '' : 's') + '</span>' +
                 '<span class="ok">✓ ' + res.found + ' carried</span><span class="no">✗ ' + res.missing + ' not</span>' +
-                (res.found ? '<button class="pf-copy" onclick="copyReply()">Copy for customer</button>' : '') + '</div>';
+                (res.found ? '<button class="pf-copy" onclick="qbAddFirsts()" title="Adds the first carried listing for each number — remove what you do not want">+ Add all to quote</button>' : '') + '</div>';
         var missing = [];
         res.results.forEach(function (x) {
           if (!x.matches.length) { missing.push(x.query); return; }
@@ -560,7 +609,8 @@
           x.matches.forEach(function (m) { html += itemHtml(m); });
         });
         if (missing.length) html += '<div class="pf-missing"><b>Not on any listing (' + missing.length + ')</b><br>' +
-          missing.map(function (q) { return '<span>' + esc(q) + '</span>'; }).join('') + '</div>';
+          missing.map(function (q) { return '<span>' + esc(q) + '</span>'; }).join('') +
+          '<br><button class="pf-miss-add" onclick="qbAddMissing()">Add these to the quote as "not available"</button></div>';
       } else {
         html += '<div class="pf-sum"><span><b>' + res.total + '</b> listing' + (res.total === 1 ? '' : 's') + ' with every word</span></div>';
         res.matches.forEach(function (m) { html += itemHtml(m); });
@@ -580,12 +630,14 @@
       if (!m.active) tags += '<span class="pf-tag ended">' + esc(m.status || 'ended') + '</span>';
       var thumb = m.image ? '<div class="pf-thumb" style="background-image:url(\'' + esc(m.image).replace(/'/g, '%27') + '\')"></div>'
                           : '<div class="pf-thumb none">NO IMAGE</div>';
+      var inQ = qbHas(m.sku);
+      var addBtn = '<button class="pf-add' + (inQ ? ' in' : '') + '" title="' + (inQ ? 'In the quote — click to add one more' : 'Add to the quote') + '" onclick="event.stopPropagation();qbAddItem(' + i + ')">' + (inQ ? '✓' : '+') + '</button>';
       return '<div class="pf-item' + (m.isKit ? ' kit' : '') + '" id="pfi' + i + '" onclick="pick(' + i + ')">' + thumb +
         '<div class="pf-info"><div class="pf-line1"><span class="pf-sku">' + esc(m.sku) + '</span>' + tags + '</div>' +
         '<div class="pf-title">' + esc(m.title) + '</div>' +
         '<div class="pf-meta"><span class="loc' + (m.location === 'NOT FOUND' ? ' nf' : '') + '">' + esc(m.location) + '</span>' +
         '<span class="qty' + ((m.available || 0) <= 0 ? ' zero' : '') + '">' + (m.available == null ? '—' : m.available) + ' on hand</span>' +
-        '<span class="price">' + money(m.price) + '</span></div></div></div>';
+        '<span class="price">' + money(m.price) + '</span></div></div>' + addBtn + '</div>';
     }
 
     /** Show a list item now from what the search already returned, then fill in the rest. */
@@ -610,21 +662,136 @@
     }
 
     /** Plain text to send the customer: what we have, with links. */
-    function copyReply() {
+    // ── QUOTE BASKET ─────────────────────────────────────────────────────────
+    // Fills across searches (the point: several searches for one customer, one message at the
+    // end). Kept in this browser's storage so closing the window does not lose a half-built
+    // quote. Prices are eBay's (the user's call, 2026-10-01).
+    var QB_KEY = 'hqQuoteV1';
+    var qb = { items: [], missing: [], note: '', links: true };
+    var qbIsOpen = false;
+    try { var saved = JSON.parse(localStorage.getItem(QB_KEY) || 'null'); if (saved && saved.items) qb = saved; } catch (e) {}
+    function qbSave() { try { localStorage.setItem(QB_KEY, JSON.stringify(qb)); } catch (e) {} }
+    function qbHas(sku) { return qb.items.some(function (x) { return String(x.sku) === String(sku); }); }
+    function qbAdd(it) {
+      if (!it || !it.sku) return;
+      var have = qb.items.filter(function (x) { return String(x.sku) === String(it.sku); })[0];
+      if (have) have.qty++;
+      else qb.items.push({ sku: String(it.sku), title: it.title || '', mpn: it.mpn || '', price: (it.price == null ? null : Number(it.price)),
+                           url: it.url || '', available: (it.available == null ? null : it.available), qty: 1 });
+      qbSave(); qbPaint(); qbMarkAdded(it.sku);
+    }
+    function qbAddItem(i) { qbAdd(items[i]); }
+    function qbAddFirsts() {
       if (!results || results.mode !== 'mpn') return;
-      var lines = [];
       results.results.forEach(function (x) {
         var m = x.matches.filter(function (y) { return y.active; })[0] || x.matches[0];
-        if (!m) return;
-        lines.push(x.query + ' — ' + m.title + (m.price != null ? ' — ' + money(m.price) : '') +
-                   ((m.available || 0) <= 0 ? ' (currently out of stock)' : '') + (m.url ? '\n' + m.url : ''));
+        if (m && !qbHas(m.sku)) qbAdd(m);
       });
-      var ta = document.createElement('textarea'); ta.value = lines.join('\n\n');
-      document.body.appendChild(ta); ta.select();
-      var ok = false; try { ok = document.execCommand('copy'); } catch (e) {}
+      qbOpen(true);
+    }
+    function qbAddMissing() {
+      if (!results || results.mode !== 'mpn') return;
+      results.results.forEach(function (x) { if (!x.matches.length && qb.missing.indexOf(x.query) < 0) qb.missing.push(x.query); });
+      qbSave(); qbPaint(); qbOpen(true);
+    }
+    function qbAddCurrent() {
+      var D = current; if (!D || !D.sku) return;
+      var p = D.part || {}, id = D.identity || {};
+      qbAdd({ sku: D.sku, title: p.title, price: p.ebayPrice, url: D.ebayUrl || '', available: p.available,
+              mpn: (id.numbers && id.numbers[0] && id.numbers[0].num) || '' });
+      var b = document.getElementById('pcAddQ'); if (b) { b.className = 'pc-addq in'; b.textContent = '✓ In quote · add one'; }
+    }
+    function qbMarkAdded(sku) {
+      items.forEach(function (m, i) {
+        if (String(m.sku) !== String(sku)) return;
+        var b = document.querySelector('#pfi' + i + ' .pf-add'); if (b) { b.className = 'pf-add in'; b.textContent = '✓'; }
+      });
+    }
+    function qbQty(i, d) { var x = qb.items[i]; if (!x) return; x.qty = Math.max(1, x.qty + d); qbSave(); qbPaint(); }
+    function qbRemove(i) { var x = qb.items.splice(i, 1)[0]; qbSave(); qbPaint(); if (x) qbUnmark(x.sku); }
+    function qbRemoveMissing(i) { qb.missing.splice(i, 1); qbSave(); qbPaint(); }
+    function qbUnmark(sku) {
+      items.forEach(function (m, i) { if (String(m.sku) === String(sku)) { var b = document.querySelector('#pfi' + i + ' .pf-add'); if (b) { b.className = 'pf-add'; b.textContent = '+'; } } });
+      if (current && String(current.sku) === String(sku)) { var c = document.getElementById('pcAddQ'); if (c) { c.className = 'pc-addq'; c.textContent = '+ Add to quote'; } }
+    }
+    function qbClear() {
+      if (!confirm('Clear the whole quote?')) return;
+      var skus = qb.items.map(function (x) { return x.sku; });
+      qb.items = []; qb.missing = []; qb.note = ''; qbSave(); qbPaint(); skus.forEach(qbUnmark);
+    }
+    function qbTotal() {
+      var t = 0, unpriced = 0;
+      qb.items.forEach(function (x) { if (x.price == null || isNaN(x.price)) unpriced++; else t += x.price * x.qty; });
+      return { total: Math.round(t * 100) / 100, unpriced: unpriced };
+    }
+    function qbOpen(on) { qbIsOpen = !!on && (qb.items.length + qb.missing.length > 0); qbPaint(); }
+
+    /** The message itself. Pure over (qb) — what the customer reads. */
+    function quoteText(q) {
+      var L = ['HQ Motor Service — quote' + (q.note ? ' for ' + q.note : ''), ''];
+      var t = 0, unpriced = 0;
+      q.items.forEach(function (x) {
+        var priced = x.price != null && !isNaN(x.price);
+        var line = x.qty + ' × ' + x.title;
+        var price = !priced ? 'price on request'
+          : (x.qty > 1 ? money(x.price) + ' each · ' + money(x.price * x.qty) : money(x.price));
+        if (priced) t += x.price * x.qty; else unpriced++;
+        L.push(line);
+        L.push('    ' + (x.mpn ? 'Part # ' + x.mpn + ' · ' : '') + 'SKU ' + x.sku + ' · ' + price +
+               (x.available != null && x.available <= 0 ? ' · currently out of stock' : ''));
+        if (q.links && x.url) L.push('    ' + x.url);
+        L.push('');
+      });
+      if (q.missing.length) { L.push('Not available: ' + q.missing.join(', ')); L.push(''); }
+      if (q.items.length) {
+        L.push('Total: ' + money(Math.round(t * 100) / 100) + (unpriced ? ' (+ ' + unpriced + ' item' + (unpriced === 1 ? '' : 's') + ' priced on request)' : ''));
+        L.push('Prices exclude shipping.');
+      }
+      return L.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+    }
+    function qbCopy() {
+      if (!qb.items.length && !qb.missing.length) return;
+      var text = quoteText(qb), ok = false;
+      var ta = document.createElement('textarea'); ta.value = text; document.body.appendChild(ta); ta.select();
+      try { ok = document.execCommand('copy'); } catch (e) {}
       document.body.removeChild(ta);
-      var b = document.querySelector('.pf-copy');
-      if (b) { b.textContent = ok ? 'Copied ' + lines.length : 'Copy blocked'; setTimeout(function(){ b.textContent = 'Copy for customer'; }, 2000); }
+      if (!ok && navigator.clipboard) { try { navigator.clipboard.writeText(text); ok = true; } catch (e) {} }
+      var b = document.getElementById('qbCopy');
+      if (b) { b.textContent = ok ? 'Copied ✓' : 'Copy blocked'; setTimeout(function () { b.textContent = 'Copy quote'; }, 1800); }
+    }
+    function qbPaint() {
+      var n = qb.items.reduce(function (a, x) { return a + x.qty; }, 0), T = qbTotal();
+      var bar = document.getElementById('qbBar'); if (!bar) return;
+      var any = qb.items.length + qb.missing.length > 0;
+      bar.className = 'qb-bar' + (any ? '' : ' empty');
+      document.getElementById('qbSum').innerHTML = any
+        ? 'Quote · <b>' + qb.items.length + '</b> part' + (qb.items.length === 1 ? '' : 's') + (n !== qb.items.length ? ' (' + n + ' pcs)' : '') +
+          ' · <b>' + money(T.total) + '</b>' + (T.unpriced ? ' + ' + T.unpriced + ' on request' : '') +
+          (qb.missing.length ? ' · ' + qb.missing.length + ' not available' : '')
+        : 'Quote is empty — use <b>+</b> on any result';
+      document.getElementById('qbCopy').disabled = !any;
+      var tg = document.getElementById('qbToggle'); tg.style.display = any ? '' : 'none';
+      if (!any) qbIsOpen = false;
+      tg.textContent = qbIsOpen ? '▾ Hide' : '▴ View';
+      var panel = document.getElementById('qbPanel');
+      panel.className = 'qb-panel' + (qbIsOpen ? ' on' : '');
+      if (!qbIsOpen) return;
+      var h = '<div class="qb-opts"><input type="text" id="qbNote" placeholder="Quote for… (e.g. Deutz BF4M1011F — optional)" value="' + esc(qb.note) + '" oninput="qb.note=this.value;qbSave()">' +
+        '<label><input type="checkbox" id="qbLinks"' + (qb.links ? ' checked' : '') + ' onchange="qb.links=this.checked;qbSave()"> eBay links in the message</label></div>';
+      if (!qb.items.length) h += '<div class="qb-empty">No parts yet.</div>';
+      qb.items.forEach(function (x, i) {
+        var oos = x.available != null && x.available <= 0;
+        h += '<div class="qb-row"><div class="t"><div class="n" title="' + esc(x.title) + '">' + esc(x.title || x.sku) + '</div>' +
+          '<div class="s">' + esc(x.sku) + (x.mpn ? ' · ' + esc(x.mpn) : '') + (oos ? ' · <span class="oos">out of stock</span>' : '') + '</div></div>' +
+          '<div class="qb-qty"><button onclick="qbQty(' + i + ',-1)" title="One less">−</button><span>' + x.qty + '</span><button onclick="qbQty(' + i + ',1)" title="One more">+</button></div>' +
+          '<div class="p">' + (x.price == null ? 'on request' : money(x.price * x.qty)) + '</div>' +
+          '<button class="qb-x" onclick="qbRemove(' + i + ')" title="Remove">✕</button></div>';
+      });
+      if (qb.missing.length) h += '<div class="qb-na">Not available: ' + qb.missing.map(function (m, i) {
+        return '<span>' + esc(m) + '<button class="qb-x" onclick="qbRemoveMissing(' + i + ')" title="Remove">✕</button></span>'; }).join('') + '</div>';
+      h += '<div class="qb-foot"><button class="qb-clear" onclick="qbClear()">Clear quote</button><span>Prices are eBay prices · exclude shipping</span>' +
+        '<span class="tot">Total ' + money(T.total) + '</span></div>';
+      panel.innerHTML = h;
     }
 
     // Enter searches; Shift+Enter is a new line; a pasted list grows the box.
@@ -633,6 +800,7 @@
     function grow() { box.style.height = '34px'; box.style.height = Math.min(110, box.scrollHeight) + 'px'; }
     box.addEventListener('input', grow);
 
+    qbPaint();                     // a quote left from an earlier session shows straight away
     box.value = INIT.text || '';
     grow();
     if (INIT.res) showResult(INIT.res);
