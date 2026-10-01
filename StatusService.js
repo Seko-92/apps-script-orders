@@ -83,6 +83,15 @@ function updateOrderStatus(target, newStatus, options) {
   var syncTelegram = options.syncTelegram !== false;   // default true
   var sortAfter    = options.sortAfter    !== false;   // default true
   var force        = options.force === true;            // default false
+  // ⚠ 2026-10-01 — the manual-edit path. When a person changes the STATUS dropdown
+  // the cell ALREADY holds the new value by the time the trigger fires, so the
+  // oldStatus read below equals newStatus and the row was treated as a no-op and
+  // NEVER LOGGED. That is why most PREPARING flips had no Activity Log entry
+  // (2026-10-01: 24 ships "from PREPARING", 0 PREPARING events). The caller passes
+  // what the cell held BEFORE the edit; rows it cannot know (a multi-cell paste —
+  // Sheets gives no oldValue) are logged with an unknown prior rather than dropped.
+  var priorStatus  = options.priorStatus || null;       // { row: "PENDING", ... }
+  var logUnknownPrior = options.logUnknownPrior === true;
 
   // 1. Validate + normalize
   // Schema.normalize maps spelling/format aliases to the canonical form
@@ -137,6 +146,17 @@ function updateOrderStatus(target, newStatus, options) {
     targetRows.forEach(function(row) {
       var arrIdx    = row - minRow;
       var oldStatus = String(spanData[arrIdx][Schema.idx("STATUS")]).trim().toUpperCase();
+      // What the LOG compares against. Normally the cell; for a hand edit, the value
+      // before the edit (see priorStatus above). The terminal guard keeps reading the
+      // cell — the manual path forces past it anyway.
+      var logOld = oldStatus, priorKnown = true;
+      if (priorStatus) {
+        if (Object.prototype.hasOwnProperty.call(priorStatus, row)) {
+          logOld = Schema.normalize(String(priorStatus[row] || "")).toUpperCase();
+        } else if (logUnknownPrior) {
+          logOld = ""; priorKnown = false;
+        }
+      }
       var orderId   = String(spanData[arrIdx][Schema.idx("SALES_ORDER")]).trim();
       var sku       = String(spanData[arrIdx][Schema.idx("SKU")]).trim();
       var qty       = parseInt(spanData[arrIdx][Schema.idx("QTY")]) || 0;
@@ -153,7 +173,7 @@ function updateOrderStatus(target, newStatus, options) {
         if (orderId) ordersToSync[orderId] = true;
         // No-op writes (oldStatus === newStatus) skip the log so we don't
         // pollute it with redundant entries.
-        if (oldStatus !== newStatus) {
+        if (logOld !== newStatus) {
           // Slots: [event, orderId, sku, qty, source, detail, picker?, note]
           logEntries.push([
             newStatus,
@@ -161,7 +181,7 @@ function updateOrderStatus(target, newStatus, options) {
             sku,
             qty,
             source,
-            oldStatus ? ("from " + oldStatus) : "",
+            logOld ? ("from " + logOld) : (priorKnown ? "" : "manual edit (paste)"),
             undefined,   // picker — let logActivityBatch resolve from G2 if warehouse-side
             note         // note from the order row
           ]);

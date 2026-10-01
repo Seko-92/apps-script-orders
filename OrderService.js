@@ -2436,6 +2436,19 @@ function handleManualStatusChange(e) {
   var numRows = range.getHeight();
   var statuses = sheet.getRange(range.getRow(), Schema.cols.STATUS, numRows, 1).getValues();
 
+  // ⚠ 2026-10-01 — tell updateOrderStatus what the cell held BEFORE the edit, or it
+  // reads the already-changed cell, sees "no change" and skips the Activity Log.
+  // Sheets gives e.oldValue only for a single-cell edit; a paste/fill across rows
+  // has none, so those rows are logged with an unknown prior instead of vanishing.
+  var priorStatus = {};
+  var singleCell = (numRows === 1 && range.getWidth() === 1);
+  if (singleCell) {
+    var oldV = (e.oldValue === undefined || e.oldValue === null) ? "" : String(e.oldValue).trim();
+    priorStatus[range.getRow()] = oldV;
+    // A genuine no-op (picked the same value again) — nothing happened, log nothing.
+    if (Schema.normalize(oldV).toUpperCase() === Schema.normalize(String(statuses[0][0]).trim()).toUpperCase()) return;
+  }
+
   // Group rows by their new status value (handles paste of mixed values)
   var rowsByStatus = {};
   for (var i = 0; i < numRows; i++) {
@@ -2451,7 +2464,9 @@ function handleManualStatusChange(e) {
       updateOrderStatus(rowsByStatus[status], status, {
         source:    "manual-edit",
         sortAfter: false,  // user is mid-edit, don't disturb their cursor
-        force:     true    // user already typed it — sync sheet+Telegram even if old status was terminal
+        force:     true,   // user already typed it — sync sheet+Telegram even if old status was terminal
+        priorStatus:     priorStatus,
+        logUnknownPrior: !singleCell
       });
     } catch (err) {
       console.log("handleManualStatusChange error for status " + status + ": " + err);
