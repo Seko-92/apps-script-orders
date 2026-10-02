@@ -21,7 +21,7 @@ const tick = {
   const b = await chromium.launch();
   for (const [tag, src] of Object.entries(SRCS)) {
     const html = fs.readFileSync(src, 'utf8').replace("'<?!= boardApiUrl ?>'", "''");
-    const page = await b.newPage({ viewport: { width: 310, height: 860 }, deviceScaleFactor: 2 });
+    const page = await b.newPage({ viewport: { width: +(process.env.W || 310), height: 860 }, deviceScaleFactor: 2 });
     await page.addInitScript(({ T, whenMs }) => {
       const Real = Date; function Fake(...a) { return a.length ? new Real(...a) : new Real(whenMs); }
       Fake.prototype = Real.prototype; Fake.now = () => whenMs; Fake.parse = Real.parse; Fake.UTC = Real.UTC; window.Date = Fake;
