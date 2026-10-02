@@ -620,7 +620,7 @@ body.idle-cursor, body.idle-cursor * { cursor: none !important; }
 // ===========================================================================
 var TZ = 'America/Chicago';
 var API = '/api/board';
-var POLL_MS = 20000, POLL_MAX_MS = 90000;
+var POLL_MS = 5000, POLL_MAX_MS = 90000;   // 20s → 5s 2026-10-02 (served by n8n's cache)
 var REDLINE_MIN = 180;
 
 // ⭐ THE CARRIER DEADLINE — the one setting on this page. UPS or USPS, mostly
@@ -669,11 +669,26 @@ function esc(s) {
 // ---------- transport: fetch only, at most ONE tick in flight ----------
 var pollBusy = false, pollTimer = null, pollLastMs = 0, failCount = 0, firstTick = true;
 
+// ⭐ THIS SCREEN (2026-10-02). The wall is nobody's to touch, so its name comes
+// from the URL — /wall?name=Shipping%20wall — or defaults to "Wall". Role is
+// always "wall": only FLOOR screens are watched by the quiet-screen alert.
+var WALL_DEVICE = (function () {
+  var d = null;
+  try { d = JSON.parse(localStorage.getItem('hqWallDevice') || 'null'); } catch (e) {}
+  if (!d || !d.id) d = { id: 'w' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4) };
+  var q = '';
+  try { q = new URLSearchParams(location.search).get('name') || ''; } catch (e) {}
+  d.name = (q || d.name || 'Wall').slice(0, 40);
+  d.role = 'wall';
+  try { localStorage.setItem('hqWallDevice', JSON.stringify(d)); } catch (e) {}
+  return { id: d.id, name: d.name, role: d.role };
+})();
+
 function call(action) {
   return fetch(API, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action: action })
+    body: JSON.stringify({ action: action, device: WALL_DEVICE })
   }).then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); });
 }
 function poll() {
@@ -690,6 +705,21 @@ function schedule() {
   if (pollTimer) clearTimeout(pollTimer);
   pollTimer = setTimeout(poll, Math.min(Math.max(POLL_MS, pollLastMs), POLL_MAX_MS));
 }
+// ⭐ SELF-UPDATE (2026-10-02). Ask every 5 min whether this page changed on the
+// server (HEAD — nothing downloaded); if it did, reload. Nobody touches a wall,
+// so there is nothing to wait for.
+var wallVersion = null;
+function wallVersionCheck() {
+  fetch(location.pathname, { method: 'HEAD', cache: 'no-store' }).then(function (r) {
+    var v = r.headers.get('etag') || r.headers.get('last-modified');
+    if (!v) return;
+    if (wallVersion === null) wallVersion = v;
+    else if (v !== wallVersion) location.reload();
+  }).catch(function () {});
+}
+wallVersionCheck();
+setInterval(wallVersionCheck, 5 * 60000);
+
 function onFail() {
   failCount++;
   if (failCount >= 2) {

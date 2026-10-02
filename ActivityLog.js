@@ -353,6 +353,31 @@ function _shouldCapturePicker(source) {
  * Use it for the order's free-text NOTE field — buyer messages, supervisor
  * remarks, etc.
  */
+
+/**
+ * ⭐ 2026-10-02 — WHICH SCREEN did it. doPost sets this from the board's request
+ * (`payload.device`), so every log row written while handling that request names
+ * the device — "Floor tablet", "Office PC". Global for the duration of ONE
+ * execution only: Apps Script starts every execution with a fresh global scope,
+ * so it can never leak from one request into another.
+ * Appended to DETAIL, never a new column — every DETAIL parser here matches
+ * unanchored (Zoho stock …, kit expansion from …), so a trailing segment is safe.
+ */
+var _HQ_REQUEST_DEVICE = "";
+
+function _hqDeviceDetail(detail) {
+  var d = String(detail || "");
+  if (!_HQ_REQUEST_DEVICE) return d;
+  return d ? d + " · on " + _HQ_REQUEST_DEVICE : "on " + _HQ_REQUEST_DEVICE;
+}
+
+/** Clean a client-supplied device name: printable, short, never a formula. */
+function _hqCleanDeviceName(v) {
+  var s = String(v || "").replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\s+/g, " ").trim();
+  s = s.replace(/^[=+\-@]+/, "");
+  return s.slice(0, 40);
+}
+
 function logActivity(event, orderId, sku, qty, source, detail, picker, note) {
   try {
     var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
@@ -370,7 +395,7 @@ function logActivity(event, orderId, sku, qty, source, detail, picker, note) {
       _logSkuCell(sku),
       qty || "",
       String(source || ""),
-      String(detail || ""),
+      _hqDeviceDetail(detail),
       String(note || ""),
       pickerOut
     ]);
@@ -422,7 +447,7 @@ function logActivityBatch(rows) {
         _logSkuCell(r[2]),
         r[3] || "",
         src,
-        String(r[5] || ""),
+        _hqDeviceDetail(r[5]),
         noteOut,
         pickerOut
       ];

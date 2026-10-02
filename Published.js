@@ -373,6 +373,12 @@ function runPublishTick() {
     try { esc += "  |  identity: " + runIdentityReconcile(); }
     catch (e) { console.log("runPublishTick.identity: " + e); }
 
+    // ⭐ 2026-10-02 — is a floor screen actually on? Self-gated to every 5 minutes
+    // and working hours, so most runs pay one property read. Above the skip for
+    // the same reason as the hold check: a dark tablet produces no changes at all.
+    try { esc += "  |  screens: " + checkFloorScreens(); }
+    catch (e) { console.log("runPublishTick.screens: " + e); }
+
     var dirty = _pubIsDirty();
     var stale = _pubIsStale();
     var why   = dirty ? "changed" : "keep-fresh";

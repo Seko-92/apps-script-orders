@@ -198,7 +198,7 @@ const toastState = page => page.evaluate(() => {
     // stretched toward POLL_MAX_MS by a timeout that measured nothing useful.
     const nextWait = await page.evaluate(() =>
       Math.min(Math.max(window.POLL_MS, window.pollLastMs || 0), window.POLL_MAX_MS));
-    check('  next poll stays at the 20s cadence', nextWait, 20000);
+    check('  next poll stays at the normal cadence (POLL_MS)', nextWait, 5000);   // 20s → 5s 2026-10-02
 
     errs.forEach(e => failures.push('D ' + e));
     await ctx.close();

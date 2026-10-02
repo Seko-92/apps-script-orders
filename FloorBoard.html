@@ -1398,6 +1398,16 @@ body.ch-amazon #pickListAmazon { display: block; }
       <span class="menu-item" id="missingBtn" title="Add a line for a missing or replacement item">
         <i class="ftr-ico">✚</i><span>Missing line</span>
       </span>
+      <!-- ⭐ 2026-10-02 — WHICH SCREEN IS THIS. A name + role (Floor / Wall / Office)
+           kept on this device. Every request carries it, so the Activity Log says
+           which screen did a pick, n8n knows which screens are on, and Telegram
+           speaks up when no FLOOR screen has checked in during working hours. -->
+      <span class="menu-item" id="screenMe" title="Name this screen and choose its role">
+        <i class="ftr-ico">◉</i><span id="screenMeLbl">This screen</span>
+      </span>
+      <span class="menu-item" id="screensOnline" title="Which screens are on right now">
+        <i class="ftr-ico">◎</i><span id="screensOnlineLbl">Screens online</span>
+      </span>
       <span class="menu-item" id="soundToggle" title="Sound — distinct chime per event">
         <i class="ftr-ico">♪</i><span class="ftr-lbl">off</span>
       </span>
@@ -1498,7 +1508,8 @@ body.ch-amazon #pickListAmazon { display: block; }
       if (window.visualViewport) window.visualViewport.addEventListener('resize', fit);
     })();
 
-    var POLL_MS     = 20000;   // minimum gap between ticks
+    var POLL_MS     = 5000;    // minimum gap between ticks (20s → 5s 2026-10-02: polls
+                               // are served by n8n's cache, never Apps Script)
     var POLL_MAX_MS = 90000;   // ceiling when the server is crawling
     var CLOCK_MS  = 1000;    // local clock cadence
     var TZ        = 'America/Chicago';  // Houston/Central — board always shows shop time
@@ -1684,6 +1695,31 @@ body.ch-amazon #pickListAmazon { display: block; }
     }
 
     // ---------- host bridge ----------
+    /* ── THIS SCREEN (2026-10-02) ─────────────────────────────────────────────
+       A random id plus a human name and a role, kept in localStorage. The id lets
+       n8n tell two screens apart even if both are called "Floor tablet"; the role
+       is what the quiet-screen alert watches (only FLOOR screens count). A touch
+       device defaults to Floor and anything else to Office, so an un-named tablet
+       is already watched correctly. Renamed from the ⋯ menu. */
+    var HQ_DEVICE_KEY = 'hqDevice';
+    var HQ_DEVICE = (function () {
+      var d = null;
+      try { d = JSON.parse(localStorage.getItem(HQ_DEVICE_KEY) || 'null'); } catch (e) {}
+      if (!d || !d.id) {
+        var touch = false;
+        try { touch = window.matchMedia('(pointer: coarse)').matches; } catch (e) {}
+        d = { id: 'd' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4),
+              role: touch ? 'floor' : 'office',
+              name: touch ? 'Floor tablet' : 'Office PC', named: false };
+        try { localStorage.setItem(HQ_DEVICE_KEY, JSON.stringify(d)); } catch (e) {}
+      }
+      return d;
+    })();
+    function hqDevice() { return { id: HQ_DEVICE.id, name: HQ_DEVICE.name, role: HQ_DEVICE.role }; }
+    function hqSaveDevice() {
+      try { localStorage.setItem(HQ_DEVICE_KEY, JSON.stringify(HQ_DEVICE)); } catch (e) {}
+    }
+
     var HQ_API    = '/api/board';
     var HQ_NATIVE = (typeof google !== 'undefined' && google.script && google.script.run);
 
@@ -1743,6 +1779,7 @@ body.ch-amazon #pickListAmazon { display: block; }
       }
 
       payload.action = action;
+      payload.device = hqDevice();          // which screen — see HQ_DEVICE below
 
       // Abort the request rather than let it hang. AbortController is guarded
       // because a board that cannot abort must still WORK — it just loses the
@@ -1873,6 +1910,118 @@ body.ch-amazon #pickListAmazon { display: block; }
     // Closing resumes and immediately refreshes, so nothing is missed.
     var pollPaused = false;
 
+    /* ── SCREENS: name this one, see the others (2026-10-02) ─────────────── */
+    var SCREEN_ROLES = [['floor', 'Floor', 'picking — watched: Telegram speaks up if no floor screen is on'],
+                        ['wall',  'Wall',  'the monitor on the wall'],
+                        ['office','Office','a desk — not watched']];
+    function paintScreenMe() {
+      var l = document.getElementById('screenMeLbl');
+      if (l) l.textContent = 'This screen · ' + HQ_DEVICE.name;
+    }
+    function openScreenMe() {
+      document.getElementById('menuPop').classList.add('hidden');
+      drwShow('This screen', 'how the system knows which screen did what');
+      var h = '<div class="drw-banner">Every pick, count and stock fix made here is logged with this name. ' +
+              'Only <b>Floor</b> screens are watched — if none checks in for 15 minutes in working hours, ' +
+              'Telegram says so.</div>' +
+              '<div style="margin:12px 0 6px;font-size:var(--fs-lab);color:var(--t3)">NAME</div>' +
+              '<input id="scrName" maxlength="40" value="' + esc(HQ_DEVICE.name) + '" ' +
+              'style="width:100%;font:inherit;font-size:18px;padding:10px;border-radius:8px;' +
+              'border:1px solid var(--rule-strong);background:var(--card);color:var(--t1)">' +
+              '<div style="margin:14px 0 6px;font-size:var(--fs-lab);color:var(--t3)">ROLE</div>';
+      SCREEN_ROLES.forEach(function (r) {
+        h += '<button class="drw-link' + (HQ_DEVICE.role === r[0] ? '' : ' ghost') + '" data-role="' + r[0] + '" ' +
+             'style="display:block;width:100%;margin:6px 0;text-align:left">' +
+             esc(r[1]) + ' <span style="opacity:.7">· ' + esc(r[2]) + '</span></button>';
+      });
+      h += '<button class="drw-link" id="scrSave" style="display:block;width:100%;margin-top:16px">Save</button>';
+      var body = document.getElementById('drwBody');
+      body.innerHTML = h;
+      var role = HQ_DEVICE.role;
+      body.onclick = function (ev) {
+        var rb = ev.target.closest('[data-role]');
+        if (rb) {
+          role = rb.getAttribute('data-role');
+          Array.prototype.forEach.call(body.querySelectorAll('[data-role]'), function (b) {
+            b.classList.toggle('ghost', b !== rb);
+          });
+          return;
+        }
+        if (ev.target.closest('#scrSave')) {
+          var n = String(document.getElementById('scrName').value || '').replace(/\s+/g, ' ').trim().slice(0, 40);
+          if (n) HQ_DEVICE.name = n;
+          HQ_DEVICE.role = role;
+          HQ_DEVICE.named = true;
+          hqSaveDevice();
+          paintScreenMe();
+          drwClose();
+          toast('Saved · this screen is "' + HQ_DEVICE.name + '" (' + role + ')');
+        }
+      };
+    }
+    function _scrAge(sec) {
+      if (sec < 45) return 'now';
+      var m = Math.round(sec / 60);
+      return m < 60 ? m + ' min ago' : Math.floor(m / 60) + 'h ' + (m % 60) + 'm ago';
+    }
+    function openScreensOnline() {
+      document.getElementById('menuPop').classList.add('hidden');
+      drwShow('Screens', 'who has checked in recently');
+      var list = (lastTick && lastTick._devices) || null;
+      if (!list) return drwFail('The server has not reported screens yet — give it a minute.');
+      var h = '';
+      list.forEach(function (d) {
+        var on = d.ageSec < 120, me = d.id === HQ_DEVICE.id;
+        h += '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;' +
+             'padding:12px 4px;border-bottom:1px solid var(--rule)">' +
+             '<span><span style="color:' + (on ? 'var(--ok, #5ad17a)' : 'var(--t3)') + '">●</span> ' +
+             '<b>' + esc(d.name) + '</b>' + (me ? ' <span style="opacity:.6">(this one)</span>' : '') +
+             '<br><span style="font-size:var(--fs-lab);color:var(--t3)">' + esc(d.role || '') + '</span></span>' +
+             '<span style="font-family:var(--mono);color:var(--t3)">' + _scrAge(d.ageSec) + '</span></div>';
+      });
+      document.getElementById('drwBody').innerHTML = h || '<div class="drw-empty">No screens yet.</div>';
+    }
+    function paintScreensOnline(tick) {
+      var l = document.getElementById('screensOnlineLbl');
+      var list = tick && tick._devices;
+      if (!l || !list) return;
+      var n = list.filter(function (d) { return d.ageSec < 120; }).length;
+      l.textContent = 'Screens online · ' + n;
+    }
+    document.getElementById('screenMe').addEventListener('click', openScreenMe);
+    document.getElementById('screensOnline').addEventListener('click', openScreensOnline);
+    paintScreenMe();
+
+    /* ── SELF-UPDATE (2026-10-02) ──────────────────────────────────────────────
+       A kiosk tab polls data forever but never re-fetches its own page, so every
+       deploy used to need someone to hard-reload every tablet. Now the board asks
+       the server every 5 minutes whether its page changed (Caddy's ETag /
+       Last-Modified — a HEAD request, nothing downloaded) and reloads itself
+       once nobody has touched it for 90 seconds and nothing is open. Never in the
+       Apps Script host (that page is served per request anyway). */
+    var selfVersion = null, selfUpdatePending = false;
+    function selfVersionCheck() {
+      if (HQ_NATIVE || !window.fetch) return;
+      fetch(location.pathname, { method: 'HEAD', cache: 'no-store' }).then(function (r) {
+        var v = r.headers.get('etag') || r.headers.get('last-modified');
+        if (!v) return;
+        if (selfVersion === null) selfVersion = v;
+        else if (v !== selfVersion) selfUpdatePending = true;
+      }).catch(function () {});
+    }
+    function selfUpdateIfIdle() {
+      if (!selfUpdatePending) return;
+      var busy = drwOpen ||
+                 !document.getElementById('numPad').classList.contains('hidden') ||
+                 !document.getElementById('holdTake').classList.contains('hidden') ||
+                 document.getElementById('menuPop') && !document.getElementById('menuPop').classList.contains('hidden');
+      if (busy || Date.now() - lastHumanMs < 90000) return;
+      location.reload();
+    }
+    selfVersionCheck();
+    setInterval(selfVersionCheck, 5 * 60000);
+    setInterval(selfUpdateIfIdle, 15000);
+
     function poll() {
       if (pollPaused) { schedulePoll(); return; }   // stay scheduled, just skip
       if (pollBusy) return;              // previous tick still running — skip
@@ -1947,6 +2096,7 @@ body.ch-amazon #pickListAmazon { display: block; }
       document.getElementById('board').classList.remove('booting');
 
       lastTick = tick;                   // optimistic picks re-paint from this
+      paintScreensOnline(tick);
 
       var c = tick.cockpit || {};
       var a = tick.alerts  || {};

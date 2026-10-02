@@ -140,6 +140,12 @@ function doPost(e) {
     for (var attempt = 1; attempt <= MAX_RETRIES; attempt++) {
       try {
     var payload = JSON.parse(e.postData.contents);
+    // ⭐ 2026-10-02 — the screen that sent this (Floor tablet, Office PC…). Only the
+    // board/wall send it; everything else leaves it blank. See _HQ_REQUEST_DEVICE.
+    try {
+      var _dev = payload && payload.device;
+      _HQ_REQUEST_DEVICE = _hqCleanDeviceName(_dev && typeof _dev === "object" ? _dev.name : _dev);
+    } catch (_) { _HQ_REQUEST_DEVICE = ""; }
 
     // --- NORMALIZE ACTION DISPATCH ---
     // Most callers (n8n's own workflows, the sidebar's UrlFetchApp calls) put
