@@ -179,19 +179,20 @@ function _getPrepQueueSize() {
   var lastRow = (typeof _prepWalkEnd === 'function') ? _prepWalkEnd(sheet) : sheet.getLastRow();
   if (lastRow < PREP_QUEUE.dataStartRow) return 0;
 
-  var skus = sheet.getRange(
-    PREP_QUEUE.dataStartRow, PREP_QUEUE.cols.SKU,
-    lastRow - PREP_QUEUE.dataStartRow + 1, 1
-  ).getValues();
+  var n = lastRow - PREP_QUEUE.dataStartRow + 1;
+  var skus = sheet.getRange(PREP_QUEUE.dataStartRow, PREP_QUEUE.cols.SKU, n, 1).getValues();
+  var done = sheet.getRange(PREP_QUEUE.dataStartRow, PREP_QUEUE.cols.DONE, n, 1).getValues();
 
+  // 2026-10-03: the count means TODAY'S PREP STILL TO DO — CURRENT table only,
+  // ticked rows excluded. It used to add INCOMING (future prep) too, so the
+  // cockpit read "Prep 15" for work nobody was meant to do today.
   var count = 0;
   for (var i = 0; i < skus.length; i++) {
     var v = String(skus[i][0]).trim();
     if (!v) continue;
-    // Two-table layout (2026-07-16): the INCOMING divider + its header row
-    // hold text in col A but are structure, not items. Both tables' real
-    // rows count toward the queue size (total prep workload).
-    if (v.toUpperCase() === PREP_QUEUE.boundaryMarker || v.charAt(0) === '◈') continue;
+    if (v.toUpperCase() === PREP_QUEUE.boundaryMarker) break;   // INCOMING starts here
+    if (v.charAt(0) === '◈') continue;                          // a header row
+    if (done[i][0] === true) continue;
     count++;
   }
   return count;

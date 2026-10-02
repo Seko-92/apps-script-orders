@@ -2445,7 +2445,7 @@ body.dark-theme .zp-msg-loading { background: rgba(244,180,0,0.16); color: #ffd4
   padding: 8px 10px;
   background: var(--bg-card-header);
   cursor: pointer;
-  transition: background 0.2s ease;
+  transition: background 320ms cubic-bezier(.37,0,.63,1), color 320ms cubic-bezier(.37,0,.63,1);
   user-select: none;
 }
 
@@ -2532,7 +2532,13 @@ body.dark-theme .card-inline-btn { background: var(--bg-secondary); border-color
   border-top: 1px solid var(--border);
   max-height: 800px;
   opacity: 1;
-  transition: max-height 0.4s ease, opacity 0.3s ease, padding 0.3s ease;
+  /* 2026-10-03: the card moves on the SAME curve as the resting panel and the
+     cockpit's idle bloom (easeInOutSine), and toggleCollapse animates to the
+     body's MEASURED height — easing toward an 800px cap finished a 200px card
+     in a tenth of a second, which is what read as a snap. */
+  transition: max-height 460ms cubic-bezier(.37,0,.63,1),
+              opacity 360ms cubic-bezier(.37,0,.63,1) 90ms,
+              padding 460ms cubic-bezier(.37,0,.63,1);
   overflow: hidden;
 }
 /* ⚠⚠ THE 800px CAP ABOVE IS A CAP, AND `overflow:hidden` MAKES EXCEEDING IT SILENT.
@@ -2551,8 +2557,14 @@ body.dark-theme .card-inline-btn { background: var(--bg-secondary); border-color
 .card[data-id="sheet-protect"] .card-body { max-height: 1560px; }
 
 .card.collapsed .card-body {
-  max-height: 0;
+  /* !important so a collapse added by ANY code beats the inline height
+     toggleCollapse leaves on an open card — and the change from that inline
+     height to 0 is still animated by the transition below. */
+  max-height: 0 !important;
   opacity: 0;
+  transition: max-height 380ms cubic-bezier(.37,0,.63,1),
+              opacity 200ms cubic-bezier(.37,0,.63,1),
+              padding 380ms cubic-bezier(.37,0,.63,1);
   padding-top: 0;
   padding-bottom: 0;
   border-top: 1px solid transparent;
@@ -4060,6 +4072,15 @@ body:not(.dark-theme) .card.collapsed .card-icon svg{ stroke:#1a1a1a !important;
 
 /* the open card: the sheet's header row over its rows, framed as one block */
 .card:not(.collapsed){ border:1px solid #1a1a1a !important; margin:8px 0 !important; }
+/* 2026-10-03: everything that changes when a card opens moves on one curve —
+   the frame, the black header, the title, the icon — so the card opens as one
+   object instead of the body gliding while the chrome snaps around it. */
+.card{ transition:margin 420ms cubic-bezier(.37,0,.63,1), border-color 320ms cubic-bezier(.37,0,.63,1), transform 250ms var(--ease-out), box-shadow 250ms var(--ease-out); }
+.card-title h3{ transition:color 320ms cubic-bezier(.37,0,.63,1), font-size 320ms cubic-bezier(.37,0,.63,1); }
+.card-icon svg{ transition:stroke 320ms cubic-bezier(.37,0,.63,1); }
+@media (prefers-reduced-motion: reduce){
+  .card,.card-header,.card-body,.card-title h3,.card-icon svg{ transition:none !important; }
+}
 .card:not(.collapsed) .card-header{ background:#1a1a1a !important; min-height:40px; }
 .card:not(.collapsed) .card-title h3{ color:#ffd400 !important; font-size:calc(15px * var(--font-scale)) !important; }
 .card:not(.collapsed) .card-icon svg{ stroke:#ffd400 !important; }
@@ -4346,7 +4367,7 @@ body.dark-theme .card.band-alt, body.dark-theme .card.band-alt .card-header{ bac
       <span class="cockpit-queue-label">Amazon</span>
       <span class="cockpit-queue-value" id="cockpitQueueAmazon">0</span>
     </div>
-    <div class="cockpit-queue-pill" id="cockpitQueuePrepPill" title="Prep Queue size">
+    <div class="cockpit-queue-pill" id="cockpitQueuePrepPill" title="Today's prep still to do (CURRENT table, not ticked done)">
       <span class="cockpit-queue-label">Prep</span>
       <span class="cockpit-queue-value" id="cockpitQueuePrep">0</span>
     </div>
@@ -4446,7 +4467,7 @@ body.dark-theme .card.band-alt, body.dark-theme .card.band-alt .card-header{ bac
         </div>
         <div class="alert-row empty" id="alertQueueSize" onclick="jumpToAlert('queueSize')">
           <span class="alert-count" id="alertCountQueueSize">0</span>
-          <span class="alert-label">In Prep Queue</span>
+          <span class="alert-label">Prep left today</span>
           <span class="alert-arrow">›</span>
         </div>
         <div class="alert-row empty" id="alertNewFromZoho" onclick="jumpToAlert('newFromZoho')">
@@ -8166,25 +8187,63 @@ function _paintLastSync(cellValue) {
    The others SNAP shut (transition off for one frame) so the scroll target is
    measured on the final layout, not a half-collapsed one; only the opening card
    animates. Scrolling only on OPEN — closing a card never moves the list. */
+var CARD_OPEN_MS = 460, CARD_CLOSE_MS = 380;
+function _cardReduceMotion() {
+  try { return window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches; }
+  catch (e) { return false; }
+}
+/* Close one card smoothly: pin its current height inline, then let the
+   collapsed rule (max-height 0 !important) carry it down on the curve. */
+function _cardClose(card) {
+  var b = card.querySelector('.card-body');
+  if (b) {
+    clearTimeout(b._cardT);
+    b.style.maxHeight = b.scrollHeight + 'px';
+    void b.offsetHeight;
+  }
+  card.classList.add('collapsed');
+  if (b) b._cardT = setTimeout(function () { b.style.maxHeight = ''; }, CARD_CLOSE_MS + 40);
+}
+/* Open one card to its MEASURED height, then release the cap so a result
+   panel that grows later is never clipped. */
+function _cardOpen(card) {
+  var b = card.querySelector('.card-body');
+  if (b) { clearTimeout(b._cardT); b.style.maxHeight = '0px'; }
+  card.classList.remove('collapsed');
+  if (!b) return;
+  var h = b.scrollHeight + 24;            // + the padding still animating in
+  b.style.maxHeight = h + 'px';
+  b._cardT = setTimeout(function () {
+    if (!card.classList.contains('collapsed')) b.style.maxHeight = 'none';
+  }, CARD_OPEN_MS + 40);
+}
+
 function toggleCollapse(header) {
   if (window.event && event.target.closest('.drag-handle')) return;
   var card = header.closest('.card');
   var opening = card.classList.contains('collapsed');
-  if (opening) {
-    document.querySelectorAll('#modules .card:not(.collapsed)').forEach(function (c) {
-      if (c === card) return;
-      var b = c.querySelector('.card-body');
-      if (b) b.style.transition = 'none';
-      c.classList.add('collapsed');
-      if (b) { void b.offsetHeight; b.style.transition = ''; }
-    });
-  }
-  card.classList.toggle('collapsed');
-  saveState();
   var modules = document.getElementById('modules');
-  if (opening && modules) {
-    var top = card.offsetTop - modules.offsetTop - 4;
-    modules.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
+  var reduce = _cardReduceMotion();
+  if (!opening) {
+    if (reduce) card.classList.add('collapsed'); else _cardClose(card);
+    saveState();
+    return;
+  }
+  // The others now fold on the same curve instead of snapping. Work out where
+  // the opened card will END UP once they have folded, so the scroll lands
+  // on its final position rather than chasing a moving target.
+  var shrinkAbove = 0;
+  document.querySelectorAll('#modules .card:not(.collapsed)').forEach(function (c) {
+    if (c === card) return;
+    var b = c.querySelector('.card-body');
+    if (b && c.offsetTop < card.offsetTop) shrinkAbove += Math.max(0, b.offsetHeight - 1);
+    if (reduce) c.classList.add('collapsed'); else _cardClose(c);
+  });
+  if (reduce) card.classList.remove('collapsed'); else _cardOpen(card);
+  saveState();
+  if (modules) {
+    var top = card.offsetTop - modules.offsetTop - 4 - shrinkAbove;
+    modules.scrollTo({ top: Math.max(0, top), behavior: reduce ? 'auto' : 'smooth' });
   }
 }
 
