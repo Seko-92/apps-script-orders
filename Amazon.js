@@ -554,7 +554,7 @@ function addAmazonOrder(orderId, lines, shipBy, note, source) {
     if (typeof refreshAllOrdersLockCarveOuts === "function") refreshAllOrdersLockCarveOuts();
   } catch (e) { console.log("addAmazonOrder: carve-out refresh failed: " + e); }
   try {
-    if (typeof publishBoardTickInline === "function") publishBoardTickInline("amazon");
+    if (typeof publishBoardTickInline === "function") publishBoardTickInline(undefined, "amazon");
   } catch (e) { console.log("addAmazonOrder: inline publish failed: " + e); }
 
   var msg = "✅ " + clean.salesOrder + " added to the Amazon table — " +

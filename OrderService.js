@@ -2472,6 +2472,19 @@ function handleManualStatusChange(e) {
       console.log("handleManualStatusChange error for status " + status + ": " + err);
     }
   });
+
+  // ⭐ 2026-10-02 — publish now, so the Floor Board sees a hand-changed STATUS in
+  // ~20s instead of waiting up to a minute for the publish trigger. Same call a
+  // ✓ Pick on the board makes. It runs in the background edit trigger (nobody
+  // waits on it), takes no lock, and is debounced to one rebuild per 15s, so a
+  // burst of dropdown changes still costs one publish. Best-effort.
+  if (Object.keys(rowsByStatus).length) {
+    try {
+      if (typeof publishBoardTickInline === "function") publishBoardTickInline(undefined, "manual-status");
+    } catch (err) {
+      console.log("handleManualStatusChange publish: " + err);
+    }
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════════════

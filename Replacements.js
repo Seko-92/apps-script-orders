@@ -593,7 +593,7 @@ function addReplacementLine(kind, originalOrder, sku, qty, note, source) {
   // Publish inline — a human is standing there having just added a pick line, and the
   // board is where they will look for it. Same reasoning as the doPost arrival path.
   try {
-    if (typeof publishBoardTickInline === "function") publishBoardTickInline("replacement");
+    if (typeof publishBoardTickInline === "function") publishBoardTickInline(undefined, "replacement");
   } catch (e) { console.log("addReplacementLine: inline publish failed: " + e); }
 
   var msg = "✅ Added " + clean.label + " line · " + clean.sku + " ×" + clean.qty +
