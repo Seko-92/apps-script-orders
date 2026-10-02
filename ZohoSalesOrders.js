@@ -668,8 +668,21 @@ function previewPendingSalesOrder(soNumber) {
 // ALERTS SUPPORT — count of unpulled Pending SOs
 // =======================================================================================
 
+/** Is this Pending row work someone could still pull? Pure (2026-10-03).
+ *  Never pulled, CONFIRMED in Zoho (a draft is a quote; closed / void are finished), and not
+ *  already shipped or fulfilled. The old rule counted every un-pulled row — 113 on 10-03, almost
+ *  all long-finished orders — so the Direct dot blinked forever over nothing. */
+function _isPullableZohoRow(orderStatus, shipment, pulled) {
+  if (String(pulled || "").trim().toUpperCase() === PENDING_SO.pulledFlag) return false;
+  var st = String(orderStatus || "").trim().toUpperCase();
+  if (st === "DRAFT" || st === "CLOSED" || st === "VOID") return false;
+  var sh = String(shipment || "").trim().toUpperCase();
+  if (sh === "SHIPPED" || sh === "FULFILLED") return false;
+  return true;
+}
+
 /**
- * Returns the count of Pending sheet rows where PULLED is blank.
+ * Returns the count of Pending sheet rows still waiting to be pulled (see _isPullableZohoRow).
  * Used by the sidebar Alerts card ("New from Zoho: N").
  */
 function getPendingZohoCount() {
@@ -679,14 +692,13 @@ function getPendingZohoCount() {
     if (!sheet) return 0;
     var lastRow = sheet.getLastRow();
     if (lastRow < PENDING_SO.dataStartRow) return 0;
-    var pulledCol = sheet.getRange(
-      PENDING_SO.dataStartRow, PENDING_SO.cols.PULLED,
-      lastRow - PENDING_SO.dataStartRow + 1, 1
-    ).getValues();
+    var C = PENDING_SO.cols;
+    var first = C.ORDER_STATUS, width = C.PULLED - first + 1;          // D..J in one read
+    var rows = sheet.getRange(PENDING_SO.dataStartRow, first, lastRow - PENDING_SO.dataStartRow + 1, width).getValues();
     var count = 0;
-    for (var i = 0; i < pulledCol.length; i++) {
-      var v = String(pulledCol[i][0] || "").trim().toUpperCase();
-      if (v !== PENDING_SO.pulledFlag) count++;
+    for (var i = 0; i < rows.length; i++) {
+      var r = rows[i];
+      if (_isPullableZohoRow(r[C.ORDER_STATUS - first], r[C.SHIPMENT - first], r[C.PULLED - first])) count++;
     }
     return count;
   } catch (e) {

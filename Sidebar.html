@@ -798,14 +798,14 @@ body {
    count = 0 so the eye locks on what's actually waiting.
    ═══════════════════════════════════════════════════════════════════════ */
 .floor-pulse { display: flex; align-items: center; gap: 7px; margin-top: 8px; padding: 0 2px;
-               font-family: 'Roboto Mono', monospace; font-size: 10.5px; letter-spacing: 0.02em;
+               font-family: 'Roboto Mono', monospace; font-size:calc(10.5px * var(--font-scale)); letter-spacing: 0.02em;
                color: #a8a49a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .floor-pulse.hidden { display: none; }
 .floor-pulse .fp-dot { width: 7px; height: 7px; border-radius: 50%; flex: none; background: #6c6a64; }
 .floor-pulse.active .fp-dot { background: #5ad17a; box-shadow: 0 0 6px rgba(90,209,122,.7);
                               animation: fpBlink 1.6s ease-in-out infinite; }
 .floor-pulse.active { color: #cfe9d4; }
-.floor-pulse b { font-family: 'Oswald', sans-serif; font-weight: 600; letter-spacing: .08em; font-size: 11px; }
+.floor-pulse b { font-family: 'Oswald', sans-serif; font-weight: 600; letter-spacing: .08em; font-size:calc(11px * var(--font-scale)); }
 .floor-pulse.active b { color: #5ad17a; }
 .floor-pulse.quiet b { color: #ffb84d; }
 .floor-pulse.quiet .fp-dot { background: #ffb84d; }
@@ -1539,7 +1539,7 @@ body.dark-theme .zone-header::after {
   display: block;
   margin-top: 2px;
   font-family: 'Roboto', sans-serif;
-  font-size: 9.5px;
+  font-size:calc(9.5px * var(--font-scale));
   font-weight: 400;
   letter-spacing: 0.02em;
   text-transform: none;
@@ -2582,7 +2582,7 @@ body.dark-theme .card-inline-btn { background: var(--bg-secondary); border-color
   font-size: 15px;
 }
 .card[data-id="alerts"] .card-title h3 {
-  font-size: 15px;
+  font-size:calc(15px * var(--font-scale));
   letter-spacing: 0.01em;
 }
 .card[data-id="alerts"].has-attention .card-icon {
@@ -2597,14 +2597,14 @@ body.dark-theme .card-inline-btn { background: var(--bg-secondary); border-color
 .card[data-zone="diagnostics"]:not([data-id="arcade"]) .card-icon {
   width: 20px;
   height: 20px;
-  font-size: 11px;
+  font-size:calc(11px * var(--font-scale));
   opacity: 0.85;
 }
 .card[data-zone="diagnostics"]:not([data-id="arcade"]) .card-header {
   padding: 6px 10px;
 }
 .card[data-zone="diagnostics"]:not([data-id="arcade"]) .card-title h3 {
-  font-size: 12px;
+  font-size:calc(12px * var(--font-scale));
   font-weight: 500;
   color: var(--text-secondary);
 }
@@ -2638,7 +2638,7 @@ body.dark-theme .card-inline-btn { background: var(--bg-secondary); border-color
 .card-more > summary {
   list-style: none;
   cursor: pointer;
-  font-size: 10px;
+  font-size:calc(10px * var(--font-scale));
   font-weight: 700;
   letter-spacing: 0.14em;
   text-transform: uppercase;
@@ -3004,7 +3004,7 @@ input[type="range"]::-moz-range-thumb:active { cursor: grabbing; transform: scal
   border-bottom: 1px solid rgba(255,255,255,0.07);
 }
 .pk-head .t {
-  font-family: 'Oswald', sans-serif; font-size: 11px; font-weight: 600;
+  font-family: 'Oswald', sans-serif; font-size:calc(11px * var(--font-scale)); font-weight: 600;
   letter-spacing: .09em; text-transform: uppercase; color: #ffd400; flex: 1;
 }
 .pk-head .x {
@@ -3015,17 +3015,17 @@ input[type="range"]::-moz-range-thumb:active { cursor: grabbing; transform: scal
 .pk-row {
   display: flex; align-items: center; gap: 8px;
   padding: 10px 12px; cursor: pointer; color: #e6e6e2;
-  font-size: 12.5px; border-bottom: 1px solid rgba(255,255,255,0.045);
+  font-size:calc(12.5px * var(--font-scale)); border-bottom: 1px solid rgba(255,255,255,0.045);
 }
 .pk-row:last-child { border-bottom: 0; }
 .pk-row:hover { background: rgba(255,212,0,0.11); color: #ffd400; }
 .pk-row.on { background: rgba(255,212,0,0.16); color: #ffd400; font-weight: 600; }
 .pk-row .tick { width: 12px; flex: none; opacity: 0; }
 .pk-row.on .tick { opacity: 1; }
-.pk-empty { padding: 16px 12px; color: #9a9a92; font-size: 11.5px; line-height: 1.55; }
+.pk-empty { padding: 16px 12px; color: #9a9a92; font-size:calc(11.5px * var(--font-scale)); line-height: 1.55; }
 .pk-foot {
   padding: 8px 11px; background: #1a1a18; color: #8a8a85;
-  font-size: 10px; line-height: 1.5; border-top: 1px solid rgba(255,255,255,0.07);
+  font-size:calc(10px * var(--font-scale)); line-height: 1.5; border-top: 1px solid rgba(255,255,255,0.07);
 }
 /* the banner is a control now, so it has to look like one */
 .picker-banner { cursor: pointer; }
@@ -3509,9 +3509,9 @@ body.dark-theme .footer-version { border-color: #2c2c2c; }
   grid-template-columns:1fr auto;align-items:baseline;gap:10px}
 .alert-row:last-child{border-bottom:0}
 .alert-row.has-items:hover{background:rgba(255,212,0,.10)}
-.alert-label{order:1;font-family:'Roboto',sans-serif;font-size:12.5px;
+.alert-label{order:1;font-family:'Roboto',sans-serif;font-size:calc(12.5px * var(--font-scale));
   text-transform:none;letter-spacing:0;color:#4a453c;font-weight:400}
-.alert-count{order:2;font-family:'Oswald',sans-serif;font-size:17px;
+.alert-count{order:2;font-family:'Oswald',sans-serif;font-size:calc(17px * var(--font-scale));
   font-weight:600;color:#1d1d1b;font-variant-numeric:tabular-nums}
 .alert-row.has-items .alert-count{color:#8a6f1e}
 .alert-arrow{display:none}
@@ -3906,11 +3906,11 @@ body.dark-theme .footer-version { border-color: #2c2c2c; }
 body:not(.dark-theme) #modules{ background:#fff8e7; }
 
 /* zone labels are table-header bands */
-.zone-header{ background:#1a1a1a; color:#ffd400; letter-spacing:.2em; font-size:10px;
+.zone-header{ background:#1a1a1a; color:#ffd400; letter-spacing:.2em; font-size:calc(10px * var(--font-scale));
   padding:6px 10px 5px; margin:14px 0 6px; border-bottom:2px solid #ffd400;
   justify-content:flex-start; border-radius:0; }
 .zone-header:first-child{ margin-top:2px; padding-top:6px; }
-.zone-header::before{ content:'◈'; flex:none; height:auto; background:none; color:#ffd400; font-size:9px; }
+.zone-header::before{ content:'◈'; flex:none; height:auto; background:none; color:#ffd400; font-size:calc(9px * var(--font-scale)); }
 .zone-header::after{ display:none; }
 body.dark-theme .zone-header{ color:#ffd400; }
 body.dark-theme .zone-header::before{ background:none; }
@@ -3953,7 +3953,7 @@ body.dark-theme .btn-secondary:hover{ background:rgba(255,212,0,.10); border-col
 /* help folds behind one link */
 .card-help{ margin-top:8px; }
 .card-help > summary{ list-style:none; cursor:pointer; font-family:'Oswald',sans-serif;
-  font-size:10px; letter-spacing:.14em; text-transform:uppercase; color:#8a7434; user-select:none; }
+  font-size:calc(10px * var(--font-scale)); letter-spacing:.14em; text-transform:uppercase; color:#8a7434; user-select:none; }
 .card-help > summary::-webkit-details-marker{ display:none; }
 .card-help > summary::before{ content:'ⓘ '; }
 .card-help[open] > summary{ color:var(--text-primary); }
@@ -3966,14 +3966,14 @@ body.dark-theme .card-help > summary{ color:#c9b36a; }
 .rp-rlab{ color:#ffd400; }
 .rp-walk{ margin-top:14px; flex:none; position:relative; z-index:2; }
 .rp-walk:empty{ display:none; }
-.rp-walk-h{ font-family:'Oswald',sans-serif; font-size:9px; letter-spacing:.2em; font-weight:600;
+.rp-walk-h{ font-family:'Oswald',sans-serif; font-size:calc(9px * var(--font-scale)); letter-spacing:.2em; font-weight:600;
   text-transform:uppercase; color:#ffd400; border-bottom:1px solid rgba(255,212,0,.35);
   padding-bottom:5px; display:flex; justify-content:space-between; }
 .rp-walk-h span:last-child{ color:#7d7666; letter-spacing:.1em; }
 .rp-walk-r{ display:grid; grid-template-columns:52px 1fr auto; gap:8px; padding:5px 0;
   border-bottom:1px solid rgba(255,255,255,.05); font-family:'Roboto Mono',monospace;
-  font-size:10.5px; color:#a49d8b; align-items:baseline; }
-.rp-walk-r b{ font-family:'Oswald',sans-serif; font-size:13px; color:#ffd400; font-weight:600; }
+  font-size:calc(10.5px * var(--font-scale)); color:#a49d8b; align-items:baseline; }
+.rp-walk-r b{ font-family:'Oswald',sans-serif; font-size:calc(13px * var(--font-scale)); color:#ffd400; font-weight:600; }
 .rp-walk-r i{ font-style:normal; color:#e2dccb; }
 
 /* no colour emoji: text symbols stay text; the arcade keeps its own */
@@ -4028,7 +4028,7 @@ body{ font-variant-emoji:text; }
 /* ── SECTIONS = the yellow ▌ DIRECT band ── */
 .zone-header{ background:#ffd400 !important; color:#1a1a1a !important; border-bottom:0 !important;
   font-weight:700; letter-spacing:.22em; padding:5px 10px !important; }
-.zone-header::before{ content:'▌' !important; color:#1a1a1a !important; font-size:11px !important; }
+.zone-header::before{ content:'▌' !important; color:#1a1a1a !important; font-size:calc(11px * var(--font-scale)) !important; }
 body.dark-theme .zone-header{ color:#1a1a1a !important; }
 
 /* ── THE MODULE LIST IS A LEDGER, like the sheet's rows ──────────────────────────
@@ -4049,19 +4049,19 @@ body:not(.dark-theme) .card.collapsed .card-header:hover{ background:#fff4b0 !im
 .card-title h3{ margin:0 !important; line-height:1.1 !important; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .drag-handle{ padding:0 2px !important; width:8px; overflow:hidden; }
 .card-title h3{ font-family:'Oswald','Arial Narrow',sans-serif !important; font-weight:600 !important;
-  font-size:13.5px !important; letter-spacing:.09em !important; text-transform:uppercase; }
+  font-size:calc(13.5px * var(--font-scale)) !important; letter-spacing:.09em !important; text-transform:uppercase; }
 body:not(.dark-theme) .card-title h3{ color:#1a1a1a !important; }
 .card-icon{ width:20px !important; height:20px !important; border:0 !important; box-shadow:none !important; }
 .card-icon svg{ width:15px !important; height:15px !important; }
 body:not(.dark-theme) .card.collapsed .card-icon svg{ stroke:#1a1a1a !important; }
 .drag-handle{ opacity:0 !important; transition:opacity .15s ease; }
 .card-header:hover .drag-handle{ opacity:.45 !important; }
-.card-toggle{ font-size:8px !important; opacity:.45; }
+.card-toggle{ font-size:calc(8px * var(--font-scale)) !important; opacity:.45; }
 
 /* the open card: the sheet's header row over its rows, framed as one block */
 .card:not(.collapsed){ border:1px solid #1a1a1a !important; margin:8px 0 !important; }
 .card:not(.collapsed) .card-header{ background:#1a1a1a !important; min-height:40px; }
-.card:not(.collapsed) .card-title h3{ color:#ffd400 !important; font-size:15px !important; }
+.card:not(.collapsed) .card-title h3{ color:#ffd400 !important; font-size:calc(15px * var(--font-scale)) !important; }
 .card:not(.collapsed) .card-icon svg{ stroke:#ffd400 !important; }
 .card:not(.collapsed) .card-toggle{ color:#ffd400; opacity:.8; }
 .card-body{ border-top:3px solid #ffd400 !important; }
@@ -4072,7 +4072,7 @@ body.dark-theme .card.band-alt, body.dark-theme .card.band-alt .card-header{ bac
 /* a section band copies the ▌ DIRECT divider, right-hand label included */
 .zone-header::after{ content:attr(data-n) !important; display:block !important; margin-left:auto;
   flex:none !important; height:auto !important; background:none !important;
-  font-size:9px; letter-spacing:.16em; opacity:.62; font-weight:600; }
+  font-size:calc(9px * var(--font-scale)); letter-spacing:.16em; opacity:.62; font-weight:600; }
 
 /* ── THE BANNER: the HQ roundel where the bare green dot was ── */
 .hq-roundel{ width:26px; height:26px; flex:none; margin-right:7px; display:block; }
@@ -4159,9 +4159,9 @@ body.dark-theme .card.band-alt, body.dark-theme .card.band-alt .card-header{ bac
 
 /* ── THE SHEET'S OWN SETTING OF OSWALD: bold, almost no letter-spacing, ~11pt.
       The tracked-out 600 weight read as a cousin of the sheet, not the sheet. ── */
-.card-title h3{ font-weight:700 !important; letter-spacing:.025em !important; font-size:14px !important; }
-.card:not(.collapsed) .card-title h3{ font-size:15.5px !important; }
-.zone-header{ letter-spacing:.1em !important; font-size:11px !important; }
+.card-title h3{ font-weight:700 !important; letter-spacing:.025em !important; font-size:calc(14px * var(--font-scale)) !important; }
+.card:not(.collapsed) .card-title h3{ font-size:calc(15.5px * var(--font-scale)) !important; }
+.zone-header{ letter-spacing:.1em !important; font-size:calc(11px * var(--font-scale)) !important; }
 .cockpit-stat-label-primary{ font-weight:700 !important; letter-spacing:.05em !important; font-size:11px !important; }
 .hqf-cap b, .floor-pulse b{ font-weight:700 !important; letter-spacing:.03em !important; }
 
@@ -4185,6 +4185,10 @@ body.dark-theme .card.band-alt, body.dark-theme .card.band-alt .card-header{ bac
 .rp-row b.rp-warn{ color:#ff6b6b !important; }   /* a warning stays the sheet's alarm red */
 .rp-walk-r{ color:#b5b5b5 !important; }
 .rp-walk-r i{ color:#fff !important; }
+/* 2026-10-03 — the text-size button now reaches the v4/v5 text. At the largest step a long
+   title ("Straggler Watchdog") no longer fits one line: end it with "…" rather than a hard cut. */
+.card-title h3{ overflow:hidden; text-overflow:ellipsis; min-width:0; }
+.card-title{ min-width:0; }
 </style>
 </head>
 
