@@ -87,7 +87,7 @@ eq('N2 SKU: text → that line', pn('166527: hold this one').sku, { '166527': 'h
 eq('N3 both, several lines', [pn('call first\n173817: fragile').all, pn('call first\n173817: fragile').sku], ['call first', { '173817': 'fragile' }]);
 eq('N4 a time is NOT a SKU', pn('Pickup 3:30 PM').all, 'Pickup 3:30 PM');
 eq('N5 a word: is NOT a SKU', [pn('Urgent: call the customer').all, pn('Urgent: call the customer').errors.length], ['Urgent: call the customer', 0]);
-eq('N6 a SKU not on the order → error, never a guess', pn('999999: hold').errors, ['999999 is not on this order']);
+eq('N6 a SKU not on the order → error, never a guess', pn('999999: hold').errors, ['999999 is not one of the lines being pulled']);
 eq('N7 leading zeros / case still match', [pn('0: x').errors.length, Object.keys(pn('000000: special pkg').sku)], [0, ['000000']]);
 eq('N8 clear', pn('clear').clear, true);
 eq('N9 "SKU:" with nothing → removes that line\'s note', pn('166527:').sku, { '166527': '' });
@@ -126,7 +126,7 @@ eq('B14 /help shows the note form', /\/pull <SO or INV> \[note <text>\]/.test(ct
 o = send(msg('/pull SO-24609 note call first\n173817: fragile', GROUP));
 eq('B15 typed: order note + SKU note on the card', [/📝 Every row: call first/.test(o.sent[0].text), /📝 173817: fragile/.test(o.sent[0].text)], [true, true]);
 o = send(msg('/pull SO-24609 note 999999: hold', GROUP));
-eq('B16 typed: SKU not on the order → no card, says why', [!!o.sent[0].buttons, /999999 is not on this order/.test(o.sent[0].text)], [false, true]);
+eq('B16 typed: SKU not on the order → no card, says why', [!!o.sent[0].buttons, /999999 is not one of the lines being pulled/.test(o.sent[0].text)], [false, true]);
 
 // --- R · the 📝 Note button → reply → card redrawn → pull -----------------------------
 for (const k of Object.keys(CACHE)) delete CACHE[k];
@@ -173,6 +173,45 @@ delete CACHE['pn:1234abcd56'];
 o = send(reply('late note'));
 eq('R14 a reply after the card expired says so', /expired/.test(o.sent[0].text), true);
 ctx._tgApi = realApi;
+
+
+// --- A2 · an order already on the sheet: NEW LINES ONLY → Telegram may add them -------
+for (const k of Object.keys(CACHE)) delete CACHE[k];
+const L3 = [{ sku: '166527', zohoQty: 1, location: 'E-84', name: 'Piston', status: 'unchanged' },
+            { sku: '173817', zohoQty: 2, location: 'E-54', name: 'Piston', status: 'unchanged' },
+            { sku: '200001', zohoQty: 3, location: 'B-7', name: 'Gasket', status: 'new' }];
+const repull = (lines, sum) => () => ({ ok: true, soNumber: 'SO-26018', customerName: 'Miguel', totalFormatted: '$1,044.68', isFirstPull: false,
+  summary: Object.assign({ totalLines: lines.length, unchanged: 0, new: 0, qtyChanged: 0, removed: 0, anyChanges: true }, sum), lines });
+ctx.computeZohoSoDiff = repull(L3, { unchanged: 2, new: 1 });
+eq('M1 mode: first / add / modal / nothing', [
+  ctx._tgPullMode({ isFirstPull: true, summary: { totalLines: 2, new: 2 } }),
+  ctx._tgPullMode({ isFirstPull: false, summary: { new: 1, unchanged: 2 } }),
+  ctx._tgPullMode({ isFirstPull: false, summary: { new: 1, qtyChanged: 1 } }),
+  ctx._tgPullMode({ isFirstPull: false, summary: { new: 0, unchanged: 3 } })], ['first', 'add', null, null]);
+o = send(msg('/pull SO-26018 note 200001: rush', GROUP));
+eq('M2 card lists ONLY the new line + says the rest stay', [/200001/.test(o.sent[0].text), /166527/.test(o.sent[0].text), /1 new line to add · 2 already on the sheet/.test(o.sent[0].text)], [true, false, true]);
+eq('M3 button reads Add 1 new', o.sent[0].buttons[1][0].text, '✅ Add 1 new');
+o = send(msg('/pull SO-26018 note 166527: x', GROUP));
+eq('M4 a note on a line already there is refused', /166527 is not one of the lines being pulled/.test(o.sent[0].text), true);
+o = send(msg('/pull SO-26018 note 200001: rush', GROUP));
+APPLIED.length = 0; EDITS.length = 0; SELS = null;
+ctx.handleTelegramCommand({ callback_query: { id: 'm5', data: o.sent[0].buttons[1][0].callback_data, message: { chat: { id: -100 }, message_id: 70 } } });
+eq('M5 tap adds ONLY the new line, with its note', SELS, [{ sku: '200001', action: 'insert', note: 'rush' }]);
+eq('M6 result says ADDED and that the rest were untouched', [/✅ ADDED · SO-24609/.test(EDITS[0].text), /2 already there, untouched/.test(EDITS[0].text)], [true, true]);
+
+o = send(msg('/pull SO-26018', GROUP));
+const addData = o.sent[0].buttons[1][0].callback_data;
+ctx.computeZohoSoDiff = repull(L3.concat([{ sku: '200002', zohoQty: 1, location: 'C-1', name: 'Seal', status: 'new' }]), { unchanged: 2, new: 2 });
+APPLIED.length = 0; EDITS.length = 0;
+ctx.handleTelegramCommand({ callback_query: { id: 'm7', data: addData, message: { chat: { id: -100 }, message_id: 71 } } });
+eq('M7 a line that appeared in Zoho after the card → nothing pulled unseen', [APPLIED.length, /order changed since this card/.test(EDITS[0].text)], [0, true]);
+
+ctx.computeZohoSoDiff = repull(L3.map(l => Object.assign({}, l, { status: l.status === 'new' ? 'qty_changed' : l.status })), { unchanged: 2, qtyChanged: 1 });
+o = send(msg('/pull SO-26018', GROUP));
+eq('M8 a qty change still needs the modal', [/Needs the Pull modal — 1 qty change/.test(o.sent[0].text), !!o.sent[0].buttons], [true, false]);
+ctx.computeZohoSoDiff = repull(L3.slice(0, 2), { unchanged: 2, anyChanges: false });
+o = send(msg('/pull SO-26018', GROUP));
+eq('M9 nothing new → says so', /Nothing new — all 2 lines are already on the sheet/.test(o.sent[0].text), true);
 
 // --- P · the row note in ZohoPull ------------------------------------------------------
 eq('P1 order note + line note', ctx._pullRowNote('call first', 'fragile'), 'call first · fragile');

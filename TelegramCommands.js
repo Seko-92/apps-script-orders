@@ -878,7 +878,7 @@ function _tgParsePullNotes(text, skus) {
     var m = line.match(/^([A-Za-z0-9][A-Za-z0-9._\/-]*)\s*:\s*([\s\S]*)$/);
     if (m && m[1].length >= 5 && /\d/.test(m[1])) {
       var sku = known[_tgSkuKey(m[1])];
-      if (!sku) { out.errors.push(m[1] + " is not on this order"); return; }
+      if (!sku) { out.errors.push(m[1] + " is not one of the lines being pulled"); return; }
       out.sku[sku] = m[2].trim().slice(0, TG_PULL_NOTE_MAX);   // "" = remove that line's note
       return;
     }
@@ -911,6 +911,18 @@ function _tgPullSessionGet(token) {
   return { v: 2, so: "", base: "", skus: [], all: String(raw), sku: {}, legacy: true };
 }
 
+/** Which pulls Telegram may do. "first" = nothing of this order on the sheet and every line
+ *  new; "add" = already on the sheet and the ONLY change is new lines; null = needs the
+ *  Pull modal (a qty change or a removal is a per-line decision), or nothing to pull. Pure. */
+function _tgPullMode(d) {
+  var s = (d && d.summary) || {};
+  if (d.isFirstPull) return (s.totalLines > 0 && s.new === s.totalLines) ? "first" : null;
+  return (s.new > 0 && !s.qtyChanged && !s.removed) ? "add" : null;
+}
+function _tgPullButtonLabel(sess) {
+  return (sess && sess.mode === "add") ? "✅ Add " + sess.skus.length + " new" : "✅ Pull all";
+}
+
 /** The card's text: the line list, then whatever notes are set. */
 function _tgPullCardText(sess) {
   var L = [sess.base];
@@ -922,10 +934,10 @@ function _tgPullCardText(sess) {
   }
   return L.join("\n");
 }
-function _tgPullCardButtons(token, soNumber) {
+function _tgPullCardButtons(token, soNumber, sess) {
   return [
     [{ text: "📝 Note", data: "pnote:" + token }],
-    [{ text: "✅ Pull all", data: "pull:" + soNumber + ":" + token },
+    [{ text: _tgPullButtonLabel(sess), data: "pull:" + soNumber + ":" + token },
      { text: "✖ Cancel",   data: "cancel:" + soNumber }]
   ];
 }
@@ -943,45 +955,55 @@ function _tgPullPreview(query, note) {
              s.totalLines + " line" + (s.totalLines === 1 ? "" : "s");
 
   // --- the simple-case gate ---
-  if (!d.isFirstPull || s.new !== s.totalLines) {
+  // Telegram takes the pulls that are ONE decision: a first pull (every line new), or
+  // NEW LINES ADDED to an order already on the sheet (2026-10-02) — the rows there stay
+  // as they are. A qty change or a removed line needs per-line choices → the modal.
+  var mode = _tgPullMode(d);
+  if (!mode) {
+    if (!d.isFirstPull && !s.anyChanges) {
+      return head + "\n\n✓ Nothing new — all " + s.totalLines + " line" + (s.totalLines === 1 ? " is" : "s are") +
+             " already on the sheet.";
+    }
     var why = [];
-    if (!d.isFirstPull)   why.push("already partly on the sheet");
     if (s.qtyChanged)     why.push(s.qtyChanged + " qty change" + (s.qtyChanged === 1 ? "" : "s"));
     if (s.removed)        why.push(s.removed + " removed in Zoho");
     if (s.unchanged && d.isFirstPull) why.push(s.unchanged + " unchanged");
-    return head + "\n\n🔒 Needs the Pull modal — " + (why.join(" · ") || "not a clean first pull") +
+    return head + "\n\n🔒 Needs the Pull modal — " + (why.join(" · ") || "not a clean pull") +
            ".\n\nPer-line decisions belong on a real screen. Open the sheet → Pull from Zoho.";
   }
 
-  var skus = d.lines.map(function (ln) { return ln.sku; });
+  var newLines = d.lines.filter(function (ln) { return ln.status === "new" || mode === "first"; });
+  var skus = newLines.map(function (ln) { return ln.sku; });
   var p = _tgParsePullNotes(note, skus);
   if (p.errors.length) {
     return head + "\n\n⚠ Nothing shown — " + p.errors.join(" · ") +
-           ".\nThis order's lines: " + skus.join(", ");
+           ".\nLines being pulled: " + skus.join(", ");
   }
 
   var L = [head, ""];
-  d.lines.forEach(function (ln) {
+  newLines.forEach(function (ln) {
     L.push("  " + ln.zohoQty + "× " + ln.sku +
            (ln.location && ln.location !== "NOT FOUND" ? "  " + ln.location : "  ⚠ no shelf") +
            (ln.name ? "\n      " + _tgClip(ln.name, 40) : ""));
   });
   L.push("");
-  L.push("All " + s.new + " lines are new.");
+  L.push(mode === "first" ? "All " + s.new + " lines are new."
+                          : s.new + " new line" + (s.new === 1 ? "" : "s") + " to add · " + s.unchanged +
+                            " already on the sheet (left as they are).");
 
-  var sess = _tgPullMergeNotes({ v: 2, so: d.soNumber, base: L.join("\n"), skus: skus, all: "", sku: {} }, p);
+  var sess = _tgPullMergeNotes({ v: 2, so: d.soNumber, mode: mode, base: L.join("\n"), skus: skus, all: "", sku: {} }, p);
   var token = Utilities.getUuid().replace(/-/g, "").slice(0, 10);
   try { _tgPullSessionPut(token, sess); } catch (e) { token = ""; }
   if (!token) {
     // No session → no notes and no Note button; a plain pull still works.
     if (note) return head + "\n\n⚠ Could not hold the note just now — try again.";
     return { text: sess.base, buttons: [[
-      { text: "✅ Pull all", data: "pull:" + d.soNumber },
+      { text: _tgPullButtonLabel(sess), data: "pull:" + d.soNumber },
       { text: "✖ Cancel",   data: "cancel:" + d.soNumber }
     ]] };
   }
   // Returning {text, buttons} keeps the sending in ONE place (the entry point).
-  return { text: _tgPullCardText(sess), buttons: _tgPullCardButtons(token, d.soNumber) };
+  return { text: _tgPullCardText(sess), buttons: _tgPullCardButtons(token, d.soNumber, sess) };
 }
 
 /** 📝 Note tapped: ask for the note as a REPLY, and remember which card to redraw. */
@@ -1016,11 +1038,11 @@ function _tgPullNoteReply(token, text) {
   var p = _tgParsePullNotes(String(text || "").slice(0, TG_PULL_TEXT_MAX), sess.skus);
   if (p.errors.length) {
     return "⚠ Nothing changed — " + p.errors.join(" · ") +
-           ".\nThis order's lines: " + sess.skus.join(", ") + "\nReply to the note message again.";
+           ".\nLines being pulled: " + sess.skus.join(", ") + "\nReply to the note message again.";
   }
   _tgPullMergeNotes(sess, p);
   _tgPullSessionPut(token, sess);
-  if (sess.chat && sess.msg) _tgEdit(sess.chat, sess.msg, _tgPullCardText(sess), _tgPullCardButtons(token, sess.so));
+  if (sess.chat && sess.msg) _tgEdit(sess.chat, sess.msg, _tgPullCardText(sess), _tgPullCardButtons(token, sess.so, sess));
   var n = (sess.all ? 1 : 0) + Object.keys(sess.sku).length;
   return n ? "✓ Note" + (n === 1 ? "" : "s") + " set on the " + sess.so + " card — tap ✅ Pull all to pull."
            : "✓ Notes cleared on the " + sess.so + " card.";
@@ -1039,14 +1061,22 @@ function _tgPullApply(arg) {
   var d = computeZohoSoDiff(soNumber);
   if (!d || !d.ok) return "⚠ " + ((d && d.reason) || "Could not re-read that sales order.");
 
-  // Re-assert the gate at apply time — state may have moved since the card
-  // was drawn (someone could have pulled it on the sheet in the meantime).
+  // Re-assert the gate at apply time — state may have moved since the card was drawn
+  // (someone pulled it on the sheet, or Zoho changed again). The card's own mode must
+  // still hold, and an "add" must add EXACTLY the lines the card showed — a line that
+  // appeared in Zoho after the card was drawn is never pulled unseen.
   var s = d.summary || {};
-  if (!d.isFirstPull || s.new !== s.totalLines) {
-    return "⬇ " + d.soNumber + "\n\n🔒 State changed since this card was sent — it's no longer a clean first pull.\nOpen the sheet → Pull from Zoho.";
+  var mode = _tgPullMode(d);
+  var newLines = d.lines.filter(function (ln) { return ln.status === "new" || mode === "first"; });
+  var changed = !mode || (sess.mode && sess.mode !== mode);
+  if (!changed && sess.skus && sess.skus.length) {
+    changed = newLines.map(function (ln) { return ln.sku; }).sort().join() !== sess.skus.slice().sort().join();
+  }
+  if (changed) {
+    return "⬇ " + d.soNumber + "\n\n🔒 The order changed since this card was sent — nothing was pulled.\nSend /pull again.";
   }
 
-  var selections = d.lines.map(function (ln) {
+  var selections = newLines.map(function (ln) {
     var sel = { sku: ln.sku, action: "insert" };
     if (sess.sku && sess.sku[ln.sku]) sel.note = sess.sku[ln.sku];
     return sel;
@@ -1058,9 +1088,9 @@ function _tgPullApply(arg) {
   var noteLines = [];
   if (sess.all) noteLines.push("📝 Every row: " + sess.all);
   Object.keys(sess.sku || {}).forEach(function (k) { noteLines.push("📝 " + k + ": " + sess.sku[k]); });
-  return "✅ PULLED · " + r.soNumber +
+  return (mode === "add" ? "✅ ADDED · " : "✅ PULLED · ") + r.soNumber +
          "\n\n" + r.applied.inserted + " row" + (r.applied.inserted === 1 ? "" : "s") +
-         " added to DIRECT." + (noteLines.length ? "\n" + noteLines.join("\n") : "") +
+         " added to DIRECT." + (mode === "add" ? " (" + s.unchanged + " already there, untouched)" : "") + (noteLines.length ? "\n" + noteLines.join("\n") : "") +
          (r.skipped && r.skipped.length ? "\n⚠ " + r.skipped.length + " skipped." : "");
   // (the cache entry simply expires — a re-tap after success is refused by the gate above)
 }
