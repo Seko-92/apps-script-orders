@@ -462,6 +462,9 @@ function _buildOrderCaseDossier(raw) {
     notes:        notes,
     links:        links,
     zoho:         getZohoStatusForOrder(raw),   // null for eBay orders — the FREE authoritative direct status
+    // ⚖ the order's shipping weight (2026-10-02) — best-effort: a failure here never costs the console
+    weight:       (function () { try { var w = weighOrder(raw); return w.ok ? { totalOz: w.result.totalOz,
+                    missing: w.result.missing, pieces: w.result.pieces, text: w.text } : null; } catch (e) { return null; } })(),
     investigator: picker,
     categories:   INVESTIGATIONS.categories,
     statusOptions: INVESTIGATIONS.statuses

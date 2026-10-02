@@ -515,6 +515,16 @@ var TG_ROUTES = {
     run: function () { return _tgFormatStatus(); }
   },
 
+  "/weight": {
+    help:  "shipping weight of an order, or of SKUs you list",
+    usage: "<order> | <SKU> x<qty>, …",
+    run: function (argStr, args, msg) {
+      // Raw text, so a pasted multi-line list survives (argStr is whitespace-joined).
+      var raw = (msg && msg.text) ? String(msg.text).trim().replace(/^\S+\s*/, "") : argStr;
+      return weighQueryText(raw);
+    }
+  },
+
   "/order": {
     help:  "status, timeline and open cases for an order",
     usage: "<order id or SO>",

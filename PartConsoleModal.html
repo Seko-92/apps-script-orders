@@ -39,7 +39,10 @@
   .qb-toggle { background:none; border:1px solid #4a4a42; color:#cfcfca; border-radius:6px; padding:4px 10px; cursor:pointer; font-size:12px; }
   .qb-toggle:hover { border-color:#ffd400; color:#ffd400; }
   .qb-copy { margin-left:auto; background:#ffd400; color:#1d1d1b; border:none; border-radius:6px; padding:7px 16px; font-family:'Oswald',sans-serif; font-weight:600; letter-spacing:.05em; text-transform:uppercase; font-size:12px; cursor:pointer; }
+  .qb-ship { background:transparent; color:#ffd400; border:1px solid #ffd400; }
+  .qb-ship + .qb-copy { margin-left:8px; }
   .qb-copy:disabled { background:#4a4a42; color:#8a8a80; cursor:default; }
+  .qb-ship:disabled { background:transparent; border-color:#4a4a42; }
   .qb-panel { display:none; position:absolute; left:0; right:0; bottom:100%; max-height:62vh; overflow-y:auto; background:#fffdf6; border-top:2px solid #ffd400; box-shadow:0 -10px 30px rgba(0,0,0,.25); color:#1d1d1b; padding:12px 18px; }
   .qb-panel.on { display:block; }
   .qb-opts { display:flex; gap:14px; align-items:center; flex-wrap:wrap; margin-bottom:10px; font-size:12px; color:#5f5f5f; }
@@ -276,6 +279,7 @@
       <div class="qb-panel" id="qbPanel"></div>
       <span id="qbSum">Quote is empty — use <b>+</b> on any result</span>
       <button class="qb-toggle" id="qbToggle" onclick="qbOpen(!qbIsOpen)" style="display:none">▴ View</button>
+      <button class="qb-copy qb-ship" id="qbShip" onclick="qbCopyShip()" disabled title="The shipping weight of everything in the quote — paste it to whoever buys the label">⚖ Copy for shipping</button>
       <button class="qb-copy" id="qbCopy" onclick="qbCopy()" disabled>Copy quote</button>
     </div>
   </div>
@@ -759,15 +763,61 @@
       var b = document.getElementById('qbCopy');
       if (b) { b.textContent = ok ? 'Copied ✓' : 'Copy blocked'; setTimeout(function () { b.textContent = 'Copy quote'; }, 1800); }
     }
+    // ⚖ SHIPPING WEIGHT (2026-10-02) — the same calculator as Telegram /weight (Weight.js).
+    // Weighed on the server (measured By Part Type weight first, eBay's after) and re-weighed
+    // only when the parts or quantities change. Parts only — the box is the shipper's call.
+    var qbW = { sig: '', res: null, text: '', busy: false }, qbWTimer = null;
+    function qbSig() { return qb.items.map(function (x) { return x.sku + ':' + x.qty; }).join('|'); }
+    function qbFmtOz(oz) {
+      if (oz == null) return '—';
+      var t = Math.round(oz), lb = Math.floor(t / 16), r = t - lb * 16;
+      return lb ? lb + ' lb' + (r ? ' ' + r + ' oz' : '') : r + ' oz';
+    }
+    function qbWeigh() {
+      if (!qb.items.length) { qbW = { sig: '', res: null, text: '', busy: false }; return; }
+      if (qbSig() === qbW.sig || qbW.busy) return;
+      clearTimeout(qbWTimer);
+      qbWTimer = setTimeout(function () {
+        var want = qbSig(); qbW.busy = true;
+        google.script.run
+          .withSuccessHandler(function (r) {
+            qbW = { sig: want, res: r && r.ok ? r.result : null, text: r && r.ok ? r.text : '', busy: false };
+            qbPaint();                                 // re-weighs on its own if the quote moved meanwhile
+          })
+          .withFailureHandler(function () { qbW.busy = false; qbW.sig = want; qbW.res = null; qbW.text = ''; qbPaint(); })
+          .weighItems(qb.items.map(function (x) { return { sku: x.sku, qty: x.qty, title: x.title }; }),
+                      'Shipping weight' + (qb.note ? ' · ' + qb.note : ''));
+      }, 400);
+    }
+    function qbCopyShip() {
+      if (!qbW.text || qbW.sig !== qbSig()) return;
+      var ok = false, ta = document.createElement('textarea'); ta.value = qbW.text; document.body.appendChild(ta); ta.select();
+      try { ok = document.execCommand('copy'); } catch (e) {}
+      document.body.removeChild(ta);
+      if (!ok && navigator.clipboard) { try { navigator.clipboard.writeText(qbW.text); ok = true; } catch (e) {} }
+      var b = document.getElementById('qbShip');
+      if (b) { b.textContent = ok ? 'Copied ✓' : 'Copy blocked'; setTimeout(function () { b.textContent = '⚖ Copy for shipping'; }, 1800); }
+    }
+    function qbWeightFor(sku) {
+      if (!qbW.res || qbW.sig !== qbSig()) return null;
+      return qbW.res.lines.filter(function (l) { return String(l.sku) === String(sku); })[0] || null;
+    }
+
     function qbPaint() {
+      qbWeigh();
       var n = qb.items.reduce(function (a, x) { return a + x.qty; }, 0), T = qbTotal();
+      var wNow = qbW.res && qbW.sig === qbSig();
+      var wTxt = !qb.items.length ? '' : (wNow
+        ? ' · ⚖ <b>' + qbFmtOz(qbW.res.totalOz) + '</b>' + (qbW.res.missing.length ? ' + ' + qbW.res.missing.length + ' unweighed' : '')
+        : ' · ⚖ …');
+      var sb = document.getElementById('qbShip'); if (sb) sb.disabled = !wNow || !qbW.text;
       var bar = document.getElementById('qbBar'); if (!bar) return;
       var any = qb.items.length + qb.missing.length > 0;
       bar.className = 'qb-bar' + (any ? '' : ' empty');
       document.getElementById('qbSum').innerHTML = any
         ? 'Quote · <b>' + qb.items.length + '</b> part' + (qb.items.length === 1 ? '' : 's') + (n !== qb.items.length ? ' (' + n + ' pcs)' : '') +
           ' · <b>' + money(T.total) + '</b>' + (T.unpriced ? ' + ' + T.unpriced + ' on request' : '') +
-          (qb.missing.length ? ' · ' + qb.missing.length + ' not available' : '')
+          (qb.missing.length ? ' · ' + qb.missing.length + ' not available' : '') + wTxt
         : 'Quote is empty — use <b>+</b> on any result';
       document.getElementById('qbCopy').disabled = !any;
       var tg = document.getElementById('qbToggle'); tg.style.display = any ? '' : 'none';
@@ -782,7 +832,9 @@
       qb.items.forEach(function (x, i) {
         var oos = x.available != null && x.available <= 0;
         h += '<div class="qb-row"><div class="t"><div class="n" title="' + esc(x.title) + '">' + esc(x.title || x.sku) + '</div>' +
-          '<div class="s">' + esc(x.sku) + (x.mpn ? ' · ' + esc(x.mpn) : '') + (oos ? ' · <span class="oos">out of stock</span>' : '') + '</div></div>' +
+          '<div class="s">' + esc(x.sku) + (x.mpn ? ' · ' + esc(x.mpn) : '') + (oos ? ' · <span class="oos">out of stock</span>' : '') +
+          (function () { var w = qbWeightFor(x.sku); return !w ? '' : (w.ozEach == null ? ' · <span class="oos">no weight on file</span>'
+            : ' · ⚖ ' + qbFmtOz(w.ozTotal) + (w.src === 'eBay' ? ' <span title="eBay listing weight — no measured weight on file">(eBay)</span>' : '')); })() + '</div></div>' +
           '<div class="qb-qty"><button onclick="qbQty(' + i + ',-1)" title="One less">−</button><span>' + x.qty + '</span><button onclick="qbQty(' + i + ',1)" title="One more">+</button></div>' +
           '<div class="p">' + (x.price == null ? 'on request' : money(x.price * x.qty)) + '</div>' +
           '<button class="qb-x" onclick="qbRemove(' + i + ')" title="Remove">✕</button></div>';
@@ -790,7 +842,7 @@
       if (qb.missing.length) h += '<div class="qb-na">Not available: ' + qb.missing.map(function (m, i) {
         return '<span>' + esc(m) + '<button class="qb-x" onclick="qbRemoveMissing(' + i + ')" title="Remove">✕</button></span>'; }).join('') + '</div>';
       h += '<div class="qb-foot"><button class="qb-clear" onclick="qbClear()">Clear quote</button><span>Prices are eBay prices · exclude shipping</span>' +
-        '<span class="tot">Total ' + money(T.total) + '</span></div>';
+        '<span class="tot">Total ' + money(T.total) + (wNow ? ' · ⚖ ' + qbFmtOz(qbW.res.totalOz) + ' parts' : '') + '</span></div>';
       panel.innerHTML = h;
     }
 

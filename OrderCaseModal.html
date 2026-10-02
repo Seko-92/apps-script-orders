@@ -331,6 +331,14 @@
                    + (z.pulled ? ' · pulled' : ' · not pulled yet');
         html += '<span class="oc-zoho" title="' + zTitle + '"><svg class="mk"><use href="#m-link"/></svg>Zoho: ' + (zp.join(' · ') || '—') + '</span>';
       }
+      // ⚖ shipping weight (2026-10-02) — tap it to copy the full breakdown for the shipping person
+      if (D.weight) {
+        var W = D.weight, lb = Math.floor(Math.round(W.totalOz) / 16), oz = Math.round(W.totalOz) - lb * 16;
+        var wt = (lb ? lb + ' lb' + (oz ? ' ' + oz + ' oz' : '') : oz + ' oz') + (W.missing.length ? ' + ' + W.missing.length + ' unweighed' : '');
+        window._ocWeightText = W.text;
+        html += '<span class="oc-zoho oc-weight" title="' + esc(W.text) + '\n\nClick to copy for shipping" onclick="ocCopyWeight(this)" ' +
+                'style="cursor:pointer">⚖ ' + esc(wt) + ' · ' + W.pieces + ' pcs</span>';
+      }
       // open-case chip (notes are newest-first)
       if (D.notes && D.notes.length && String(D.notes[0].status).toLowerCase() === 'open') {
         html += '<span class="oc-badge open">⚠ open case</span>';
@@ -487,6 +495,14 @@
 
     /* ---------- initial render ---------- */
     renderDossier(current);
-  </script>
+      function ocCopyWeight(el) {
+      var t = window._ocWeightText || '', ok = false;
+      var ta = document.createElement('textarea'); ta.value = t; document.body.appendChild(ta); ta.select();
+      try { ok = document.execCommand('copy'); } catch (e) {}
+      document.body.removeChild(ta);
+      var was = el.textContent; el.textContent = ok ? 'Copied ✓' : 'Copy blocked';
+      setTimeout(function () { el.textContent = was; }, 1500);
+    }
+</script>
 </body>
 </html>

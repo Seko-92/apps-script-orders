@@ -32,7 +32,12 @@ const res = process.env.MODE === 'mpn' ? mpn : kw;
 const text = process.env.MODE === 'mpn' ? '0427 0701\n0417 9234\n0417 9921' : 'v2203 piston';
 const stub = `<script>window.google={script:{run:(function(){var h={};var api={withSuccessHandler:function(f){h.ok=f;return api;},
  withFailureHandler:function(f){return api;}, getPartData:function(q){ ${process.env.MODE === 'loading' ? '' : 'setTimeout(function(){h.ok({ok:true,dossier:' + JSON.stringify(dossier) + '});},50);'} },
- findParts:function(){}};return api;})()}};</script>`;
+ findParts:function(){},
+ weighItems:function(items){ setTimeout(function(){ var lines=items.map(function(x,i){ var oz=i===1?null:(i?6:20);
+   return {sku:x.sku,qty:x.qty,ozEach:oz,ozTotal:oz==null?null:oz*x.qty,src:i?'eBay':'measured'}; });
+   var t=lines.reduce(function(a,l){return a+(l.ozTotal||0);},0);
+   h.ok({ok:true,result:{lines:lines,totalOz:t,pieces:3,missing:lines.filter(function(l){return l.ozEach==null;}).map(function(l){return l.sku;})},text:'⚖ x'}); },60); }
+ };return api;})()}};</script>`;
 const html = fs.readFileSync(path.join(__dirname, '..', 'PartConsoleModal.html'), 'utf8')
   .replace('<?!= initJson ?>', JSON.stringify({ text, res }))
   .replace('<head>', '<head><meta charset="utf-8">' + stub);
@@ -45,7 +50,7 @@ const html = fs.readFileSync(path.join(__dirname, '..', 'PartConsoleModal.html')
     await p.evaluate(() => { try { localStorage.clear(); } catch (e) {} });
     await p.evaluate(() => { qbAddItem(0); qbAddItem(0); qbAddItem(2); if (results && results.mode === 'mpn') qbAddMissing();
       qb.note = 'Deutz BF4M1011F'; qbOpen(true); });
-    await p.waitForTimeout(250);
+    await p.waitForTimeout(1000);
   }
   await p.screenshot({ path: process.argv[2] || 'renders/parts-finder.png' });
   console.log('errors:', errs.length ? errs : 'none'); await b.close();
