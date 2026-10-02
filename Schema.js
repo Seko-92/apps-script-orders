@@ -115,8 +115,12 @@ var Schema = {
     return Schema.structuralMarkers.indexOf(String(v == null ? "" : v).trim().toUpperCase()) !== -1;
   },
 
-  /** Width of the band's left merge — the marker word (A:C since 2026-09-26, was A:F) */
-  boundaryLeftWidth:  3,
+  /** Width of the band's left part — the marker cell. A:C 2026-09-26 → A ALONE 2026-10-03,
+   *  so B and C can carry the scoreboard (B = lines out, C = the keeping-up meter). */
+  boundaryLeftWidth:  1,
+  /** ⭐ 2026-10-03 — the band scoreboard: lines out (B) and the keeping-up meter (C). */
+  bandScoreCol:       2,
+  bandMeterCol:       3,
   /** ⭐ 2026-09-26 — the channel mark (=IMAGE) sits in column D on every table band,
    *  lined up under the eBay logo in D2. */
   bandLogoCol:        4,
@@ -128,7 +132,9 @@ var Schema = {
   /** ⭐ 2026-09-26 — the marker word is HIDDEN on the band (owner: "DIRECT" beside the
    *  direct logo is a duplication). ';;;' is display-only: the cell VALUE stays exactly
    *  "DIRECT"/"AMAZON", which is all getBoundaryRow/getTableLayout ever read. */
-  bandMarkerFormat:   ';;;',
+  //  ⭐ 2026-10-03: the text section draws a ▌ tick in place of the word — the band reads
+  //  as a labelled shelf edge. Still display-only; the value is untouched.
+  bandMarkerFormat:   ';;;"▌"',
 
   /** Width of the boundary row's right merge (G:J) */
   // ⚠ REVERTED 2026-08-31, same day. I widened this to 14 (G:T) for a "bands bleed,

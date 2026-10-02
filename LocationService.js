@@ -168,7 +168,11 @@ function updateAllExistingRows(tableNumber) {
   }
 
   if (updates > 0) {
-    range.setValues(data);
+    // ⭐ 2026-10-03: write ONLY the LOCATION column, around the table bands. A full-row
+    //   setValues here wrote the band rows' computed values back as static text — the
+    //   channel-mark image, the live nameplate and the band scoreboard all flattened.
+    var locVals = data.map(function (r) { return [r[Schema.idx("LOCATION")]]; });
+    writeColumnAroundBands(sheet, Schema.cols.LOCATION, startRow, locVals);
     // setValues writes plain values and STRIPS the rich-text links on col A
     // (SKU→listing) and col D (order→eBay/Zoho) — same class as the ▣ marker /
     // sort issue. Re-apply both so "Update Locations" stays at parity with the

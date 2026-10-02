@@ -1,0 +1,150 @@
+<!doctype html>
+<!--
+  band-marks/marks.html — the animated band marks (2026-10-03), owner-approved on the mock
+  "Table band · round 3" (https://claude.ai/artifact/LoUQj72rdGa1M4dGwDTJT6).
+
+  Each mark is a pure function of time: drawDirect(ctx, t) / drawParcel(ctx, t), t in ms
+  from the start of the ACTION (the rest frames are the t=0 still). cap.js steps t at 24 fps
+  and saves PNGs; enc.py turns them into a verified GIF.
+
+  ⚠ OPAQUE, on the band's exact yellow #ffd400. The still =IMAGE() mark sits underneath the
+    floating GIF as the fallback — a transparent GIF would show both marks at once mid-move.
+  ⚠ Drawn at 2x, inserted at 1x, so the mark stays crisp on a high-density screen.
+-->
+<html><head><meta charset="utf-8"></head><body style="margin:0;background:#777">
+<canvas id="c"></canvas>
+<script>
+const YEL = '#ffd400', RED = '#e8312f', INK = '#1a1a1a';
+const S = 2;                                   // render scale
+
+// ── CSS-identical easing (cubic-bezier solver) ─────────────────────────────────────
+function bez(x1, y1, x2, y2) {
+  const cx = 3 * x1, bx = 3 * (x2 - x1) - cx, ax = 1 - cx - bx;
+  const cy = 3 * y1, by = 3 * (y2 - y1) - cy, ay = 1 - cy - by;
+  const X = t => ((ax * t + bx) * t + cx) * t, Y = t => ((ay * t + by) * t + cy) * t;
+  const dX = t => (3 * ax * t + 2 * bx) * t + cx;
+  return x => { let t = x; for (let i = 0; i < 8; i++) { const d = dX(t); if (Math.abs(d) < 1e-6) break; t -= (X(t) - x) / d; t = Math.min(1, Math.max(0, t)); } return Y(t); };
+}
+const SINE = bez(.37, 0, .63, 1), GLIDE = bez(.45, 0, .25, 1);
+// keyframes [[ms, value]], eased per segment like CSS
+function kf(frames, t, ease = SINE) {
+  if (t <= frames[0][0]) return frames[0][1];
+  for (let i = 1; i < frames.length; i++) {
+    const [t1, v1] = frames[i], [t0, v0] = frames[i - 1];
+    if (t <= t1) { const p = ease((t - t0) / (t1 - t0 || 1)); return v0 + (v1 - v0) * p; }
+  }
+  return frames[frames.length - 1][1];
+}
+
+// ── DIRECT: hand truck tips, rolls, wheel turns, box settles, light glides over the word ──
+// Geometry (logical px): GIF 164x50; the mark 140x36 sits at (12,7). Truck drawn from the
+// vector redraw in viewBox 165x144 at scale 36/144; the word is the real file's right part.
+const D = { W: 164, H: 50, mx: 12, my: 7, mh: 36 };
+const wordImg = new Image(); wordImg.src = 'mark-direct.png';   // crop 180..560 used below
+const TRUCK = {
+  handle: new Path2D('M14 8 Q25 6 28 15 L47 106'),
+  box:    new Path2D('M148 82 L137 25 Q135 16 126 17 L61 28 Q52 30 54 39 L66 99 Q68 107 77 105'),
+  label:  new Path2D('M84 49 L112 44'),
+  base:   new Path2D('M66 120 L141 106 Q150 104 149 96')
+};
+// mock timeline (7 s loop) re-based so the action starts at 0: mock 0.84 s → 0
+const A0 = 840;
+const DIRECT_ACTION_MS = 6300 - A0 + 200;     // through the end of the glide, + a breath
+function drawDirect(ctx, t) {
+  const m = t + A0;                            // mock time
+  ctx.setTransform(S, 0, 0, S, 0, 0);
+  ctx.fillStyle = YEL; ctx.fillRect(0, 0, D.W, D.H);
+  const k = D.mh / 144;                        // viewBox → px
+  // tilt + roll about the wheel (55,121)
+  const tx  = kf([[840, 0], [1820, 9], [2800, 14], [3920, 0]], m);
+  const rot = kf([[840, 0], [1820, -9], [2800, -6], [3920, 0]], m) * Math.PI / 180;
+  const spin = kf([[840, 0], [2800, 200], [3920, 360]], m) * Math.PI / 180;
+  const boxY = kf([[3640, 0], [3990, -4], [4340, 0]], m);
+  ctx.save();
+  ctx.translate(D.mx, D.my); ctx.scale(k, k);
+  ctx.translate(55 + tx, 121); ctx.rotate(rot); ctx.translate(-55, -121);
+  ctx.strokeStyle = RED; ctx.lineWidth = 10; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  ctx.stroke(TRUCK.handle); ctx.stroke(TRUCK.base);
+  ctx.save(); ctx.translate(0, boxY); ctx.stroke(TRUCK.box); ctx.stroke(TRUCK.label); ctx.restore();
+  ctx.save(); ctx.translate(55, 121); ctx.rotate(spin);
+  ctx.beginPath(); ctx.arc(0, 0, 10, 0, Math.PI * 2); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(0, -10); ctx.lineTo(0, -4); ctx.stroke();   // a spoke, so the turn reads
+  ctx.restore();
+  ctx.restore();
+  // the word, from the real file (source x 180..560 of 560x144), at x = 12 + 180k
+  const wx = D.mx + 180 * k, ww = 380 * k;
+  const off = drawDirect.off || (drawDirect.off = document.createElement('canvas'));
+  off.width = Math.ceil(ww * S); off.height = Math.ceil(D.mh * S);
+  const o = off.getContext('2d');
+  o.clearRect(0, 0, off.width, off.height);
+  o.drawImage(wordImg, 180, 0, 380, 144, 0, 0, off.width, off.height);
+  // the light: clipped to the letters (source-atop), wide soft edge, gliding left → right
+  const g = kf([[4060, 1.2], [6300, -0.2]], m, GLIDE);           // background-position 120% → -20%
+  if (g < 1.19 && g > -0.19) {
+    o.globalCompositeOperation = 'source-atop';
+    // ⚠ v1 was a 300%-wide white wash and read as grey SMUDGES on the dark letters. Now: a
+    //   narrow warm band (about a letter wide), gentle peak, slight slant — a highlight, not a wipe.
+    const span = off.width * 1.8, x0 = -(span - off.width) * g - span * 0.0;
+    const gr = o.createLinearGradient(x0, 0, x0 + span, off.height * 0.18);
+    gr.addColorStop(0.00, 'rgba(255,236,150,0)');
+    gr.addColorStop(0.44, 'rgba(255,236,150,0)');
+    gr.addColorStop(0.485,'rgba(255,240,170,.30)');
+    gr.addColorStop(0.50, 'rgba(255,248,210,.46)');
+    gr.addColorStop(0.515,'rgba(255,240,170,.30)');
+    gr.addColorStop(0.56, 'rgba(255,236,150,0)');
+    gr.addColorStop(1.00, 'rgba(255,236,150,0)');
+    o.fillStyle = gr; o.fillRect(0, 0, off.width, off.height);
+    o.globalCompositeOperation = 'source-over';
+  }
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.drawImage(off, Math.round(wx * S), Math.round(D.my * S));
+}
+
+// ── AMAZON: OUR HQ parcel beside Amazon's still logo — slides out to ship, a new one drops ──
+const P = { W: 52, H: 50 };
+const PARCEL_ACTION_MS = 3300;
+function parcelAt(ctx, x, y, sx, sy, alpha) {
+  ctx.save(); ctx.globalAlpha = alpha;
+  ctx.translate(x, y); ctx.scale(sx, sy); ctx.translate(-20, -36);    // origin = bottom centre
+  ctx.lineJoin = 'round'; ctx.lineWidth = 2; ctx.strokeStyle = INK;
+  ctx.fillStyle = '#c8954f';
+  const body = new Path2D('M6 14 20 7l14 7v15l-14 7-14-7z'); ctx.fill(body); ctx.stroke(body);
+  ctx.stroke(new Path2D('M6 14l14 7 14-7M20 21v15'));
+  ctx.strokeStyle = YEL; ctx.lineWidth = 3; ctx.stroke(new Path2D('M13 10.5l14 7'));
+  ctx.fillStyle = INK; ctx.beginPath(); ctx.arc(13, 25, 3.6, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#fff'; ctx.font = '700 4.2px Oswald, Arial Narrow, sans-serif'; ctx.textAlign = 'center';
+  ctx.fillText('HQ', 13, 26.6);
+  ctx.restore();
+}
+function drawParcel(ctx, t) {
+  ctx.setTransform(S, 0, 0, S, 0, 0);
+  ctx.fillStyle = YEL; ctx.fillRect(0, 0, P.W, P.H);
+  const cx = 26, base = 44, sc = 34 / 40;      // parcel drawn 34 px tall, bottom on y=44
+  // 0–700: the resting parcel slides out to ship (mock 86→100%)
+  if (t < 700) {
+    const p = SINE(t / 700);
+    parcelAt(ctx, cx + 10 * p, base, sc, sc, 1 - p);
+    return;
+  }
+  // 700–1000: empty belt
+  if (t < 1000) return;
+  // 1000–3300: a new parcel drops in and settles (mock 0→32%, with the 0–10% invisible lead)
+  const m = (t - 1000) / 2300 * 2240;          // mock ms within the 7 s loop
+  const y  = kf([[0, -14], [700, -14], [1540, 0], [1820, 0], [2240, 0]], m);
+  const a  = kf([[0, 0], [700, 0], [1540, 1], [2240, 1]], m);
+  const sy = kf([[0, 1], [1540, 1], [1820, 0.90], [2240, 1]], m);
+  const sx = kf([[0, 1], [1540, 1], [1820, 1.06], [2240, 1]], m);
+  parcelAt(ctx, cx, base + y * sc, sc * sx, sc * sy, a);
+}
+
+window.render = async function (which, t) {
+  await new Promise(r => wordImg.complete ? r() : (wordImg.onload = r));
+  if (document.fonts) await document.fonts.ready;
+  const c = document.getElementById('c'), dims = which === 'direct' ? D : P;
+  c.width = dims.W * S; c.height = dims.H * S;
+  const ctx = c.getContext('2d');
+  (which === 'direct' ? drawDirect : drawParcel)(ctx, t);
+  return c.toDataURL('image/png');
+};
+window.ACTION_MS = { direct: DIRECT_ACTION_MS, parcel: PARCEL_ACTION_MS };
+</script></body></html>

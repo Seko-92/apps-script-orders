@@ -370,7 +370,9 @@ section('G · Update Locations (Direct) never writes into the AMAZON divider row
   S.grid[9][2].v = 'OLD';                       // make Direct row 10 need an update
   sb.updateAllExistingRows(2);
   t('G1 the Direct row was updated', S.row(10)[2], 'D-4');
-  t('G2 the AMAZON divider row\'s LOCATION cell is still blank', S.row(14)[2], '');
+  // ⭐ 2026-10-03: the band's C cell now holds the keeping-up meter formula on purpose.
+  //   What must never land there is a LOCATION value from the refresh.
+  t('G2 the AMAZON divider row\'s LOCATION cell holds no location', /^(|=.*REPT.*)$/.test(String(S.row(14)[2])), true);
   S.grid[15][2].v = 'OLD';
   sb.updateAllExistingRows(3);
   t('G3 table 3 updates the Amazon row', S.row(16)[2], 'K-7');

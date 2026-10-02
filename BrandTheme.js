@@ -2674,12 +2674,33 @@ function _styleTableBand(sheet, row, marker) {
   sheet.getRange(row, 2, 1, W - 1).clearContent();
   whole.setBackground(BRAND.yellow).setFontColor(BRAND.ink).setVerticalAlignment('middle');
 
-  var word = sheet.getRange(row, 1, 1, Schema.boundaryLeftWidth);                       // A:C
-  word.merge();
+  var word = sheet.getRange(row, 1, 1, Schema.boundaryLeftWidth);                       // A
+  if (Schema.boundaryLeftWidth > 1) word.merge();
   word.setValue(marker)                         // ← underlying value MUST be exactly this
-      .setNumberFormat(Schema.bandMarkerFormat) // ← hidden on screen; the value is untouched
-      .setFontFamily(BRAND.fontDisplay).setFontWeight('bold').setFontSize(16)
+      .setNumberFormat(Schema.bandMarkerFormat) // ← shows a ▌ tick; the value is untouched
+      .setFontFamily(BRAND.fontDisplay).setFontWeight('bold').setFontSize(26)
       .setHorizontalAlignment('left');
+
+  // ⭐ 2026-10-03 — the SCOREBOARD (owner-approved mock "Table band · round 3"):
+  //   B = lines out on this table, C = a ten-block keeping-up meter (out vs still open).
+  //   Plain formulas over __SparkData: they travel with the band, never block a click,
+  //   cost no quota. Blocks, not a SPARKLINE — a bar sparkline fills the whole 60px row.
+  //   Quiet table (nothing out, nothing open) → both blank.
+  var SD = "'__SparkData'!";
+  var out = isAmz ? 'A33' : 'A32';
+  sheet.getRange(row, Schema.bandScoreCol)
+       .setFormula('=IF(' + SD + out + '="","",' + SD + out + ')')
+       .setNumberFormat('0" OUT"')
+       .setFontFamily(BRAND.fontDisplay).setFontWeight('bold').setFontSize(15)
+       .setHorizontalAlignment('right');
+  var tot = '(' + SD + out + '+' + SD + open + ')';
+  var k = 'ROUND(10*' + SD + out + '/' + tot + ')';
+  sheet.getRange(row, Schema.bandMeterCol)
+       .setFormula('=IF(OR(' + SD + out + '="",' + SD + open + '=""),"",IF(' + tot + '=0,"",' +
+                   'REPT("■",' + k + ')&REPT("□",10-' + k + ')))')
+       .setNumberFormat('@')
+       .setFontFamily(BRAND.fontMono).setFontWeight('bold').setFontSize(11)
+       .setHorizontalAlignment('left');
 
   var logo = sheet.getRange(row, Schema.bandLogoCol, 1, Schema.bandLogoWidth);           // D:E
   logo.merge();
@@ -3919,6 +3940,10 @@ function _ensureSparkData(ss) {
     '(COUNTIFS(' + directSO + ',' + soList + ',' + directStatus + ',"PREPARING")>0)),0))'
   );
   sheet.getRange('A30').setFormula('=IF(A27="","",COUNTIF(' + amazonStatus + ',"PENDING"))');
+  // ⭐ 2026-10-03 — the band SCOREBOARD: lines OUT (SHIPPED) still on each table. n8n sweeps
+  //   shipped rows ~1 AM, so this is the day's shipped lines. BLANK when the table is absent.
+  sheet.getRange('A32').setFormula('=IF(A20="","",COUNTIF(' + directStatus + ',"SHIPPED"))');
+  sheet.getRange('A33').setFormula('=IF(A27="","",COUNTIF(' + amazonStatus + ',"SHIPPED"))');
 
   sheet.getRange('A7').setFormula(pubNum('oldestPendingMinutes'));
   // ⚠ A19 — how many orders are past the 3h line, not just how old the oldest is. A7 says
@@ -4458,7 +4483,9 @@ function _buildRow2(sheet, plate) {
     // ⚠ A CHECK THAT CRIES WOLF IS WORSE THAN NO CHECK. This still wanted A2:E2 after the
     //   dial moved the logo zone, so a correct install reported "✗ merges" on its first run.
     var wantMerge = plate ? 'A2:F2' : (MASTHEAD.dial ? 'D2:E2' : 'A2:E2');
-    var a2 = String(sheet.getRange('A2').getFormula() || '');
+    // ⚠ Read the cell setupEbayLogo actually WRITES (D2 with the dial on) — this read A2,
+    //   which is inside the dial's merge, and reported "✗ logo: none" on a correct install.
+    var a2 = String(sheet.getRange(MASTHEAD.dial ? 'D2' : 'A2').getFormula() || '');
     var h  = sheet.getRowHeight(2);
 
     log.push('— read-back —');
