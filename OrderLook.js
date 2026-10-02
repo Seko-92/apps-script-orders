@@ -8,6 +8,7 @@
  *   1. A FINISHED order (every line SHIPPED or CANCELED) — its box drops from gold to a
  *      thin pale line (RowManagement._paintDirectOrderDividers), and its text goes quiet
  *      (the "done" colour rule below). Live orders keep today's gold box.
+ *      ⭐ 2026-10-03: the quiet text now reaches the eBay table too (no boxes there).
  *   2. After an order's first line, the SALES ORDER text goes grey. The keycap badge is
  *      an emoji and keeps its colour, so every line still says which order it is.
  *   3. A note that only repeats the order's first note goes grey. Kit notes (↳), Zoho
@@ -71,7 +72,11 @@ function _orderLookFormulas(r) {
   var prev = r - 1;
   return {
     // A line of a finished order: its own status is terminal AND no line of the order is open.
-    done: '=AND(' + tag + ',' + below + ',$D' + r + '<>"",' +
+    // ⭐ 2026-10-03: ALL THREE TABLES (the owner's call — "so all feel the same"). Unlike the
+    //   SO-grey and repeated-note rules below, this one never assumes an order's lines are
+    //   contiguous: the COUNTIFS look across the whole column, so it is just as right on the
+    //   aisle-sorted eBay table. eBay gets the quiet text only — it has no order boxes.
+    done: '=AND(' + tag + ',$D' + r + '<>"",' +
           'OR($F' + r + '="SHIPPED",$F' + r + '="CANCELED"),' +
           'COUNTIFS($D$' + Schema.dataStartRow + ':$D,$D' + r + ',$F$' + Schema.dataStartRow + ':$F,"PENDING")+' +
           'COUNTIFS($D$' + Schema.dataStartRow + ':$D,$D' + r + ',$F$' + Schema.dataStartRow + ':$F,"PREPARING")=0)',
