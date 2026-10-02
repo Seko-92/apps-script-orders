@@ -49,13 +49,13 @@ const isTick = (action === 'boardTick');
 // board can show "screens online". Requests without a device (the Chrome alerts
 // extension, Apps Script's own probes) are not recorded.
 const DEVICE_TTL_MS = 24 * 60 * 60 * 1000;
-const ROLES = { floor: 1, wall: 1, office: 1 };
+const ROLES = { floor: 1, wall: 1, office: 1, remote: 1, unset: 1 };   // unknown -> 'unset', never 'floor'
 const dev = body.device;
 if (dev && typeof dev === 'object' && dev.id) {
   sd.devices = sd.devices || {};
   sd.devices[String(dev.id).slice(0, 40)] = {
     name: String(dev.name || 'Screen').replace(/[\u0000-\u001f]/g, ' ').slice(0, 40),
-    role: ROLES[dev.role] ? dev.role : 'office',
+    role: ROLES[dev.role] ? dev.role : 'unset',
     at: now
   };
 }

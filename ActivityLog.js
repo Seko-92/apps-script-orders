@@ -729,6 +729,12 @@ function getDashboardSnapshot() {
        adjustment id and the picker. Read from the SAME log tail this function
        already scans, so it costs one regex per row and no extra read. */
     zohoFixedToday: {},
+    /* ⭐ IS ANYONE WORKING THE FLOOR? (2026-10-02) The owner used to open the Activity Log
+       to see whether the tablet was in use. Every tap on the Floor Board is already logged
+       with source `board` (and "· on <screen>" in DETAIL), so the newest one and today's
+       count come free from the same tail read. {at: ms, event, orderId, sku, picker, screen} */
+    floorLast: null,
+    floorToday: 0,
     timeline: []
   };
 
@@ -782,6 +788,15 @@ function getDashboardSnapshot() {
 
           var eventDateStr = Utilities.formatDate(ts, "America/Chicago", "yyyy-MM-dd");
           var isToday = (eventDateStr === todayStr);
+
+          // The log is chronological, so the last `board` row read is the newest.
+          if (String(data[i][ACTIVITY_LOG.idx("SOURCE")] || "").toLowerCase() === "board") {
+            var fdet = String(data[i][ACTIVITY_LOG.idx("DETAIL")] || "");
+            var fon  = fdet.match(/(?:^|· )on (.+)$/);
+            result.floorLast = { at: ts.getTime(), event: event, orderId: orderId, sku: sku,
+                                 picker: picker, screen: fon ? fon[1].trim() : "" };
+            if (isToday) result.floorToday++;
+          }
 
           if (isToday) {
             if (event === "RECEIVED") {

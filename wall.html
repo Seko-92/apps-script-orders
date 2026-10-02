@@ -1006,6 +1006,45 @@ function humanNote(note) {
 }
 
 // ---------- paint ----------
+/* ── FLOOR PULSE · BEGIN (2026-10-02) ─────────────────────────────────────────
+   ONE copy, verbatim, in FloorBoard.html, wall.html and Sidebar.html —
+   design-lab/test-floor-pulse.js fails the moment the three drift apart.
+   "Is anyone working the floor?" — the question the owner used to open the
+   Activity Log for. ACTIVITY = the newest Floor Board tap (cockpit.floorLast,
+   read from the log tail). SCREENS = devices checked in within 2 min, except
+   the owner's own ("remote") and the wall. Nobody has to name anything. Pure. */
+var FLOOR_ACTIVE_MIN = 15;
+function floorPulse(cockpit, devices, nowMs) {
+  var last = (cockpit && cockpit.floorLast) || null;
+  var mins = (last && last.at) ? Math.max(0, Math.round((nowMs - last.at) / 60000)) : null;
+  var on = null;
+  if (devices && typeof devices.length === 'number') {
+    on = devices.filter(function (d) {
+      return d && d.ageSec < 120 && d.role !== 'remote' && d.role !== 'wall';
+    }).length;
+  }
+  var state = (mins !== null && mins <= FLOOR_ACTIVE_MIN) ? 'active' : (on === 0 ? 'off' : 'quiet');
+  function dur(m) { return m < 60 ? m + ' min' : Math.floor(m / 60) + 'h ' + (m % 60) + 'm'; }
+  var tap = mins === null || mins >= 1440 ? 'no tap today'
+          : (mins < 1 ? 'tapped just now' : 'last tap ' + dur(mins) + ' ago');
+  var scr = on === null ? '' : (on + ' screen' + (on === 1 ? '' : 's') + ' on');
+  var label = { active: 'ACTIVE', quiet: 'QUIET', off: 'OFF' }[state];
+  return { state: state, label: label, mins: mins, on: on, last: last,
+           today: (cockpit && cockpit.floorToday) || 0,
+           text: [label, tap, scr].filter(Boolean).join(' · ') };
+}
+/* ── FLOOR PULSE · END ── */
+
+/* The floor, one quiet item in the header's pipeline — green while someone is tapping,
+   amber when screens are on but nobody has tapped for 15 min, dim when no warehouse screen
+   is on. Never a takeover (the wall's rule). */
+function _wallFloorSpan(c, devices) {
+  var p = floorPulse(c, devices, Date.now());
+  var col = p.state === 'active' ? 'var(--ok)' : (p.state === 'quiet' ? 'var(--money)' : 'var(--t3)');
+  return '<span>floor <b style="color:' + col + '">' + p.label.toLowerCase() + '</b>' +
+         (p.on === null ? '' : ' · ' + p.on + ' on') + '</span>';
+}
+
 function onTick(tick) {
   if (!tick || typeof tick !== 'object' || !tick.cockpit) return onFail();
   failCount = 0;
@@ -1079,6 +1118,7 @@ function onTick(tick) {
   document.getElementById('pipe').innerHTML =
     '<span class="pk">' + esc(WALL_PICKUP.carriers) + ' <b>' + esc(pickupLabel()) + '</b> ' +
     '<span class="' + (mp !== null && mp > 0 && mp <= WALL_PICKUP.alertMin ? 'am' : '') + '">' + esc(pkTxt) + '</span></span>' +
+    _wallFloorSpan(c, tick._devices) +
     '<span>prep <b>' + num(c.prepQueueCount) + '</b></span>' +
     '<span>zoho <b>' + num(c.zohoPending) + '</b> to pull</span>' +
     '<span>sync <b style="color:' + (sync < 15 ? 'var(--ok)' :

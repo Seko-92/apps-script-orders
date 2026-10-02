@@ -1402,10 +1402,10 @@ body.ch-amazon #pickListAmazon { display: block; }
            kept on this device. Every request carries it, so the Activity Log says
            which screen did a pick, n8n knows which screens are on, and Telegram
            speaks up when no FLOOR screen has checked in during working hours. -->
-      <span class="menu-item" id="screenMe" title="Name this screen and choose its role">
+      <span class="menu-item" id="screenMe" title="Mark this as your own device — it is then never counted as the warehouse">
         <i class="ftr-ico">◉</i><span id="screenMeLbl">This screen</span>
       </span>
-      <span class="menu-item" id="screensOnline" title="Which screens are on right now">
+      <span class="menu-item" id="screensOnline" title="Is anyone working the floor right now">
         <i class="ftr-ico">◎</i><span id="screensOnlineLbl">Screens online</span>
       </span>
       <span class="menu-item" id="soundToggle" title="Sound — distinct chime per event">
@@ -1702,17 +1702,36 @@ body.ch-amazon #pickListAmazon { display: block; }
        device defaults to Floor and anything else to Office, so an un-named tablet
        is already watched correctly. Renamed from the ⋯ menu. */
     var HQ_DEVICE_KEY = 'hqDevice';
+    /* ⚠ NOBODY HAS TO NAME A SCREEN (2026-10-02). The first cut called any touchscreen
+       "Floor tablet" with the FLOOR role — so the owner's own tablet in Riyadh counted as the
+       warehouse. The second asked every screen to be named, which pickers will not do. Now a
+       screen simply says what it physically is ("Android tablet · Chrome") and counts as the
+       WAREHOUSE — except the owner's devices, marked once with ⋯ → "This is my device"
+       (role "remote"), and the wall, which sets its own role. A screen someone named before
+       this keeps its name. */
+    function hqDeviceLabel() {
+      var ua = navigator.userAgent || '', os = 'device', br = 'browser';
+      if (/iPad|Macintosh.*Mobile/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1)) os = 'iPad';
+      else if (/iPhone/.test(ua)) os = 'iPhone';
+      else if (/Android/.test(ua)) os = /Mobile/.test(ua) ? 'Android phone' : 'Android tablet';
+      else if (/Windows/.test(ua)) os = 'Windows';
+      else if (/Mac OS X/.test(ua)) os = 'Mac';
+      else if (/CrOS/.test(ua)) os = 'Chromebook';
+      else if (/Linux/.test(ua)) os = 'Linux';
+      if (/Edg\//.test(ua)) br = 'Edge';
+      else if (/Firefox\//.test(ua)) br = 'Firefox';
+      else if (/Chrome\//.test(ua)) br = 'Chrome';
+      else if (/Safari\//.test(ua)) br = 'Safari';
+      return os + ' · ' + br;
+    }
     var HQ_DEVICE = (function () {
       var d = null;
       try { d = JSON.parse(localStorage.getItem(HQ_DEVICE_KEY) || 'null'); } catch (e) {}
       if (!d || !d.id) {
-        var touch = false;
-        try { touch = window.matchMedia('(pointer: coarse)').matches; } catch (e) {}
-        d = { id: 'd' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4),
-              role: touch ? 'floor' : 'office',
-              name: touch ? 'Floor tablet' : 'Office PC', named: false };
-        try { localStorage.setItem(HQ_DEVICE_KEY, JSON.stringify(d)); } catch (e) {}
+        d = { id: 'd' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4) };
       }
+      if (!d.named) { d.name = hqDeviceLabel(); d.role = d.role === 'remote' ? 'remote' : 'floor'; d.named = false; }
+      try { localStorage.setItem(HQ_DEVICE_KEY, JSON.stringify(d)); } catch (e) {}
       return d;
     })();
     function hqDevice() { return { id: HQ_DEVICE.id, name: HQ_DEVICE.name, role: HQ_DEVICE.role }; }
@@ -1918,54 +1937,47 @@ body.ch-amazon #pickListAmazon { display: block; }
     var pollPaused = false;
 
     /* ── SCREENS: name this one, see the others (2026-10-02) ─────────────── */
-    var SCREEN_ROLES = [['floor', 'Floor', 'picking — watched: Telegram speaks up if no floor screen is on'],
-                        ['wall',  'Wall',  'the monitor on the wall'],
-                        ['office','Office','a desk — not watched']];
+    /* ⋯ → "This is my device": the one manual step, and only the owner takes it. */
     function paintScreenMe() {
       var l = document.getElementById('screenMeLbl');
-      if (l) l.textContent = 'This screen · ' + HQ_DEVICE.name;
+      if (l) l.textContent = 'This is my device · ' + (HQ_DEVICE.role === 'remote' ? 'on' : 'off');
     }
     function openScreenMe() {
-      document.getElementById('menuPop').classList.add('hidden');
-      drwShow('This screen', 'how the system knows which screen did what');
-      var h = '<div class="drw-banner">Every pick, count and stock fix made here is logged with this name. ' +
-              'Only <b>Floor</b> screens are watched — if none checks in for 15 minutes in working hours, ' +
-              'Telegram says so.</div>' +
-              '<div style="margin:12px 0 6px;font-size:var(--fs-lab);color:var(--t3)">NAME</div>' +
-              '<input id="scrName" maxlength="40" value="' + esc(HQ_DEVICE.name) + '" ' +
-              'style="width:100%;font:inherit;font-size:18px;padding:10px;border-radius:8px;' +
-              'border:1px solid var(--rule-strong);background:var(--card);color:var(--t1)">' +
-              '<div style="margin:14px 0 6px;font-size:var(--fs-lab);color:var(--t3)">ROLE</div>';
-      SCREEN_ROLES.forEach(function (r) {
-        h += '<button class="drw-link' + (HQ_DEVICE.role === r[0] ? '' : ' ghost') + '" data-role="' + r[0] + '" ' +
-             'style="display:block;width:100%;margin:6px 0;text-align:left">' +
-             esc(r[1]) + ' <span style="opacity:.7">· ' + esc(r[2]) + '</span></button>';
-      });
-      h += '<button class="drw-link" id="scrSave" style="display:block;width:100%;margin-top:16px">Save</button>';
-      var body = document.getElementById('drwBody');
-      body.innerHTML = h;
-      var role = HQ_DEVICE.role;
-      body.onclick = function (ev) {
-        var rb = ev.target.closest('[data-role]');
-        if (rb) {
-          role = rb.getAttribute('data-role');
-          Array.prototype.forEach.call(body.querySelectorAll('[data-role]'), function (b) {
-            b.classList.toggle('ghost', b !== rb);
-          });
-          return;
-        }
-        if (ev.target.closest('#scrSave')) {
-          var n = String(document.getElementById('scrName').value || '').replace(/\s+/g, ' ').trim().slice(0, 40);
-          if (n) HQ_DEVICE.name = n;
-          HQ_DEVICE.role = role;
-          HQ_DEVICE.named = true;
-          hqSaveDevice();
-          paintScreenMe();
-          drwClose();
-          toast('Saved · this screen is "' + HQ_DEVICE.name + '" (' + role + ')');
-        }
-      };
+      HQ_DEVICE.role = HQ_DEVICE.role === 'remote' ? 'floor' : 'remote';
+      hqSaveDevice();
+      paintScreenMe();
+      toast(HQ_DEVICE.role === 'remote' ? 'Marked as your device — never counted as the warehouse'
+                                        : 'Counted as a warehouse screen again');
+      pollSoon();
     }
+/* ── FLOOR PULSE · BEGIN (2026-10-02) ─────────────────────────────────────────
+       ONE copy, verbatim, in FloorBoard.html, wall.html and Sidebar.html —
+       design-lab/test-floor-pulse.js fails the moment the three drift apart.
+       "Is anyone working the floor?" — the question the owner used to open the
+       Activity Log for. ACTIVITY = the newest Floor Board tap (cockpit.floorLast,
+       read from the log tail). SCREENS = devices checked in within 2 min, except
+       the owner's own ("remote") and the wall. Nobody has to name anything. Pure. */
+    var FLOOR_ACTIVE_MIN = 15;
+    function floorPulse(cockpit, devices, nowMs) {
+      var last = (cockpit && cockpit.floorLast) || null;
+      var mins = (last && last.at) ? Math.max(0, Math.round((nowMs - last.at) / 60000)) : null;
+      var on = null;
+      if (devices && typeof devices.length === 'number') {
+        on = devices.filter(function (d) {
+          return d && d.ageSec < 120 && d.role !== 'remote' && d.role !== 'wall';
+        }).length;
+      }
+      var state = (mins !== null && mins <= FLOOR_ACTIVE_MIN) ? 'active' : (on === 0 ? 'off' : 'quiet');
+      function dur(m) { return m < 60 ? m + ' min' : Math.floor(m / 60) + 'h ' + (m % 60) + 'm'; }
+      var tap = mins === null || mins >= 1440 ? 'no tap today'
+              : (mins < 1 ? 'tapped just now' : 'last tap ' + dur(mins) + ' ago');
+      var scr = on === null ? '' : (on + ' screen' + (on === 1 ? '' : 's') + ' on');
+      var label = { active: 'ACTIVE', quiet: 'QUIET', off: 'OFF' }[state];
+      return { state: state, label: label, mins: mins, on: on, last: last,
+               today: (cockpit && cockpit.floorToday) || 0,
+               text: [label, tap, scr].filter(Boolean).join(' · ') };
+    }
+    /* ── FLOOR PULSE · END ── */
     function _scrAge(sec) {
       if (sec < 45) return 'now';
       var m = Math.round(sec / 60);
@@ -1973,27 +1985,36 @@ body.ch-amazon #pickListAmazon { display: block; }
     }
     function openScreensOnline() {
       document.getElementById('menuPop').classList.add('hidden');
-      drwShow('Screens', 'who has checked in recently');
+      drwShow('Floor', 'is anyone working the floor right now');
       var list = (lastTick && lastTick._devices) || null;
-      if (!list) return drwFail('The server has not reported screens yet — give it a minute.');
-      var h = '';
-      list.forEach(function (d) {
+      var p = floorPulse(lastTick && lastTick.cockpit, list, Date.now());
+      var col = p.state === 'active' ? 'var(--ok, #5ad17a)' : (p.state === 'quiet' ? 'var(--money)' : 'var(--t3)');
+      var h = '<div style="padding:10px 4px 14px;border-bottom:1px solid var(--rule)">' +
+              '<div style="font-size:20px"><span style="color:' + col + '">●</span> <b>' + esc(p.text) + '</b></div>';
+      if (p.last) {
+        h += '<div style="margin-top:6px;color:var(--t2)">last: ' + esc(p.last.event || '') + ' ' +
+             esc(p.last.orderId || '') + (p.last.sku ? ' · ' + esc(p.last.sku) : '') +
+             (p.last.picker ? ' · ' + esc(p.last.picker) : '') + (p.last.screen ? ' · on ' + esc(p.last.screen) : '') + '</div>';
+      }
+      h += '<div style="margin-top:4px;color:var(--t3)">' + p.today + ' floor tap' + (p.today === 1 ? '' : 's') + ' today</div></div>';
+      (list || []).forEach(function (d) {
         var on = d.ageSec < 120, me = d.id === HQ_DEVICE.id;
+        var kind = d.role === 'remote' ? 'mine' : (d.role === 'wall' ? 'wall' : 'warehouse');
         h += '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;' +
              'padding:12px 4px;border-bottom:1px solid var(--rule)">' +
              '<span><span style="color:' + (on ? 'var(--ok, #5ad17a)' : 'var(--t3)') + '">●</span> ' +
              '<b>' + esc(d.name) + '</b>' + (me ? ' <span style="opacity:.6">(this one)</span>' : '') +
-             '<br><span style="font-size:var(--fs-lab);color:var(--t3)">' + esc(d.role || '') + '</span></span>' +
+             '<br><span style="font-size:var(--fs-lab);color:var(--t3)">' + kind + '</span></span>' +
              '<span style="font-family:var(--mono);color:var(--t3)">' + _scrAge(d.ageSec) + '</span></div>';
       });
-      document.getElementById('drwBody').innerHTML = h || '<div class="drw-empty">No screens yet.</div>';
+      if (!list) h += '<div class="drw-empty">The screen list arrives with the next tick.</div>';
+      document.getElementById('drwBody').innerHTML = h;
     }
     function paintScreensOnline(tick) {
       var l = document.getElementById('screensOnlineLbl');
-      var list = tick && tick._devices;
-      if (!l || !list) return;
-      var n = list.filter(function (d) { return d.ageSec < 120; }).length;
-      l.textContent = 'Screens online · ' + n;
+      if (!l || !tick) return;
+      var p = floorPulse(tick.cockpit, tick._devices, Date.now());
+      l.textContent = 'Floor · ' + p.label + (p.on === null ? '' : ' · ' + p.on + ' on');
     }
     document.getElementById('screenMe').addEventListener('click', openScreenMe);
     document.getElementById('screensOnline').addEventListener('click', openScreensOnline);

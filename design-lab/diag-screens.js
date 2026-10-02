@@ -47,31 +47,46 @@ function check(label, got, want) {
   await page.goto('http://hqlab.test/');
   await page.waitForFunction(() => window.lastTick, null, { timeout: 15000 });
 
-  console.log('A · requests carry the device');
+  console.log('A · an unnamed screen describes itself and counts as the warehouse');
   const t0 = seen.find(b => b.action === 'boardTick');
   check('device present', !!(t0 && t0.device && t0.device.id), true);
-  check('touch device defaults to floor', t0.device.role, 'floor');
-  check('default name', t0.device.name, 'Floor tablet');
+  check('role = warehouse (floor), no naming needed', t0.device.role, 'floor');
+  check('name = what it physically is', t0.device.name, 'Linux · Chrome');
 
-  console.log('B · menu labels');
-  check('this-screen label', await page.textContent('#screenMeLbl'), 'This screen · Floor tablet');
-  check('online count (age < 2 min)', await page.textContent('#screensOnlineLbl'), 'Screens online · 2');
+  console.log('B · menu: the floor line, and no naming nag');
+  check('menu says This is my device · off', await page.textContent('#screenMeLbl'), 'This is my device · off');
+  check('no amber cue anywhere', await page.evaluate(() => document.querySelectorAll('.needs-name').length), 0);
+  check('floor line (no floorLast → QUIET; office PC silent 15 min → 1 on)', await page.textContent('#screensOnlineLbl'), 'Floor · QUIET · 1 on');
 
-  console.log('C · rename persists');
-  const id1 = t0.device.id;
+  console.log('B2 · This is my device');
   await page.click('#menuBtn'); await page.click('#screenMe');
-  await page.fill('#scrName', 'Packing tablet');
-  await page.click('[data-role="wall"]'); await page.click('#scrSave');
+  await page.waitForTimeout(400);
+  const tm1 = seen.filter(b => b.action === 'boardTick').pop();
+  check('toggle on → role remote, sent at once', [await page.evaluate(() => HQ_DEVICE.role), tm1.device.role], ['remote', 'remote']);
   await page.reload(); await page.waitForFunction(() => window.lastTick, null, { timeout: 15000 });
-  const t1 = seen.filter(b => b.action === 'boardTick').pop();
-  check('same id after reload', t1.device.id, id1);
-  check('new name sent', t1.device.name, 'Packing tablet');
-  check('new role sent', t1.device.role, 'wall');
+  check('survives a reload', await page.evaluate(() => HQ_DEVICE.role), 'remote');
+  check('label says on', await page.textContent('#screenMeLbl'), 'This is my device · on');
+  await page.click('#menuBtn'); await page.click('#screenMe');
+  check('toggle off → floor again', await page.evaluate(() => HQ_DEVICE.role), 'floor');
+
+  console.log('B3 · migration');
+  await page.evaluate(() => localStorage.setItem('hqDevice', JSON.stringify({ id: 'dold1', name: 'Unnamed · Linux · Chrome', role: 'unset', named: false })));
+  await page.reload(); await page.waitForFunction(() => window.lastTick, null, { timeout: 15000 });
+  let tm = seen.filter(b => b.action === 'boardTick').pop();
+  check('this morning\'s "Unnamed/unset" → plain label, warehouse', [tm.device.id, tm.device.name, tm.device.role], ['dold1', 'Linux · Chrome', 'floor']);
+  await page.evaluate(() => localStorage.setItem('hqDevice', JSON.stringify({ id: 'dold2', name: 'Warehouse tablet', role: 'floor', named: true })));
+  await page.reload(); await page.waitForFunction(() => window.lastTick, null, { timeout: 15000 });
+  tm = seen.filter(b => b.action === 'boardTick').pop();
+  check('a screen someone named keeps its name', [tm.device.name, tm.device.role], ['Warehouse tablet', 'floor']);
+
+  console.log('C · same id across reloads');
+  const tl = seen.filter(b => b.action === 'boardTick').pop();
+  check('id stable', tl.device.id, 'dold2');
 
   console.log('D · screens drawer');
   await page.click('#menuBtn'); await page.click('#screensOnline');
   const txt = await page.textContent('#drwBody');
-  check('lists all three', ['Wall', 'Office PC', '(this one)'].every(s => txt.includes(s)), true);
+  check('floor summary + all three screens', ['QUIET', 'Wall', 'Office PC', '(this one)', 'warehouse'].every(s => txt.includes(s)), true);
   await page.click('#drwX');
 
   console.log('E · self-update');
