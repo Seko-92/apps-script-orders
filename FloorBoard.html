@@ -1824,7 +1824,14 @@ body.ch-amazon #pickListAmazon { display: block; }
         // that never happened.
         if (killer) { clearTimeout(killer); killer = null; }
         if (!r.ok) throw new Error('HTTP ' + r.status);
-        return r.json();
+        // The SERVER's clock at reply time (Caddy's Date header, NTP-synced, 1s
+        // resolution). Used to retire a pick override on server evidence alone —
+        // never the tablet's own clock, which can be off.
+        var srv = Date.parse(r.headers.get('date') || '');
+        return r.json().then(function (j) {
+          if (j && typeof j === 'object' && srv) j._serverDate = srv;
+          return j;
+        });
       }).then(function (res) {
         // ⚠ THE PROXY ANSWERS 200 EVEN WHEN THE HOP FAILED. n8n's tier-3 code
         // node deliberately never throws (a thrown node returns no body at
@@ -2114,7 +2121,8 @@ body.ch-amazon #pickListAmazon { display: block; }
       buildKitIndex(tick.kits);
       // Overlay any just-tapped rows the server hasn't confirmed yet — a tick
       // served from n8n's 15s cache can still be showing the old status.
-      paintPickList(applyPickOverrides((tick.openOrders || []).slice()),
+      paintPickList(applyPickOverrides((tick.openOrders || []).slice(),
+                                       Date.parse(tick._publishedAt || '') || 0),
                     tick.openOrdersTotal, tick.openOrdersBy);
       // RAW rows — applyPickOverrides fakes a status the server has not
       // confirmed, which would make an optimistic pick look like a fresh
@@ -5001,10 +5009,19 @@ body.ch-amazon #pickListAmazon { display: block; }
     // Same idea, one value: who the footer chip says is picking. See paintFooter.
     var pickerOverride = null;             // { name, until }
 
-    function applyPickOverrides(rows) {
+    function applyPickOverrides(rows, publishedAtMs) {
       var now = Date.now(), k;
       for (k in pickOverride) {            // drop anything stale
-        if (pickOverride[k].until < now) delete pickOverride[k];
+        if (pickOverride[k].until < now) { delete pickOverride[k]; continue; }
+        /* ⭐ 2026-10-02 — RETIRE ON A NEWER SERVER PICTURE, not only on agreement.
+           Floor test: ✓ Pick, then the sheet set back to PENDING within seconds.
+           No tick ever said PREPARING, so the override waited out its ~2-min
+           TTL. A tick published AFTER the server confirmed our write already
+           includes that write — whatever it says is the truth, so believe it.
+           1.5s margin: the Date header is whole seconds, and the inline 'pick'
+           publish lands just BEFORE the reply. */
+        var ov = pickOverride[k];
+        if (ov.confirmedAt && publishedAtMs && publishedAtMs > ov.confirmedAt + 1500) delete pickOverride[k];
       }
       for (var i = 0; i < rows.length; i++) {
         var ov = pickOverride[pickKey(rows[i])];
@@ -5022,6 +5039,17 @@ body.ch-amazon #pickListAmazon { display: block; }
     /* The optimistic flip must match what the server will do EXACTLY — a
        whole-order override against a one-line write would flip five rows on
        screen, then snap four of them back on the next tick. */
+    /** The server accepted the write — stamp WHEN, by the server's clock. */
+    function confirmPickOverride(orderId, sku, serverMs) {
+      if (!serverMs) return;                // no server time → keep TTL behaviour
+      var rows = (lastTick && lastTick.openOrders) || [];
+      for (var i = 0; i < rows.length; i++) {
+        if (!_pickRowMatches(rows[i], orderId, sku)) continue;
+        var ov = pickOverride[pickKey(rows[i])];
+        if (ov) ov.confirmedAt = serverMs;
+      }
+    }
+
     function setPickOverride(orderId, sku, status) {
       var rows = (lastTick && lastTick.openOrders) || [];
       var touched = false;
@@ -5124,7 +5152,7 @@ body.ch-amazon #pickListAmazon { display: block; }
 
       hqCall('boardStatus', { orderId: orderId, sku: sku, status: 'PREPARING' })
         .then(function (r) {
-          if (r && r.ok) { pollSoon(); return; }
+          if (r && r.ok) { confirmPickOverride(orderId, sku, r._serverDate); pollSoon(); return; }
           clearPickOverride(orderId, sku);      // server refused — put it back
           hideToast();
           if (btn) { btn.disabled = false; btn.textContent = '✓ Pick'; }
@@ -5467,7 +5495,7 @@ body.ch-amazon #pickListAmazon { display: block; }
           // optimistic PENDING flip sitting on the row until the next tick
           // quietly corrected it — so the board briefly showed a pick as undone
           // when the sheet still had it PREPARING.
-          if (r && r.ok) { pollSoon(); return; }
+          if (r && r.ok) { confirmPickOverride(orderId, sku, r._serverDate); pollSoon(); return; }
           clearPickOverride(orderId, sku);
           if (r && r.needsPicker) {
             requirePicker('required before changing a pick',
