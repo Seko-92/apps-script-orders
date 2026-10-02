@@ -506,7 +506,7 @@ function openOrderCase(query) {
     template.dossierJson = JSON.stringify(dossier).replace(/<\//g, "<\\/");
 
     var html = template.evaluate().setWidth(1080).setHeight(700);
-    SpreadsheetApp.getUi().showModalDialog(html, "🔍 Order Case");
+    SpreadsheetApp.getUi().showModalDialog(html, "Order Case");
     return { ok: true, found: dossier.found, rows: dossier.rows.length,
              events: dossier.events.length, notes: dossier.notes.length };
   } catch (err) {

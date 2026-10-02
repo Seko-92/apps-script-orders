@@ -2,6 +2,11 @@
 <html>
 <head>
   <base target="_top">
+<!-- 2026-10-03: load the faces every rule below asks for (they were never loaded). -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Roboto+Mono:wght@400;500;600;700&family=Roboto:wght@400;500;700&display=swap">
+
   <meta charset="utf-8">
   <style>
     /* =====================================================================
@@ -455,7 +460,61 @@
     .done-result-row {
       padding: 2px 0;
     }
-  </style>
+  
+/* ═══════════════════════════════════════════════════════════════════════════
+   ONE SURFACE (2026-10-03) — the owner's call after a review round.
+   Google draws a white frame, a title and a close button around every modal,
+   and none of it can be styled. A cream page with a full-bleed black band
+   inside that frame read as "a sticker on white paper". So the page now
+   CONTINUES the frame: white ground, Google's title is the window's only
+   title (ours is hidden), no full-bleed bands. Panels float on soft layered
+   shadows; inputs are pressed in; primary buttons are raised yellow keys.
+   Black and yellow stay where they carry meaning, as rounded objects, never
+   as bands. Same rule in all seven windows, so they read as one family.
+   Appended LAST so it overrides without editing the rules above.
+   ═══════════════════════════════════════════════════════════════════════════ */
+:root{
+  --os-ease: cubic-bezier(.37,0,.63,1);
+  --os-raise: 0 1px 0 rgba(255,255,255,.9) inset, 0 1px 2px rgba(70,52,0,.06),
+              0 5px 12px rgba(70,52,0,.07), 0 18px 36px -16px rgba(70,52,0,.22);
+  --os-lift: 0 1px 2px rgba(70,52,0,.07), 0 4px 10px rgba(70,52,0,.07);
+  --os-press: inset 0 2px 3px rgba(70,52,0,.10);
+  --os-key: inset 0 1px 0 rgba(255,255,255,.7), 0 3px 0 #b89500, 0 7px 16px rgba(184,149,0,.30);
+  --os-key-hover: inset 0 1px 0 rgba(255,255,255,.7), 0 4px 0 #b89500, 0 10px 20px rgba(184,149,0,.32);
+  --os-key-down: inset 0 1px 0 rgba(255,255,255,.5), 0 0 0 #b89500, 0 2px 6px rgba(184,149,0,.28);
+  --os-yellow: linear-gradient(180deg,#ffe45c 0%,#ffcf00 100%);
+  --os-panel: linear-gradient(180deg,#fffaee,#fff6e2);
+  --os-rim: rgba(150,115,20,.16);
+}
+html, body { background: #fff !important; }
+@keyframes os-rise { from { opacity:0; transform: translateY(6px); } to { opacity:1; transform:none; } }
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; } }
+
+.hdr{ background:none !important; color:#1d1d1b !important; border-bottom:none !important; padding:0 12px 10px !important; }
+.hdr-title{ display:none !important; }
+.hdr-so{ color:#1d1d1b !important; background:#ffd400; padding:1px 9px; border-radius:7px; box-shadow: 0 2px 0 #c29f00; }
+.hdr-customer{ color:#5f5f5f !important; }
+.hdr-total{ color:#1d1d1b !important; font-weight:700; }
+.hdr-row2{ color:#6e6450 !important; }
+.hdr-row2 strong{ color:#1d1d1b !important; }
+.hdr-row2 .chip-summary{ background:#fff4b0 !important; border:1px solid #e6cf5c !important; color:#5c4600 !important; border-radius:999px !important; }
+.body{ background:#fff !important; padding-left:12px !important; padding-right:12px !important; }
+.line{ border-radius:12px !important; box-shadow: var(--os-lift) !important; animation: os-rise 380ms var(--os-ease) both; }
+.wrap > div[style*="fff8e7"]{ background:#fff !important; padding-left:12px !important; padding-right:12px !important; }
+.ftr{ background: #fff !important; border-top: 1px solid var(--os-rim) !important;
+  box-shadow: 0 -8px 16px -10px rgba(70,52,0,.16) !important; }
+.btn-apply{ background: var(--os-yellow) !important; border: none !important; border-radius: 9px !important;
+  box-shadow: var(--os-key) !important; transition: transform 120ms var(--os-ease), box-shadow 120ms var(--os-ease), filter 200ms var(--os-ease) !important; }
+.btn-apply:hover:not(:disabled){ transform: translateY(-1px); box-shadow: var(--os-key-hover) !important; filter: brightness(1.03); }
+.btn-apply:active:not(:disabled){ transform: translateY(3px); box-shadow: var(--os-key-down) !important; }
+.btn-cancel{ background: #fff !important; border: 1px solid var(--os-rim) !important; border-radius: 9px !important;
+  box-shadow: var(--os-lift) !important; transition: transform 120ms var(--os-ease) !important; }
+.btn-cancel:active:not(:disabled){ transform: translateY(1px); box-shadow: none !important; }
+#zpNote{ background: #fffdf8 !important; color: #1d1d1b !important; border: 1px solid #dccb9b !important;
+  border-radius: 9px !important; box-shadow: var(--os-press) !important; }
+#zpNote:focus{ outline: none; border-color: #e3b900 !important;
+  box-shadow: var(--os-press), 0 0 0 3px rgba(255,212,0,.32) !important; }
+</style>
 </head>
 <body>
   <div class="wrap">

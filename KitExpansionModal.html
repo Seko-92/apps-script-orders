@@ -2,6 +2,11 @@
 <html>
 <head>
   <base target="_top">
+<!-- 2026-10-03: load the faces every rule below asks for (they were never loaded). -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Roboto+Mono:wght@400;500;600;700&family=Roboto:wght@400;500;700&display=swap">
+
   <meta charset="utf-8">
   <style>
     /* ==================================================================
@@ -868,7 +873,60 @@
       display: flex; gap: 6px; align-items: center; flex-wrap: wrap;
       padding: 10px 6px; margin-top: 4px; border-top: 1px dashed var(--rule-soft);
     }
-  </style>
+  
+/* ═══════════════════════════════════════════════════════════════════════════
+   ONE SURFACE (2026-10-03) — the owner's call after a review round.
+   Google draws a white frame, a title and a close button around every modal,
+   and none of it can be styled. A cream page with a full-bleed black band
+   inside that frame read as "a sticker on white paper". So the page now
+   CONTINUES the frame: white ground, Google's title is the window's only
+   title (ours is hidden), no full-bleed bands. Panels float on soft layered
+   shadows; inputs are pressed in; primary buttons are raised yellow keys.
+   Black and yellow stay where they carry meaning, as rounded objects, never
+   as bands. Same rule in all seven windows, so they read as one family.
+   Appended LAST so it overrides without editing the rules above.
+   ═══════════════════════════════════════════════════════════════════════════ */
+:root{
+  --os-ease: cubic-bezier(.37,0,.63,1);
+  --os-raise: 0 1px 0 rgba(255,255,255,.9) inset, 0 1px 2px rgba(70,52,0,.06),
+              0 5px 12px rgba(70,52,0,.07), 0 18px 36px -16px rgba(70,52,0,.22);
+  --os-lift: 0 1px 2px rgba(70,52,0,.07), 0 4px 10px rgba(70,52,0,.07);
+  --os-press: inset 0 2px 3px rgba(70,52,0,.10);
+  --os-key: inset 0 1px 0 rgba(255,255,255,.7), 0 3px 0 #b89500, 0 7px 16px rgba(184,149,0,.30);
+  --os-key-hover: inset 0 1px 0 rgba(255,255,255,.7), 0 4px 0 #b89500, 0 10px 20px rgba(184,149,0,.32);
+  --os-key-down: inset 0 1px 0 rgba(255,255,255,.5), 0 0 0 #b89500, 0 2px 6px rgba(184,149,0,.28);
+  --os-yellow: linear-gradient(180deg,#ffe45c 0%,#ffcf00 100%);
+  --os-panel: linear-gradient(180deg,#fffaee,#fff6e2);
+  --os-rim: rgba(150,115,20,.16);
+}
+html, body { background: #fff !important; }
+@keyframes os-rise { from { opacity:0; transform: translateY(6px); } to { opacity:1; transform:none; } }
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; } }
+
+.hdr{ background:none !important; border-bottom:none !important; padding:0 10px 8px !important; justify-content:flex-start !important; }
+.hdr-title{ display:none !important; }
+.hdr-counter{ color:#1d1d1b !important; border:none !important; background:#ffd400 !important; border-radius:999px !important;
+  font-weight:700; padding:3px 12px !important; box-shadow: inset 0 1px 0 rgba(255,255,255,.6), 0 2px 0 #c29f00; }
+.kit-meta{ margin:0 10px !important; border-radius:12px !important; border:1px solid var(--os-rim) !important;
+  background: var(--os-panel) !important; box-shadow: var(--os-raise) !important; animation: os-rise 420ms var(--os-ease) both; }
+.ready-banner, .dup-banner, .unparsed-banner{ margin:10px 10px 0 !important; border-radius:10px !important; box-shadow: var(--os-lift) !important; }
+.body{ padding-left:10px !important; padding-right:10px !important; }
+.col-right{ border-radius:12px; }
+.comp-card{ border-radius: 10px !important; box-shadow: var(--os-lift) !important; }
+.ftr{ background: #fff !important; border-top: 1px solid var(--os-rim) !important;
+  box-shadow: 0 -8px 16px -10px rgba(70,52,0,.16) !important; }
+.btn-expand, .btn-skip-primary{ background: var(--os-yellow) !important; border: none !important; border-radius: 9px !important;
+  box-shadow: var(--os-key) !important; transition: transform 120ms var(--os-ease), box-shadow 120ms var(--os-ease), filter 200ms var(--os-ease) !important; }
+.btn-expand:hover:not(:disabled), .btn-skip-primary:hover:not(:disabled){ transform: translateY(-1px); box-shadow: var(--os-key-hover) !important; filter: brightness(1.03); }
+.btn-expand:active:not(:disabled), .btn-skip-primary:active:not(:disabled){ transform: translateY(3px); box-shadow: var(--os-key-down) !important; }
+.btn-skip, .btn-cancel, .btn-force{ background: #fff !important; border: 1px solid var(--os-rim) !important; border-radius: 9px !important;
+  box-shadow: var(--os-lift) !important; transition: transform 120ms var(--os-ease) !important; }
+.btn-skip:active:not(:disabled), .btn-cancel:active:not(:disabled), .btn-force:active:not(:disabled){ transform: translateY(1px); box-shadow: none !important; }
+input[type=text], input[type=number], textarea{ background: #fffdf8 !important; color: #1d1d1b !important; border: 1px solid #dccb9b !important;
+  border-radius: 9px !important; box-shadow: var(--os-press) !important; }
+input[type=text]:focus, input[type=number]:focus, textarea:focus{ outline: none; border-color: #e3b900 !important;
+  box-shadow: var(--os-press), 0 0 0 3px rgba(255,212,0,.32) !important; }
+</style>
 </head>
 <body>
   <div class="modal" id="modal">

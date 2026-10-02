@@ -345,7 +345,55 @@
       tr { page-break-inside: avoid; }
       .asm-block { page-break-inside: avoid; }
     }
-  </style>
+  
+/* ═══════════════════════════════════════════════════════════════════════════
+   ONE SURFACE (2026-10-03) — the owner's call after a review round.
+   Google draws a white frame, a title and a close button around every modal,
+   and none of it can be styled. A cream page with a full-bleed black band
+   inside that frame read as "a sticker on white paper". So the page now
+   CONTINUES the frame: white ground, Google's title is the window's only
+   title (ours is hidden), no full-bleed bands. Panels float on soft layered
+   shadows; inputs are pressed in; primary buttons are raised yellow keys.
+   Black and yellow stay where they carry meaning, as rounded objects, never
+   as bands. Same rule in all seven windows, so they read as one family.
+   Appended LAST so it overrides without editing the rules above.
+   ═══════════════════════════════════════════════════════════════════════════ */
+:root{
+  --os-ease: cubic-bezier(.37,0,.63,1);
+  --os-raise: 0 1px 0 rgba(255,255,255,.9) inset, 0 1px 2px rgba(70,52,0,.06),
+              0 5px 12px rgba(70,52,0,.07), 0 18px 36px -16px rgba(70,52,0,.22);
+  --os-lift: 0 1px 2px rgba(70,52,0,.07), 0 4px 10px rgba(70,52,0,.07);
+  --os-press: inset 0 2px 3px rgba(70,52,0,.10);
+  --os-key: inset 0 1px 0 rgba(255,255,255,.7), 0 3px 0 #b89500, 0 7px 16px rgba(184,149,0,.30);
+  --os-key-hover: inset 0 1px 0 rgba(255,255,255,.7), 0 4px 0 #b89500, 0 10px 20px rgba(184,149,0,.32);
+  --os-key-down: inset 0 1px 0 rgba(255,255,255,.5), 0 0 0 #b89500, 0 2px 6px rgba(184,149,0,.28);
+  --os-yellow: linear-gradient(180deg,#ffe45c 0%,#ffcf00 100%);
+  --os-panel: linear-gradient(180deg,#fffaee,#fff6e2);
+  --os-rim: rgba(150,115,20,.16);
+}
+html, body { background: #fff !important; }
+@keyframes os-rise { from { opacity:0; transform: translateY(6px); } to { opacity:1; transform:none; } }
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; } }
+
+.hdr{ background:none !important; color:#1d1d1b !important; padding:0 12px 8px !important; }
+.hdr-title{ display:none !important; }
+.hdr-sub{ color:#6e6450 !important; }
+.hdr-picker{ color:#8a7f63 !important; }
+.hdr-picker b{ color:#1d1d1b !important; }
+.body{ background:#fff !important; padding-left:12px !important; padding-right:12px !important; }
+.panel{ background: var(--os-panel) !important; border:1px solid var(--os-rim) !important; border-radius:12px !important;
+  box-shadow: var(--os-raise) !important; animation: os-rise 420ms var(--os-ease) both; }
+.ftr{ background: #fff !important; border-top: 1px solid var(--os-rim) !important;
+  box-shadow: 0 -8px 16px -10px rgba(70,52,0,.16) !important; }
+.btn-primary{ background: var(--os-yellow) !important; border: none !important; border-radius: 9px !important;
+  box-shadow: var(--os-key) !important; transition: transform 120ms var(--os-ease), box-shadow 120ms var(--os-ease), filter 200ms var(--os-ease) !important; }
+.btn-primary:hover:not(:disabled){ transform: translateY(-1px); box-shadow: var(--os-key-hover) !important; filter: brightness(1.03); }
+.btn-primary:active:not(:disabled){ transform: translateY(3px); box-shadow: var(--os-key-down) !important; }
+.add-sku, .add-qty{ background: #fffdf8 !important; color: #1d1d1b !important; border: 1px solid #dccb9b !important;
+  border-radius: 9px !important; box-shadow: var(--os-press) !important; }
+.add-sku:focus, .add-qty:focus{ outline: none; border-color: #e3b900 !important;
+  box-shadow: var(--os-press), 0 0 0 3px rgba(255,212,0,.32) !important; }
+</style>
 </head>
 <body>
 
