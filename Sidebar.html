@@ -4166,7 +4166,10 @@ body.dark-theme .card.band-alt, body.dark-theme .card.band-alt .card-header{ bac
       The clock used to shrink (min-width 0) and the API pill slid over "PM". ── */
 .header{ gap:6px; padding:6px 8px !important; }
 .header-clock{ flex:none !important; min-width:auto !important; font-size:12.5px !important; }
-.header-api-health{ flex:none; margin-right:auto; }
+.header-api-health{ flex:none; margin-right:0; }
+.header-date{ flex:1 1 auto; min-width:0; overflow:hidden; white-space:nowrap; text-align:center;
+  font-family:'Oswald',sans-serif; font-weight:500; font-size:calc(11px * var(--font-scale));
+  letter-spacing:.09em; text-transform:uppercase; color:#ffd400; opacity:.8; }
 .top-controls{ gap:3px !important; }
 .top-controls .ctrl-btn{ height:23px !important; min-width:23px !important; padding:2px 4px !important; }
 @media (max-width:304px){
@@ -4286,6 +4289,9 @@ body.dark-theme .card.band-alt, body.dark-theme .card.band-alt .card-header{ bac
     <span class="header-api-health-dot"></span>
     <span class="header-api-health-value" id="headerApiHealthValue">--</span>
   </div>
+  <!-- 2026-10-03: the gap between the API pill and the icons carries the Houston
+       date, beside the Houston time. Hidden by JS if a narrow panel cannot fit it. -->
+  <span class="header-date" id="headerDate" aria-label="Houston date"></span>
   <div class="top-controls">
     <div id="themeBtn" class="ctrl-btn" onclick="toggleTheme()" title="Toggle Theme">🌙</div>
     <div id="muteBtn" class="ctrl-btn" onclick="toggleMute()" title="Toggle Sound">🔔</div>
@@ -4354,21 +4360,20 @@ body.dark-theme .card.band-alt, body.dark-theme .card.band-alt .card-header{ bac
        a low-hierarchy "you have plumbing waiting" cue without exposing
        "Zoho" as a separate category in the picker's mental model. -->
   <div class="cockpit-queue" id="cockpitQueue">
-    <div class="cockpit-queue-pill" id="cockpitQueueEbayPill" title="eBay non-terminal (PENDING + PREPARING)">
+    <div class="cockpit-queue-pill" id="cockpitQueueEbayPill" title="eBay lines on All Orders still PENDING (to grab)">
       <span class="cockpit-queue-label">eBay</span>
       <span class="cockpit-queue-value" id="cockpitQueueEbay">0</span>
     </div>
-    <div class="cockpit-queue-pill" id="cockpitQueueDirectPill" title="Direct workload (DIRECT non-terminal + Zoho pending)">
+    <div class="cockpit-queue-pill" id="cockpitQueueDirectPill" title="Direct lines on All Orders still PENDING (to grab)">
       <span class="cockpit-queue-label">Direct</span>
       <span class="cockpit-queue-value" id="cockpitQueueDirect">0</span>
-      <span class="zoho-dot" id="cockpitZohoDot" title="Zoho SOs waiting to be Pulled" aria-hidden="true"></span>
     </div>
-    <div class="cockpit-queue-pill" id="cockpitQueueAmazonPill" title="Amazon non-terminal (PENDING + PREPARING)">
+    <div class="cockpit-queue-pill" id="cockpitQueueAmazonPill" title="Amazon lines on All Orders still PENDING (to grab)">
       <span class="cockpit-queue-label">Amazon</span>
       <span class="cockpit-queue-value" id="cockpitQueueAmazon">0</span>
     </div>
-    <div class="cockpit-queue-pill" id="cockpitQueuePrepPill" title="Today's prep still to do (CURRENT table, not ticked done)">
-      <span class="cockpit-queue-label">Prep</span>
+    <div class="cockpit-queue-pill" id="cockpitQueuePrepPill" title="Lines on All Orders being picked right now (PREPARING, all three tables)">
+      <span class="cockpit-queue-label">Picking</span>
       <span class="cockpit-queue-value" id="cockpitQueuePrep">0</span>
     </div>
   </div>
@@ -5867,11 +5872,19 @@ function _paintCockpit(snap) {
   _renderSystemPulse(snap.lastSyncMinutes);
 
   // ---- Queue Strip (Phase 5) ----
-  _setQueuePill('cockpitQueueEbay',  'cockpitQueueEbayPill',  snap.ebayPending);
-  _setQueuePill('cockpitQueueDirect','cockpitQueueDirectPill',snap.directPending);
-  _setQueuePill('cockpitQueueAmazon','cockpitQueueAmazonPill',snap.amazonPending);
-  _setQueuePill('cockpitQueuePrep',  'cockpitQueuePrepPill',  snap.prepQueueCount);
-  _setZohoDot(snap.zohoPending);
+  // 2026-10-03: the strip is the ALL ORDERS sheet and nothing else — the owner's
+  // ruling. Each channel = its lines still PENDING (to grab); the last pill =
+  // every line PREPARING (being picked). The Zoho dot and the Prep Queue count
+  // left: neither is on All Orders (unpulled SOs live in Pending, prep in its own
+  // sheet), and both kept the strip "busy" with no order waiting.
+  var _q = function (v) { return parseInt(v, 10) || 0; };
+  var preparing = (_q(snap.ebayPending) + _q(snap.directPending) + _q(snap.amazonPending))
+                - (_q(snap.ebayGrab) + _q(snap.directGrab) + _q(snap.amazonGrab));
+  _setQueuePill('cockpitQueueEbay',  'cockpitQueueEbayPill',  snap.ebayGrab);
+  _setQueuePill('cockpitQueueDirect','cockpitQueueDirectPill',snap.directGrab);
+  _setQueuePill('cockpitQueueAmazon','cockpitQueueAmazonPill',snap.amazonGrab);
+  _setQueuePill('cockpitQueuePrep',  'cockpitQueuePrepPill',  Math.max(0, preparing));
+  _setZohoDot(0);
 
   // ---- New-order detection MOVED (2026-09-15) → _hqsNoteTick ----
   // ⚠ This used to chime when the total PENDING count rose. That cannot tell eBay from
@@ -6725,7 +6738,7 @@ function _buildStatusWhispers() {
     var n = parseInt((el && el.textContent) || '0', 10);
     return isNaN(n) ? 0 : n;
   }
-  var grab    = num('cockpitQueueEbay') + num('cockpitQueueDirect');
+  var grab    = num('cockpitQueueEbay') + num('cockpitQueueDirect') + num('cockpitQueueAmazon');
   var prep    = num('cockpitQueuePrep');
   var shipped = num('cockpitShipped');
   var pulseEl = document.getElementById('cockpitPulseText');
@@ -6743,7 +6756,7 @@ function _buildStatusWhispers() {
   else               w.push('late shift · engine still warm');
 
   w.push(grab > 0 ? 'idling · ' + grab + ' to grab' : 'all caught up · nothing waiting');
-  if (prep > 0) w.push(prep + ' in the prep queue');
+  if (prep > 0) w.push(prep + ' being picked');
   if (synced && synced !== '—') w.push('synced ' + synced + ' ago · all systems go');
   w.push('engine warm · awaiting orders');
   return w;
@@ -8526,7 +8539,22 @@ function startLiveClock() {
       hour12: true
     });
     clockElement.textContent = houstonTime;
+    var dateEl = document.getElementById('headerDate');
+    if (dateEl) {
+      // Longest form that fits: "Fri · Oct 2" → "Oct 2" → nothing.
+      var tries = [
+        now.toLocaleDateString('en-US', { timeZone: 'America/Chicago', weekday: 'short', month: 'short', day: 'numeric' }).replace(',', ' ·'),
+        now.toLocaleDateString('en-US', { timeZone: 'America/Chicago', month: 'short', day: 'numeric' })
+      ];
+      dateEl.style.visibility = 'hidden';
+      for (var i = 0; i < tries.length; i++) {
+        dateEl.textContent = tries[i];
+        if (dateEl.scrollWidth <= dateEl.clientWidth + 1) { dateEl.style.visibility = 'visible'; break; }
+      }
+    }
   }
+  window.addEventListener('resize', updateClock);
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(updateClock);
 
   updateClock();
   setInterval(updateClock, 30 * 1000);
