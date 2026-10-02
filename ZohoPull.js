@@ -442,6 +442,12 @@ function _pullNoteCell(note) {
   return /^[=+\-@]/.test(n) ? "'" + n : n;
 }
 
+/** The note one pulled row wears: the whole-order note, then that line's own note. Pure. */
+function _pullRowNote(orderNote, lineNote) {
+  return [String(orderNote == null ? "" : orderNote).trim(), String(lineNote == null ? "" : lineNote).trim()]
+    .filter(Boolean).join(" · ");
+}
+
 function applyZohoPullSelection(query, selections, note) {
   // ⚠ WRITES A PROTECTED SHEET. google.script.run runs as the INVOKING USER, so under
   //   the All Orders lock a staff call would be refused. Come back in through /exec,
@@ -469,7 +475,6 @@ function applyZohoPullSelection(query, selections, note) {
   // ⚠ A cell that STARTS with = + - @ is written as a FORMULA (Sheets reads the value).
   //   Only a new row's note starts the cell — the delta row's note sits after its tag.
   //   The leading apostrophe is Sheets' own "this is text" marker — stored, never shown.
-  var userNoteCell = _pullNoteCell(userNote);
   if (!q) {
     out.reason = "Empty query.";
     return out;
@@ -567,8 +572,10 @@ function applyZohoPullSelection(query, selections, note) {
             sku:             line.sku,
             quantity:        line.zohoQty,
             name:            line.name,
-            // Operator's Pull note (blank if none) — travels with the order.
-            _noteOverride:   userNoteCell,
+            // Operator's Pull note (blank if none) — travels with the order. A selection may
+            // carry its OWN note (Telegram: "166500: hold this one") — it rides after the
+            // whole-order note, so a row can wear both.
+            _noteOverride:   _pullNoteCell(_pullRowNote(userNote, sel.note)),
             _detailOverride: "Pulled from Zoho · " + (diff.customerName || "no customer")
           });
           break;
@@ -581,7 +588,7 @@ function applyZohoPullSelection(query, selections, note) {
             name:            line.name,
             _noteOverride:   "↳ delta from Zoho · was " + line.directQty
                              + " total, now " + line.zohoQty
-                             + (userNote ? " · " + userNote : ""),
+                             + (_pullRowNote(userNote, sel.note) ? " · " + _pullRowNote(userNote, sel.note) : ""),
             _detailOverride: "Pull delta on existing SKU · was " + line.directQty
                              + ", now " + line.zohoQty
           });

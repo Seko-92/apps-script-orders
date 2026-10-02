@@ -142,6 +142,23 @@ function handleTelegramCommand(update) {
     var text   = String(msg.text == null ? "" : msg.text).trim();
     if (!chatId) return { ok: true, handled: false, reason: "no chat id", command: "", chatId: "" };
 
+    // ⭐ A REPLY to a /pull note prompt (2026-10-02). The prompt ends "ref pn<token>", so a
+    // reply is recognised by what it answers, not by what it says — in a group too, where
+    // plain chatter is otherwise ignored. Checked BEFORE the private-chat finder below.
+    var rt = msg.reply_to_message;
+    var pnm = rt && rt.from && rt.from.is_bot && String(rt.text || "").match(/\bref pn([0-9a-f]{10})\b/);
+    if (pnm && text && text.charAt(0) !== "/") {
+      if (!_tgIsAllowed(chatId)) {
+        try { console.log("telegramCommand: ignored note reply from non-allowlisted chat " + chatId); } catch (_) {}
+        return { ok: true, handled: false, reason: "chat not allowlisted", command: "", chatId: chatId };
+      }
+      var noteReply;
+      try { noteReply = _tgPullNoteReply(pnm[1], String(msg.text || "")); }
+      catch (nrErr) { noteReply = "⚠ Note failed: " + String(nrErr.message || nrErr); }
+      _tgSend(chatId, noteReply);
+      return { ok: true, handled: true, reason: "", command: "(pull note)", chatId: chatId };
+    }
+
     // Ignore ordinary conversation. The warehouse group is a real chat — the
     // bot must only speak when explicitly addressed with a slash command.
     // ⭐ EXCEPT a PRIVATE chat with the bot (2026-10-01, Parts Finder item 6): there every
@@ -241,7 +258,14 @@ function _tgHandleCallback(cbq) {
     text = "⚠ " + action + " failed: " + String(err.message || err);
   }
 
-  if (chatId && messageId) _tgEdit(chatId, messageId, text);   // no buttons => removed
+  // A handler may return {keep:true} — leave the card exactly as it is (📝 Note posts its
+  // own prompt and the card must keep its buttons) — or {text, buttons} to redraw it.
+  if (text && typeof text === 'object') {
+    if (!text.keep) {
+      if (chatId && messageId) _tgEdit(chatId, messageId, text.text, text.buttons);
+      else _tgSend(chatId, text.text, text.buttons);
+    }
+  } else if (chatId && messageId) _tgEdit(chatId, messageId, text);   // no buttons => removed
   else _tgSend(chatId, text);
 
   return { ok: true, handled: true, reason: "", command: action, chatId: chatId };
@@ -598,9 +622,13 @@ var TG_ROUTES = {
   "/pull": {
     help:  "pull a Zoho sales order into the DIRECT table",
     usage: "<SO or INV> [note <text>]",
-    run: function (argStr) {
-      if (!argStr) return "Usage: /pull <SO or INV> [note <text>]\nExample: /pull SO-23219 note hold for payment";
-      var a = _tgParsePullArgs(argStr);
+    run: function (argStr, args, msg) {
+      if (!argStr) return "Usage: /pull <SO or INV> [note <text>]\nExample: /pull SO-23219 note hold for payment\n" +
+                          "One line only: /pull SO-23219 note 166500: hold this one\nOr tap 📝 Note on the card.";
+      // The RAW text, not argStr — argStr is whitespace-joined, which would fold a
+      // several-line note ("hold for payment\n166500: this one first") into one line.
+      var raw = (msg && msg.text) ? String(msg.text).trim().replace(/^\S+\s*/, "") : argStr;
+      var a = _tgParsePullArgs(raw);
       return _tgPullPreview(a.query, a.note);
     }
   },
@@ -731,6 +759,10 @@ var TG_ACTIONS = {
     toast: "Pulling…",
     run: function (soNumber) { return _tgPullApply(soNumber); }
   },
+  "pnote": {
+    toast: "Reply with the note",
+    run: function (token, cbq) { return _tgPullNotePrompt(token, cbq); }
+  },
   "rline": {
     toast: "Adding…",
     run: function (token) { return _tgReplacementApply(token); }
@@ -801,17 +833,102 @@ function _tgFormatAuto(text, who) {
   return (mode === "mpn" ? _tgFormatFind(raw, who) : _tgFormatSearch(raw, who)) + "\n\n" + tip;
 }
 
-/** "/pull SO-24609 note hold for payment" → { query, note }. "note" anywhere after the order. Pure. */
+/** "/pull SO-24609 note hold for payment" → { query, note }. "note" anywhere after the order.
+ *  Newlines survive — a typed note may hold several lines, read by _tgParsePullNotes. Pure. */
 function _tgParsePullArgs(argStr) {
-  var toks = String(argStr || "").trim().split(/\s+/).filter(Boolean);
-  var out = { query: toks.shift() || "", note: "" };
-  for (var i = 0; i < toks.length; i++) {
-    if (toks[i].toLowerCase() === "note") { out.note = toks.slice(i + 1).join(" ").trim(); break; }
-  }
-  out.note = out.note.slice(0, TG_PULL_NOTE_MAX);
+  var m = String(argStr || "").trim().match(/^(\S*)([\s\S]*)$/);
+  var out = { query: m ? m[1] : "", note: "" };
+  var n = (m ? m[2] : "").match(/(?:^|\s)note(?:\s+([\s\S]*))?$/i);
+  if (n) out.note = String(n[1] || "").trim();
+  out.note = out.note.slice(0, TG_PULL_TEXT_MAX);
   return out;
 }
-var TG_PULL_NOTE_MAX = 200;
+var TG_PULL_NOTE_MAX = 200;          // one note (one row's worth)
+var TG_PULL_TEXT_MAX = 1500;         // everything typed at once
+var TG_PULL_SESSION_SEC = 21600;     // the card's notes live 6 h (CacheService's ceiling)
+
+/** A SKU as a match key: case-blind, and leading zeros dropped from all-digit SKUs so a
+ *  typed "000000" still finds the placeholder line. Pure. */
+function _tgSkuKey(s) {
+  var k = String(s == null ? "" : s).trim().toUpperCase();
+  return /^\d+$/.test(k) ? k.replace(/^0+(?=\d)/, "") : k;
+}
+
+/**
+ * Read notes typed for a pull. One rule, every door (typed after "note", or a reply):
+ *   "call before shipping"       → every row
+ *   "166500: hold this one"      → that SKU's row only
+ *   several lines                → several notes (plain lines join into one order note)
+ *   "clear"                      → remove every note
+ * A "word: text" line is a SKU note only when the word looks like a SKU (5+ chars, a
+ * digit) — so "Pickup 3:30" or "Urgent: call" stay whole-order notes. A SKU-looking word
+ * NOT on this order is an ERROR, never a guess: a note on the wrong row is worse than none.
+ * Pure. → { all, sku:{SKU:note}, clear, errors[] }
+ */
+function _tgParsePullNotes(text, skus) {
+  var out = { all: "", sku: {}, clear: false, errors: [] };
+  var known = {};
+  (skus || []).forEach(function (s) { known[_tgSkuKey(s)] = String(s); });
+  var t = String(text == null ? "" : text).trim();
+  if (/^(clear|none|no notes?|remove( all)?)$/i.test(t)) { out.clear = true; return out; }
+  var general = [];
+  t.split(/\r?\n/).forEach(function (line) {
+    line = line.trim().replace(/^[•·]\s*/, "");
+    if (!line) return;
+    var m = line.match(/^([A-Za-z0-9][A-Za-z0-9._\/-]*)\s*:\s*([\s\S]*)$/);
+    if (m && m[1].length >= 5 && /\d/.test(m[1])) {
+      var sku = known[_tgSkuKey(m[1])];
+      if (!sku) { out.errors.push(m[1] + " is not on this order"); return; }
+      out.sku[sku] = m[2].trim().slice(0, TG_PULL_NOTE_MAX);   // "" = remove that line's note
+      return;
+    }
+    general.push(line);
+  });
+  out.all = general.join(" · ").slice(0, TG_PULL_NOTE_MAX);
+  return out;
+}
+
+/** Fold parsed notes into a card's notes (replace the order note only when one was given). */
+function _tgPullMergeNotes(sess, p) {
+  if (p.clear) { sess.all = ""; sess.sku = {}; return sess; }
+  if (p.all) sess.all = p.all;
+  Object.keys(p.sku).forEach(function (k) {
+    if (p.sku[k]) sess.sku[k] = p.sku[k]; else delete sess.sku[k];
+  });
+  return sess;
+}
+
+/** The card's notes live in the script cache under a short token: callback_data is 64 BYTES. */
+function _tgPullSessionPut(token, sess) {
+  CacheService.getScriptCache().put("pn:" + token, JSON.stringify(sess), TG_PULL_SESSION_SEC);
+}
+function _tgPullSessionGet(token) {
+  var raw = null;
+  try { raw = CacheService.getScriptCache().get("pn:" + token); } catch (e) { raw = null; }
+  if (!raw) return null;
+  try { var o = JSON.parse(raw); if (o && typeof o === 'object' && o.v === 2) return o; } catch (_) {}
+  // A card drawn before 2026-10-02 held the bare note string.
+  return { v: 2, so: "", base: "", skus: [], all: String(raw), sku: {}, legacy: true };
+}
+
+/** The card's text: the line list, then whatever notes are set. */
+function _tgPullCardText(sess) {
+  var L = [sess.base];
+  var keys = Object.keys(sess.sku || {});
+  if (sess.all || keys.length) {
+    L.push("");
+    if (sess.all) L.push("📝 Every row: " + sess.all);
+    keys.forEach(function (k) { L.push("📝 " + k + ": " + sess.sku[k]); });
+  }
+  return L.join("\n");
+}
+function _tgPullCardButtons(token, soNumber) {
+  return [
+    [{ text: "📝 Note", data: "pnote:" + token }],
+    [{ text: "✅ Pull all", data: "pull:" + soNumber + ":" + token },
+     { text: "✖ Cancel",   data: "cancel:" + soNumber }]
+  ];
+}
 
 /** Build the /pull confirmation card, or explain why this one needs the sheet. */
 function _tgPullPreview(query, note) {
@@ -836,6 +953,13 @@ function _tgPullPreview(query, note) {
            ".\n\nPer-line decisions belong on a real screen. Open the sheet → Pull from Zoho.";
   }
 
+  var skus = d.lines.map(function (ln) { return ln.sku; });
+  var p = _tgParsePullNotes(note, skus);
+  if (p.errors.length) {
+    return head + "\n\n⚠ Nothing shown — " + p.errors.join(" · ") +
+           ".\nThis order's lines: " + skus.join(", ");
+  }
+
   var L = [head, ""];
   d.lines.forEach(function (ln) {
     L.push("  " + ln.zohoQty + "× " + ln.sku +
@@ -845,36 +969,72 @@ function _tgPullPreview(query, note) {
   L.push("");
   L.push("All " + s.new + " lines are new.");
 
-  // ⚠ The note cannot ride in callback_data (64 BYTES) — it waits in the script cache under
-  // a short token, the /missing + /amazon pattern. No note → the button is exactly as before.
-  var pullData = "pull:" + d.soNumber;
-  if (note) {
-    var token = Utilities.getUuid().replace(/-/g, "").slice(0, 10);
-    try { CacheService.getScriptCache().put("pn:" + token, note, 1800); } catch (e) { token = ""; }
-    if (!token) return head + "\n\n⚠ Could not hold the note just now — try again.";
-    pullData += ":" + token;
-    L.push("📝 Note on every row: " + note);
-  }
-
-  // Returning {text, buttons} keeps the sending in ONE place (the entry point)
-  // instead of handing routes a chat id to send with themselves.
-  return {
-    text: L.join("\n"),
-    buttons: [[
-      { text: "✅ Pull all", data: pullData },
+  var sess = _tgPullMergeNotes({ v: 2, so: d.soNumber, base: L.join("\n"), skus: skus, all: "", sku: {} }, p);
+  var token = Utilities.getUuid().replace(/-/g, "").slice(0, 10);
+  try { _tgPullSessionPut(token, sess); } catch (e) { token = ""; }
+  if (!token) {
+    // No session → no notes and no Note button; a plain pull still works.
+    if (note) return head + "\n\n⚠ Could not hold the note just now — try again.";
+    return { text: sess.base, buttons: [[
+      { text: "✅ Pull all", data: "pull:" + d.soNumber },
       { text: "✖ Cancel",   data: "cancel:" + d.soNumber }
-    ]]
-  };
+    ]] };
+  }
+  // Returning {text, buttons} keeps the sending in ONE place (the entry point).
+  return { text: _tgPullCardText(sess), buttons: _tgPullCardButtons(token, d.soNumber) };
+}
+
+/** 📝 Note tapped: ask for the note as a REPLY, and remember which card to redraw. */
+function _tgPullNotePrompt(token, cbq) {
+  var sess = _tgPullSessionGet(token);
+  if (!sess || sess.legacy) return "⚠ This card has expired — nothing was pulled.\nSend /pull again.";
+  var chatId = cbq && cbq.message && cbq.message.chat && cbq.message.chat.id;
+  sess.chat = chatId;
+  sess.msg  = cbq && cbq.message && cbq.message.message_id;
+  _tgPullSessionPut(token, sess);
+  // force_reply opens the reply box on the phone straight away. NOT selective — a selective
+  // force_reply only targets the sender of the message replied to, which here is the bot.
+  _tgApi("sendMessage", {
+    chat_id: chatId,
+    text: "📝 Note for " + sess.so + " — reply to THIS message:\n\n" +
+          "  call before shipping   → every row\n" +
+          "  " + (sess.skus[0] || "166500") + ": hold this one   → that line only\n" +
+          "  several lines   → several notes\n" +
+          "  clear   → remove all notes\n\n" +
+          "ref pn" + token,
+    reply_to_message_id: sess.msg,
+    allow_sending_without_reply: true,
+    reply_markup: { force_reply: true, input_field_placeholder: "call before shipping  ·  SKU: note" }
+  });
+  return { keep: true };
+}
+
+/** A reply to the note prompt: set the notes and redraw the card. Returns the chat reply. */
+function _tgPullNoteReply(token, text) {
+  var sess = _tgPullSessionGet(token);
+  if (!sess || sess.legacy) return "⚠ That card has expired — send /pull again.";
+  var p = _tgParsePullNotes(String(text || "").slice(0, TG_PULL_TEXT_MAX), sess.skus);
+  if (p.errors.length) {
+    return "⚠ Nothing changed — " + p.errors.join(" · ") +
+           ".\nThis order's lines: " + sess.skus.join(", ") + "\nReply to the note message again.";
+  }
+  _tgPullMergeNotes(sess, p);
+  _tgPullSessionPut(token, sess);
+  if (sess.chat && sess.msg) _tgEdit(sess.chat, sess.msg, _tgPullCardText(sess), _tgPullCardButtons(token, sess.so));
+  var n = (sess.all ? 1 : 0) + Object.keys(sess.sku).length;
+  return n ? "✓ Note" + (n === 1 ? "" : "s") + " set on the " + sess.so + " card — tap ✅ Pull all to pull."
+           : "✓ Notes cleared on the " + sess.so + " card.";
 }
 
 /** Apply the pull for every line, then report. Called from the button tap. */
 function _tgPullApply(arg) {
-  // "SO-24609" or "SO-24609:<token>" — the token fetches the note typed with /pull
-  var parts = String(arg || "").split(":"), soNumber = parts[0], token = parts[1] || "", note = "";
+  // "SO-24609" or "SO-24609:<token>" — the token fetches the notes held for this card
+  var parts = String(arg || "").split(":"), soNumber = parts[0], token = parts[1] || "";
+  var sess = { all: "", sku: {} };
   if (token) {
-    try { note = CacheService.getScriptCache().get("pn:" + token) || ""; } catch (e) { note = ""; }
-    // Never pull WITHOUT a note someone deliberately wrote — say so and let them resend.
-    if (!note) return "⬇ " + soNumber + "\n\n⚠ The note on this card has expired (30 min) — nothing was pulled.\nSend /pull again.";
+    sess = _tgPullSessionGet(token);
+    // Never pull WITHOUT notes someone may have written — say so and let them resend.
+    if (!sess) return "⬇ " + soNumber + "\n\n⚠ This card has expired (6 h) — nothing was pulled.\nSend /pull again.";
   }
   var d = computeZohoSoDiff(soNumber);
   if (!d || !d.ok) return "⚠ " + ((d && d.reason) || "Could not re-read that sales order.");
@@ -886,14 +1046,21 @@ function _tgPullApply(arg) {
     return "⬇ " + d.soNumber + "\n\n🔒 State changed since this card was sent — it's no longer a clean first pull.\nOpen the sheet → Pull from Zoho.";
   }
 
-  var selections = d.lines.map(function (ln) { return { sku: ln.sku, action: "insert" }; });
-  var r = applyZohoPullSelection(soNumber, selections, note);
+  var selections = d.lines.map(function (ln) {
+    var sel = { sku: ln.sku, action: "insert" };
+    if (sess.sku && sess.sku[ln.sku]) sel.note = sess.sku[ln.sku];
+    return sel;
+  });
+  var r = applyZohoPullSelection(soNumber, selections, sess.all || "");
 
   if (!r || !r.ok) return "⬇ " + soNumber + "\n\n⚠ Pull failed: " + ((r && r.reason) || "unknown");
 
+  var noteLines = [];
+  if (sess.all) noteLines.push("📝 Every row: " + sess.all);
+  Object.keys(sess.sku || {}).forEach(function (k) { noteLines.push("📝 " + k + ": " + sess.sku[k]); });
   return "✅ PULLED · " + r.soNumber +
          "\n\n" + r.applied.inserted + " row" + (r.applied.inserted === 1 ? "" : "s") +
-         " added to DIRECT." + (note ? "\n📝 Note: " + note : "") +
+         " added to DIRECT." + (noteLines.length ? "\n" + noteLines.join("\n") : "") +
          (r.skipped && r.skipped.length ? "\n⚠ " + r.skipped.length + " skipped." : "");
   // (the cache entry simply expires — a re-tap after success is refused by the gate above)
 }
