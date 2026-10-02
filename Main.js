@@ -355,7 +355,19 @@ function onEditInstallable(e) {
   // whole minute.
   try {
     var _sh = e && e.range && e.range.getSheet();
-    if (_sh && _sh.getName() === MAIN_SHEET_NAME) _dashBustTickCache();
+    if (_sh && _sh.getName() === MAIN_SHEET_NAME) {
+      _dashBustTickCache();
+      // ⭐ 2026-10-02 — a NOTE edit publishes NOW, not on the next minute. HOLD is
+      // written here, and a hold exists to stop a box before its label is bought,
+      // so 30–70s of waiting for the publish trigger was the wrong budget. Costs
+      // ~nothing net: publishBoardTick clears the dirty flag, so the minute trigger
+      // then skips the rebuild it would have done anyway. Debounced to one per 15s.
+      var _c0 = e.range.getColumn(), _c1 = _c0 + e.range.getNumColumns() - 1;
+      if (Schema.cols.NOTE >= _c0 && Schema.cols.NOTE <= _c1 && e.range.getLastRow() >= Schema.dataStartRow &&
+          typeof publishBoardTickInline === "function") {
+        publishBoardTickInline(undefined, "note");
+      }
+    }
 
     // ⚠ THE PICK ID IS A GATE, so it gets the sidebar's cache cleared too — narrowly,
     //   only when the edit actually touched one of those two cells. Setting it BY HAND
