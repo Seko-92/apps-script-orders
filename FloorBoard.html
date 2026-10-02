@@ -2022,8 +2022,14 @@ body.ch-amazon #pickListAmazon { display: block; }
     setInterval(selfVersionCheck, 5 * 60000);
     setInterval(selfUpdateIfIdle, 15000);
 
+    var lastTickAt = Date.now();      // for the once-a-minute check-in while paused
     function poll() {
-      if (pollPaused) { schedulePoll(); return; }   // stay scheduled, just skip
+      // Stay scheduled, just skip — EXCEPT once a minute (2026-10-02). A drawer
+      // left open on the tablet used to stop every check-in, which n8n reads as
+      // the screen being off and the quiet-floor alert would fire on an open
+      // drawer. One tick a minute keeps the screen counted; the lookup the pause
+      // protects is long finished by then.
+      if (pollPaused && Date.now() - lastTickAt < 60000) { schedulePoll(); return; }
       if (pollBusy) return;              // previous tick still running — skip
       pollBusy = true;
       var started = Date.now();
@@ -2096,6 +2102,7 @@ body.ch-amazon #pickListAmazon { display: block; }
       document.getElementById('board').classList.remove('booting');
 
       lastTick = tick;                   // optimistic picks re-paint from this
+      lastTickAt = Date.now();
       paintScreensOnline(tick);
 
       var c = tick.cockpit || {};
