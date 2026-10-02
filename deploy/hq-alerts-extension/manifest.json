@@ -1,0 +1,16 @@
+{
+  "manifest_version": 3,
+  "name": "HQ Alerts",
+  "version": "1.0.0",
+  "description": "HQ Motor Service warehouse alerts: new orders and unanswered holds, without keeping a tab open. Read-only.",
+  "icons": { "16": "icons/hq-16.png", "32": "icons/hq-32.png", "48": "icons/hq-48.png", "128": "icons/hq-128.png" },
+  "action": {
+    "default_title": "HQ Alerts",
+    "default_popup": "popup.html",
+    "default_icon": { "16": "icons/hq-16.png", "32": "icons/hq-32.png" }
+  },
+  "background": { "service_worker": "background.js" },
+  "permissions": ["alarms", "notifications", "storage", "background"],
+  "host_permissions": ["https://hq.yassinqurabi.com/*"],
+  "minimum_chrome_version": "120"
+}

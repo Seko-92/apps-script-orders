@@ -5,6 +5,8 @@
 const fs = require('fs'), path = require('path');
 const { chromium } = require('playwright');
 const html = fs.readFileSync(process.env.ALERTS_FILE || path.join(__dirname, '..', 'alerts.html'), 'utf8');
+// the rules are shared with the Chrome extension — served to the page as /alerts-core.js
+const core = fs.readFileSync(path.join(__dirname, '..', 'deploy', 'hq-alerts-extension', 'core.js'), 'utf8');
 let pass = 0, fail = 0;
 const ok = (n, c, g) => { if (c) pass++; else { fail++; console.log('FAIL', n, '→', JSON.stringify(g)); } };
 
@@ -30,6 +32,7 @@ async function run(at, ticks, storage, permSeq) {
       const t = ticks[Math.min(i, ticks.length - 1)]; i++;
       return route.fulfill({ contentType: 'application/json', body: JSON.stringify(t) });
     }
+    if (route.request().url().endsWith('/alerts-core.js')) return route.fulfill({ contentType: 'application/javascript; charset=utf-8', body: core });
     return route.fulfill({ contentType: 'text/html; charset=utf-8', body: html });
   });
   await page.route(/fonts\./, r => r.abort());

@@ -102,6 +102,7 @@ button[hidden] { display:none; }
     Clicking a notification opens the board.</div>
 </div>
 
+<script src="/alerts-core.js"></script>
 <script>
 // ===========================================================================
 // HQ ALERTS client — read-only. Polls the published tick; never writes.
@@ -118,31 +119,10 @@ function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function 
 function num(v) { var n = parseFloat(v); return isFinite(n) ? n : 0; }
 function store(k, v) { try { if (v === undefined) return JSON.parse(localStorage.getItem(k) || 'null'); localStorage.setItem(k, JSON.stringify(v)); } catch (e) { return null; } }
 
-// ---------- working hours (Houston) ----------
-function houston() {
-  var now = new Date();
-  var h = parseInt(now.toLocaleString('en-US', { timeZone: TZ, hour: '2-digit', hour12: false }), 10) % 24;
-  var wd = now.toLocaleDateString('en-US', { timeZone: TZ, weekday: 'short' });
-  return { hour: h, weekday: wd !== 'Sat' && wd !== 'Sun' };
-}
-function inHours() { var t = houston(); return t.weekday && t.hour >= 9 && t.hour < 17; }
-function clockNow() { return new Date().toLocaleTimeString('en-US', { timeZone: TZ, hour: 'numeric', minute: '2-digit' }); }
-
-// ---------- shelf order: natural, like the pick list (A-9 before A-50) ----------
-function shelfKey(l) {
-  var m = String(l || '').trim().toUpperCase().match(/^([A-Z]+)\s*-\s*(\d+)/);
-  return m ? [0, m[1], parseInt(m[2], 10)] : [1, String(l || ''), 0];
-}
-function cmpShelf(a, b) {
-  var x = shelfKey(a), y = shelfKey(b);
-  for (var i = 0; i < 3; i++) { if (x[i] < y[i]) return -1; if (x[i] > y[i]) return 1; }
-  return 0;
-}
-function shelvesOf(rows, n) {
-  var seen = {}, out = [];
-  rows.forEach(function (r) { var l = String(r.location || '').trim(); if (l && l !== 'NOT FOUND' && !seen[l]) { seen[l] = 1; out.push(l); } });
-  return out.sort(cmpShelf).slice(0, n);
-}
+// ---------- the rules live in /alerts-core.js — shared with the Chrome extension ----------
+var C = HQAlertsCore;
+function inHours() { return C.inHours(Date.now()); }
+function clockNow() { return C.clockNow(Date.now()); }
 
 // ---------- the tab's own icon + title ----------
 function drawIcon(ring, dot) {
@@ -229,93 +209,25 @@ document.getElementById('btnTest').addEventListener('click', function () {
            logClass: 'g', logText: 'Test notification' });
 });
 
-// ---------- what is news ----------
-var seen = store('hqAlertsSeen') || { orders: {}, holds: {} };
+// ---------- what is news (decided by HQAlertsCore.decide) ----------
+var seen = C.freshSeen(store('hqAlertsSeen'));
 var unseen = 0, primed = false;
-function saveSeen() {
-  var now = Date.now();
-  ['orders', 'holds'].forEach(function (k) {
-    for (var id in seen[k]) if (now - seen[k][id] > SEEN_KEEP_MS) delete seen[k][id];
-  });
-  store('hqAlertsSeen', seen);
-}
 
 function onTick(t) {
-  var rows = t.openOrders || [], held = t.held || [], age = (t.cockpit && t.cockpit.orderAgeMin) || {},
-      customers = t.customers || {}, now = Date.now();
-
-  // 1 · HOLDS — any time. An unanswered hold not yet announced from this PC.
-  held.forEach(function (h) {
-    var id = String(h.orderId || '');
-    if (!id || h.acked || seen.holds[id]) return;
-    var it = (h.items || [])[0] || {};
-    var why = h.shipped ? 'label already bought' : (h.urgent ? 'being picked' : 'not started');
-    // remembered only once actually shown — a hold that lands while notifications
-    // are off is announced the moment someone turns them on
-    if (notify({
-      title: 'Hold · ' + why,
-      body: id + ' · ' + (it.loc || 'no shelf') + ' · ' + (it.sku || '') + ' ×' + (it.qty || 1) +
-            ((h.items || []).length > 1 ? ' (+' + ((h.items.length) - 1) + ' more)' : '') +
-            '\n' + (h.shipped ? 'Set the box aside. ' : '') + 'Acknowledge on the board.',
-      tag: 'hq-hold-' + id, sticky: true, icon: ICON_HOLD,
-      logClass: 'r', logText: 'Hold · ' + why + ' · ' + id
-    })) seen.holds[id] = now;
+  var now = Date.now();
+  var d = C.decide(t, seen, primed, now);
+  d.notes.forEach(function (n) {
+    var shown = notify({ title: n.title, body: n.body, tag: n.id, sticky: n.sticky,
+                         icon: n.kind === 'hold' ? ICON_HOLD : ICON_NEW,
+                         logClass: n.logClass, logText: n.logText });
+    // a hold is remembered only once actually shown — one that lands while
+    // notifications are off is announced the moment someone turns them on
+    if (shown && n.holdId) seen.holds[n.holdId] = now;
   });
-
-  // 2 · NEW ORDERS — PENDING order ids this PC has not seen. The first tick after
-  // the page opens only REMEMBERS what is already there: history is not news.
-  var byOrder = {}, order = [];
-  rows.forEach(function (r) {
-    var id = String(r.orderId || '').trim();
-    if (!id) return;
-    if (!byOrder[id]) { byOrder[id] = { id: id, ch: r.channel || 'EBAY', rows: [], pending: false }; order.push(byOrder[id]); }
-    byOrder[id].rows.push(r);
-    if (String(r.status).toUpperCase() === 'PENDING') byOrder[id].pending = true;
-  });
-  var fresh = order.filter(function (o) {
-    if (seen.orders[o.id]) return false;
-    seen.orders[o.id] = now;
-    if (!primed || !o.pending) return false;
-    // ⚠ the board's list is capped, so an OLD order can scroll into view later —
-    // that is not an arrival. Same 20-minute guard the sidebar's order voices use.
-    if (age[o.id] !== undefined && num(age[o.id]) > BURST_AGE_MAX) return false;
-    return true;
-  });
-  if (fresh.length && inHours()) {
-    var ebay = fresh.filter(function (o) { return o.ch !== 'DIRECT' && o.ch !== 'AMAZON'; });
-    // eBay — ONE notification per pull, however many landed
-    if (ebay.length === 1) {
-      var r0 = ebay[0].rows[0];
-      notify({ title: 'New eBay order', body: (r0.location || 'no shelf') + ' · ' + r0.sku + ' ×' + (r0.qty || 1) +
-               (ebay[0].rows.length > 1 ? ' (+' + (ebay[0].rows.length - 1) + ' lines)' : '') + '\n' + ebay[0].id,
-               tag: 'hq-ebay-' + now, icon: ICON_NEW, logClass: 'y', logText: 'New eBay order · ' + (r0.location || ebay[0].id) });
-    } else if (ebay.length > 1) {
-      var all = []; ebay.forEach(function (o) { all = all.concat(o.rows); });
-      notify({ title: ebay.length + ' new eBay orders',
-               body: 'First walk ' + shelvesOf(all, 3).join(' · ') + '\n' + all.length + ' lines',
-               tag: 'hq-ebay-' + now, icon: ICON_NEW, logClass: 'y', logText: ebay.length + ' new eBay orders' });
-    }
-    // Direct + Amazon — one each, stays until clicked
-    fresh.filter(function (o) { return o.ch === 'DIRECT' || o.ch === 'AMAZON'; }).forEach(function (o) {
-      var r1 = o.rows[0], isA = o.ch === 'AMAZON';
-      var first = shelvesOf(o.rows, 1)[0];
-      var line1 = (first ? first + ' · ' : '') + r1.sku + ' ×' + (r1.qty || 1) +
-                  (o.rows.length > 1 ? ' (+' + (o.rows.length - 1) + ' lines)' : '');
-      // second line: who it is for (Direct) or the ship-by deadline (Amazon)
-      var line2 = isA ? ((String(r1.note || '').match(/ship by\s+([^·]+)/i) || [])[1] || '').trim()
-                      : (customers[o.id] || '');
-      if (isA && line2) line2 = 'ship by ' + line2;
-      notify({
-        title: (isA ? 'New Amazon order · ' : 'New Direct order · ') + o.id,
-        body: line1 + (line2 ? '\n' + line2 : ''),
-        tag: 'hq-' + o.id, sticky: true, icon: ICON_NEW,
-        logClass: 'y', logText: (isA ? 'New Amazon order · ' : 'New Direct order · ') + o.id
-      });
-    });
-    if (document.visibilityState !== 'visible') unseen += fresh.length;
-  }
+  if (d.newCount && document.visibilityState !== 'visible') unseen += d.newCount;
   primed = true;
-  saveSeen();
+  store('hqAlertsSeen', seen);
+  var held = t.held || [];
 
   // 3 · the tab tells the state even with no notification on screen
   var open = held.filter(function (h) { return !h.acked; });
