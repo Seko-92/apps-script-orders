@@ -30,11 +30,21 @@ var BAND_MARKS = {
   amazon: { file: 'band-amazon-v2.gif', w: 197, h: 50, markW: 99 }
 };
 
-/** Our band images on a sheet, by URL family — never by position. */
+/** Our band images on a sheet — by URL family, and by SIZE + COLUMN when Google does not
+ *  report the URL back (getUrl() can return null). Every size is one this file inserts, at
+ *  1x, in the band-mark column, so nothing else on the sheet can match. */
 function _bandMarkImages(sheet) {
+  var sizes = {};
+  ['direct', 'amazon'].forEach(function (k) { sizes[BAND_MARKS[k].w + 'x' + BAND_MARKS[k].h] = 1; });
+  sizes['164x50'] = 1; sizes['52x50'] = 1;               // the v1 marks, so an old one is still found
   return sheet.getImages().filter(function (im) {
     var u = ''; try { u = String(im.getUrl() || ''); } catch (e) {}
-    return u.indexOf(BAND_MARKS.family) !== -1;
+    if (u.indexOf(BAND_MARKS.family) !== -1) return true;
+    if (u) return false;                                   // someone else's image, named
+    try {
+      return im.getAnchorCell().getColumn() === Schema.bandLogoCol &&
+             sizes[im.getWidth() + 'x' + im.getHeight()] === 1;
+    } catch (e) { return false; }
   });
 }
 
