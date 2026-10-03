@@ -1,0 +1,82 @@
+// node catalogue/test-parsers.js — every fixture is a real layout seen in the manuals (2026-10-03).
+"use strict";
+const { parseKubota } = require("./lib/kubota");
+const { parseKpad } = require("./lib/kpad");
+
+let pass = 0, fail = 0;
+function eq(name, got, want) {
+  const g = JSON.stringify(got), w = JSON.stringify(want);
+  if (g === w) { pass++; } else { fail++; console.log("FAIL " + name + "\n   got  " + g + "\n   want " + w); }
+}
+const parts = r => r.sections.flatMap(s => s.parts);
+
+// ---------- Kubota book ----------
+const HDR = [
+  "                                                                                                                     A:V2203-M-E2B-EU-X3",
+  "                                                                                                    Q'TY/S.No.",
+  "REF.No.     PART No.                                                                                Q'TE/No.S.                        REMARKS",
+  "POS.No.    REFERENCE         PART NAME            DESIGNATION             BEZEICHNUNG              STUECK/S.Nr.        I.C.          REMARQUES",
+  "BILD-Nr.   BESELL-Nr.                                                                                                               BEMERKUNGEN"
+].join("\n");
+const COVER = [
+  "Spare Parts List", "V2203-M-E2B", "(19.06.2006 --> 31.03.2007)",
+  "                                 V2203-M-E2B-EU-X3                        1G475-00000",
+  "                            CONTENTS", "0102    PISTON AND CRANKSHAFT ･････････････････････････････ 11",
+  "0504    FAN ･･････････････････････････････････････････････････････ 29"
+].join("\n");
+const PISTON = [
+  "                 PISTON AND CRANKSHAFT", "0102             PISTON ET VILEBREQUIN", "                 KOLBEN UND KURBELWELLE", "",
+  HDR,
+  "                                                                                                  4            -",
+  "010 1G780-2111-2        PISTON                PISTON               KOLBEN                                                     STD",
+  "                                                                                                  4            -",
+  "080 17331-2297-0        METAL,CRANKPIN        COUSSINET DE BIELLE METALLTEIL                                                  -0.20mm SET",
+  "                                                                                                  8            -",
+  "040 14109-2133-0        CIR CLIP,INTERNAL     CIRCLIP              SPRENGRING",
+  "160     ----            BLANK                 BLANC                LEERE SPALTE",
+  "                                                                     Interchangeable;   not interchangeable;"
+].join("\n");
+const OILF = [
+  "             OIL FILTER", "0006         FILTRE D'HUILE", "",
+  "REF.No.PART No.                                                                            Q'TE/No.S.                  REMARKS",
+  "POS.No.                PART NAME           DESIGNATION           BEZEICHNUNG              STUECK/S.Nr.        I.C.    REMARQUES",
+  "                                                                                         1            -",
+  "010 336.021.004",
+  "    16414-3243-0 CARTRIDGE,OIL FILTER CARTOUCHE FILTRANTE    OELFILTERPATRONE"
+].join("\n");
+const r1 = parseKubota([COVER, PISTON, OILF, "   ", "NUMERICAL INDEX"].join("\f"), "x.pdf");
+eq("cover model", [r1.model, r1.codeNo, r1.validity], ["V2203-M-E2B-EU-X3", "1G475-00000", "(19.06.2006 --> 31.03.2007)"]);
+eq("piston line", parts(r1)[0], { ref: "010", pn: "1G780-2111-2", name: "PISTON", remark: "STD", qty: [4, null], page: 2 });
+eq("size remark kept", parts(r1)[1].remark, "-0.20mm SET");
+eq("no remark", [parts(r1)[2].name, parts(r1)[2].remark, parts(r1)[2].qty], ["CIR CLIP,INTERNAL", "", [8, null]]);
+eq("BLANK slot skipped", parts(r1).some(p => p.pn === "----"), false);
+eq("xref first, PN below", [parts(r1)[3].pn, parts(r1)[3].xref, parts(r1)[3].name], ["16414-3243-0", "336.021.004", "CARTRIDGE,OIL FILTER"]);
+eq("section from contents not found → flagged", r1.flags.filter(f => /section/.test(f.kind)).map(f => f.line), ["0504 FAN"]);
+eq("sections", r1.sections.map(s => s.code + " " + s.name), ["0102 PISTON AND CRANKSHAFT", "0006 OIL FILTER"]);
+
+// ---------- KPAD printout ----------
+const KP = [
+  "kpadweb.kubota.co.jp/kpad2/PartsInfoPrintUnite.do",
+  "              D902-E4B-AVN-1 -> ENGINE -> 010000 MAIN BEARING CASE ## D902-E4B-AVN-1",
+  "   No       Part Number            Part Name              Qty    RoundUp         IC        S/N              Remarks                  Kg",
+  "   080 15861-22973 METAL,CRANKPIN                            3                                            -0.20mm/SET               0.03",
+  "                           ASSY GUIDE,OIL",
+  "   020      1G471-36502                                  1                                                                          0.14",
+  "                           GAUGE",
+  "            1G460-      METAL,ASSY(3-",
+  "   040                                                          2                                          -0.20mm/SET              0.022",
+  "            23943        02,CRANKSHAFT)",
+  "        D902-E4B-AVN-1 -> ENGINE -> 010100 CAMSHAFT AND IDLE GEAR SHAFT ##",
+  "                                   D902-E4B-AVN-1",
+  "   No       Part Number            Part Name             Qty    RoundUp          IC        S/N              Remarks                  Kg",
+  "   010      16851-15552    TAPPET                          6                                                                        0.02"
+].join("\n");
+const r2 = parseKpad(KP, "d902.pdf");
+eq("kpad model", r2.model, "D902-E4B-AVN-1");
+eq("kpad qty + remark, kg ignored", [parts(r2)[0].qty, parts(r2)[0].remark], [[3], "-0.20mm/SET"]);
+eq("kpad name wrapped around line", parts(r2)[1].name, "ASSY GUIDE,OIL GAUGE");
+eq("kpad PN wrapped above+below", [parts(r2)[2].pn, parts(r2)[2].name, parts(r2)[2].qty], ["1G460-23943", "METAL,ASSY(3-02,CRANKSHAFT)", [2]]);
+eq("kpad section switches mid-page (wrapped ## header)", r2.sections.map(s => s.code + ":" + s.parts.length), ["010000:3", "010100:1"]);
+
+console.log(`${pass} passed, ${fail} failed`);
+process.exit(fail ? 1 : 0);
