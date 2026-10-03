@@ -1,65 +1,97 @@
 <!doctype html>
 <!--
-  band-marks/marks.html — the animated band marks (2026-10-03), owner-approved on the mock
-  "Table band · round 3" (https://claude.ai/artifact/LoUQj72rdGa1M4dGwDTJT6).
+  band-marks/marks.html — the animated band marks, v2 (2026-10-03), owner-approved on the
+  mock "Table band · round 7" (https://claude.ai/artifact/LoUQj72rdGa1M4dGwDTJT6).
 
-  Each mark is a pure function of time: drawDirect(ctx, t) / drawParcel(ctx, t), t in ms
-  from the start of the ACTION (the rest frames are the t=0 still). cap.js steps t at 24 fps
-  and saves PNGs; enc.py turns them into a verified GIF.
+  DIRECT (band-direct-v2.gif, 341x50, over D:E from the mark to the end of E):
+    the hand truck tips back, rolls a step, the wheel turns, the box settles, a warm light
+    glides over the letters — then a small box leaves the truck and TRUNDLES across the empty
+    stretch on its own soft shadow (little bumps) and drops off. Hand-carried, unhurried.
+  AMAZON (band-amazon-v2.gif, 197x50, the lane to the RIGHT of Amazon's still logo):
+    OUR HQ parcel rests on its shadow; a red scan line sweeps it, a white label stamps on, it
+    GLIDES out in one smooth slide with a soft trail, and a fresh parcel drops in. Mechanical.
+    ⚠ Amazon's mark is never inside this image — never redrawn, never moved.
 
-  ⚠ OPAQUE, on the band's exact yellow #ffd400. The still =IMAGE() mark sits underneath the
-    floating GIF as the fallback — a transparent GIF would show both marks at once mid-move.
-  ⚠ Drawn at 2x, inserted at 1x, so the mark stays crisp on a high-density screen.
+  Each is a pure function of time t (ms) within ONE 22 s cycle; cap.js renders only the action
+  window at 24 fps and enc.py holds the rest frames. Numbers are the mock's own CSS keyframes.
+  ⚠ OPAQUE, on the band's exact #ffd400 — the still =IMAGE() mark sits underneath.
+  ⚠ Drawn at 2x, inserted at 1x.
 -->
 <html><head><meta charset="utf-8"></head><body style="margin:0;background:#777">
 <canvas id="c"></canvas>
 <script>
-const YEL = '#ffd400', RED = '#e8312f', INK = '#1a1a1a';
-const S = 2;                                   // render scale
+const YEL = '#ffd400', RED = '#e8312f', INK = '#1a1a1a', S = 2, CYC = 22000;
 
-// ── CSS-identical easing (cubic-bezier solver) ─────────────────────────────────────
 function bez(x1, y1, x2, y2) {
   const cx = 3 * x1, bx = 3 * (x2 - x1) - cx, ax = 1 - cx - bx;
   const cy = 3 * y1, by = 3 * (y2 - y1) - cy, ay = 1 - cy - by;
   const X = t => ((ax * t + bx) * t + cx) * t, Y = t => ((ay * t + by) * t + cy) * t;
   const dX = t => (3 * ax * t + 2 * bx) * t + cx;
-  return x => { let t = x; for (let i = 0; i < 8; i++) { const d = dX(t); if (Math.abs(d) < 1e-6) break; t -= (X(t) - x) / d; t = Math.min(1, Math.max(0, t)); } return Y(t); };
+  return x => { let t = x; for (let i = 0; i < 10; i++) { const d = dX(t); if (Math.abs(d) < 1e-6) break; t -= (X(t) - x) / d; t = Math.min(1, Math.max(0, t)); } return Y(t); };
 }
-const SINE = bez(.37, 0, .63, 1), GLIDE = bez(.45, 0, .25, 1);
-// keyframes [[ms, value]], eased per segment like CSS
-function kf(frames, t, ease = SINE) {
+const SINE = bez(.37, 0, .63, 1), GLIDE = bez(.45, 0, .25, 1), BRISK = bez(.55, 0, .35, 1), EASE = bez(.25, .1, .25, 1);
+// keyframes [[ms, value, easeOfSegmentStartingHere?]] — CSS semantics: a segment uses the
+// timing function of its STARTING keyframe (default 'ease').
+function kf(frames, t) {
   if (t <= frames[0][0]) return frames[0][1];
   for (let i = 1; i < frames.length; i++) {
-    const [t1, v1] = frames[i], [t0, v0] = frames[i - 1];
-    if (t <= t1) { const p = ease((t - t0) / (t1 - t0 || 1)); return v0 + (v1 - v0) * p; }
+    const [t1, v1] = frames[i], [t0, v0, e] = frames[i - 1];
+    if (t <= t1) return v0 + (v1 - v0) * (e || EASE)((t - t0) / (t1 - t0 || 1));
   }
   return frames[frames.length - 1][1];
 }
+const s = x => x * 1000;
 
-// ── DIRECT: hand truck tips, rolls, wheel turns, box settles, light glides over the word ──
-// Geometry (logical px): GIF 164x50; the mark 140x36 sits at (12,7). Truck drawn from the
-// vector redraw in viewBox 165x144 at scale 36/144; the word is the real file's right part.
-const D = { W: 164, H: 50, mx: 12, my: 7, mh: 36 };
-const wordImg = new Image(); wordImg.src = 'mark-direct.png';   // crop 180..560 used below
+// ── shared: our parcel (viewBox 0 0 40 40, drawn bottom-centred) ──────────────────────────
+function parcel(ctx, x, yBottom, size, o) {
+  o = o || {};
+  const k = size / 40;
+  ctx.save(); ctx.globalAlpha = o.alpha == null ? 1 : o.alpha;
+  ctx.translate(x + size / 2, yBottom); ctx.scale((o.sx || 1) * k, (o.sy || 1) * k); ctx.translate(-20, -40);
+  ctx.lineJoin = 'round'; ctx.strokeStyle = INK; ctx.lineWidth = 2.4;
+  const body = new Path2D('M6 14 20 7l14 7v15l-14 7-14-7z');
+  ctx.fillStyle = '#c8954f'; ctx.fill(body); ctx.stroke(body);
+  ctx.stroke(new Path2D('M6 14l14 7 14-7M20 21v15'));
+  ctx.strokeStyle = YEL; ctx.lineWidth = 3; ctx.stroke(new Path2D('M13 10.5l14 7'));
+  if (o.hq) { ctx.fillStyle = INK; ctx.beginPath(); ctx.arc(13, 25, 3.6, 0, Math.PI * 2); ctx.fill(); }
+  if (o.label) {
+    ctx.save(); ctx.globalAlpha *= o.label.a;
+    ctx.translate(27, 24); ctx.scale(o.label.k, o.label.k); ctx.translate(-27, -24);
+    const lb = new Path2D('M23.5 23.5l7.5-3.6v5.4l-7.5 3.6z');
+    ctx.fillStyle = '#fff'; ctx.fill(lb); ctx.lineWidth = 1; ctx.strokeStyle = INK; ctx.stroke(lb);
+    ctx.lineWidth = .8; ctx.stroke(new Path2D('M25 25.6l4.6-2.2M25 27.2l3-1.4'));
+    ctx.restore();
+  }
+  ctx.restore();
+}
+function shadow(ctx, x, yBottom, w, scaleX, alpha) {
+  ctx.save(); ctx.globalAlpha = alpha;
+  const cx = x + w / 2, cy = yBottom - 2.5, rx = (w / 2 - 1) * scaleX;
+  const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, rx);
+  g.addColorStop(0, 'rgba(60,40,0,.38)'); g.addColorStop(.7, 'rgba(60,40,0,0)');
+  ctx.fillStyle = g; ctx.beginPath(); ctx.ellipse(cx, cy, rx, 2.5, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+}
+
+// ── DIRECT ────────────────────────────────────────────────────────────────────────────────
+// GIF x=0 sits at the D cell's left + (span-140)/2 - 12; y=0 is 5px below the band's top.
+const D = { W: 341, H: 50, mx: 12, my: 7, mh: 36 };
+const wordImg = new Image(); wordImg.src = 'mark-direct.png';
 const TRUCK = {
   handle: new Path2D('M14 8 Q25 6 28 15 L47 106'),
   box:    new Path2D('M148 82 L137 25 Q135 16 126 17 L61 28 Q52 30 54 39 L66 99 Q68 107 77 105'),
   label:  new Path2D('M84 49 L112 44'),
   base:   new Path2D('M66 120 L141 106 Q150 104 149 96')
 };
-// mock timeline (7 s loop) re-based so the action starts at 0: mock 0.84 s → 0
-const A0 = 840;
-const DIRECT_ACTION_MS = 6300 - A0 + 200;     // through the end of the glide, + a breath
+const DIRECT_ACTION = [s(0.5), s(7.0)];
 function drawDirect(ctx, t) {
-  const m = t + A0;                            // mock time
   ctx.setTransform(S, 0, 0, S, 0, 0);
   ctx.fillStyle = YEL; ctx.fillRect(0, 0, D.W, D.H);
-  const k = D.mh / 144;                        // viewBox → px
-  // tilt + roll about the wheel (55,121)
-  const tx  = kf([[840, 0], [1820, 9], [2800, 14], [3920, 0]], m);
-  const rot = kf([[840, 0], [1820, -9], [2800, -6], [3920, 0]], m) * Math.PI / 180;
-  const spin = kf([[840, 0], [2800, 200], [3920, 360]], m) * Math.PI / 180;
-  const boxY = kf([[3640, 0], [3990, -4], [4340, 0]], m);
+  const k = D.mh / 144;
+  const tx   = kf([[s(.5), 0, SINE], [s(1.3), 9, SINE], [s(2.1), 14, SINE], [s(3.0), 0]], t);
+  const rot  = kf([[s(.5), 0, SINE], [s(1.3), -9, SINE], [s(2.1), -6, SINE], [s(3.0), 0]], t) * Math.PI / 180;
+  const spin = kf([[s(.5), 0, SINE], [s(2.1), 200, SINE], [s(3.0), 360]], t) * Math.PI / 180;
+  const boxY = kf([[s(2.8), 0, SINE], [s(3.05), -4, SINE], [s(3.3), 0]], t);
   ctx.save();
   ctx.translate(D.mx, D.my); ctx.scale(k, k);
   ctx.translate(55 + tx, 121); ctx.rotate(rot); ctx.translate(-55, -121);
@@ -68,83 +100,93 @@ function drawDirect(ctx, t) {
   ctx.save(); ctx.translate(0, boxY); ctx.stroke(TRUCK.box); ctx.stroke(TRUCK.label); ctx.restore();
   ctx.save(); ctx.translate(55, 121); ctx.rotate(spin);
   ctx.beginPath(); ctx.arc(0, 0, 10, 0, Math.PI * 2); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(0, -10); ctx.lineTo(0, -4); ctx.stroke();   // a spoke, so the turn reads
-  ctx.restore();
-  ctx.restore();
-  // the word, from the real file (source x 180..560 of 560x144), at x = 12 + 180k
+  ctx.beginPath(); ctx.moveTo(0, -10); ctx.lineTo(0, -4); ctx.stroke();
+  ctx.restore(); ctx.restore();
+  // the word + the light clipped to its letters
   const wx = D.mx + 180 * k, ww = 380 * k;
   const off = drawDirect.off || (drawDirect.off = document.createElement('canvas'));
   off.width = Math.ceil(ww * S); off.height = Math.ceil(D.mh * S);
-  const o = off.getContext('2d');
-  o.clearRect(0, 0, off.width, off.height);
+  const o = off.getContext('2d'); o.clearRect(0, 0, off.width, off.height);
   o.drawImage(wordImg, 180, 0, 380, 144, 0, 0, off.width, off.height);
-  // the light: clipped to the letters (source-atop), wide soft edge, gliding left → right
-  const g = kf([[4060, 1.2], [6300, -0.2]], m, GLIDE);           // background-position 120% → -20%
+  const g = kf([[s(3.2), 1.2, GLIDE], [s(4.8), -0.2]], t);
   if (g < 1.19 && g > -0.19) {
     o.globalCompositeOperation = 'source-atop';
-    // ⚠ v1 was a 300%-wide white wash and read as grey SMUDGES on the dark letters. Now: a
-    //   narrow warm band (about a letter wide), gentle peak, slight slant — a highlight, not a wipe.
-    const span = off.width * 1.8, x0 = -(span - off.width) * g - span * 0.0;
+    const span = off.width * 1.8, x0 = -(span - off.width) * g;
     const gr = o.createLinearGradient(x0, 0, x0 + span, off.height * 0.18);
-    gr.addColorStop(0.00, 'rgba(255,236,150,0)');
-    gr.addColorStop(0.44, 'rgba(255,236,150,0)');
-    gr.addColorStop(0.485,'rgba(255,240,170,.30)');
-    gr.addColorStop(0.50, 'rgba(255,248,210,.46)');
-    gr.addColorStop(0.515,'rgba(255,240,170,.30)');
-    gr.addColorStop(0.56, 'rgba(255,236,150,0)');
-    gr.addColorStop(1.00, 'rgba(255,236,150,0)');
+    gr.addColorStop(0, 'rgba(255,236,150,0)'); gr.addColorStop(.44, 'rgba(255,236,150,0)');
+    gr.addColorStop(.485, 'rgba(255,240,170,.30)'); gr.addColorStop(.50, 'rgba(255,248,210,.46)');
+    gr.addColorStop(.515, 'rgba(255,240,170,.30)'); gr.addColorStop(.56, 'rgba(255,236,150,0)');
+    gr.addColorStop(1, 'rgba(255,236,150,0)');
     o.fillStyle = gr; o.fillRect(0, 0, off.width, off.height);
     o.globalCompositeOperation = 'source-over';
   }
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.drawImage(off, Math.round(wx * S), Math.round(D.my * S));
+  // the delivery run: trundles on its own shadow, little bumps, then drops off
+  ctx.setTransform(S, 0, 0, S, 0, 0);
+  const op = kf([[s(3.3), 0], [s(3.8), 1], [s(6.4), 1], [s(7.0), 0]], t);
+  if (op > 0.005) {
+    const x  = 156 + kf([[s(3.3), -8], [s(3.8), 0, SINE], [s(6.4), 150], [s(7.0), 168]], t);
+    const dy = kf([[s(6.4), 0], [s(7.0), 4]], t);
+    const ph = ((t - s(3.3)) % 340) / 340;                       // bump: .34 s, sine both ways
+    const b  = SINE(ph < .5 ? ph * 2 : (1 - ph) * 2);
+    shadow(ctx, x, 44 + dy, 18, 1 - .18 * b, op * (1 - .3 * b));
+    parcel(ctx, x, 39 - 1.5 * b + dy, 18, { alpha: op });
+  }
 }
 
-// ── AMAZON: OUR HQ parcel beside Amazon's still logo — slides out to ship, a new one drops ──
-const P = { W: 52, H: 50 };
-const PARCEL_ACTION_MS = 3300;
-function parcelAt(ctx, x, y, sx, sy, alpha) {
-  ctx.save(); ctx.globalAlpha = alpha;
-  ctx.translate(x, y); ctx.scale(sx, sy); ctx.translate(-20, -36);    // origin = bottom centre
-  ctx.lineJoin = 'round'; ctx.lineWidth = 2; ctx.strokeStyle = INK;
-  ctx.fillStyle = '#c8954f';
-  const body = new Path2D('M6 14 20 7l14 7v15l-14 7-14-7z'); ctx.fill(body); ctx.stroke(body);
-  ctx.stroke(new Path2D('M6 14l14 7 14-7M20 21v15'));
-  ctx.strokeStyle = YEL; ctx.lineWidth = 3; ctx.stroke(new Path2D('M13 10.5l14 7'));
-  ctx.fillStyle = INK; ctx.beginPath(); ctx.arc(13, 25, 3.6, 0, Math.PI * 2); ctx.fill();
-  ctx.fillStyle = '#fff'; ctx.font = '700 4.2px Oswald, Arial Narrow, sans-serif'; ctx.textAlign = 'center';
-  ctx.fillText('HQ', 13, 26.6);
-  ctx.restore();
-}
-function drawParcel(ctx, t) {
+// ── AMAZON (lane only) ────────────────────────────────────────────────────────────────────
+// GIF x=0 sits at the D cell's left + (span+99)/2 + 12, i.e. 12px right of Amazon's logo.
+const A = { W: 197, H: 50 }, OFF = s(11);
+const AMAZON_ACTION = [OFF, OFF + s(5.2)];
+function drawAmazon(ctx, t) {
   ctx.setTransform(S, 0, 0, S, 0, 0);
-  ctx.fillStyle = YEL; ctx.fillRect(0, 0, P.W, P.H);
-  const cx = 26, base = 44, sc = 34 / 40;      // parcel drawn 34 px tall, bottom on y=44
-  // 0–700: the resting parcel slides out to ship (mock 86→100%)
-  if (t < 700) {
-    const p = SINE(t / 700);
-    parcelAt(ctx, cx + 10 * p, base, sc, sc, 1 - p);
-    return;
+  ctx.fillStyle = YEL; ctx.fillRect(0, 0, A.W, A.H);
+  const X0 = 12, BOT = 41.5, SZ = 22;
+  // the parcel being shipped
+  const px  = kf([[OFF + s(2.0), 0, BRISK], [OFF + s(3.4), 140], [OFF + s(3.8), 160]], t);
+  const pdy = kf([[OFF + s(3.4), 0], [OFF + s(3.8), 6]], t);
+  const pa  = kf([[OFF + s(3.4), 1], [OFF + s(3.8), 0]], t);
+  const la  = kf([[OFF + s(1.15), 0], [OFF + s(1.4), 1]], t);
+  const lk  = kf([[OFF + s(1.15), 1.8], [OFF + s(1.4), .92], [OFF + s(1.55), 1]], t);
+  if (pa > 0.005) {
+    // the soft trail (drawn before the parcel, behind it)
+    const tw = kf([[OFF + s(2.0), 0, BRISK], [OFF + s(2.7), 42], [OFF + s(3.4), 12], [OFF + s(3.6), 0]], t);
+    const tal = kf([[OFF + s(2.0), 0, BRISK], [OFF + s(2.7), 1], [OFF + s(3.4), .6], [OFF + s(3.6), 0]], t);
+    if (tw > .5 && tal > .01) {
+      const right = X0 + px + SZ - 16, left = right - tw, top = BOT + pdy - 5 - 9;
+      const g = ctx.createLinearGradient(left, 0, right, 0);
+      g.addColorStop(0, 'rgba(26,26,26,0)'); g.addColorStop(1, 'rgba(26,26,26,' + (.16 * tal) + ')');
+      ctx.fillStyle = g; ctx.beginPath(); ctx.roundRect(left, top, tw, 9, 4.5); ctx.fill();
+    }
+    shadow(ctx, X0 + px, BOT + 3 + pdy, SZ, 1, pa);
+    parcel(ctx, X0 + px, BOT + pdy, SZ, { alpha: pa, hq: true, label: la > 0 ? { a: la, k: lk } : null });
+    // the scan line sweeps it
+    const so = kf([[OFF, 0], [OFF + s(.15), 1], [OFF + s(.85), 1], [OFF + s(1.0), 0]], t);
+    if (so > 0.01) {
+      const sy = kf([[OFF + s(.15), 0], [OFF + s(.5), 21], [OFF + s(.85), 0]], t);
+      ctx.save(); ctx.globalAlpha = so; ctx.shadowColor = RED; ctx.shadowBlur = 4;
+      ctx.fillStyle = RED; ctx.fillRect(X0 - 3, BOT - SZ + sy, SZ + 6, 1.5); ctx.restore();
+    }
   }
-  // 700–1000: empty belt
-  if (t < 1000) return;
-  // 1000–3300: a new parcel drops in and settles (mock 0→32%, with the 0–10% invisible lead)
-  const m = (t - 1000) / 2300 * 2240;          // mock ms within the 7 s loop
-  const y  = kf([[0, -14], [700, -14], [1540, 0], [1820, 0], [2240, 0]], m);
-  const a  = kf([[0, 0], [700, 0], [1540, 1], [2240, 1]], m);
-  const sy = kf([[0, 1], [1540, 1], [1820, 0.90], [2240, 1]], m);
-  const sx = kf([[0, 1], [1540, 1], [1820, 1.06], [2240, 1]], m);
-  parcelAt(ctx, cx, base + y * sc, sc * sx, sc * sy, a);
+  // the fresh parcel drops in (from OFF+4.0) — at the end it IS the rest frame
+  if (t >= OFF + s(4.0)) {
+    const na = kf([[OFF + s(4.0), 0, SINE], [OFF + s(4.7), 1]], t);
+    const ny = kf([[OFF + s(4.0), -14, SINE], [OFF + s(4.7), 0]], t);
+    const sx = kf([[OFF + s(4.7), 1, SINE], [OFF + s(4.9), 1.06, SINE], [OFF + s(5.2), 1]], t);
+    const sy = kf([[OFF + s(4.7), 1, SINE], [OFF + s(4.9), .9, SINE], [OFF + s(5.2), 1]], t);
+    shadow(ctx, X0, BOT + 3, SZ, 1, na);
+    parcel(ctx, X0, BOT + ny, SZ, { alpha: na, hq: true, sx, sy });
+  }
 }
 
 window.render = async function (which, t) {
   await new Promise(r => wordImg.complete ? r() : (wordImg.onload = r));
-  if (document.fonts) await document.fonts.ready;
-  const c = document.getElementById('c'), dims = which === 'direct' ? D : P;
+  const c = document.getElementById('c'), dims = which === 'direct' ? D : A;
   c.width = dims.W * S; c.height = dims.H * S;
-  const ctx = c.getContext('2d');
-  (which === 'direct' ? drawDirect : drawParcel)(ctx, t);
+  (which === 'direct' ? drawDirect : drawAmazon)(c.getContext('2d'), t);
   return c.toDataURL('image/png');
 };
-window.ACTION_MS = { direct: DIRECT_ACTION_MS, parcel: PARCEL_ACTION_MS };
+window.ACTION = { direct: DIRECT_ACTION, amazon: AMAZON_ACTION };
+window.CYC = CYC;
 </script></body></html>

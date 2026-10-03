@@ -3,13 +3,13 @@
  *
  * Owner-approved on the mock "Table band · round 3" — "this is an ART". Two GIFs, drawn and
  * verified in dial/band-marks/ (marks.html → cap.js → enc.py):
- *   band-direct-v1.gif  the hand truck tips back, rolls a step, the wheel turns, the box
- *                       settles, a warm light glides over the word — then rests ~46 s
- *   band-parcel-v1.gif  OUR HQ parcel beside Amazon's still logo slides out to ship and a new
- *                       one drops in. ⚠ Amazon's mark is never redrawn or moved (same rule as
- *                       eBay's); only our object moves.
- * Both loops are 51.7 s and the parcel moves ~22 s after the truck, so the two bands never
- * move at the same moment.
+ *   band-direct-v2.gif  the hand truck tips back, rolls, the box settles, a warm light glides
+ *                       over the word, then a small box TRUNDLES across the empty stretch on
+ *                       its own shadow and drops off — hand-carried, unhurried
+ *   band-amazon-v2.gif  OUR HQ parcel in the lane right of Amazon's still logo: a scan line
+ *                       sweeps it, a label stamps on, it GLIDES out with a soft trail, and a
+ *                       fresh one drops in. ⚠ Amazon's mark is never inside our image.
+ * Both loops are 22 s and Amazon moves 11 s after Direct, so the bands never move together.
  *
  * ⭐ HOW IT STAYS SAFE
  *   · A floating image is tied to its anchor cell, so it rides down with the band when orders
@@ -24,8 +24,10 @@
  */
 var BAND_MARKS = {
   family: '/mast/band-',                       // how our images are recognised (URL family)
-  direct: { file: 'band-direct-v1.gif', w: 164, h: 50, markW: 140 },
-  parcel: { file: 'band-parcel-v1.gif', w: 52,  h: 50, markW: 99 }
+  // v2 (round 7): the Direct GIF spans from the mark to the end of E (the delivery run);
+  // the Amazon GIF is ONLY the lane to the right of Amazon's still logo.
+  direct: { file: 'band-direct-v2.gif', w: 341, h: 50, markW: 140 },
+  amazon: { file: 'band-amazon-v2.gif', w: 197, h: 50, markW: 99 }
 };
 
 /** Our band images on a sheet, by URL family — never by position. */
@@ -53,11 +55,12 @@ function installBandMarks() {
   }
   if (L.direct > 0) {
     // the GIF's mark starts 12px in, so this lands it exactly on the centred still mark
-    place(L.direct, BAND_MARKS.direct, (span - BAND_MARKS.direct.w) / 2, 'DIRECT truck');
+    // the GIF's mark starts 12px in → x = the centred still mark's left - 12
+    place(L.direct, BAND_MARKS.direct, (span - BAND_MARKS.direct.markW) / 2 - 12, 'DIRECT truck + delivery run');
   } else out.push('✗ DIRECT band not found');
   if (L.amazon > 0) {
-    // the parcel sits just left of Amazon's centred still logo
-    place(L.amazon, BAND_MARKS.parcel, (span - BAND_MARKS.parcel.markW) / 2 - BAND_MARKS.parcel.w, 'AMAZON parcel');
+    // the lane starts 12px right of Amazon's centred still logo — the logo is never covered
+    place(L.amazon, BAND_MARKS.amazon, (span + BAND_MARKS.amazon.markW) / 2 + 12, 'AMAZON parcel lane');
   } else out.push('· AMAZON table not on the sheet — the parcel goes on when it is (re-run this then)');
   var msg = out.join('\n') + '\n⚠ Hard-reload the sheet tab to see a newly inserted image. Rollback: removeBandMarks()';
   console.log(msg);
@@ -71,4 +74,17 @@ function removeBandMarks() {
   var imgs = _bandMarkImages(sheet);
   imgs.forEach(function (im) { im.remove(); });
   return '✅ Removed ' + imgs.length + ' band mark(s). The still marks are untouched.';
+}
+
+/** Read-only: what band images the sheet really holds (anchor, offset, size, URL). */
+function describeBandMarks() {
+  var sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(MAIN_SHEET_NAME);
+  var L = getTableLayout(sheet);
+  var lines = ['bands: DIRECT row ' + L.direct + ' · AMAZON row ' + (L.amazon || 'none')];
+  sheet.getImages().forEach(function (im) {
+    var u = ''; try { u = String(im.getUrl() || ''); } catch (e) {}
+    lines.push(im.getAnchorCell().getA1Notation() + ' +' + im.getAnchorCellXOffset() + ',' + im.getAnchorCellYOffset() +
+               ' · ' + im.getWidth() + 'x' + im.getHeight() + ' · ' + (u ? u.split('/').pop() : '(no url)'));
+  });
+  var msg = lines.join('\n'); console.log(msg); return msg;
 }

@@ -2,21 +2,18 @@
 
    ⚠ The band's yellow #ffd400 is RESERVED at palette index 0, so every background pixel is
      exactly the band colour — an approximate yellow would show a seam around the GIF.
-   ⚠ Both loops are the SAME length (LOOP_MS) and the parcel's action is placed ~22 s after the
+   ⚠ Both loops are the SAME length (one 22 s cycle) and Amazon's action starts 11 s after the
      truck's, so the two bands never move at the same moment.
    Decodes the GIF back and compares it with the quantised frames — never trust the encoder.
 """
 import json, os
 from PIL import Image, ImageSequence
 YEL = (255, 212, 0)
-LOOP_MS = 51660
-PLAN = {   # which: (rest before the action, out file)
-  'direct': (6000,  'band-direct-v1.gif'),
-  'parcel': (28000, 'band-parcel-v1.gif'),
-}
-man = json.load(open('manifest.json'))
-for which, (lead, out) in PLAN.items():
-    frames = [Image.open(f).convert('RGB') for f in man[which]]
+PLAN = { 'direct': 'band-direct-v2.gif', 'amazon': 'band-amazon-v2.gif' }
+man = json.load(open('manifest.json')); LOOP_MS = man['cyc']
+for which, out in PLAN.items():
+    lead = man[which]['t0']                 # rest before the action = the action's start time
+    frames = [Image.open(f).convert('RGB') for f in man[which]['frames']]
     # ⚠ headless Chrome's canvas lands the ground one step off (254,211,0). Snap every pixel
     #   within 6 of the band yellow to it EXACTLY, or the GIF shows a box edge on the band.
     def snap(im):

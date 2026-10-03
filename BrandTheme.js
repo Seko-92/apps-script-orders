@@ -2685,6 +2685,8 @@ function _styleTableBand(sheet, row, marker) {
   //   B = lines out on this table, C = a ten-block keeping-up meter (out vs still open).
   //   Plain formulas over __SparkData: they travel with the band, never block a click,
   //   cost no quota. Blocks, not a SPARKLINE — a bar sparkline fills the whole 60px row.
+  //   ⚠ 2026-10-03: full blocks █ + light shade ░, which JOIN into one bar. The first cut
+  //     (■□) read as a dotted line on the live sheet.
   //   Quiet table (nothing out, nothing open) → both blank.
   var SD = "'__SparkData'!";
   var out = isAmz ? 'A33' : 'A32';
@@ -2697,7 +2699,7 @@ function _styleTableBand(sheet, row, marker) {
   var k = 'ROUND(10*' + SD + out + '/' + tot + ')';
   sheet.getRange(row, Schema.bandMeterCol)
        .setFormula('=IF(OR(' + SD + out + '="",' + SD + open + '=""),"",IF(' + tot + '=0,"",' +
-                   'REPT("■",' + k + ')&REPT("□",10-' + k + ')))')
+                   'REPT("█",' + k + ')&REPT("░",10-' + k + ')))')
        .setNumberFormat('@')
        .setFontFamily(BRAND.fontMono).setFontWeight('bold').setFontSize(11)
        .setHorizontalAlignment('left');

@@ -119,3 +119,7 @@ dial/renders/
 #   resolves transitive deps fresh on every build, which is the opposite of reproducible.
 #   The blanket rule was written for a repo that had no npm build; this directory does.
 !dial/package-lock.json
+# band-marks: rendered frames + GIFs are build output (the GIFs live on the VPS /opt/hq-app/mast)
+dial/band-marks/frames/
+dial/band-marks/manifest.json
+dial/band-marks/*.gif
