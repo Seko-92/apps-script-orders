@@ -1,0 +1,361 @@
+<title>HQ Engine Catalogue</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600&family=Roboto+Mono:wght@400;500&family=Roboto:wght@400;500&display=swap">
+<style>
+/* Layout: a black HQ band with the yellow rule; engine list on the left like a parts-book
+   contents page; the engine itself as a ruled ledger, one table per section. */
+:root {
+  --paper: #fffaf0;      /* page ground — the sheet's cream */
+  --sheet: #ffffff;      /* table surface */
+  --band: #fff4d6;       /* banded rows / soft fills */
+  --ink: #1a1a1a;        /* text + the black band */
+  --ink-soft: #5b5547;   /* secondary text, warm grey */
+  --rule: #e6dcc4;       /* hairlines */
+  --yellow: #ffd400;     /* HQ action / "on our shelves" */
+  --yellow-ink: #1a1a1a;
+  --carry: #1b5e20;      /* in stock */
+  --carry-bg: #e3f1e4;
+  --zero: #9a5b00;       /* listed but 0 on hand */
+  --zero-bg: #fff0d6;
+  --warn: #8a3b12;
+  --warn-bg: #fde7da;
+  --font-display: "Oswald", "Arial Narrow", Arial, sans-serif;
+  --font-body: "Roboto", "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "Roboto Mono", ui-monospace, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --paper: #15130f; --sheet: #1d1b16; --band: #24211a; --ink: #f3ede0; --ink-soft: #b3a990;
+  --rule: #3a352a; --carry: #8fd694; --carry-bg: #1f3322; --zero: #f0b860; --zero-bg: #3a2c12;
+  --warn: #f2a27c; --warn-bg: #3d2318; color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --paper: #15130f; --sheet: #1d1b16; --band: #24211a; --ink: #f3ede0; --ink-soft: #b3a990;
+  --rule: #3a352a; --carry: #8fd694; --carry-bg: #1f3322; --zero: #f0b860; --zero-bg: #3a2c12;
+  --warn: #f2a27c; --warn-bg: #3d2318; color-scheme: dark; }
+
+* { box-sizing: border-box; }
+body { background: var(--paper); color: var(--ink); font-family: var(--font-body); font-size: 14px; }
+
+/* ---- black HQ band ---- */
+.band { background: #1a1a1a; color: #fff; border-bottom: 4px solid var(--yellow); }
+.band-in { max-width: 1680px; margin: 0 auto; padding: 12px 16px; display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+.mark { width: 34px; height: 34px; border-radius: 50%; background: var(--yellow); color: #1a1a1a;
+  font: 600 14px/34px var(--font-display); text-align: center; flex: none; }
+.band h1 { font: 500 20px/1 var(--font-display); letter-spacing: .06em; text-transform: uppercase; margin: 0; }
+.band h1 small { display: block; font: 400 11px/1.4 var(--font-body); letter-spacing: .04em; text-transform: none; color: #c9c2b0; margin-top: 3px; }
+.search { flex: 1 1 280px; display: flex; min-width: 0; }
+.search input { flex: 1; min-width: 0; font: 400 15px var(--font-mono); padding: 10px 12px; border: 0; border-radius: 3px;
+  background: #fff; color: #1a1a1a; }
+.search input:focus-visible { outline: 3px solid var(--yellow); outline-offset: 1px; }
+.snap { font: 500 11px var(--font-mono); color: #1a1a1a; background: var(--yellow); padding: 4px 8px; border-radius: 2px; }
+
+/* ---- layout ---- */
+.wrap { max-width: 1680px; margin: 0 auto; padding-inline: 16px; padding-block: 20px 40px;
+  display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: 24px; }
+@media (max-width: 860px) { .wrap { grid-template-columns: minmax(0, 1fr); } }
+
+/* ---- engine list (contents page) ---- */
+.eng-list { display: flex; flex-direction: column; gap: 2px; align-self: start; position: sticky; top: env(safe-area-inset-top, 0px); }
+@media (max-width: 860px) { .eng-list { position: static; flex-direction: row; overflow-x: auto; gap: 6px; padding-bottom: 4px; } }
+.eng-list h2 { font: 500 11px var(--font-display); letter-spacing: .12em; text-transform: uppercase; color: var(--ink-soft); margin: 0 0 6px; }
+@media (max-width: 860px) { .eng-list h2 { display: none; } }
+.eng { all: unset; cursor: pointer; display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; padding: 9px 10px;
+  border-left: 3px solid transparent; border-radius: 2px; }
+.eng:hover { background: var(--band); }
+.eng:focus-visible { outline: 2px solid var(--ink); }
+.eng[aria-current="true"] { background: var(--sheet); border-left-color: var(--yellow); box-shadow: 0 1px 0 var(--rule); }
+.eng b { font: 500 14px var(--font-mono); }
+.eng span { font: 400 12px var(--font-mono); color: var(--ink-soft); text-align: right; }
+.eng em { grid-column: 1 / -1; font-style: normal; font-size: 12px; color: var(--ink-soft); }
+@media (max-width: 860px) { .eng { flex: none; border-left: 0; border-bottom: 3px solid transparent; }
+  .eng[aria-current="true"] { border-bottom-color: var(--yellow); } }
+
+/* ---- engine head ---- */
+.head { display: grid; gap: 10px; margin-bottom: 18px; }
+.head h2 { font: 600 34px/1.05 var(--font-display); letter-spacing: .02em; margin: 0; text-wrap: balance; overflow-wrap: anywhere; }
+.meta { display: flex; flex-wrap: wrap; gap: 6px 18px; color: var(--ink-soft); font-size: 13px; }
+.meta code { font: 400 13px var(--font-mono); color: var(--ink); }
+.cover { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; align-items: center; }
+.cover-num { font: 600 26px/1 var(--font-display); font-variant-numeric: tabular-nums; }
+.cover-num small { font: 400 14px var(--font-body); color: var(--ink-soft); }
+.bar { height: 10px; background: var(--rule); border-radius: 2px; overflow: hidden; }
+.bar i { display: block; height: 100%; background: var(--yellow); box-shadow: inset -1px 0 0 #1a1a1a; }
+
+.tools { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin: 4px 0 14px; }
+.seg { display: inline-flex; border: 1px solid var(--ink); border-radius: 3px; overflow: hidden; }
+.seg button { all: unset; cursor: pointer; padding: 7px 12px; font: 500 12px var(--font-display); letter-spacing: .06em; text-transform: uppercase; }
+.seg button + button { border-left: 1px solid var(--ink); }
+.seg button[aria-pressed="true"] { background: var(--ink); color: var(--paper); }
+.seg button:focus-visible { outline: 2px solid var(--yellow); outline-offset: -2px; }
+.jump { font: 400 13px var(--font-body); padding: 7px 8px; border: 1px solid var(--rule); border-radius: 3px; background: var(--sheet); color: var(--ink); max-width: 100%; }
+
+.note { border-left: 4px solid var(--warn); background: var(--warn-bg); padding: 10px 12px; font-size: 13px; line-height: 1.5; margin-bottom: 16px; }
+.note b { font-weight: 500; }
+
+/* ---- section ledger ---- */
+.sec { margin-bottom: 22px; scroll-margin-top: 12px; }
+.sec-h { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; padding: 8px 10px; background: #1a1a1a; color: #fff; border-bottom: 3px solid var(--yellow); }
+.sec-h .code { font: 500 13px var(--font-mono); color: var(--yellow); }
+.sec-h h3 { font: 500 15px var(--font-display); letter-spacing: .06em; text-transform: uppercase; margin: 0; }
+.sec-h .stat { margin-left: auto; font: 400 12px var(--font-mono); color: #c9c2b0; }
+.scroll { overflow-x: auto; background: var(--sheet); border: 1px solid var(--rule); border-top: 0; }
+table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+th { text-align: left; font: 500 10.5px var(--font-display); letter-spacing: .1em; text-transform: uppercase; color: var(--ink-soft);
+  padding: 7px 10px; border-bottom: 1px solid var(--rule); white-space: nowrap; }
+td { padding: 8px 10px; border-bottom: 1px solid var(--rule); vertical-align: top; }
+tbody tr:nth-child(even) td { background: color-mix(in srgb, var(--band) 55%, transparent); }
+tr.repeat td.ref { color: transparent; }          /* same REF as the row above: a size of the same position */
+td.ref { font: 400 12px var(--font-mono); color: var(--ink-soft); width: 44px; }
+td.pn { font: 500 13px var(--font-mono); white-space: nowrap; }
+td.pn a { color: inherit; text-decoration: none; border-bottom: 1px dotted var(--ink-soft); }
+td.nm { min-width: 150px; }
+td.sz { white-space: nowrap; }
+.size { font: 500 11.5px var(--font-mono); padding: 2px 6px; border: 1px solid var(--ink); border-radius: 2px; }
+td.qty { font-family: var(--font-mono); text-align: right; width: 44px; }
+td.ours { min-width: 230px; }
+.hit { display: grid; grid-template-columns: auto 1fr; gap: 1px 8px; align-items: baseline; }
+.hit + .hit { margin-top: 6px; padding-top: 6px; border-top: 1px dashed var(--rule); }
+.sku { font: 500 12px var(--font-mono); padding: 1px 6px; border-radius: 2px; background: var(--carry-bg); color: var(--carry); }
+.sku.zero { background: var(--zero-bg); color: var(--zero); }
+.hit .line { font: 400 12px var(--font-mono); }
+.hit .ttl { grid-column: 1 / -1; font-size: 12px; color: var(--ink-soft); line-height: 1.35; }
+.none { font-size: 12px; color: var(--ink-soft); }
+tr.miss td.pn { color: var(--ink-soft); }
+.pg { font: 400 11px var(--font-mono); color: var(--ink-soft); white-space: nowrap; }
+
+
+/* ---- exploded-view drawing beside its table ---- */
+.sec-body { display: grid; grid-template-columns: minmax(0, 1fr); background: var(--sheet); border: 1px solid var(--rule); border-top: 0; }
+.sec-body .scroll { border: 0; }
+@media (min-width: 1600px) { .sec-body.has-dwg { grid-template-columns: minmax(0, 40%) minmax(0, 1fr); }
+  .sec-body.has-dwg .dwg-wrap { border-right: 1px solid var(--rule); }
+  .sec-body.has-dwg .dwg { position: sticky; top: calc(env(safe-area-inset-top, 0px) + 8px); } }
+.sec-body.big { grid-template-columns: minmax(0, 1fr) !important; }
+.sec-body.big .dwg { position: static !important; }
+.dwg-wrap { padding: 10px; border-bottom: 1px solid var(--rule); min-width: 0; }
+@media (min-width: 1600px) { .sec-body.has-dwg .dwg-wrap { border-bottom: 0; } }
+.dwg { position: relative; width: 100%; max-width: 900px; background: #fff; border: 1px solid var(--rule); }
+.dwg img { display: block; width: 100%; height: auto; }
+:root[data-theme="dark"] .dwg img { filter: invert(.88) hue-rotate(180deg); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .dwg img { filter: invert(.88) hue-rotate(180deg); } }
+:root[data-theme="dark"] .dwg, :root[data-theme="dark"] .dwg-wrap .dwg { background: #1d1b16; }
+.co { all: unset; position: absolute; cursor: pointer; border-radius: 3px; outline: 2px solid transparent; outline-offset: 2px; }
+.co:hover, .co:focus-visible { outline-color: var(--ink-soft); }
+.co.on { background: color-mix(in srgb, var(--yellow) 55%, transparent); outline-color: #1a1a1a; }
+@media (prefers-reduced-motion: no-preference) { .co.on { animation: ping .9s ease-out 1; } }
+@keyframes ping { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--yellow) 90%, transparent); } 100% { box-shadow: 0 0 0 14px transparent; } }
+.dwg-bar { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px; margin-top: 6px; font-size: 12px; color: var(--ink-soft); }
+.dwg-bar button { all: unset; cursor: pointer; font: 500 11px var(--font-display); letter-spacing: .08em; text-transform: uppercase; border-bottom: 1px solid var(--ink-soft); }
+.dwg-bar button:focus-visible { outline: 2px solid var(--yellow); }
+tbody tr.on td { background: color-mix(in srgb, var(--yellow) 30%, var(--sheet)) !important; }
+tbody tr[data-ref] { cursor: pointer; }
+td.ref .dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--ink-soft); margin-left: 4px; vertical-align: 1px; }
+@media (max-width: 620px) { tbody tr.on { background: color-mix(in srgb, var(--yellow) 30%, var(--sheet)) !important; } }
+
+/* ---- part-number search results ---- */
+.found { background: var(--sheet); border: 1px solid var(--rule); border-top: 4px solid var(--yellow); padding: 12px 14px; margin-bottom: 20px; }
+.found h3 { font: 500 14px var(--font-display); letter-spacing: .06em; text-transform: uppercase; margin: 0 0 8px; }
+.found ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.found li { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 13px; }
+.found button { all: unset; cursor: pointer; font: 500 13px var(--font-mono); border-bottom: 1px solid var(--ink); }
+.found button:focus-visible { outline: 2px solid var(--yellow); }
+
+.foot { color: var(--ink-soft); font-size: 12px; line-height: 1.5; max-width: 70ch; margin-top: 28px; }
+
+/* ---- phone: rows become cards ---- */
+@media (max-width: 620px) {
+  .head h2 { font-size: 27px; }
+  thead { display: none; }
+  table, tbody, tr, td { display: block; width: 100%; }
+  tr { padding: 8px 10px; border-bottom: 1px solid var(--rule); }
+  td { border: 0; padding: 2px 0; }
+  tbody tr:nth-child(even) td { background: none; }
+  tbody tr:nth-child(even) { background: color-mix(in srgb, var(--band) 55%, transparent); }
+  td.ref { display: none; }
+  td.pn, td.sz, td.qty { display: inline-block; width: auto; margin-right: 10px; }
+  td.qty::before { content: "qty "; color: var(--ink-soft); }
+  td.nm, td.ours { min-width: 0; }
+  .scroll { overflow-x: visible; }
+}
+@media (prefers-reduced-motion: no-preference) { .bar i { transition: width .4s ease; } }
+</style>
+
+<header class="band">
+  <div class="band-in">
+    <div class="mark" aria-hidden="true">HQ</div>
+    <h1>Engine Catalogue<small>Manufacturer parts lists, matched to our shelves</small></h1>
+    <label class="search" for="q"><span hidden>Search</span>
+      <input id="q" type="search" placeholder="Engine model or part number — V2203, 1A091-2347-0" autocomplete="off"></label>
+    <span class="snap" id="snap" title="This preview uses a stock export. The live page reads stock when you open an engine.">sample stock</span>
+  </div>
+</header>
+
+<div class="wrap">
+  <nav class="eng-list" id="engines" aria-label="Engines"><h2>Engines</h2></nav>
+  <main id="main"></main>
+</div>
+
+<script>
+const DATA = /*__CATALOGUE_DATA__*/null;
+const $ = s => document.querySelector(s);
+const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const key = s => String(s || "").toUpperCase().replace(/[^A-Z0-9]/g, "").replace(/^0+/, "");
+const money = n => (n == null || !isFinite(n) ? "" : "$" + Number(n).toFixed(2).replace(/\.00$/, ""));
+
+const state = { engine: (DATA.engines.find(e => /^V2203/.test(e.model)) || DATA.engines[0]).id, filter: "all", q: "" };
+try { const s = JSON.parse(localStorage.getItem("hqCatalogue") || "{}");
+  if (s.engine && DATA.engines.some(e => e.id === s.engine)) state.engine = s.engine; if (s.filter) state.filter = s.filter; } catch (e) {}
+if (location.hash && DATA.engines.some(e => e.id === location.hash.slice(1))) state.engine = location.hash.slice(1);
+const save = () => { try { localStorage.setItem("hqCatalogue", JSON.stringify({ engine: state.engine, filter: state.filter })); } catch (e) {} };
+
+$("#snap").textContent = "sample stock · " + DATA.snapshot.replace(/\.json$/, "");
+
+// ---- stats per engine ----
+DATA.engines.forEach(e => {
+  const seen = new Set(); let carried = 0;
+  e.sections.forEach(s => {
+    const set = new Set(s.parts.map(p => p.pn)); let c = 0;
+    set.forEach(pn => { if ((e.stock[pn] || []).length) c++; });
+    s.total = set.size; s.carried = c;
+    set.forEach(pn => { if (!seen.has(pn)) { seen.add(pn); if ((e.stock[pn] || []).length) carried++; } });
+  });
+  e.total = seen.size; e.carried = carried;
+});
+
+function engineList() {
+  const q = key(state.q);
+  const list = DATA.engines.filter(e => !q || key(e.model).includes(q) || q.length >= 6);
+  $("#engines").innerHTML = '<h2>Engines</h2>' + list.map(e =>
+    `<button class="eng" data-id="${e.id}" aria-current="${e.id === state.engine}">
+       <b>${esc(e.model)}</b><span>${e.carried}/${e.total}</span>
+       <em>Kubota · ${e.sections.length} sections</em></button>`).join("");
+}
+
+const isKit = h => /\b(kit|overhaul|rebuild)\b/i.test(h.title);
+function stockCell(hits) {
+  if (!hits.length) return '<span class="none">not listed</span>';
+  // the part itself first, kits that contain it after (Parts Finder rule)
+  hits = hits.slice().sort((a, b) => isKit(a) - isKit(b) || (b.avail > 0) - (a.avail > 0));
+  return hits.slice(0, 3).map(h => `<div class="hit">
+      <span class="sku${h.avail > 0 ? "" : " zero"}">${esc(h.sku)}${isKit(h) ? " · kit" : ""}</span>
+      <span class="line">${esc(h.loc || "no shelf")} · ${h.avail > 0 ? h.avail + " on hand" : "0 on hand"}${h.price ? " · " + money(h.price) : ""}</span>
+      <span class="ttl">${esc(h.title)}</span></div>`).join("") +
+    (hits.length > 3 ? `<div class="none">+${hits.length - 3} more listings</div>` : "");
+}
+
+function partSearch(q) {
+  const k = key(q);
+  if (k.length < 5 || !/\d/.test(k)) return "";
+  const rows = [];
+  DATA.engines.forEach(e => e.sections.forEach(s => s.parts.forEach(p => {
+    if (key(p.pn).includes(k) || (p.xref && key(p.xref).includes(k)))
+      rows.push({ e, s, p });
+  })));
+  if (!rows.length) return `<section class="found"><h3>${esc(q)}</h3><div class="none">Not in any imported manual.</div></section>`;
+  const uniq = rows.filter((r, i) => rows.findIndex(x => x.e.id === r.e.id && x.p.pn === r.p.pn && x.s.code === r.s.code) === i);
+  return `<section class="found"><h3>${esc(q)} · in ${new Set(uniq.map(r => r.e.id)).size} engine(s)</h3><ul>` +
+    uniq.slice(0, 40).map(r => `<li><button data-go="${r.e.id}" data-sec="${r.s.code}">${esc(r.e.model)}</button>
+      <span>${esc(r.p.pn)} · ${esc(r.p.name)}${r.p.remark ? " · " + esc(r.p.remark) : ""}</span>
+      <span class="pg">${esc(r.s.code)} ${esc(r.s.name)} · page ${r.p.page}</span>
+      <span>${(r.e.stock[r.p.pn] || []).length ? "on our shelves" : "not listed"}</span></li>`).join("") + "</ul></section>";
+}
+
+function render() {
+  engineList();
+  const e = DATA.engines.find(x => x.id === state.engine);
+  const pct = e.total ? Math.round(100 * e.carried / e.total) : 0;
+  const imageOnly = e.flags.filter(f => f.kind === "section-image-only");
+  const missing = e.flags.filter(f => f.kind === "section-missing");
+
+  let html = partSearch(state.q);
+  html += `<div class="head">
+    <h2>${esc(e.model)}</h2>
+    <div class="meta"><span>Kubota</span>${e.codeNo ? `<span>code <code>${esc(e.codeNo)}</code></span>` : ""}
+      ${e.validity ? `<span>built ${esc(e.validity.replace(/[()]/g, "").replace("-->", "→"))}</span>` : ""}
+      <span>source <code>${esc(e.source.file)}</code> · ${e.source.pages} pp</span></div>
+    <div class="cover"><div class="cover-num">${e.carried} <small>of ${e.total} part numbers on our shelves</small></div>
+      <div class="bar" role="img" aria-label="${pct}% carried"><i style="width:${pct}%"></i></div></div></div>`;
+
+  if (imageOnly.length || missing.length)
+    html += `<div class="note"><b>Not read yet:</b> ${[...imageOnly, ...missing].map(f =>
+      esc(f.line.replace(/^\d{4,6}\s+/, "")) + (f.page ? ` (page ${f.page})` : "")).join(", ")}.
+      ${imageOnly.length ? "These pages are scanned images in the manual and join the OCR batch." : ""}</div>`;
+
+  html += `<div class="tools"><div class="seg" role="group" aria-label="Show">
+      ${[["all", "All parts"], ["carry", "On our shelves"], ["gap", "Not listed"]].map(([k, l]) =>
+        `<button data-filter="${k}" aria-pressed="${state.filter === k}">${l}</button>`).join("")}</div>
+    <select class="jump" id="jump" aria-label="Jump to section"><option value="">Jump to section…</option>
+      ${e.sections.map(s => `<option value="${s.code}">${s.code} ${esc(s.name)} — ${s.carried}/${s.total}</option>`).join("")}</select></div>`;
+
+  e.sections.forEach(s => {
+    const rows = s.parts.filter(p => {
+      const has = (e.stock[p.pn] || []).length > 0;
+      return state.filter === "all" || (state.filter === "carry" ? has : !has);
+    });
+    if (!rows.length) return;
+    let prevRef = null;
+    const d = (e.drawings || {})[s.code];
+    const located = d ? new Set(d.callouts.map(c => c.ref)) : new Set();
+    const dwg = d && d.src ? `<div class="dwg-wrap"><div class="dwg" style="aspect-ratio:${d.w}/${d.h}">
+        <img src="${d.src}" alt="Exploded view, ${esc(s.name)}" width="${d.w}" height="${d.h}" loading="lazy">
+        ${d.callouts.map(c => `<button class="co" data-ref="${c.ref}" data-sec="${s.code}" aria-label="Ref ${c.ref}"
+          style="left:${(c.x * 100 - .6).toFixed(2)}%;top:${(c.y * 100 - 1).toFixed(2)}%;width:${(c.w * 100 + 1.2).toFixed(2)}%;height:${(c.h * 100 + 2).toFixed(2)}%"></button>`).join("")}
+      </div><div class="dwg-bar"><span>${located.size} of ${new Set(s.parts.map(p => p.ref)).size} refs marked · manual page ${s.page}</span>
+        <button data-big="${s.code}">Enlarge</button></div></div>` : "";
+    html += `<section class="sec" id="s${s.code}"><div class="sec-h"><span class="code">${s.code}</span><h3>${esc(s.name)}</h3>
+      <span class="stat">${s.carried}/${s.total} carried · page ${s.page}</span></div>
+      <div class="sec-body${dwg ? " has-dwg" : ""}" id="b${s.code}">${dwg}
+      <div class="scroll"><table><thead><tr><th>Ref</th><th>Part No.</th><th>Name</th><th>Size</th><th>Qty</th><th>Our stock</th></tr></thead><tbody>` +
+      rows.map(p => {
+        const hits = e.stock[p.pn] || [];
+        const rep = p.ref === prevRef; prevRef = p.ref;
+        const qty = Array.isArray(p.qty) ? (p.qty[0] == null ? "–" : p.qty[0]) : "";
+        return `<tr class="${rep ? "repeat " : ""}${hits.length ? "" : "miss"}" data-ref="${esc(p.ref)}" data-sec="${s.code}">
+          <td class="ref">${esc(p.ref)}${located.has(p.ref) ? '<span class="dot" title="Marked on the drawing"></span>' : ""}</td>
+          <td class="pn" title="Manual page ${p.page}">${esc(p.pn)}${p.xref ? `<div class="pg">ref ${esc(p.xref)}</div>` : ""}</td>
+          <td class="nm">${esc(p.name)}</td>
+          <td class="sz">${p.remark ? `<span class="size">${esc(p.remark)}</span>` : ""}</td>
+          <td class="qty">${qty}</td>
+          <td class="ours">${stockCell(hits)}</td></tr>`;
+      }).join("") + `</tbody></table></div></div></section>`;
+  });
+
+  html += `<p class="foot">Part numbers are matched to our listings by the same rule as the Parts Finder (letters and digits only, leading zeros ignored), including the extra part-number columns on each listing. A match means the number appears on our listing; whether it is the right part is the technician's call. Kubota prints undersizes as −0.20/−0.40 where our titles say 0.25/0.50.</p>`;
+  $("#main").innerHTML = html;
+}
+
+function light(sec, ref, from) {
+  document.querySelectorAll(".co.on, tbody tr.on").forEach(x => x.classList.remove("on"));
+  if (!ref) return;
+  const body = document.getElementById("b" + sec); if (!body) return;
+  const cos = body.querySelectorAll(`.co[data-ref="${ref}"]`), rows = body.querySelectorAll(`tr[data-ref="${ref}"]`);
+  cos.forEach(x => { x.classList.remove("on"); void x.offsetWidth; x.classList.add("on"); });
+  rows.forEach(x => x.classList.add("on"));
+  if (from === "drawing" && rows[0]) rows[0].scrollIntoView({ block: "nearest", behavior: "smooth" });
+  if (from === "row" && cos[0]) { const r = cos[0].getBoundingClientRect(); if (r.bottom < 0 || r.top > innerHeight) cos[0].scrollIntoView({ block: "center", behavior: "smooth" }); }
+}
+document.addEventListener("mouseover", ev => {
+  const tr = ev.target.closest("tbody tr[data-ref]");
+  if (tr && matchMedia("(hover: hover)").matches) light(tr.dataset.sec, tr.dataset.ref);
+});
+document.addEventListener("click", ev => {
+  const co = ev.target.closest(".co");
+  if (co) { light(co.dataset.sec, co.dataset.ref, "drawing"); return; }
+  const big = ev.target.closest("[data-big]");
+  if (big) { const b = document.getElementById("b" + big.dataset.big); const on = b.classList.toggle("big");
+    big.textContent = on ? "Side by side" : "Enlarge"; return; }
+  const tr = ev.target.closest("tbody tr[data-ref]");
+  if (tr && !ev.target.closest("a")) { light(tr.dataset.sec, tr.dataset.ref, "row"); return; }
+  const eng = ev.target.closest(".eng");
+  if (eng) { state.engine = eng.dataset.id; save(); render(); window.scrollTo({ top: 0 }); return; }
+  const f = ev.target.closest("[data-filter]");
+  if (f) { state.filter = f.dataset.filter; save(); render(); return; }
+  const go = ev.target.closest("[data-go]");
+  if (go) { state.engine = go.dataset.go; state.filter = "all"; render();
+    const el = document.getElementById("s" + go.dataset.sec); if (el) el.scrollIntoView(); }
+});
+document.addEventListener("change", ev => {
+  if (ev.target.id === "jump" && ev.target.value) { const el = document.getElementById("s" + ev.target.value); if (el) el.scrollIntoView(); }
+});
+let t; $("#q").addEventListener("input", ev => { clearTimeout(t); t = setTimeout(() => { state.q = ev.target.value.trim(); render(); }, 150); });
+render();
+</script>

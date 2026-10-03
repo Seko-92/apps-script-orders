@@ -17,13 +17,15 @@ const vm = require("vm");
 const { execFileSync } = require("child_process");
 const { parseKubota } = require("./lib/kubota");
 const { parseKpad } = require("./lib/kpad");
+const { extractDrawings } = require("./lib/drawings");
 
 // ---- args -------------------------------------------------------------------------------
 const args = process.argv.slice(2);
-const opt = { mi: null, out: path.join(__dirname, "out"), inputs: [] };
+const opt = { mi: null, out: path.join(__dirname, "out"), inputs: [], drawings: false };
 for (let i = 0; i < args.length; i++) {
   if (args[i] === "--mi") opt.mi = args[++i];
   else if (args[i] === "--out") opt.out = args[++i];
+  else if (args[i] === "--drawings") opt.drawings = true;   // slow: OCR, a few minutes per engine
   else opt.inputs.push(args[i]);
 }
 if (!opt.inputs.length) { console.error("usage: node catalogue/import.js <pdf|folder>... [--mi mi.json]"); process.exit(1); }
@@ -120,8 +122,15 @@ for (const r of byModel.values()) {
     source: { file: r.name, pages: r.pages, parser: p.source || "kubota-book" },
     sections: p.sections.map(s => ({ code: s.code, name: s.name, page: s.page, parts: s.parts })),
     flags: p.flags,
+    drawings: null,
     importedAt: new Date().toISOString()
   };
+  if (opt.drawings && !p.source) {          // book layout only; KPAD prints its drawings on separate pages
+    process.stdout.write(`  drawings ${p.model} … `);
+    doc.drawings = extractDrawings(r.file, p, opt.out, id);
+    const v = Object.values(doc.drawings).filter(x => !x.error);
+    console.log(`${v.length} drawings · ${v.reduce((a, x) => a + x.found, 0)}/${v.reduce((a, x) => a + x.refs, 0)} refs marked`);
+  }
   fs.writeFileSync(path.join(opt.out, id + ".json"), JSON.stringify(doc));
 
   // stats for the report

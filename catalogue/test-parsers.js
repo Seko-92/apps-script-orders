@@ -78,5 +78,16 @@ eq("kpad name wrapped around line", parts(r2)[1].name, "ASSY GUIDE,OIL GAUGE");
 eq("kpad PN wrapped above+below", [parts(r2)[2].pn, parts(r2)[2].name, parts(r2)[2].qty], ["1G460-23943", "METAL,ASSY(3-02,CRANKSHAFT)", [2]]);
 eq("kpad section switches mid-page (wrapped ## header)", r2.sections.map(s => s.code + ":" + s.parts.length), ["010000:3", "010100:1"]);
 
+// ---------- drawings ----------
+const { drawingBand, mergeCallouts } = require("./lib/drawings");
+const box = { w: 595, h: 841, words: [
+  { x0: 35, y0: 36.5, x1: 71, y1: 54.5, t: "0102" },
+  { x0: 36, y0: 405.4, x1: 53, y1: 412.4, t: "REF.No." } ] };
+eq("band sits between the title block and REF.No.", drawingBand(box, "0102"), { x: 0, y: 70.5, w: 595, h: 306.9 });
+eq("table-only page has no band", drawingBand({ w: 595, h: 841, words: [{ x0: 0, y0: 36, x1: 0, y1: 54, t: "0102" }, { x0: 0, y0: 120, x1: 0, y1: 127, t: "REF.No." }] }, "0102"), null);
+const a1 = [{ ref: "010", x: 0.39, y: 0.62, w: 0.02, h: 0.02 }];
+eq("same callout from two passes counts once", mergeCallouts(a1, [{ ref: "010", x: 0.395, y: 0.625, w: 0.02, h: 0.02 }]).length, 1);
+eq("same ref at another spot is kept (a part drawn twice)", mergeCallouts(a1, [{ ref: "010", x: 0.7, y: 0.2, w: 0.02, h: 0.02 }]).length, 2);
+
 console.log(`${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
