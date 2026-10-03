@@ -67,6 +67,28 @@ function installBandMarks() {
   return msg;
 }
 
+/** Our band images anchored at or below `fromRow` (the Amazon table's band and below). */
+function _removeBandMarksFrom(sheet, fromRow) {
+  var n = 0;
+  _bandMarkImages(sheet).forEach(function (im) {
+    if (im.getAnchorCell().getRow() >= fromRow) { im.remove(); n++; }
+  });
+  return n;
+}
+
+/** Place only the Amazon lane (setupAmazonTable calls this). Idempotent. */
+function _placeAmazonBandMark(sheet) {
+  var L = getTableLayout(sheet);
+  if (!(L.amazon > 0)) return 'no AMAZON band';
+  _removeBandMarksFrom(sheet, L.amazon);
+  var span = sheet.getColumnWidth(Schema.bandLogoCol) + sheet.getColumnWidth(Schema.bandLogoCol + 1);
+  var spec = BAND_MARKS.amazon, rh = sheet.getRowHeight(L.amazon);
+  var img = sheet.insertImage(MASTHEAD.baseUrl + spec.file, Schema.bandLogoCol, L.amazon,
+                              Math.round((span + spec.markW) / 2 + 12), Math.max(0, Math.round((rh - spec.h) / 2)));
+  img.setWidth(spec.w).setHeight(spec.h);
+  return 'placed on row ' + L.amazon;
+}
+
 /** The whole rollback: our band GIFs off; the still marks underneath were never touched. */
 function removeBandMarks() {
   var sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(MAIN_SHEET_NAME);

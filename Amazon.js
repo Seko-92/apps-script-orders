@@ -249,6 +249,10 @@ function setupAmazonTable() {
     if (typeof refreshAllOrdersLockCarveOuts === "function") refreshAllOrdersLockCarveOuts();
   });
   step("board cache", _dashBustTickCache);
+  // ⭐ 2026-10-03 — the band's parcel animation goes on with the table (BandMarks.js).
+  step("parcel animation (hard-reload to see it)", function () {
+    if (typeof _placeAmazonBandMark === "function") _placeAmazonBandMark(sheet);
+  });
 
   var msg = "✅ Amazon table added — divider at row " + band + ", header " + header +
             ", first row " + firstData + "." +
@@ -388,6 +392,9 @@ function removeAmazonTable(force) {
 
   var count = L.maxRows - L.amazon + 1;
   if (count >= sheet.getMaxRows()) return "❌ Refusing: that would delete every row on the sheet.";
+  // ⭐ 2026-10-03 — the parcel animation is anchored on the band row. Take it off first: an
+  //   image whose row is deleted is not guaranteed to go with it, and could land over DIRECT.
+  try { if (typeof _removeBandMarksFrom === "function") _removeBandMarksFrom(sheet, L.amazon); } catch (e) {}
   sheet.deleteRows(L.amazon, count);
 
   var notes = [];
