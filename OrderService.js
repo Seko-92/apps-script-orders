@@ -38,7 +38,9 @@ var DOPOST_LOCK_FREE = {
   // ⚠ boardFind writes ONE thing: an append to the MPN Search Log (a separate sheet, never
   // All Orders), serialised by the DOCUMENT lock inside _mpnLog. Holding the script lock
   // for a ~4 s search would queue every ✓ Pick behind it — the starvation 2026-08-17 fixed.
-  boardFind: 1
+  boardFind: 1,
+  // Engine Catalogue: one read-only MI read, nothing written (not even the search log).
+  catalogueStock: 1
 };
 
 /* ⭐ DOES THIS REQUEST NEED THE SCRIPT LOCK? (2026-08-28)
@@ -373,6 +375,12 @@ function doPost(e) {
       var fForce = { sku: 1, mpn: 1, keywords: 1 }[payload.force] ? payload.force : "";
       return ContentService.createTextOutput(JSON.stringify(
         findParts(String(payload.text || "").slice(0, 2000), fForce, { source: "board", lite: true })
+      )).setMimeType(ContentService.MimeType.JSON);
+    }
+    // Engine Catalogue page — live stock for one engine's part numbers (Catalogue.js).
+    if (payload.action === 'catalogueStock') {
+      return ContentService.createTextOutput(JSON.stringify(
+        catalogueStock(payload.pns)
       )).setMimeType(ContentService.MimeType.JSON);
     }
     if (payload.action === 'boardOrder') {

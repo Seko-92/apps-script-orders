@@ -120,6 +120,7 @@ td.ours { min-width: 230px; }
 .hit .ttl { grid-column: 1 / -1; font-size: 12px; color: var(--ink-soft); line-height: 1.35; }
 .none { font-size: 12px; color: var(--ink-soft); }
 tr.miss td.pn { color: var(--ink-soft); }
+.plink { color: inherit; } .sec-h .plink { color: #c9c2b0; }
 .pg { font: 400 11px var(--font-mono); color: var(--ink-soft); white-space: nowrap; }
 
 
@@ -195,43 +196,97 @@ td.ref .dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%
 </div>
 
 <script>
-const DATA = /*__CATALOGUE_DATA__*/null;
+let DATA = /*__CATALOGUE_DATA__*/null;
+// Two modes, one page. PREVIEW: everything (incl. a stock snapshot) is baked in by
+// build-preview.js. LIVE (on the VPS): engines + drawings load as files from catalogue-data/,
+// and stock is asked for when an engine opens (doPost catalogueStock via /api/board).
+const LIVE = !DATA;
+const BASE = "catalogue-data/";
 const $ = s => document.querySelector(s);
 const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const key = s => String(s || "").toUpperCase().replace(/[^A-Z0-9]/g, "").replace(/^0+/, "");
 const money = n => (n == null || !isFinite(n) ? "" : "$" + Number(n).toFixed(2).replace(/\.00$/, ""));
-
-const state = { engine: (DATA.engines.find(e => /^V2203/.test(e.model)) || DATA.engines[0]).id, filter: "all", q: "" };
-try { const s = JSON.parse(localStorage.getItem("hqCatalogue") || "{}");
-  if (s.engine && DATA.engines.some(e => e.id === s.engine)) state.engine = s.engine; if (s.filter) state.filter = s.filter; } catch (e) {}
-if (location.hash && DATA.engines.some(e => e.id === location.hash.slice(1))) state.engine = location.hash.slice(1);
+const state = { engine: null, filter: "all", q: "" };
 const save = () => { try { localStorage.setItem("hqCatalogue", JSON.stringify({ engine: state.engine, filter: state.filter })); } catch (e) {} };
 
-$("#snap").textContent = "sample stock · " + DATA.snapshot.replace(/\.json$/, "");
-
-// ---- stats per engine ----
-DATA.engines.forEach(e => {
-  const seen = new Set(); let carried = 0;
+function computeStats(e) {
+  if (!e.sections) return;
+  const stock = e.stock || {}, seen = new Set(); let carried = 0;
   e.sections.forEach(s => {
     const set = new Set(s.parts.map(p => p.pn)); let c = 0;
-    set.forEach(pn => { if ((e.stock[pn] || []).length) c++; });
+    set.forEach(pn => { if ((stock[pn] || []).length) c++; });
     s.total = set.size; s.carried = c;
-    set.forEach(pn => { if (!seen.has(pn)) { seen.add(pn); if ((e.stock[pn] || []).length) carried++; } });
+    set.forEach(pn => { if (!seen.has(pn)) { seen.add(pn); if ((stock[pn] || []).length) carried++; } });
   });
-  e.total = seen.size; e.carried = carried;
-});
+  e.total = seen.size; e.carried = e.stock ? carried : null;
+}
+
+function absorb(e, d) {                         // engine JSON → the shape render() reads
+  Object.assign(e, { codeNo: d.codeNo, validity: d.validity, source: d.source, sections: d.sections, flags: d.flags || [] });
+  e.drawings = {};
+  Object.entries(d.drawings || {}).forEach(([code, v]) => {
+    if (!v || v.error || !v.img) return;
+    e.drawings[code] = { src: v.src || (BASE + v.img), w: v.w, h: v.h, callouts: v.callouts || [] };
+  });
+  computeStats(e);
+}
+
+function ensureEngine(e) {
+  if (!LIVE) return Promise.resolve(e);
+  if (!e.loading) e.loading = fetch(BASE + e.id + ".json").then(r => r.json()).then(d => { absorb(e, d); return e; });
+  return e.loading;
+}
+
+function loadStock(e) {
+  if (!LIVE || e.stock || e.stockAsked) return;
+  e.stockAsked = true; e.stockError = "";
+  const pns = [...new Set(e.sections.flatMap(s => s.parts.map(p => p.pn)))];
+  fetch("/api/board", { method: "POST", headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ action: "catalogueStock", pns, device: "catalogue" }) })
+    .then(r => r.json())
+    .then(r => {
+      if (!r || !r.ok) throw new Error((r && (r.reason || r.error)) || "no answer");
+      e.stock = r.stock; e.stockAt = new Date(); computeStats(e);
+    })
+    .catch(err => { e.stockError = String(err.message || err); e.stockAsked = false; })
+    .then(() => { if (state.engine === e.id) render(); });
+}
+
+function open(id) {
+  state.engine = id; save();
+  const e = DATA.engines.find(x => x.id === id);
+  render();
+  ensureEngine(e).then(() => { if (state.engine === id) { render(); loadStock(e); } });
+}
+
+function boot(data) {
+  DATA = data;
+  if (!LIVE) DATA.engines.forEach(e => { absorb(e, e); });
+  state.engine = (DATA.engines.find(e => /^V2203/.test(e.model)) || DATA.engines[0]).id;
+  try { const s = JSON.parse(localStorage.getItem("hqCatalogue") || "{}");
+    if (s.engine && DATA.engines.some(e => e.id === s.engine)) state.engine = s.engine; if (s.filter) state.filter = s.filter; } catch (e) {}
+  if (location.hash && DATA.engines.some(e => e.id === location.hash.slice(1))) state.engine = location.hash.slice(1);
+  $("#snap").textContent = LIVE ? "live stock" : "sample stock · " + DATA.snapshot.replace(/\.json$/, "");
+  open(state.engine);
+  // load the other engines quietly so a part-number search covers all of them
+  if (LIVE) DATA.engines.forEach(e => ensureEngine(e).then(() => { if (state.q) render(); }));
+}
 
 function engineList() {
   const q = key(state.q);
   const list = DATA.engines.filter(e => !q || key(e.model).includes(q) || q.length >= 6);
   $("#engines").innerHTML = '<h2>Engines</h2>' + list.map(e =>
     `<button class="eng" data-id="${e.id}" aria-current="${e.id === state.engine}">
-       <b>${esc(e.model)}</b><span>${e.carried}/${e.total}</span>
-       <em>Kubota · ${e.sections.length} sections</em></button>`).join("");
+       <b>${esc(e.model)}</b><span>${e.carried != null ? e.carried + "/" : ""}${e.total || e.parts || ""}</span>
+       <em>Kubota · ${(e.sections ? e.sections.length : e.sections_n) || ""} sections</em></button>`).join("");
 }
 
-const isKit = h => /\b(kit|overhaul|rebuild)\b/i.test(h.title);
-function stockCell(hits) {
+function pageLink(e, page, label) {     // the original manual, opened at that page (live only)
+  return LIVE ? `<a class="plink" href="${BASE}pdf/${e.id}.pdf#page=${page}" target="_blank" rel="noopener">${label}</a>` : label;
+}
+const isKit = h => h.kit === true || /\b(kit|overhaul|rebuild)\b/i.test(h.title);
+function stockCell(hits, e) {
+  if (!e.stock) return `<span class="none">${e.stockError ? "stock unavailable" : "checking stock…"}</span>`;
   if (!hits.length) return '<span class="none">not listed</span>';
   // the part itself first, kits that contain it after (Parts Finder rule)
   hits = hits.slice().sort((a, b) => isKit(a) - isKit(b) || (b.avail > 0) - (a.avail > 0));
@@ -246,7 +301,7 @@ function partSearch(q) {
   const k = key(q);
   if (k.length < 5 || !/\d/.test(k)) return "";
   const rows = [];
-  DATA.engines.forEach(e => e.sections.forEach(s => s.parts.forEach(p => {
+  DATA.engines.filter(e => e.sections).forEach(e => e.sections.forEach(s => s.parts.forEach(p => {
     if (key(p.pn).includes(k) || (p.xref && key(p.xref).includes(k)))
       rows.push({ e, s, p });
   })));
@@ -256,13 +311,14 @@ function partSearch(q) {
     uniq.slice(0, 40).map(r => `<li><button data-go="${r.e.id}" data-sec="${r.s.code}">${esc(r.e.model)}</button>
       <span>${esc(r.p.pn)} · ${esc(r.p.name)}${r.p.remark ? " · " + esc(r.p.remark) : ""}</span>
       <span class="pg">${esc(r.s.code)} ${esc(r.s.name)} · page ${r.p.page}</span>
-      <span>${(r.e.stock[r.p.pn] || []).length ? "on our shelves" : "not listed"}</span></li>`).join("") + "</ul></section>";
+      <span>${!r.e.stock ? "" : (r.e.stock[r.p.pn] || []).length ? "on our shelves" : "not listed"}</span></li>`).join("") + "</ul></section>";
 }
 
 function render() {
   engineList();
   const e = DATA.engines.find(x => x.id === state.engine);
-  const pct = e.total ? Math.round(100 * e.carried / e.total) : 0;
+  if (!e.sections) { $("#main").innerHTML = `<div class="head"><h2>${esc(e.model)}</h2><div class="meta">Loading the parts list…</div></div>`; return; }
+  const pct = e.total && e.carried != null ? Math.round(100 * e.carried / e.total) : 0;
   const imageOnly = e.flags.filter(f => f.kind === "section-image-only");
   const missing = e.flags.filter(f => f.kind === "section-missing");
 
@@ -272,7 +328,8 @@ function render() {
     <div class="meta"><span>Kubota</span>${e.codeNo ? `<span>code <code>${esc(e.codeNo)}</code></span>` : ""}
       ${e.validity ? `<span>built ${esc(e.validity.replace(/[()]/g, "").replace("-->", "→"))}</span>` : ""}
       <span>source <code>${esc(e.source.file)}</code> · ${e.source.pages} pp</span></div>
-    <div class="cover"><div class="cover-num">${e.carried} <small>of ${e.total} part numbers on our shelves</small></div>
+    <div class="cover"><div class="cover-num">${e.carried != null ? e.carried + " <small>of " + e.total + " part numbers on our shelves</small>"
+        : "<small>" + e.total + " part numbers · " + (e.stockError ? "stock could not be read: " + esc(e.stockError) : "checking our shelves…") + "</small>"}</div>
       <div class="bar" role="img" aria-label="${pct}% carried"><i style="width:${pct}%"></i></div></div></div>`;
 
   if (imageOnly.length || missing.length)
@@ -284,10 +341,11 @@ function render() {
       ${[["all", "All parts"], ["carry", "On our shelves"], ["gap", "Not listed"]].map(([k, l]) =>
         `<button data-filter="${k}" aria-pressed="${state.filter === k}">${l}</button>`).join("")}</div>
     <select class="jump" id="jump" aria-label="Jump to section"><option value="">Jump to section…</option>
-      ${e.sections.map(s => `<option value="${s.code}">${s.code} ${esc(s.name)} — ${s.carried}/${s.total}</option>`).join("")}</select></div>`;
+      ${e.sections.map(s => `<option value="${s.code}">${s.code} ${esc(s.name)}${e.stock ? " — " + s.carried + "/" + s.total : ""}</option>`).join("")}</select></div>`;
 
   e.sections.forEach(s => {
     const rows = s.parts.filter(p => {
+      if (!e.stock) return true;
       const has = (e.stock[p.pn] || []).length > 0;
       return state.filter === "all" || (state.filter === "carry" ? has : !has);
     });
@@ -299,14 +357,14 @@ function render() {
         <img src="${d.src}" alt="Exploded view, ${esc(s.name)}" width="${d.w}" height="${d.h}" loading="lazy">
         ${d.callouts.map(c => `<button class="co" data-ref="${c.ref}" data-sec="${s.code}" aria-label="Ref ${c.ref}"
           style="left:${(c.x * 100 - .6).toFixed(2)}%;top:${(c.y * 100 - 1).toFixed(2)}%;width:${(c.w * 100 + 1.2).toFixed(2)}%;height:${(c.h * 100 + 2).toFixed(2)}%"></button>`).join("")}
-      </div><div class="dwg-bar"><span>${located.size} of ${new Set(s.parts.map(p => p.ref)).size} refs marked · manual page ${s.page}</span>
+      </div><div class="dwg-bar"><span>${located.size} of ${new Set(s.parts.map(p => p.ref)).size} refs marked · ${pageLink(e, s.page, "manual page " + s.page)}</span>
         <button data-big="${s.code}">Enlarge</button></div></div>` : "";
     html += `<section class="sec" id="s${s.code}"><div class="sec-h"><span class="code">${s.code}</span><h3>${esc(s.name)}</h3>
-      <span class="stat">${s.carried}/${s.total} carried · page ${s.page}</span></div>
+      <span class="stat">${e.stock ? s.carried + "/" + s.total + " carried · " : ""}${pageLink(e, s.page, "page " + s.page)}</span></div>
       <div class="sec-body${dwg ? " has-dwg" : ""}" id="b${s.code}">${dwg}
       <div class="scroll"><table><thead><tr><th>Ref</th><th>Part No.</th><th>Name</th><th>Size</th><th>Qty</th><th>Our stock</th></tr></thead><tbody>` +
       rows.map(p => {
-        const hits = e.stock[p.pn] || [];
+        const hits = (e.stock || {})[p.pn] || [];
         const rep = p.ref === prevRef; prevRef = p.ref;
         const qty = Array.isArray(p.qty) ? (p.qty[0] == null ? "–" : p.qty[0]) : "";
         return `<tr class="${rep ? "repeat " : ""}${hits.length ? "" : "miss"}" data-ref="${esc(p.ref)}" data-sec="${s.code}">
@@ -315,7 +373,7 @@ function render() {
           <td class="nm">${esc(p.name)}</td>
           <td class="sz">${p.remark ? `<span class="size">${esc(p.remark)}</span>` : ""}</td>
           <td class="qty">${qty}</td>
-          <td class="ours">${stockCell(hits)}</td></tr>`;
+          <td class="ours">${stockCell(hits, e)}</td></tr>`;
       }).join("") + `</tbody></table></div></div></section>`;
   });
 
@@ -346,16 +404,19 @@ document.addEventListener("click", ev => {
   const tr = ev.target.closest("tbody tr[data-ref]");
   if (tr && !ev.target.closest("a")) { light(tr.dataset.sec, tr.dataset.ref, "row"); return; }
   const eng = ev.target.closest(".eng");
-  if (eng) { state.engine = eng.dataset.id; save(); render(); window.scrollTo({ top: 0 }); return; }
+  if (eng) { open(eng.dataset.id); window.scrollTo({ top: 0 }); return; }
   const f = ev.target.closest("[data-filter]");
   if (f) { state.filter = f.dataset.filter; save(); render(); return; }
   const go = ev.target.closest("[data-go]");
-  if (go) { state.engine = go.dataset.go; state.filter = "all"; render();
-    const el = document.getElementById("s" + go.dataset.sec); if (el) el.scrollIntoView(); }
+  if (go) { state.filter = "all"; open(go.dataset.go);
+    ensureEngine(DATA.engines.find(x => x.id === go.dataset.go)).then(() => {
+      const el = document.getElementById("s" + go.dataset.sec); if (el) el.scrollIntoView(); }); }
 });
 document.addEventListener("change", ev => {
   if (ev.target.id === "jump" && ev.target.value) { const el = document.getElementById("s" + ev.target.value); if (el) el.scrollIntoView(); }
 });
 let t; $("#q").addEventListener("input", ev => { clearTimeout(t); t = setTimeout(() => { state.q = ev.target.value.trim(); render(); }, 150); });
-render();
+if (DATA) boot(DATA);
+else fetch(BASE + "index.json").then(r => r.json()).then(idx => boot({ engines: idx.map(x => ({ id: x.id, model: x.model, parts: x.parts, sections_n: x.sections, sections: null })) }))
+  .catch(() => { $("#main").innerHTML = '<div class="note">The catalogue data could not be loaded. Reload the page; if it keeps failing, the files are missing on the server.</div>'; });
 </script>

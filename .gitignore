@@ -126,3 +126,4 @@ dial/band-marks/*.gif
 
 # Engine Catalogue import output — regenerable from the PDFs (node catalogue/import.js)
 catalogue/out/
+catalogue/dist/
