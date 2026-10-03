@@ -121,6 +121,8 @@ td.ours { min-width: 230px; }
 .none { font-size: 12px; color: var(--ink-soft); }
 tr.miss td.pn { color: var(--ink-soft); }
 .plink { color: inherit; } .sec-h .plink { color: #c9c2b0; }
+.chk { font: 500 9.5px var(--font-display); letter-spacing: .08em; text-transform: uppercase; color: var(--warn);
+  border: 1px solid var(--warn); border-radius: 2px; padding: 0 4px; vertical-align: 1px; cursor: help; }
 .pg { font: 400 11px var(--font-mono); color: var(--ink-soft); white-space: nowrap; }
 
 
@@ -327,7 +329,8 @@ function render() {
     <h2>${esc(e.model)}</h2>
     <div class="meta"><span>Kubota</span>${e.codeNo ? `<span>code <code>${esc(e.codeNo)}</code></span>` : ""}
       ${e.validity ? `<span>built ${esc(e.validity.replace(/[()]/g, "").replace("-->", "→"))}</span>` : ""}
-      <span>source <code>${esc(e.source.file)}</code> · ${e.source.pages} pp</span></div>
+      <span>source <code>${esc(e.source.file)}</code> · ${e.source.pages} pp${e.source.parser === "ocr" ? " · scanned, read by OCR" : ""}</span>
+      ${e.source.ocrCheck ? `<span>${e.source.ocrCheck} part numbers marked <span class="chk">check</span></span>` : ""}</div>
     <div class="cover"><div class="cover-num">${e.carried != null ? e.carried + " <small>of " + e.total + " part numbers on our shelves</small>"
         : "<small>" + e.total + " part numbers · " + (e.stockError ? "stock could not be read: " + esc(e.stockError) : "checking our shelves…") + "</small>"}</div>
       <div class="bar" role="img" aria-label="${pct}% carried"><i style="width:${pct}%"></i></div></div></div>`;
@@ -369,7 +372,7 @@ function render() {
         const qty = Array.isArray(p.qty) ? (p.qty[0] == null ? "–" : p.qty[0]) : "";
         return `<tr class="${rep ? "repeat " : ""}${hits.length ? "" : "miss"}" data-ref="${esc(p.ref)}" data-sec="${s.code}">
           <td class="ref">${esc(p.ref)}${located.has(p.ref) ? '<span class="dot" title="Marked on the drawing"></span>' : ""}</td>
-          <td class="pn" title="Manual page ${p.page}">${esc(p.pn)}${p.xref ? `<div class="pg">ref ${esc(p.xref)}</div>` : ""}</td>
+          <td class="pn" title="Manual page ${p.page}">${esc(p.pn)}${p.ocr && !p.ocr.confirmed ? ` <span class="chk" title="Read by OCR from a scanned page and not confirmed by a second read, a clean manual or our listings. Check it on the manual page.">check</span>` : ""}${p.xref ? `<div class="pg">ref ${esc(p.xref)}</div>` : ""}</td>
           <td class="nm">${esc(p.name)}</td>
           <td class="sz">${p.remark ? `<span class="size">${esc(p.remark)}</span>` : ""}</td>
           <td class="qty">${qty}</td>

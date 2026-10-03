@@ -99,6 +99,34 @@ for (const f of files) {
   results.push(rec);
 }
 
+// ---- OCR'd scans (catalogue/ocr-batch.js) ---------------------------------------------------
+// A scan's cached parse replaces its "no text" verdict. Part numbers OCR read are CONFIRMED
+// when the two independent reads agreed, or the number is known from a clean manual or from
+// one of our listings; the rest are flagged for a human check (never silently trusted).
+const ocrDir = path.join(opt.out, "ocr");
+const textBooks = results.filter(r => r.status === "ok");
+const knownName = new Map();                     // pn → name, from the clean manuals
+textBooks.forEach(r => r.parsed.sections.forEach(s => s.parts.forEach(p => { if (p.name && !knownName.has(p.pn)) knownName.set(p.pn, p.name); })));
+if (fs.existsSync(ocrDir)) {
+  results.forEach(rec => {
+    if (rec.status === "ok") return;
+    const cache = path.join(ocrDir, rec.name + ".json");
+    if (!fs.existsSync(cache)) { if (fs.existsSync(cache.replace(/\.json$/, ".skip"))) rec.status = "scan-not-parts"; return; }
+    const parsed = JSON.parse(fs.readFileSync(cache, "utf8"));
+    let check = 0, named = 0;
+    parsed.sections.forEach(s => s.parts.forEach(p => {
+      const known = knownName.has(p.pn) || (miIndex && miIndex.has(mpn._mpnKey(p.pn)));
+      p.ocr.confirmed = !!(p.ocr.agree || known);
+      if (knownName.has(p.pn) && (!p.name || p.ocr.rescued || p.name.length < 3 || /[a-z]/.test(p.name))) { p.name = knownName.get(p.pn); named++; }
+      if (!p.ocr.confirmed) check++;
+    }));
+    if (check) parsed.flags.push({ page: null, kind: "ocr-check", line: check + " part numbers read by OCR could not be confirmed — check them against the manual page" });
+    rec.parsed = parsed; rec.ocr = { check, named };
+    rec.lines = parsed.sections.reduce((a, s) => a + s.parts.length, 0);
+    rec.status = rec.lines >= MIN_LINES ? "ok" : "mostly-scanned";
+  });
+}
+
 // ---- dedupe: same model (+ code number) from two files → keep the fuller one ----------------
 const byModel = new Map();
 for (const r of results.filter(r => r.status === "ok")) {
@@ -119,13 +147,13 @@ for (const r of byModel.values()) {
   const id = slug(p.model);
   const doc = {
     id, brand: p.brand, model: p.model, codeNo: p.codeNo, validity: p.validity, models: p.models,
-    source: { file: r.name, pages: r.pages, parser: p.source || "kubota-book" },
+    source: { file: r.name, pages: r.pages, parser: p.source || "kubota-book", ocrCheck: r.ocr ? r.ocr.check : 0 },
     sections: p.sections.map(s => ({ code: s.code, name: s.name, page: s.page, parts: s.parts })),
     flags: p.flags,
     drawings: null,
     importedAt: new Date().toISOString()
   };
-  if (opt.drawings && !p.source) {          // book layout only; KPAD prints its drawings on separate pages
+  if (opt.drawings && p.source !== "kpad") {   // books (text or OCR); KPAD prints its drawings on separate pages
     process.stdout.write(`  drawings ${p.model} … `);
     doc.drawings = extractDrawings(r.file, p, opt.out, id);
     const v = Object.values(doc.drawings).filter(x => !x.error);
@@ -175,7 +203,8 @@ const groups = { "machine-manual": "Whole-machine manuals (engine is one section
                  "mostly-scanned": "Mostly scanned — OCR batch", "no-text": "No text layer (scans) — OCR batch",
                  "oem-parts-list": "Machine-maker parts lists (OEM numbers, e.g. Bobcat) — own parser later",
                  "not-a-parts-list": "Not a parts list (workshop/operation) — skipped",
-                 "duplicate": "Duplicates (kept the fuller copy)", "unreadable": "Could not be read" };
+                 "duplicate": "Duplicates (kept the fuller copy)",
+                 "scan-not-parts": "Scans that are not Kubota parts books (OCR found no parts table)", "unreadable": "Could not be read" };
 Object.keys(groups).forEach(k => {
   const g = results.filter(r => r.status === k);
   if (!g.length) return;

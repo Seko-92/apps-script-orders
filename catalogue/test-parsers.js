@@ -89,5 +89,31 @@ const a1 = [{ ref: "010", x: 0.39, y: 0.62, w: 0.02, h: 0.02 }];
 eq("same callout from two passes counts once", mergeCallouts(a1, [{ ref: "010", x: 0.395, y: 0.625, w: 0.02, h: 0.02 }]).length, 1);
 eq("same ref at another spot is kept (a part drawn twice)", mergeCallouts(a1, [{ ref: "010", x: 0.7, y: 0.2, w: 0.02, h: 0.02 }]).length, 2);
 
+// ---------- OCR of scanned books ----------
+const K = require("./lib/kubota-scan");
+eq("OCR: letter Z in a digit position", K.normalisePn("15471-3501-Z"), "15471-3501-2");
+eq("OCR: lower-case l read for 1", K.normalisePn("1G780-2lll-2"), "1G780-2111-2");
+eq("OCR: brackets from table rules stripped", K.normalisePn("|1A021-3515-0]"), "1A021-3515-0");
+eq("OCR: number glued to the next word", K.normalisePn("17331-2105-0_[ASSY"), "17331-2105-0");
+eq("OCR: no dashes, part number (starts 1) → 5-4-1", K.normalisePn("1547135012"), "15471-3501-2");
+eq("OCR: no dashes, hardware (starts 0) → 5-5", K.normalisePn("0771500401"), "07715-00401");
+eq("OCR: a word is not a number", K.normalisePn("ASSY"), null);
+eq("OCR: remark spacing", K.fixRemark("-0.20MMSET"), "-0.20mm SET");
+eq("OCR: remark O for 0", K.fixRemark("+O.50MM"), "+0.50mm");
+// sizes sit at the BOTTOM of a cell: banding, not nearest-row, decides the owner
+// (the old code accepted a read only within 0.7× the row height of the part number's centre,
+//  so a size printed at the bottom of a tall cell was silently dropped)
+const rows = [{ y: 100, h: 30, remark: "", qty: null }, { y: 166, h: 30, remark: "", qty: null }];
+K.attachColumn(rows, [{ block: 1, par: 1, line: 1, x: 0, y: 118, w: 50, h: 20, t: "STD" }], "remark");
+eq("OCR: a size at the bottom of its cell is kept, on its own row", rows.map(r => r.remark), ["STD", ""]);
+// the column re-read fuses REF and part number; it still confirms and rescues
+const L = { nameEnd: 900 };
+const pageRows = [{ ref: "010", pn: "16423-2111-0", y: 100, h: 50, name: "PISTON" }];
+const col = [{ t: "16423-2111-0", x: 380, y: 85, w: 300, h: 30, block: 1, par: 1, line: 1 },
+             { t: "10007715-00401", x: 380, y: 285, w: 320, h: 30, block: 1, par: 1, line: 2 }];
+const out = K.rescueRows(pageRows, [], col, L);
+eq("OCR: two reads agreeing confirm a number", out[0].agree, true);
+eq("OCR: a row only the column read found is rescued, REF split off", [out[1].pn, out[1].ref, out[1].rescued], ["07715-00401", "100", true]);
+
 console.log(`${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

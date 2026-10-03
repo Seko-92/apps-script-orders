@@ -100,8 +100,8 @@ function extractDrawings(pdf, parsed, outDir, id) {
   const result = {};
   for (const s of parsed.sections) {
     try {
-      const box = wordBoxes(pdf, s.page);
-      const band = drawingBand(box, s.code);
+      // a scanned book has no text layer: its OCR reader already measured the band
+      const band = (parsed.bands && parsed.bands[s.code]) || drawingBand(wordBoxes(pdf, s.page), s.code);
       if (!band) continue;
       const refs = [...new Set(s.parts.map(p => p.ref))];
       // Several OCR passes see different callouts (leader lines touch the digits); merge them.
