@@ -6,7 +6,7 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const { execFileSync } = require("child_process");
-const { tsvWords, readScanPage, attachColumn, rescueRows } = require("./kubota-scan");
+const { tsvWords, readScanPage, attachColumn, rescueRows, sectionCodeOf } = require("./kubota-scan");
 
 const DPI = 400;
 
@@ -27,6 +27,45 @@ function ocrPage(pdf, page, tmp) {
  * OCR one column of the page (box in 400-dpi page px) at `dpi`, returning words with
  * coordinates mapped back to 400-dpi page px so they line up with the page read.
  */
+// The big section code ("E07.", "E14-1.") is printed so large that the full-page read at DPI
+// breaks it into fragments ("EO" + "7"). A small LOW-resolution crop of just that corner, one
+// text line, restricted to the characters a code can hold, reads it whole (D1302, 2026-10-04).
+// Only called when the page read found no code. Returns the clean code or "".
+function ocrSectionCode(pdf, page, W, H, tmp) {
+  const dpi = 150, k = dpi / DPI, base = path.join(tmp, "s" + page);
+  try {
+    execFileSync("pdftoppm", ["-f", String(page), "-l", String(page), "-r", String(dpi), "-gray",
+      // starts at 2% of the width: the page border / binding line at the very edge reads as "E" or "|"
+      "-x", String(Math.round(0.02 * W * k)), "-y", "0", "-W", String(Math.round(0.15 * W * k)), "-H", String(Math.round(0.085 * H * k)),
+      "-singlefile", pdf, base], { stdio: "ignore" });
+    const img = base + ".pgm";
+    // tesseract is mode-sensitive on one big word: measured on D1302, psm 6 reads "E13." where
+    // psm 7 returns nothing — so try 6, 11, 8 in turn and keep the first real code
+    let found = "";
+    for (const psm of ["6", "11", "8"]) {
+      const txt = execFileSync("tesseract", [img, "-", "--psm", psm, "-c", "tessedit_char_whitelist=EO0123456789-."],
+        { stdio: ["ignore", "pipe", "ignore"], env: Object.assign({}, process.env, { OMP_THREAD_LIMIT: "1" }) }).toString();
+      // word by word, last first — a stray "E" from a rule must not glue onto the real code
+      for (const t of txt.split(/\s+/).filter(Boolean).reverse()) {
+        const c = sectionCodeOf(t.replace(/^EE/, "E"));
+        if (c && /^E/.test(c)) { found = c; break; }
+      }
+      if (found) break;
+    }
+    fs.unlinkSync(img);
+    return found;
+  } catch (e) { return ""; }
+}
+
+// The English title beside a code we read from the corner crop: the topmost line of words just
+// right of the code, near the top of the page.
+function titleBeside(words, W, H) {
+  const near = words.filter(w => w.x > 0.13 * W && w.x < 0.55 * W && w.y < 0.07 * H && /[A-Z]{2}/.test(w.t));
+  if (!near.length) return "";
+  const topY = Math.min(...near.map(w => w.y)), h = Math.max(...near.map(w => w.h));
+  return near.filter(w => w.y < topY + 0.6 * h).sort((a, b) => a.x - b.x).map(w => w.t).join(" ").trim();
+}
+
 function ocrColumn(pdf, page, box, dpi, tmp, extra, mode) {
   const k = dpi / DPI;
   const base = path.join(tmp, "c" + page + "-" + Math.round(box.x));
@@ -92,11 +131,16 @@ function ocrBook(pdf, opts) {
   const out = { brand: "Kubota", source: "ocr", file: pdf, model: "", codeNo: "", validity: "", models: [],
                 sections: [], flags: [], contents: [], imagePages: [], pageCount: n, bands: {} };
   let current = null, coverText = "";
+  let pending = null;   // section code seen on a drawing page, waiting for its table
   try {
     for (const p of pages) {
       const { words, W, H } = ocrPage(pdf, p, tmp);
       if (p <= 4) coverText += " " + words.map(w => w.t).join(" ");
       const r = readScanPage(words, W, H);
+      if (!r.code && !r.isIndex) {
+        const c = ocrSectionCode(pdf, p, W, H, tmp);
+        if (c) { r.code = c; r.name = r.name || titleBeside(words, W, H); }
+      }
       if (r.rows.length) {
         const L = r.layout, top = L.headerBottom - 20, hgt = L.tableBottom - top;
         // 1. part-number column alone, restricted alphabet → rows the page read skipped
@@ -119,7 +163,12 @@ function ocrBook(pdf, opts) {
       }
       if (opts.log) opts.log(p, r);
       if (r.isIndex && out.sections.length) break;     // the index at the END, never the contents page
-      if (!r.rows.length) continue;
+      // a DRAWING page (no table) that carries the section code: remember it for the table that
+      // follows — newer books print "E07." only there (the FIRST section's drawing comes before
+      // any parts, so this can't wait for parts to start). A table page's own code still wins.
+      if (!r.rows.length) { if (r.code) pending = { code: r.code, name: r.name }; continue; }
+      if (!r.code && pending) { r.code = pending.code; r.name = r.name || pending.name; }
+      pending = null;
       if (r.model && !out.models.length) out.models.push({ col: "A", name: r.model });
       if (r.code && (!current || current.code !== r.code)) {
         current = out.sections.find(s => s.code === r.code);
@@ -150,4 +199,4 @@ function ocrBook(pdf, opts) {
   return out;
 }
 
-module.exports = { ocrBook };
+module.exports = { ocrBook, ocrPage, ocrSectionCode };

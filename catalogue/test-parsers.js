@@ -115,5 +115,9 @@ const out = K.rescueRows(pageRows, [], col, L);
 eq("OCR: two reads agreeing confirm a number", out[0].agree, true);
 eq("OCR: a row only the column read found is rescued, REF split off", [out[1].pn, out[1].ref, out[1].rescued], ["07715-00401", "100", true]);
 
+// section codes as OCR really reads them on the newer bilingual books (2026-10-04)
+eq("OCR: section codes, every shape seen", ["0102", "E03.", "EO2-1.", "ES1.", "£11-1.", "E11-1", "BOS", "OIL", "C11-L", "1234-5"].map(K.sectionCodeOf),
+   ["0102", "E03", "E02-1", "E51", "E11-1", "E11-1", "", "", "", ""]);
+
 console.log(`${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

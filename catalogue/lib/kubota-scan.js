@@ -56,6 +56,41 @@ function normalisePn(raw) {
  * @param {number} W, H   image size in px
  * @return {{code,name,model,rows,band,isIndex}|null}  null = no parts table on this page
  */
+// A section code as OCR reads it → the clean code, or "" if the word isn't one.
+//   "0102" (older books) · "E03." · "E02-1." (newer, sub-part) — measured 2026-10-04 on the
+//   newer bilingual books: "EO2-1." (O for 0), "ES1." (S for 5), "£11-1." all occur, and the
+//   old exact-digit test rejected every one, so whole books came back as 1–7 sections.
+// ⚠ At least one REAL digit is required, or top-left words like "BOS" would pass.
+function sectionCodeOf(t) {
+  const s = String(t || "").trim();
+  if (/^\d{4}$/.test(s)) return s;
+  const m = s.match(/^([A-Z£€])([0-9OSIlBZ]{2,3})(?:-([0-9Il]{1,2}))?\.?$/);
+  if (!m || !/\d/.test(m[2])) return "";
+  const fix = x => x.replace(/O/g, "0").replace(/S/g, "5").replace(/[Il]/g, "1").replace(/B/g, "8").replace(/Z/g, "2");
+  return (/[£€]/.test(m[1]) ? "E" : m[1]) + fix(m[2]) + (m[3] ? "-" + fix(m[3]) : "");
+}
+
+// The section code + English title at the top-left of a page — on a parts TABLE page, or on
+// the DRAWING page before it. ⚠ Newer books print the big "E07." only on the drawing page, and
+// the table that follows often doesn't repeat it (measured on D1302, 2026-10-04) — so this runs
+// on every page and the book loop carries a drawing page's code onto the next table.
+function pageSection(words, W, H) {
+  // section code at the top-left: "0102" (older books) or "E03." (newer). The English title is
+  // the TOPMOST line beside it: above the code line in the first style, on it in the second.
+  // (OCR reads the large "E" of "E03." as £ or €, and newer books add a sub-part: "E02-1.")
+  const code = words.find(w => sectionCodeOf(w.t) && w.y < 0.12 * H && w.x < 0.2 * W);
+  if (code) code.t = sectionCodeOf(code.t);
+  let name = "";
+  if (code) {
+    const beside = words.filter(w => w.x > code.x + code.w && w.y > code.y - 2.4 * code.h && w.y < code.y + 0.6 * code.h && w.y < 0.15 * H);
+    if (beside.length) {
+      const topY = Math.min(...beside.map(w => w.y));
+      name = beside.filter(w => w.y < topY + 0.6 * Math.max(...beside.map(x => x.h))).sort((a, b) => a.x - b.x).map(w => w.t).join(" ").trim();
+    }
+  }
+  return { code: code ? code.t.replace(/\.$/, "") : null, name, codeWord: code };
+}
+
 function readScanPage(words, W, H) {
   const txt = words.map(w => w.t).join(" ");
   const hdr = words.filter(w => /^(REFERENCE|BESELL|BESTELL|DESIGNAT|BEZE|STUECK|REMARK|REMARQ)/.test(w.t));
@@ -63,7 +98,9 @@ function readScanPage(words, W, H) {
   // mostly part numbers is the index (the caller also requires parts to have been read first)
   const pnCount = words.filter(w => normalisePn(w.t)).length;
   const isIndex = /NUMERICAL|NUMERIQUE|NUMERISCHEN/.test(txt) && hdr.length < 2 && pnCount > 20;
-  if (!hdr.length || isIndex) return { isIndex, rows: [] , code: null };
+  const sec = pageSection(words, W, H);
+  if (!hdr.length || isIndex) return { isIndex, rows: [], code: isIndex ? null : sec.code, name: sec.name };
+  const code = sec.codeWord, name = sec.name;
   const hw = re => words.find(x => re.test(x.t) && hdr.some(h => Math.abs(h.y - x.y) < 140));
   const centre = w => w ? w.x + w.w / 2 : null;
   const nameW = words.find(x => x.t === "NAME" && hdr.some(h => Math.abs(h.y - x.y) < 140));
@@ -78,19 +115,6 @@ function readScanPage(words, W, H) {
   const tableBottom = footer ? footer.y - 10 : 0.95 * H;
   const layout = { pnX0: 0.06 * W, pnX1: nameW ? nameW.x - 120 : 0.25 * W, nameEnd, stueckX, remarksX, headerBottom, tableBottom, W, H };
 
-  // section code at the top-left: "0102" (older books) or "E03." (newer). The English title is
-  // the TOPMOST line beside it: above the code line in the first style, on it in the second.
-  // (OCR reads the large "E" of "E03." as £ or €)
-  const code = words.find(w => /^(\d{4}|[A-Z£€]\d{2,3}\.?)$/.test(w.t) && w.y < 0.12 * H && w.x < 0.2 * W);
-  if (code) code.t = code.t.replace(/^[£€]/, "E");
-  let name = "";
-  if (code) {
-    const beside = words.filter(w => w.x > code.x + code.w && w.y > code.y - 2.4 * code.h && w.y < code.y + 0.6 * code.h && w.y < 0.15 * H);
-    if (beside.length) {
-      const topY = Math.min(...beside.map(w => w.y));
-      name = beside.filter(w => w.y < topY + 0.6 * Math.max(...beside.map(x => x.h))).sort((a, b) => a.x - b.x).map(w => w.t).join(" ").trim();
-    }
-  }
   const modelW = words.find(w => /^[A-Z]:[A-Z0-9][A-Z0-9-]{3,}/.test(w.t) && w.y < headerTop + 10);
 
   // rows: a part number in the left column
@@ -103,7 +127,7 @@ function readScanPage(words, W, H) {
   const bandBottom = (modelW ? modelW.y : headerTop) - 30;
   const band = bandBottom - bandTop > 0.12 * H ? { y: bandTop, h: bandBottom - bandTop } : null;
 
-  return { isIndex, code: code ? code.t.replace(/\.$/, "") : null, name, model: modelW ? modelW.t.slice(2) : "", rows, band, layout };
+  return { isIndex, code: sec.code, name, model: modelW ? modelW.t.slice(2) : "", rows, band, layout };
 }
 
 // The French column often spills into the English name on a scan ("KEY,FEATHER CLAVETTE"):
@@ -205,4 +229,4 @@ function rescueRows(rows, words, pnColWords, L) {
   return rows.concat(added).sort((a, b) => a.y - b.y);
 }
 
-module.exports = { tsvWords, normalisePn, readScanPage, attachColumn, rescueRows, fixRemark };
+module.exports = { sectionCodeOf, tsvWords, normalisePn, readScanPage, attachColumn, rescueRows, fixRemark };
