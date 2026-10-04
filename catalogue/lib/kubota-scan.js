@@ -97,14 +97,30 @@ function readScanPage(words, W, H) {
   // ⚠ the CONTENTS page also says "NUMERICAL INDEX" — only a page with no parts header that is
   // mostly part numbers is the index (the caller also requires parts to have been read first)
   const pnCount = words.filter(w => normalisePn(w.t)).length;
-  const isIndex = /NUMERICAL|NUMERIQUE|NUMERISCHEN/.test(txt) && hdr.length < 2 && pnCount > 20;
+  // ⚠⚠ The index has its OWN column headings — four "PART No. / REFERENCE" columns side by side —
+  //   so "fewer than 2 headings" missed it in most books and the whole index (200–380 lines) was
+  //   swallowed into the last section as fake parts (measured 2026-10-04). Now: the index TITLE
+  //   in the top of the page, or 3+ REFERENCE/BESTELL headings spread across the width.
+  const titleIdx = words.some(w => /^NUMER(ICAL|IQUE|ISCHEN|QUE)?$/.test(w.t.replace(/[^A-Z]/g, "")) && w.y < 0.15 * H);
+  const refCols = words.filter(w => /^(REFERENCE|BESTELL)/.test(w.t))
+    .map(w => Math.round(w.x / (0.1 * W))).filter((v, i, a) => a.indexOf(v) === i).length;
+  const isIndex = pnCount > 20 && (titleIdx || refCols >= 3 ||
+                  (/NUMERICAL|NUMERIQUE|NUMERISCHEN/.test(txt) && hdr.length < 2));
   const sec = pageSection(words, W, H);
   if (!hdr.length || isIndex) return { isIndex, rows: [], code: isIndex ? null : sec.code, name: sec.name };
   const code = sec.codeWord, name = sec.name;
   const hw = re => words.find(x => re.test(x.t) && hdr.some(h => Math.abs(h.y - x.y) < 140));
   const centre = w => w ? w.x + w.w / 2 : null;
   const nameW = words.find(x => x.t === "NAME" && hdr.some(h => Math.abs(h.y - x.y) < 140));
-  const desW = hw(/^DESIGNAT/), stW = hw(/^STUECK/), reW = hw(/^REMARK|^REMARQ/), bezW = hw(/^BEZE/);
+  const desW = hw(/^DESIGNAT/), reW = hw(/^REMARK|^REMARQ/), bezW = hw(/^BEZE/);
+  // the qty column's heading: "STUECK" in most books, "UNIT / UNITE / ANZAHL" or "Q'TY" in others
+  // (Z400, 2026-10-04 — without it the column was guessed at 0.69 W and every qty was missed).
+  // Columns are left-aligned under the heading, so take the LEFTMOST of the heading words.
+  // ⚠ tolerant of OCR misreads of a tiny heading: "STUEGK/S." (D782, 2026-10-04)
+  const stCands = words.filter(x => /^(STU?E?[CGK]{1,2}K?\b|ST[UÜ]E?[CG]K|ANZAHL|UNITE?$|Q'?T[YE])/.test(x.t) && hdr.some(h => Math.abs(h.y - x.y) < 140));
+  const stW = stCands.length ? stCands.reduce((a, c) => c.x < a.x ? c : a) : null;
+  // and it ends where the interchangeability / serial-number columns start, if the book has them
+  const intW = hw(/^INTERCHANG|^REVISION/);
   // columns are left-aligned under centred headings: a boundary sits halfway between headings
   const nameEnd = (nameW && desW) ? (centre(nameW) + centre(desW)) / 2 : 0.36 * W;
   const stueckX = stW ? stW.x - 40 : 0.69 * W;
@@ -113,7 +129,13 @@ function readScanPage(words, W, H) {
   const headerBottom = Math.max(...hdr.map(w => w.y + w.h)) + 60;
   const footer = words.find(w => /^Interchang/i.test(w.t) && w.y > 0.5 * H);
   const tableBottom = footer ? footer.y - 10 : 0.95 * H;
-  const layout = { pnX0: 0.06 * W, pnX1: nameW ? nameW.x - 120 : 0.25 * W, nameEnd, stueckX, remarksX, headerBottom, tableBottom, W, H };
+  // ⚠ capped at 4.5% of the width: the column is narrow and the serial-range arrows / brackets
+  //   of the next column otherwise ride along and spoil the read (Z400, 2026-10-04)
+  const qtyEnd = Math.min(remarksX - 20, stueckX + 0.045 * W, intW && intW.x > stueckX + 60 ? intW.x - 20 : Infinity);
+  // the qty heading's CENTRE: in books with model columns it's centred over A…D, so its left edge
+  // sits in B — the variant reader lays the sub-columns out around this instead (D1703, 2026-10-04)
+  const stCenter = stCands.length ? (Math.min(...stCands.map(w => w.x)) + Math.max(...stCands.map(w => w.x + w.w))) / 2 : null;
+  const layout = { pnX0: 0.06 * W, pnX1: nameW ? nameW.x - 120 : 0.25 * W, nameEnd, stueckX, qtyEnd, stCenter, remarksX, headerBottom, tableBottom, W, H };
 
   const modelW = words.find(w => /^[A-Z]:[A-Z0-9][A-Z0-9-]{3,}/.test(w.t) && w.y < headerTop + 10);
 
@@ -172,8 +194,9 @@ function attachColumn(rows, colWords, field) {
     const t = ws.sort((a, b) => a.x - b.x).map(c => clean(c.t)).filter(x => x && !NOISE.test(x)).join(" ");
     if (field === "qty") {
       // the first small number; serial-number ranges ("489911") print under the qty in newer books
-      const n = t.split(/\s+/).find(x => /^\d{1,3}$/.test(x));
-      if (n && row.qty == null) row.qty = [Number(n)];
+      // read from the START of a word: an arrow glued on reads as "1-" (Z400, 2026-10-04)
+      const m = t.split(/\s+/).map(x => x.match(/^(\d{1,3})(?!\d)/)).find(Boolean);
+      if (m && row.qty == null) row.qty = [Number(m[1])];
     } else if (field === "name") {
       const nm = cleanName(t);
       if (nm && (!row.name || row.rescued || nm.length >= row.name.length - 2)) row.name = nm;
@@ -206,16 +229,32 @@ function fixRemark(t) {
  *   * mark each row `agree` when both reads give the same number — a far stronger signal
  *     than tesseract's own confidence.
  */
+// A part number taken BY ITS SHAPE out of a read that ran into the next column
+// ("02771-50120NUTFL", "1C011-5510-4HOS"): the dashed Kubota shapes first, then loose.
+function pnByShape(t) {
+  const u = String(t || "").toUpperCase();
+  const m = u.match(/(\d{5}-\d{4}-\d|[0-9][A-Z0-9]\d{3}-\d{4}-\d|\d{5}-\d{5})/) ||
+            u.match(/(\d{5}-?\d{4}-?\d|[0-9][A-Z0-9]\d{3}-?\d{4}-?\d|\d{5}-?\d{5})/);
+  return m ? normalisePn(m[1]) : null;
+}
+
 function rescueRows(rows, words, pnColWords, L) {
   const reads = pnColWords.map(c => {
     const m = String(c.t).toUpperCase().match(/^[|\[(]*(\d{3})?(.+)$/);
     let pn = m ? normalisePn(m[2]) : null, ref = m && m[1];
     if (!pn) { pn = normalisePn(c.t); ref = ""; }
+    // ⚠⚠ the part-number column read runs into the NAME column, so most of its words were
+    //   "02771-50120NUTFL": no shape → no pn → the two reads NEVER agreed (0 on every page tested,
+    //   2026-10-04) and every OCR line showed "check". Take the number by its shape.
+    if (!pn) { pn = m ? pnByShape(m[2]) : null; ref = m && m[1] || ""; }
+    if (!pn) { pn = pnByShape(c.t); ref = ""; }
     return pn ? { c, pn, ref: ref || "", mid: c.y + c.h / 2 } : null;
   }).filter(Boolean);
   rows.forEach(r => {
     const twin = reads.find(x => Math.abs(x.mid - r.y) < r.h * 0.6);
-    r.agree = !!(twin && twin.pn === r.pn);
+    // ⚠ OR, never overwrite: the gap filler calls this a second time with only its few cell reads,
+    //   and a plain assignment wiped every agreement the column read had found (2026-10-04)
+    r.agree = !!r.agree || !!(twin && twin.pn === r.pn);
     if (twin && !r.ref && twin.ref) r.ref = twin.ref;
   });
   const added = [];
@@ -229,4 +268,4 @@ function rescueRows(rows, words, pnColWords, L) {
   return rows.concat(added).sort((a, b) => a.y - b.y);
 }
 
-module.exports = { sectionCodeOf, tsvWords, normalisePn, readScanPage, attachColumn, rescueRows, fixRemark };
+module.exports = { pnByShape, sectionCodeOf, tsvWords, normalisePn, readScanPage, attachColumn, rescueRows, fixRemark };

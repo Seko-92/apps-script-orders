@@ -39,7 +39,7 @@ const engines = JSON.parse(fs.readFileSync(path.join(outDir, "index.json"), "utf
     const src = "data:image/png;base64," + fs.readFileSync(path.join(outDir, v.img)).toString("base64");
     drawings[code] = { src, w: v.w, h: v.h, callouts: v.callouts };
   });
-  return { id: d.id, model: d.model, codeNo: d.codeNo, validity: d.validity, source: d.source,
+  return { id: d.id, model: d.model, models: d.models || [], codeNo: d.codeNo, validity: d.validity, source: d.source,
            sections: d.sections, flags: d.flags, stock, drawings };
 });
 

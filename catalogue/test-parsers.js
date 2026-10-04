@@ -119,5 +119,23 @@ eq("OCR: a row only the column read found is rescued, REF split off", [out[1].pn
 eq("OCR: section codes, every shape seen", ["0102", "E03.", "EO2-1.", "ES1.", "£11-1.", "E11-1", "BOS", "OIL", "C11-L", "1234-5"].map(K.sectionCodeOf),
    ["0102", "E03", "E02-1", "E51", "E11-1", "E11-1", "", "", "", ""]);
 
+// qty vote (2026-10-04): majority of the cell/column reads; else light read → column → wiped read
+const { voteQty } = require("./lib/scan-book");
+eq("OCR: qty vote", [
+  voteQty(3, null, 3, 3),      // D905: wiped + column + word agree
+  voteQty(7, 2, 4, 2),         // V1505: the light reads agree on 2, the line-wiped read lost the base
+  voteQty(5, 2, 4, null),      // no majority → the light read
+  voteQty(null, null, 3, null),// only the column read
+  voteQty(1, 1, 3, 3),         // tie 2–2 → the light read's value
+], [3, 2, 2, 3, 1]);
+
+// model columns (2026-10-04): the header line → models; the strict vote for variant cells
+const { pageModels, voteStrict } = require("./lib/scan-book");
+const mw = (t, x) => ({ t, x, y: 100, h: 20 });
+eq("OCR: model line with a two-model column", pageModels([mw("A:D1703-BB-EC-1,", 10), mw("B:D1703-BB-EC-STD-2-SI,D1703-BB-EC-STD-3,", 200), mw("C:D1703-BBS-EC-1,", 600), mw("D:D1703-BG-SAE-1-S3", 800)]).map(m => m.col + "=" + m.name),
+   ["A=D1703-BB-EC-1", "B=D1703-BB-EC-STD-2-SI, D1703-BB-EC-STD-3", "C=D1703-BBS-EC-1", "D=D1703-BG-SAE-1-S3"]);
+eq("OCR: variant vote — a lone wiped read is not trusted (a dash read as 1), two agree win",
+   [voteStrict(1, null, null), voteStrict(3, 3, null), voteStrict(null, 2, null), voteStrict(7, 2, null)], [null, 3, 2, null]);
+
 console.log(`${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

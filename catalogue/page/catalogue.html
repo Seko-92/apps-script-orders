@@ -86,6 +86,15 @@ body { background: var(--paper); color: var(--ink); font-family: var(--font-body
 .seg button + button { border-left: 1px solid var(--ink); }
 .seg button[aria-pressed="true"] { background: var(--ink); color: var(--paper); }
 .seg button:focus-visible { outline: 2px solid var(--yellow); outline-offset: -2px; }
+.variant { margin: 0 0 14px; }
+.variant .lbl { display: block; font: 500 11px var(--font-display); letter-spacing: .08em; text-transform: uppercase; color: var(--ink-soft); margin-bottom: 6px; }
+.variant .seg { flex-wrap: wrap; }
+.variant .seg button { text-transform: none; letter-spacing: 0; font: 500 12px var(--font-mono); }
+.variant .seg button b { font-family: var(--font-display); margin-right: 6px; }
+tr.notused td { opacity: .38; }
+tr.notused td.qty { opacity: 1; color: var(--ink-soft); }
+td.qty .aonly { color: var(--ink-soft); }
+
 .jump { font: 400 13px var(--font-body); padding: 7px 8px; border: 1px solid var(--rule); border-radius: 3px; background: var(--sheet); color: var(--ink); max-width: 100%; }
 
 .note { border-left: 4px solid var(--warn); background: var(--warn-bg); padding: 10px 12px; font-size: 13px; line-height: 1.5; margin-bottom: 16px; }
@@ -208,8 +217,8 @@ const $ = s => document.querySelector(s);
 const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const key = s => String(s || "").toUpperCase().replace(/[^A-Z0-9]/g, "").replace(/^0+/, "");
 const money = n => (n == null || !isFinite(n) ? "" : "$" + Number(n).toFixed(2).replace(/\.00$/, ""));
-const state = { engine: null, filter: "all", q: "" };
-const save = () => { try { localStorage.setItem("hqCatalogue", JSON.stringify({ engine: state.engine, filter: state.filter })); } catch (e) {} };
+const state = { engine: null, filter: "all", q: "", variants: {} };   // variants: engine id → model column index
+const save = () => { try { localStorage.setItem("hqCatalogue", JSON.stringify({ engine: state.engine, filter: state.filter, variants: state.variants })); } catch (e) {} };
 
 function computeStats(e) {
   if (!e.sections) return;
@@ -224,7 +233,7 @@ function computeStats(e) {
 }
 
 function absorb(e, d) {                         // engine JSON → the shape render() reads
-  Object.assign(e, { codeNo: d.codeNo, validity: d.validity, source: d.source, sections: d.sections, flags: d.flags || [] });
+  Object.assign(e, { codeNo: d.codeNo, validity: d.validity, source: d.source, sections: d.sections, flags: d.flags || [], models: d.models || [] });
   e.drawings = {};
   Object.entries(d.drawings || {}).forEach(([code, v]) => {
     if (!v || v.error || !v.img) return;
@@ -266,7 +275,7 @@ function boot(data) {
   if (!LIVE) DATA.engines.forEach(e => { absorb(e, e); });
   state.engine = (DATA.engines.find(e => /^V2203/.test(e.model)) || DATA.engines[0]).id;
   try { const s = JSON.parse(localStorage.getItem("hqCatalogue") || "{}");
-    if (s.engine && DATA.engines.some(e => e.id === s.engine)) state.engine = s.engine; if (s.filter) state.filter = s.filter; } catch (e) {}
+    if (s.engine && DATA.engines.some(e => e.id === s.engine)) state.engine = s.engine; if (s.filter) state.filter = s.filter; if (s.variants) state.variants = s.variants; } catch (e) {}
   if (location.hash && DATA.engines.some(e => e.id === location.hash.slice(1))) state.engine = location.hash.slice(1);
   $("#snap").textContent = LIVE ? "live stock" : "sample stock · " + DATA.snapshot.replace(/\.json$/, "");
   open(state.engine);
@@ -346,6 +355,19 @@ function render() {
     <select class="jump" id="jump" aria-label="Jump to section"><option value="">Jump to section…</option>
       ${e.sections.map(s => `<option value="${s.code}">${s.code} ${esc(s.name)}${e.stock ? " — " + s.carried + "/" + s.total : ""}</option>`).join("")}</select></div>`;
 
+  // Books with model columns (A:… B:… in the manual): quantities differ per variant, and "–" means
+  // the part isn't used on it. The technician picks their engine; the rest fades out.
+  const models = (e.models || []).filter(m => m && m.col);
+  // offer only variants the manual actually gives quantities for (V2203-M-E2B names a B model in a
+  // header but no row carries a B quantity — a choice that changes nothing only confuses)
+  const hasData = i => i === 0 || e.sections.some(s => s.parts.some(p => Array.isArray(p.qty) && p.qty[i] != null));
+  const offered = models.map((m, i) => ({ m, i })).filter(x => hasData(x.i));
+  const vi = offered.length > 1 && offered.some(x => x.i === state.variants[e.id]) ? state.variants[e.id] : 0;
+  if (offered.length > 1)
+    html += `<div class="variant"><span class="lbl">Your engine — quantities and parts for this variant</span>
+      <div class="seg" role="group" aria-label="Engine variant">${offered.map(({ m, i }) =>
+        `<button data-variant="${i}" aria-pressed="${i === vi}"><b>${esc(m.col)}</b>${esc(m.name)}</button>`).join("")}</div></div>`;
+
   e.sections.forEach(s => {
     const rows = s.parts.filter(p => {
       if (!e.stock) return true;
@@ -354,6 +376,10 @@ function render() {
     });
     if (!rows.length) return;
     let prevRef = null;
+    // ⚠ a "–" under the chosen variant means "not used on it" ONLY where the manual's page lists that
+    //   variant. Many pages name model A only and leave B as "–" all the way down (V2203 p13) — there it
+    //   means "not listed", so show A's quantity, greyed, rather than fading every part.
+    const covers = vi === 0 || s.parts.some(p => Array.isArray(p.qty) && p.qty[vi] != null);
     const d = (e.drawings || {})[s.code];
     const located = d ? new Set(d.callouts.map(c => c.ref)) : new Set();
     const dwg = d && d.src ? `<div class="dwg-wrap"><div class="dwg" style="aspect-ratio:${d.w}/${d.h}">
@@ -363,14 +389,17 @@ function render() {
       </div><div class="dwg-bar"><span>${located.size} of ${new Set(s.parts.map(p => p.ref)).size} refs marked · ${pageLink(e, s.page, "manual page " + s.page)}</span>
         <button data-big="${s.code}">Enlarge</button></div></div>` : "";
     html += `<section class="sec" id="s${s.code}"><div class="sec-h"><span class="code">${s.code}</span><h3>${esc(s.name)}</h3>
-      <span class="stat">${e.stock ? s.carried + "/" + s.total + " carried · " : ""}${pageLink(e, s.page, "page " + s.page)}</span></div>
+      <span class="stat">${!covers ? `model ${esc(models[0].col)} only in the manual · ` : ""}${e.stock ? s.carried + "/" + s.total + " carried · " : ""}${pageLink(e, s.page, "page " + s.page)}</span></div>
       <div class="sec-body${dwg ? " has-dwg" : ""}" id="b${s.code}">${dwg}
       <div class="scroll"><table><thead><tr><th>Ref</th><th>Part No.</th><th>Name</th><th>Size</th><th>Qty</th><th>Our stock</th></tr></thead><tbody>` +
       rows.map(p => {
         const hits = (e.stock || {})[p.pn] || [];
         const rep = p.ref === prevRef; prevRef = p.ref;
-        const qty = Array.isArray(p.qty) ? (p.qty[0] == null ? "–" : p.qty[0]) : "";
-        return `<tr class="${rep ? "repeat " : ""}${hits.length ? "" : "miss"}" data-ref="${esc(p.ref)}" data-sec="${s.code}">
+        const perModel = Array.isArray(p.qty) && p.qty.length > 1 && models.length > 1 && covers;
+        const qv = Array.isArray(p.qty) ? p.qty[perModel ? vi : 0] : undefined;
+        const qty = Array.isArray(p.qty) ? (qv == null ? "–" : (!covers && vi ? `<span class="aonly" title="This page of the manual lists model ${esc(models[0].col)} only">${qv}</span>` : qv)) : "";
+        const notUsed = perModel && qv == null && p.qty.some(x => x != null);
+        return `<tr class="${rep ? "repeat " : ""}${hits.length ? "" : "miss"}${notUsed ? " notused" : ""}" data-ref="${esc(p.ref)}" data-sec="${s.code}"${notUsed ? ` title="Not used on ${esc(models[vi].name)}"` : ""}>
           <td class="ref">${esc(p.ref)}${located.has(p.ref) ? '<span class="dot" title="Marked on the drawing"></span>' : ""}</td>
           <td class="pn" title="Manual page ${p.page}">${esc(p.pn)}${p.ocr && !p.ocr.confirmed ? ` <span class="chk" title="Read by OCR from a scanned page and not confirmed by a second read, a clean manual or our listings. Check it on the manual page.">check</span>` : ""}${p.xref ? `<div class="pg">ref ${esc(p.xref)}</div>` : ""}</td>
           <td class="nm">${esc(p.name)}</td>
@@ -408,6 +437,8 @@ document.addEventListener("click", ev => {
   if (tr && !ev.target.closest("a")) { light(tr.dataset.sec, tr.dataset.ref, "row"); return; }
   const eng = ev.target.closest(".eng");
   if (eng) { open(eng.dataset.id); window.scrollTo({ top: 0 }); return; }
+  const vb = ev.target.closest("[data-variant]");
+  if (vb) { state.variants[state.engine] = Number(vb.dataset.variant); save(); render(); return; }
   const f = ev.target.closest("[data-filter]");
   if (f) { state.filter = f.dataset.filter; save(); render(); return; }
   const go = ev.target.closest("[data-go]");
