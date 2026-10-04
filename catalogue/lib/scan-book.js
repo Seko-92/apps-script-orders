@@ -10,16 +10,48 @@ const { tsvWords, readScanPage, attachColumn, rescueRows, sectionCodeOf } = requ
 
 const DPI = 400;
 
-function ocrPage(pdf, page, tmp) {
-  const base = path.join(tmp, "p" + page);
-  execFileSync("pdftoppm", ["-f", String(page), "-l", String(page), "-r", String(DPI), "-gray", "-png", "-singlefile", pdf, base],
+// ⭐ Page rasters are rendered ONCE per (page, dpi) and every crop is sliced from them in Node.
+//   A `pdftoppm -x -y -W -H` crop decodes the WHOLE scanned page every time (~0.6 s), and a page
+//   needs up to ~290 crops (per-row qty cells × variants) — measured 2026-10-05: pdftoppm was
+//   65–75% of the run (D1703 p30: 185 s of 255 s). The slice is pixel-identical to the crop
+//   (verified: 0 px differ), so the reads don't change. Only the current page is kept.
+let rasterKey = "", rasters = {};
+function pageRaster(pdf, page, dpi, tmp) {
+  const key = pdf + "|" + page;
+  if (key !== rasterKey) { rasterKey = key; rasters = {}; }
+  if (rasters[dpi]) return rasters[dpi];
+  const base = path.join(tmp, "r" + page + "-" + dpi);
+  execFileSync("pdftoppm", ["-f", String(page), "-l", String(page), "-r", String(dpi), "-gray", "-singlefile", pdf, base],
     { stdio: "ignore" });
-  const png = base + ".png";
-  const b = fs.readFileSync(png);
-  const W = b.readUInt32BE(16), H = b.readUInt32BE(20);
-  const tsv = execFileSync("tesseract", [png, "-", "--psm", "6", "tsv"],
+  const b = fs.readFileSync(base + ".pgm"); fs.unlinkSync(base + ".pgm");
+  const m = b.toString("latin1", 0, 64).match(/^P5\s+(\d+)\s+(\d+)\s+(\d+)\s/);
+  return (rasters[dpi] = { W: +m[1], H: +m[2], d: b.subarray(m[0].length) });
+}
+function dropRasters() { rasterKey = ""; rasters = {}; }
+
+/** Write the crop (x, y, w, h in px AT `dpi`, as pdftoppm's -x -y -W -H) to `base`.pgm. */
+function cropPgm(pdf, page, dpi, x, y, w, h, base, tmp) {
+  x = Math.round(x); y = Math.round(y); w = Math.round(w); h = Math.round(h);
+  if (w < 1 || h < 1) {   // pdftoppm reads -W 0 as "whole width" — keep that exact behaviour
+    execFileSync("pdftoppm", ["-f", String(page), "-l", String(page), "-r", String(dpi), "-gray",
+      "-x", String(x), "-y", String(y), "-W", String(w), "-H", String(h), "-singlefile", pdf, base], { stdio: "ignore" });
+    return;
+  }
+  const R = pageRaster(pdf, page, dpi, tmp);
+  const x0 = Math.max(0, Math.min(x, R.W - 1)), y0 = Math.max(0, Math.min(y, R.H - 1));
+  const cw = Math.max(1, Math.min(x + w, R.W) - x0), ch = Math.max(1, Math.min(y + h, R.H) - y0);
+  const body = Buffer.alloc(cw * ch, 255);
+  for (let r = 0; r < ch; r++) R.d.copy(body, r * cw, (y0 + r) * R.W + x0, (y0 + r) * R.W + x0 + cw);
+  fs.writeFileSync(base + ".pgm", Buffer.concat([Buffer.from("P5\n" + cw + " " + ch + "\n255\n", "latin1"), body]));
+}
+
+function ocrPage(pdf, page, tmp) {
+  const R = pageRaster(pdf, page, DPI, tmp), W = R.W, H = R.H;
+  const img = path.join(tmp, "p" + page + ".pgm");
+  fs.writeFileSync(img, Buffer.concat([Buffer.from("P5\n" + W + " " + H + "\n255\n", "latin1"), R.d]));
+  const tsv = execFileSync("tesseract", [img, "-", "--psm", "6", "tsv"],
     { maxBuffer: 32 << 20, stdio: ["ignore", "pipe", "ignore"], env: Object.assign({}, process.env, { OMP_THREAD_LIMIT: "1" }) }).toString();
-  fs.unlinkSync(png);
+  fs.unlinkSync(img);
   return { words: tsvWords(tsv), W, H };
 }
 
@@ -34,10 +66,8 @@ function ocrPage(pdf, page, tmp) {
 function ocrSectionCode(pdf, page, W, H, tmp) {
   const dpi = 150, k = dpi / DPI, base = path.join(tmp, "s" + page);
   try {
-    execFileSync("pdftoppm", ["-f", String(page), "-l", String(page), "-r", String(dpi), "-gray",
-      // starts at 2% of the width: the page border / binding line at the very edge reads as "E" or "|"
-      "-x", String(Math.round(0.02 * W * k)), "-y", "0", "-W", String(Math.round(0.15 * W * k)), "-H", String(Math.round(0.085 * H * k)),
-      "-singlefile", pdf, base], { stdio: "ignore" });
+    // starts at 2% of the width: the page border / binding line at the very edge reads as "E" or "|"
+    cropPgm(pdf, page, dpi, 0.02 * W * k, 0, 0.15 * W * k, 0.085 * H * k, base, tmp);
     const img = base + ".pgm";
     // tesseract is mode-sensitive on one big word: measured on D1302, psm 6 reads "E13." where
     // psm 7 returns nothing — so try 6, 11, 8 in turn and keep the first real code
@@ -64,9 +94,7 @@ function ocrSectionCode(pdf, page, W, H, tmp) {
 function ocrVintageCode(pdf, page, W, H, tmp) {
   const dpi = 150, k = dpi / DPI, base = path.join(tmp, "v" + page);
   try {
-    execFileSync("pdftoppm", ["-f", String(page), "-l", String(page), "-r", String(dpi), "-gray",
-      "-x", String(Math.round(0.012 * W * k)), "-y", "0", "-W", String(Math.round(0.055 * W * k)), "-H", String(Math.round(0.09 * H * k)),
-      "-singlefile", pdf, base], { stdio: "ignore" });
+    cropPgm(pdf, page, dpi, 0.012 * W * k, 0, 0.055 * W * k, 0.09 * H * k, base, tmp);
     const img = base + ".pgm";
     let found = "";
     for (const psm of ["6", "8", "10"]) {
@@ -135,20 +163,26 @@ function variantColumns(pdf, page, qtyBox, L, n, W, tmp) {
 // confirmed by two reads (or be the light read's), else "–" → null ("not used on it"), matching the
 // text manuals. One quick read turned rule fragments into "13", "21" and dashes into "1"/"7".
 function readVariantQty(pdf, page, rows, boxes, tmp) {
-  rowBands(rows).forEach(({ row, lo, hi }) => {
-    const q = [row.qty ? row.qty[0] : null];
-    for (let v = 1; v < boxes.length; v++) {
-      const read = (mode, psm) => {
-        const ws = ocrColumn(pdf, page, { x: boxes[v].x, y: lo, w: boxes[v].w, h: hi - lo }, 600, tmp,
-          ["--psm", psm, "-c", "tessedit_char_whitelist=0123456789"], mode);
-        const d = ws.map(w => String(w.t).match(/^(\d{1,3})(?!\d)/)).find(Boolean);
-        return d ? Number(d[1]) : null;
-      };
-      q.push(voteStrict(read("qtycellw", "7"), read("qtycell", "7"), read("qtycell", "8")));
-    }
-    row.qty = q;
-  });
+  const bands = rowBands(rows), cells = [];
+  bands.forEach(({ row, lo, hi }) => { for (let v = 1; v < boxes.length; v++) cells.push({ row, v, lo, hi }); });
+  const job = (c, mode, psm) => prepColumn(pdf, page, { x: boxes[c.v].x, y: c.lo, w: boxes[c.v].w, h: c.hi - c.lo }, 600, tmp,
+    ["--psm", psm, "-c", "tessedit_char_whitelist=0123456789"], mode);
+  const digit = ws => { const d = ws.map(w => String(w.t).match(/^(\d{1,3})(?!\d)/)).find(Boolean); return d ? Number(d[1]) : null; };
+  // the 3rd read can only change the vote when the first two disagree or one is empty (see needThird)
+  const two = runColumns(cells.flatMap(c => [job(c, "qtycellw", "7"), job(c, "qtycell", "7")]), tmp).map(digit);
+  const need = cells.map((c, i) => needThird(two[2 * i], two[2 * i + 1]));
+  const third = runColumns(cells.filter((c, i) => need[i]).map(c => job(c, "qtycell", "8")), tmp).map(digit);
+  let t = 0;
+  const q = new Map(bands.map(({ row }) => [row, [row.qty ? row.qty[0] : null]]));
+  cells.forEach((c, i) => q.get(c.row).push(voteStrict(two[2 * i], two[2 * i + 1], need[i] ? third[t++] : null)));
+  bands.forEach(({ row }) => { row.qty = q.get(row); });
 }
+
+/** Does the 3rd (psm 8) cell read matter? Only when the first two disagree, or exactly one is empty.
+ *  When they agree (both a digit) both votes return it; when both are empty, voteStrict ignores a lone
+ *  3rd read and voteQty falls back to the column read before it — so the result is IDENTICAL and the
+ *  OCR call is saved (tesseract was ~95% of the run once rasters were cached, 2026-10-05). */
+function needThird(w, r0) { return !((w != null && w === r0) || (w == null && r0 == null)); }
 
 /** Variant / dash-aware vote: two reads agree → that; else the light read; else null. */
 function voteStrict(wiped, raw, word) {
@@ -176,16 +210,19 @@ function readQtyCells(pdf, page, rows, box, tmp, strict) {
   const sorted = rows.slice().sort((a, b) => a.y - b.y);
   const ys = sorted.map(r => r.y);
   const pitch = ys.length > 1 ? Math.min(...ys.slice(1).map((y, i) => y - ys[i]).filter(d => d > 10)) : 120;
-  const readCell = (lo, hi, mode, psm) => {
-    const ws = ocrColumn(pdf, page, { x: box.x, y: lo, w: box.w, h: hi - lo }, 600, tmp,
-      ["--psm", psm || "7", "-c", "tessedit_char_whitelist=0123456789"], mode);
-    for (const w of ws) { const m = String(w.t).match(/^(\d{1,3})(?!\d)/); if (m) return { v: Number(m[1]), conf: w.conf }; }
-    return null;
-  };
-  sorted.forEach((row, i) => {
-    const lo = i ? (ys[i - 1] + ys[i]) / 2 : ys[i] - pitch / 2;
-    const hi = i < ys.length - 1 ? (ys[i] + ys[i + 1]) / 2 : ys[i] + pitch / 2;
-    const w = readCell(lo, hi, "qtycellw"), r0 = readCell(lo, hi, "qtycell"), r8 = readCell(lo, hi, "qtycell", "8");
+  const cellJob = (lo, hi, mode, psm) => prepColumn(pdf, page, { x: box.x, y: lo, w: box.w, h: hi - lo }, 600, tmp,
+    ["--psm", psm || "7", "-c", "tessedit_char_whitelist=0123456789"], mode);
+  const firstDigit = ws => { for (const w of ws) { const m = String(w.t).match(/^(\d{1,3})(?!\d)/); if (m) return { v: Number(m[1]), conf: w.conf }; } return null; };
+  const bands = sorted.map((row, i) => ({ row,
+    lo: i ? (ys[i - 1] + ys[i]) / 2 : ys[i] - pitch / 2,
+    hi: i < ys.length - 1 ? (ys[i] + ys[i + 1]) / 2 : ys[i] + pitch / 2 }));
+  // the two reads every row gets, all in one pass; then the 3rd only where it can matter
+  const two = runColumns(bands.flatMap(b => [cellJob(b.lo, b.hi, "qtycellw"), cellJob(b.lo, b.hi, "qtycell")]), tmp).map(firstDigit);
+  const need = bands.map((b, i) => needThird(two[2 * i] ? two[2 * i].v : null, two[2 * i + 1] ? two[2 * i + 1].v : null));
+  const third = runColumns(bands.filter((b, i) => need[i]).map(b => cellJob(b.lo, b.hi, "qtycell", "8")), tmp).map(firstDigit);
+  let t = 0;
+  bands.forEach(({ row }, i) => {
+    const w = two[2 * i], r0 = two[2 * i + 1], r8 = need[i] ? third[t++] : null;
     const reads = [w, r0, r8];
     const col = row.qty ? row.qty[0] : null;
     const pick = strict ? voteStrict(w ? w.v : null, r0 ? r0.v : null, r8 ? r8.v : null)
@@ -245,9 +282,7 @@ function rowLines(pdf, page, x0, x1, L, tmp) {
   const dpi = 100, k = dpi / DPI, base = path.join(tmp, "l" + page);
   try {
     const y0 = L.headerBottom - 40, h = L.tableBottom - y0;
-    execFileSync("pdftoppm", ["-f", String(page), "-l", String(page), "-r", String(dpi), "-gray",
-      "-x", String(Math.round(x0 * k)), "-y", String(Math.round(y0 * k)), "-W", String(Math.round((x1 - x0) * k)), "-H", String(Math.round(h * k)),
-      "-singlefile", pdf, base], { stdio: "ignore" });
+    cropPgm(pdf, page, dpi, x0 * k, y0 * k, (x1 - x0) * k, h * k, base, tmp);
     const b = fs.readFileSync(base + ".pgm"); fs.unlinkSync(base + ".pgm");
     const m = b.toString("latin1", 0, 64).match(/^P5\s+(\d+)\s+(\d+)\s+(\d+)\s/); if (!m) return [];
     const W = +m[1], H = +m[2], off = m[0].length, out = [];
@@ -305,9 +340,10 @@ function fillRowGaps(pdf, page, rows, words, L, x0, x1, tmp) {
   }
   if (!want.length) return rows;
   const cellWords = [];
-  want.forEach(y => {
-    const ws = ocrColumn(pdf, page, { x: x0 - 0.04 * L.W, y: y - pitch / 2, w: x1 - x0 + 0.04 * L.W, h: pitch }, 600, tmp,
-      ["--psm", "7", "-c", "tessedit_char_whitelist=0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ-"], "raw");
+  const gapReads = runColumns(want.map(y => prepColumn(pdf, page, { x: x0 - 0.04 * L.W, y: y - pitch / 2, w: x1 - x0 + 0.04 * L.W, h: pitch }, 600, tmp,
+    ["--psm", "7", "-c", "tessedit_char_whitelist=0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ-"], "raw")), tmp);
+  want.forEach((y, gi) => {
+    const ws = gapReads[gi];
     // one line → join its words so "16241 6401-2" style splits still parse
     if (process.env.OCR_DEBUG_ROWS) console.error("  gap y=" + Math.round(y) + " read: " + ws.map(w => w.t).join(" | "));
     // the read runs into the name column ("…-6411-0P", "…-6402-0FR"): take the REF (3 digits at the
@@ -329,22 +365,50 @@ function fillRowGaps(pdf, page, rows, words, L, x0, x1, tmp) {
 }
 
 function ocrColumn(pdf, page, box, dpi, tmp, extra, mode) {
+  return runColumns([prepColumn(pdf, page, box, dpi, tmp, extra, mode)], tmp)[0];
+}
+
+// A column/cell read in two halves, so many small crops can share ONE tesseract process:
+// prepColumn crops + wipes (synchronous, cheap); runColumns OCRs a list of them, one tesseract run
+// per distinct settings (`-c` options / psm) using tesseract's file-list input. ⭐ Process start-up
+// is ~95% of a one-cell read (40 cells: 9.4 s as separate runs vs 0.4 s batched, 2026-10-05).
+// OCR_NO_BATCH=1 restores one run per crop, to compare.
+let colSeq = 0;
+function prepColumn(pdf, page, box, dpi, tmp, extra, mode) {
   const k = dpi / DPI;
-  const base = path.join(tmp, "c" + page + "-" + Math.round(box.x));
-  execFileSync("pdftoppm", ["-f", String(page), "-l", String(page), "-r", String(dpi), "-gray",
-    "-x", String(Math.round(box.x * k)), "-y", String(Math.round(box.y * k)),
-    "-W", String(Math.round(box.w * k)), "-H", String(Math.round(box.h * k)), "-singlefile", pdf, base], { stdio: "ignore" });
+  const base = path.join(tmp, "c" + page + "-" + Math.round(box.x) + "-" + (++colSeq));
+  cropPgm(pdf, page, dpi, box.x * k, box.y * k, box.w * k, box.h * k, base, tmp);
   const img = base + ".pgm";
   const pad = wipeRules(img, mode) || 0;
   // OCR_DEBUG_DIR=<dir> keeps every column crop (after the rule wipe) to look at by eye
   if (process.env.OCR_DEBUG_DIR) fs.copyFileSync(img, path.join(process.env.OCR_DEBUG_DIR, "p" + page + "-" + (mode || "col") + "-" + Math.round(box.x) + "-" + Math.round(box.y) + ".pgm"));
   const psm = (extra || []).includes("--psm") ? [] : ["--psm", "6"];   // a caller may pick its own mode
-  const tsv = execFileSync("tesseract", [img, "-"].concat(psm).concat(extra || []).concat(["tsv"]),
-    { maxBuffer: 16 << 20, stdio: ["ignore", "pipe", "ignore"], env: Object.assign({}, process.env, { OMP_THREAD_LIMIT: "1" }) }).toString();
-  fs.unlinkSync(img);
-  const out = tsvWords(tsv).map(w => Object.assign(w, { x: box.x + (w.x - pad) / k, y: box.y + (w.y - pad) / k, w: w.w / k, h: w.h / k }));
-  out.rules = lastRuleXs.map(x => box.x + x / k);
-  return out;
+  return { img, pad, box, k, args: psm.concat(extra || []), rules: lastRuleXs.slice() };
+}
+
+function runColumns(jobs, tmp) {
+  const groups = {};
+  jobs.forEach((j, i) => { const key = process.env.OCR_NO_BATCH ? "solo" + i : JSON.stringify(j.args); (groups[key] = groups[key] || []).push(i); });
+  const tsvs = new Array(jobs.length);
+  for (const key in groups) {
+    const idx = groups[key], args = jobs[idx[0]].args, opt = { maxBuffer: 64 << 20, stdio: ["ignore", "pipe", "ignore"],
+      env: Object.assign({}, process.env, { OMP_THREAD_LIMIT: "1" }) };
+    if (idx.length === 1) { tsvs[idx[0]] = execFileSync("tesseract", [jobs[idx[0]].img, "-"].concat(args).concat(["tsv"]), opt).toString(); continue; }
+    const list = path.join(tmp, "list-" + (++colSeq) + ".txt");
+    fs.writeFileSync(list, idx.map(i => jobs[i].img).join("\n") + "\n");
+    const lines = execFileSync("tesseract", [list, "-"].concat(args).concat(["tsv"]), opt).toString().split("\n");
+    fs.unlinkSync(list);
+    // page_num (column 2) is the 1-based position in the list; keep the header for tsvWords
+    const per = idx.map(() => [lines[0]]);
+    lines.slice(1).forEach(l => { const c = l.split("\t"); const n = +c[1]; if (n >= 1 && n <= idx.length) per[n - 1].push(l); });
+    idx.forEach((i, n) => { tsvs[i] = per[n].join("\n"); });
+  }
+  return jobs.map((j, i) => {
+    try { fs.unlinkSync(j.img); } catch (e) {}
+    const out = tsvWords(tsvs[i]).map(w => Object.assign(w, { x: j.box.x + (w.x - j.pad) / j.k, y: j.box.y + (w.y - j.pad) / j.k, w: w.w / j.k, h: w.h / j.k }));
+    out.rules = j.rules.map(x => j.box.x + x / j.k);
+    return out;
+  });
 }
 
 /**
@@ -627,7 +691,7 @@ function ocrBook(pdf, opts) {
         if (!row.name) out.flags.push({ page: p, kind: "no-name", line: row.pn });
       });
     }
-  } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
+  } finally { dropRasters(); fs.rmSync(tmp, { recursive: true, force: true }); }
 
   const mc = coverText.match(/\b([A-Z]\d{3,4}[A-Z0-9-]*-E\dB[A-Z0-9-]*|[A-Z]\d{3,4}-[A-Z0-9-]{3,})\s+([0-9A-Z]{5}-\d{5})\b/);
   if (mc) { out.model = mc[1]; out.codeNo = mc[2]; }
@@ -637,4 +701,4 @@ function ocrBook(pdf, opts) {
   return out;
 }
 
-module.exports = { ocrBook, ocrPage, ocrSectionCode, voteQty, voteStrict, pageModels };
+module.exports = { ocrBook, ocrPage, ocrSectionCode, voteQty, voteStrict, needThird, pageModels };

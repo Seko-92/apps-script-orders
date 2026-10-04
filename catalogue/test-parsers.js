@@ -137,5 +137,15 @@ eq("OCR: model line with a two-model column", pageModels([mw("A:D1703-BB-EC-1,",
 eq("OCR: variant vote — a lone wiped read is not trusted (a dash read as 1), two agree win",
    [voteStrict(1, null, null), voteStrict(3, 3, null), voteStrict(null, 2, null), voteStrict(7, 2, null)], [null, 3, 2, null]);
 
+// speed (2026-10-05): the 3rd cell read is skipped when needThird says it can't change the vote —
+// prove that over EVERY combination, so a future vote change can't silently break the shortcut
+const { needThird } = require("./lib/scan-book");
+const Vs = [null, 1, 2, 3]; let skipBad = 0;
+for (const w of Vs) for (const r of Vs) for (const c of Vs) for (const x of Vs) {
+  if (needThird(w, r)) continue;
+  if (voteQty(w, r, c, x) !== voteQty(w, r, c, null) || voteStrict(w, r, x) !== voteStrict(w, r, null)) skipBad++;
+}
+eq("OCR: skipping the 3rd qty read never changes a vote", skipBad, 0);
+
 console.log(`${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
