@@ -108,14 +108,17 @@ function ocrBook(pdf, opts) {
         const pnCol = ocrColumn(pdf, p, { x: x0, y: top, w: (isFinite(pnEdge) ? pnEdge : 0.22 * W) - x0, h: hgt }, DPI, tmp,
           ["-c", "tessedit_char_whitelist=0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ-"], "pn");
         r.rows = rescueRows(r.rows, words, pnCol, L);
-        // 2. quantity and 3. remarks (sizes) — printed small, so read at 600 dpi
+        // 2. names: their own crop (the page read loses whole rows in denser books)
+        const nameLeft = isFinite(pnEdge) ? pnEdge + 4 : 0.22 * W;
+        attachColumn(r.rows, ocrColumn(pdf, p, { x: nameLeft, y: top, w: L.nameEnd - nameLeft, h: hgt }, 600, tmp), "name");
+        // 3. quantity and 4. remarks (sizes) — printed small, so read at 600 dpi
         attachColumn(r.rows, ocrColumn(pdf, p, { x: L.stueckX, y: top, w: L.remarksX - L.stueckX - 20, h: hgt }, 600, tmp,
           ["-c", "tessedit_char_whitelist=0123456789-"]), "qty");
         attachColumn(r.rows, ocrColumn(pdf, p, { x: L.remarksX, y: top, w: 0.98 * W - L.remarksX, h: hgt }, 600, tmp,
           ["-c", "tessedit_char_whitelist=0123456789+-.STDEmMSOVRIZEABCHGKLNPU/"]), "remark");
       }
       if (opts.log) opts.log(p, r);
-      if (r.isIndex) break;
+      if (r.isIndex && out.sections.length) break;     // the index at the END, never the contents page
       if (!r.rows.length) continue;
       if (r.model && !out.models.length) out.models.push({ col: "A", name: r.model });
       if (r.code && (!current || current.code !== r.code)) {

@@ -58,8 +58,11 @@ function normalisePn(raw) {
  */
 function readScanPage(words, W, H) {
   const txt = words.map(w => w.t).join(" ");
-  const isIndex = /NUMERICAL|NUMERIQUE|NUMERISCHEN/.test(txt) && !/STUECK/.test(txt);
-  const hdr = words.filter(w => /^(REFERENCE|BESELL|DESIGNAT|BEZE|STUECK|REMARK|REMARQ)/.test(w.t));
+  const hdr = words.filter(w => /^(REFERENCE|BESELL|BESTELL|DESIGNAT|BEZE|STUECK|REMARK|REMARQ)/.test(w.t));
+  // ⚠ the CONTENTS page also says "NUMERICAL INDEX" — only a page with no parts header that is
+  // mostly part numbers is the index (the caller also requires parts to have been read first)
+  const pnCount = words.filter(w => normalisePn(w.t)).length;
+  const isIndex = /NUMERICAL|NUMERIQUE|NUMERISCHEN/.test(txt) && hdr.length < 2 && pnCount > 20;
   if (!hdr.length || isIndex) return { isIndex, rows: [] , code: null };
   const hw = re => words.find(x => re.test(x.t) && hdr.some(h => Math.abs(h.y - x.y) < 140));
   const centre = w => w ? w.x + w.w / 2 : null;
@@ -75,12 +78,18 @@ function readScanPage(words, W, H) {
   const tableBottom = footer ? footer.y - 10 : 0.95 * H;
   const layout = { pnX0: 0.06 * W, pnX1: nameW ? nameW.x - 120 : 0.25 * W, nameEnd, stueckX, remarksX, headerBottom, tableBottom, W, H };
 
-  // section code (4 digits, top-left) and the English title on the line above it
-  const code = words.find(w => /^\d{4}$/.test(w.t) && w.y < 0.12 * H && w.x < 0.2 * W);
+  // section code at the top-left: "0102" (older books) or "E03." (newer). The English title is
+  // the TOPMOST line beside it: above the code line in the first style, on it in the second.
+  // (OCR reads the large "E" of "E03." as £ or €)
+  const code = words.find(w => /^(\d{4}|[A-Z£€]\d{2,3}\.?)$/.test(w.t) && w.y < 0.12 * H && w.x < 0.2 * W);
+  if (code) code.t = code.t.replace(/^[£€]/, "E");
   let name = "";
   if (code) {
-    name = words.filter(w => w.x > code.x + code.w && w.y < code.y - 0.25 * code.h && w.y > code.y - 2.2 * code.h)
-      .sort((a, b) => a.x - b.x).map(w => w.t).join(" ").trim();
+    const beside = words.filter(w => w.x > code.x + code.w && w.y > code.y - 2.4 * code.h && w.y < code.y + 0.6 * code.h && w.y < 0.15 * H);
+    if (beside.length) {
+      const topY = Math.min(...beside.map(w => w.y));
+      name = beside.filter(w => w.y < topY + 0.6 * Math.max(...beside.map(x => x.h))).sort((a, b) => a.x - b.x).map(w => w.t).join(" ").trim();
+    }
   }
   const modelW = words.find(w => /^[A-Z]:[A-Z0-9][A-Z0-9-]{3,}/.test(w.t) && w.y < headerTop + 10);
 
@@ -94,7 +103,7 @@ function readScanPage(words, W, H) {
   const bandBottom = (modelW ? modelW.y : headerTop) - 30;
   const band = bandBottom - bandTop > 0.12 * H ? { y: bandTop, h: bandBottom - bandTop } : null;
 
-  return { isIndex, code: code ? code.t : null, name, model: modelW ? modelW.t.slice(2) : "", rows, band, layout };
+  return { isIndex, code: code ? code.t.replace(/\.$/, "") : null, name, model: modelW ? modelW.t.slice(2) : "", rows, band, layout };
 }
 
 // The French column often spills into the English name on a scan ("KEY,FEATHER CLAVETTE"):
@@ -137,9 +146,23 @@ function attachColumn(rows, colWords, field) {
     if (i < 0) return;
     const row = sorted[i];
     const t = ws.sort((a, b) => a.x - b.x).map(c => clean(c.t)).filter(x => x && !NOISE.test(x)).join(" ");
-    if (field === "qty") { const n = t.match(/\d+/); if (n && row.qty == null) row.qty = [Number(n[0])]; }
-    else if (!row.remark) row.remark = fixRemark(t);
+    if (field === "qty") {
+      // the first small number; serial-number ranges ("489911") print under the qty in newer books
+      const n = t.split(/\s+/).find(x => /^\d{1,3}$/.test(x));
+      if (n && row.qty == null) row.qty = [Number(n)];
+    } else if (field === "name") {
+      const nm = cleanName(t);
+      if (nm && (!row.name || row.rescued || nm.length >= row.name.length - 2)) row.name = nm;
+    } else if (!row.remark) row.remark = fixRemark(t);
   });
+}
+
+/** A name from the name-column crop: OCR noise out, the French spill cut. */
+function cleanName(t) {
+  let w = t.split(/\s+/).map(clean).filter(x => x && !NOISE.test(x));
+  const cut = w.findIndex((x, i) => i > 0 && FRENCH.has(x.toUpperCase().replace(/[^A-Z.]/g, "")));
+  if (cut > 0) w = w.slice(0, cut);
+  return w.join(" ").replace(/\s+,/g, ",").replace(/,\s+/g, ",").trim();
 }
 
 /** OCR of the tiny remarks: "+0.25mm", "-0.20mm SET", "STD", "STD SET". */
