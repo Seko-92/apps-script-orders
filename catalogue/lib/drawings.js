@@ -56,7 +56,9 @@ function ocrCallouts(png, refs, imgW, imgH, psm) {
   let tsv = "";
   try {
     tsv = execFileSync("tesseract", [png, "-", "--psm", psm || "11", "-c", "tessedit_char_whitelist=0123456789", "tsv"],
-      { maxBuffer: 16 << 20, stdio: ["ignore", "pipe", "ignore"] }).toString();
+      // ⚠ ONE thread: tesseract's default 4 OpenMP threads spin-wait, and with 4 workers on 4 cores
+      //   (import.js runs engines in parallel) each call went from ~3 s to 5–6 MINUTES (2026-10-05)
+      { maxBuffer: 16 << 20, stdio: ["ignore", "pipe", "ignore"], env: Object.assign({}, process.env, { OMP_THREAD_LIMIT: "1" }) }).toString();
   } catch (e) { return []; }
   const want = new Set(refs);
   const out = [];
