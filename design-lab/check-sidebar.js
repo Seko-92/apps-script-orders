@@ -271,7 +271,7 @@ const HTML=fs.readFileSync(SRC,'utf8').replace("'<?!= boardApiUrl ?>'","''");
   ok('a status line written later carries no colour emoji', !EMO.test(v.status)&&/✓ done/.test(v.status), v.status);
   ok('a server message keeps its words and loses its emoji', !EMO.test(v.probe)&&/12 kits/.test(v.probe)&&v.dots===1, v.probe);
   ok('a button rewritten later gets its drawn mark back', v.btnMark===true&&!EMO.test(v.btn||''), v.btn);
-  ok('header toggles draw marks, never emoji', v.hdr===''&&v.hdrMarks===5, v.hdr);
+  ok('header toggles draw marks, never emoji', v.hdr===''&&v.hdrMarks===6, v.hdr);
   ok('first walk: pending only, aisle order, no NOT FOUND', JSON.stringify(v.walk)==='["A-9","A-43"]', v.walk);
   ok('no console errors', errs.length===0, errs.slice(0,3));
   await p.screenshot({path:path.join(__dirname,'renders','sidebar-final.png'),clip:{x:0,y:0,width:310,height:820}});

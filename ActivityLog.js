@@ -1165,6 +1165,10 @@ function resetDailyPickIds() {
     out.push(_resetOnePickId(sheet, Schema.pickIdA1('adjustment'),
                              /^adjustment(?:s)?\s*[-:·]\s*/i,     "Pick ID for Adjustment"));
 
+    // Tabs left open overnight go back to the floor view — only if switched on in the
+    // sidebar's folder drawer (SheetDrawer.js). Off by default.
+    try { if (typeof runAutoTidyIfOn === "function") out.push(runAutoTidyIfOn()); } catch (_) {}
+
     var msg = "Daily Pick IDs reset at " + new Date().toISOString() + " — " + out.join(" · ");
     Logger.log(msg);
     console.log(msg);          // Executions panel, where a 4am failure is actually findable
