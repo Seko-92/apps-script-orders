@@ -2554,7 +2554,7 @@ body.dark-theme .card-inline-btn { background: var(--bg-secondary); border-color
 
    ⚠ It is a number, so it can rot. check-sidebar asserts NO expanded card body is
    clipped — that assertion is what makes this safe to leave, not the number. */
-.card[data-id="sheet-protect"] .card-body { max-height: 1560px; }
+.card[data-id="sheet-protect"] .card-body { max-height: 1860px; }   /* +backup section 2026-10-05 */
 
 .card.collapsed .card-body {
   /* !important so a collapse added by ANY code beats the inline height
@@ -4863,12 +4863,23 @@ body.dark-theme .card.band-alt, body.dark-theme .card.band-alt .card-header{ bac
        answered its question is only a card taking up room. Git has it. -->
 
   <div class="card collapsed" data-id="sheet-protect" draggable="true">
-    <div class="card-header" onclick="toggleCollapse(this); lockPanelLoad()">
+    <div class="card-header" onclick="toggleCollapse(this); lockPanelLoad(); backupPanelLoad()">
       <div class="drag-handle" title="Drag to reorder">☰</div>
       <div class="card-title"><div class="card-icon">🛡️</div><h3>Sheet Protection</h3></div>
       <div class="card-toggle">▼</div>
     </div>
     <div class="card-body">
+
+      <!-- ══ NIGHTLY BACKUP (2026-10-05) — Backup.js. The safety net under the lock:
+           protection stops accidents, the backup brings the data back when one happens. ══ -->
+      <div class="empty-hint" style="margin-bottom:6px;"><strong>Nightly backup</strong> — every night ~3 AM Houston the sheets that cannot be rebuilt (Activity Log, Order Archive, KPI History, Investigations, Price Push Log, Kit Registry, Supplies, plus All orders, Prep Queue, Location Update, Pending Sales Orders) are copied into a dated file in the Drive folder <em>HQ Backups</em>. Kept 30 days.</div>
+      <div class="ml-result shown" id="bkStatus">Reading backup status…</div>
+      <div class="btn-group" style="margin:6px 0 4px;">
+        <button class="btn-primary" id="bkNowBtn" onclick="backupNow()">🔄 Back up now</button>
+        <button class="btn-secondary" id="bkArmBtn" onclick="backupArm()">⏰ Start nightly</button>
+      </div>
+      <a class="btn-info" id="bkFolderLink" href="#" target="_blank" style="display:none;text-decoration:none;text-align:center;">Open the backups folder ↗</a>
+      <hr style="border:none;border-top:1px solid var(--border);margin:10px 0;">
 
       <!-- ══ THE ALL-ORDERS LOCK — LEADS THE CARD, because it is the live concern ══
            This card carries three different things: a lock that BLOCKS, identity checks
@@ -9932,6 +9943,49 @@ function _lockSay(kind, html) {
  * ⚠ It reads a SHAPE, not a sentence. getN8nSheetsAccount() returns prose for the
  *   execution log; parsing that here would break the first time the wording changed.
  */
+
+// ═══ NIGHTLY BACKUP (2026-10-05) — Backup.js ═══
+var _bkArmed = false;
+function _bkPaint(st) {
+  var el = document.getElementById('bkStatus'); if (!el) return;
+  _bkArmed = !!(st && st.armed);
+  var l = st && st.last, lines = [];
+  lines.push(_bkArmed ? '<b style="color:#2e7d32">● Nightly backup is ON</b>' : '<b>○ Nightly backup is off</b>');
+  if (l && l.at) {
+    var d = new Date(l.at);
+    var when = d.toLocaleString('en-US', { timeZone: 'America/Chicago', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+    lines.push((l.ok ? '✓ ' : '✗ ') + 'Last backup ' + when + ' Houston — ' + _sdEsc(l.message || '')
+      + (l.url ? ' · <a href="' + _sdEsc(l.url) + '" target="_blank">open it</a>' : ''));
+  } else lines.push('No backup has been made yet.');
+  el.innerHTML = lines.join('<br>');
+  var b = document.getElementById('bkArmBtn');
+  if (b) { b.lastChild.textContent = _bkArmed ? ' Stop nightly' : ' Start nightly'; }
+  var a = document.getElementById('bkFolderLink');
+  if (a && st && st.folderUrl) { a.href = st.folderUrl; a.style.display = 'block'; }
+}
+function backupPanelLoad() {
+  var card = document.querySelector('.card[data-id="sheet-protect"]');
+  if (!card || card.classList.contains('collapsed')) return;
+  google.script.run.withSuccessHandler(_bkPaint)
+    .withFailureHandler(function (e) { var el = document.getElementById('bkStatus'); if (el) el.textContent = 'Could not read backup status: ' + ((e && e.message) || e); })
+    .getBackupStatus();
+}
+function backupNow() {
+  var b = document.getElementById('bkNowBtn'); b.disabled = true;
+  document.getElementById('bkStatus').innerHTML = 'Backing up… (about a minute — keep the sidebar open)';
+  google.script.run
+    .withSuccessHandler(function (r) { b.disabled = false; if (r && r.ok === false && !r.at) { document.getElementById('bkStatus').textContent = r.message; return; } backupPanelLoad(); })
+    .withFailureHandler(function (e) { b.disabled = false; document.getElementById('bkStatus').textContent = 'Backup failed: ' + ((e && e.message) || e); })
+    .runNightlyBackup();
+}
+function backupArm() {
+  var on = !_bkArmed;
+  google.script.run
+    .withSuccessHandler(function (r) { if (r && r.ok === false) { document.getElementById('bkStatus').textContent = r.message; return; } backupPanelLoad(); })
+    .withFailureHandler(function (e) { document.getElementById('bkStatus').textContent = (e && e.message) || String(e); })
+    [on ? 'setupNightlyBackup' : 'removeNightlyBackup']();
+}
+
 function lockPanelLoad() {
   var card = document.querySelector('.card[data-id="sheet-protect"]');
   if (!card || card.classList.contains('collapsed')) return;   // collapsing must not fetch
