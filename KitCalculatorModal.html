@@ -323,6 +323,39 @@ html, body { background: #fff !important; }
 .kc-modes{ background:#f1e6c8 !important; }
 .kc-foot{ background:none !important; box-shadow:none !important; padding:8px 8px !important; }
 .kc-empty svg{ stroke:#e0cd92; }
+
+/* ═══ IN-PLACE LOADING (2026-10-05) ═══════════════════════════════════════════
+   The old loading screen covered the whole window with a blurred veil and a
+   spinner card. Reported from use: "still feels like a sticker" — anything laid
+   OVER the content reads as pasted on, however well it is drawn. So the veil is
+   gone and the work shows where it happens: a thin bar sweeps the top edge, the
+   button you pressed spins, a one-line message sits at the top of the area the
+   result will land in, and that area fades slightly while it works.
+   ⚠ The window's own show/hide calls are UNCHANGED — a small observer watches
+   the old overlay element's class and drives this instead, so no code path that
+   opens or closes the loader could be missed. Same block in every window. */
+#kcOverlay{ display:none !important; }
+.wk-bar{ position:fixed; top:0; left:0; right:0; height:3px; z-index:9999; overflow:hidden;
+  opacity:0; transition:opacity 180ms ease; pointer-events:none; }
+.wk-bar::before{ content:''; position:absolute; top:0; bottom:0; width:38%; left:-38%;
+  background:linear-gradient(90deg, rgba(255,207,0,0), #ffcf00 40%, #ffe45c 60%, rgba(255,207,0,0));
+  animation: wk-sweep 1.15s cubic-bezier(.37,0,.63,1) infinite; }
+@keyframes wk-sweep{ to{ left:100%; } }
+body.wk-on .wk-bar{ opacity:1; }
+.wk-line{ display:flex; align-items:center; gap:9px; padding:9px 4px 10px; margin:0 0 6px;
+  font-family:'Oswald',sans-serif; font-size:13px; letter-spacing:.05em; text-transform:uppercase;
+  color:#6b5a2a; border-bottom:1px dashed #e6d9b3; animation: wk-in 220ms ease both; }
+.wk-line::before{ content:''; width:12px; height:12px; flex-shrink:0; border-radius:50%;
+  border:2px solid #f1e3a8; border-top-color:#e3b900; animation: wk-spin .7s linear infinite; }
+.wk-line .wk-sub{ font-family:'Roboto',sans-serif; text-transform:none; letter-spacing:0; font-size:12px; color:#8a7a4a; }
+@keyframes wk-spin{ to{ transform:rotate(360deg); } }
+@keyframes wk-in{ from{ opacity:0; transform:translateY(-3px); } to{ opacity:1; transform:none; } }
+body.wk-on .kc-body > :not(.wk-line){ pointer-events:none; filter: opacity(.42) saturate(.6);
+  transition: filter 220ms ease; }  /* filter, not opacity: os-rise holds opacity via fill-mode */
+button.wk-btn{ position:relative; }
+button.wk-btn::after{ content:''; display:inline-block; width:10px; height:10px; margin-left:8px; vertical-align:-1px;
+  border-radius:50%; border:2px solid rgba(29,29,27,.25); border-top-color:#1d1d1b; animation: wk-spin .7s linear infinite; }
+@media (prefers-reduced-motion: reduce){ .wk-bar::before, .wk-line::before, button.wk-btn::after{ animation-duration: 2.4s; } }
 </style>
 </head>
 <body>
@@ -634,6 +667,60 @@ html, body { background: #fff !important; }
 
   // Enter key in the SKU field triggers compute
   document.getElementById('kitSku').addEventListener('keydown', function (e) { if (e.key === 'Enter') compute(); });
+</script>
+
+<script>
+/* IN-PLACE LOADING (2026-10-05) — see the CSS block of the same name. Watches the
+   old overlay's class ('shown' or 'on') and turns it into the in-place treatment. */
+(function () {
+  var ov = document.getElementById('kcOverlay');
+  var msgEl = document.getElementById('kcOverlayMsg');
+  var REG = '.kc-body';
+  if (!ov) return;
+  var bar = document.createElement('div'); bar.className = 'wk-bar'; document.body.appendChild(bar);
+  var lastBtn = null, lastAt = 0, line = null, btn = null;
+  document.addEventListener('click', function (e) {
+    var b = e.target && e.target.closest ? e.target.closest('button') : null;
+    if (b) { lastBtn = b; lastAt = Date.now(); }
+  }, true);
+  function on() {
+    var region = document.querySelector(REG);
+    var txt = (msgEl && msgEl.textContent || 'Working').replace(/[.\u2026\s]+$/, '');
+    var subEl = ov.querySelector('[class*="sub"]');
+    document.body.classList.add('wk-on');
+    if (region) {
+      if (!line || line.parentNode !== region) {
+        if (line && line.parentNode) line.parentNode.removeChild(line);
+        line = document.createElement('div'); line.className = 'wk-line';
+        region.insertBefore(line, region.firstChild);
+      }
+      line.innerHTML = '';
+      line.appendChild(document.createTextNode(txt + '\u2026'));
+      if (subEl && subEl.textContent) {
+        var s = document.createElement('span'); s.className = 'wk-sub'; s.textContent = '\u00b7 ' + subEl.textContent;
+        line.appendChild(s);
+      }
+      region.scrollTop = 0;
+    }
+    if (lastBtn && Date.now() - lastAt < 1500 && document.body.contains(lastBtn)) {
+      btn = lastBtn; btn.classList.add('wk-btn');
+    }
+  }
+  function off() {
+    document.body.classList.remove('wk-on');
+    if (line && line.parentNode) line.parentNode.removeChild(line);
+    line = null;
+    if (btn) { btn.classList.remove('wk-btn'); btn = null; }
+  }
+  function sync() {
+    var shown = ov.classList.contains('shown') || ov.classList.contains('on');
+    shown ? on() : off();
+  }
+  new MutationObserver(sync).observe(ov, { attributes: true, attributeFilter: ['class'] });
+  if (msgEl) new MutationObserver(function () { if (document.body.classList.contains('wk-on')) on(); })
+    .observe(msgEl, { childList: true, characterData: true, subtree: true });
+  sync();
+})();
 </script>
 </body>
 </html>
