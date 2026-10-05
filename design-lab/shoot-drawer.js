@@ -46,7 +46,7 @@ const t = (n, got, want) => { const ok = JSON.stringify(got) === JSON.stringify(
     const mk = (su, fa) => new Proxy({}, { get(_, k) {
       if (k === 'withSuccessHandler') return f => mk(f, fa);
       if (k === 'withFailureHandler') return f => mk(su, f);
-      return (...a) => { S.calls.push(k); const v = impl[k] ? impl[k](...a) : (k === 'getDisplayUrls' ? { board: '', wall: '', hosted: false } : null); if (su) setTimeout(() => su(v), 30); };
+      return (...a) => { S.calls.push(k); const v = impl[k] ? impl[k](...a) : (k === 'getDisplayUrls' ? { board: '', wall: '', hosted: false } : null); if (su) setTimeout(() => su(v), k === 'setFloorTab' ? 1500 : 30); };
     }});
     window.google = { script: { run: mk(null, null), host: { close() {}, setHeight() {} } } };
     window.confirm = () => true;
@@ -79,8 +79,10 @@ const t = (n, got, want) => { const ok = JSON.stringify(got) === JSON.stringify(
   t('C1 Tidy hides Kit Health + Price Audit, keeps floor', [v.rows.find(r => r.n === 'Kit Health').hid, v.rows.find(r => r.n === 'Price Audit').hid, v.rows.find(r => r.n === 'ABDUL TEMP').hid], [true, true, false]);
   t('C2 Tidy reports what it did', v.msg, 'Put away 2 tabs');
 
-  await p.click('.sd-row:has(.sd-name:text-is("Supplies")) .sd-star'); await p.waitForTimeout(250);
-  t('D1 ☆ → ★ adds to the floor', (await view()).rows.find(r => r.n === 'Supplies').star, '★');
+  await p.click('.sd-row:has(.sd-name:text-is("Supplies")) .sd-star'); await p.waitForTimeout(60);
+  t('D1 ☆ → ★ shows INSTANTLY (server answers 1.5 s later)', (await view()).rows.find(r => r.n === 'Supplies').star, '★');
+  await p.click('.sd-row:has(.sd-name:text-is("Kit Registry")) .sd-star'); await p.waitForTimeout(3300);
+  t('D1b two quick stars are both saved (queued, not lost)', await p.evaluate(() => ['Supplies','Kit Registry'].every(n => window.__S.floor.includes(n))), true);
   await p.check('#sdAuto'); await p.waitForTimeout(250);
   t('D2 auto-tidy switch reaches the server', await p.evaluate(() => window.__S.auto), true);
 
@@ -92,7 +94,13 @@ const t = (n, got, want) => { const ok = JSON.stringify(got) === JSON.stringify(
   t('E2 Done removes the tab and links the archived copy', [v.rows.some(r => r.n === 'Seals - Temp'), /open the copy/.test(v.msg)], [false, true]);
   await p.screenshot({ path: path.join(OUT, 'drawer-2-after.png') });
   await p.keyboard.press('Escape'); await p.waitForTimeout(150);
-  t('F1 Esc closes it', await p.$eval('#sheetDrawer', e => e.classList.contains('active')), false);
+  t('F1 Esc key closes it', await p.$eval('#sheetDrawer', e => e.classList.contains('active')), false);
+  await btn.click(); await p.waitForTimeout(250);
+  await p.click('#sheetDrawer .palette-hint'); await p.waitForTimeout(150);
+  t('F1b the ESC chip closes it', await p.$eval('#sheetDrawer', e => e.classList.contains('active')), false);
+  await btn.click(); await p.waitForTimeout(250);
+  await p.evaluate(() => window.dispatchEvent(new Event('blur'))); await p.waitForTimeout(100);
+  t('F1c focus leaving the panel (clicked the sheet) closes it', await p.$eval('#sheetDrawer', e => e.classList.contains('active')), false);
   t('F2 no page errors', errs, []);
   await b.close();
   console.log('\n' + pass + ' passed · ' + fail + ' failed');

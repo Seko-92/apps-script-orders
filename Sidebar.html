@@ -3055,37 +3055,40 @@ input[type="range"]::-moz-range-thumb:active { cursor: grabbing; transform: scal
   background: var(--bg-card); border: 2px solid var(--hq-gold); border-radius: 10px; overflow: hidden; box-shadow: var(--shadow-lg); }
 .sd-head { display: flex; align-items: center; gap: 8px; padding: 9px 12px; background: var(--bg-charcoal); border-bottom: 2px solid var(--hq-gold); }
 .sd-title { font-family: 'Oswald', sans-serif; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--hq-gold); font-size: var(--fs-md); }
-.sd-sub { flex: 1; color: var(--text-muted); font-size: var(--fs-xs); }
+.sd-sub { flex: 1; color: var(--text-muted); font-size: calc(12px * var(--font-scale)); }
 .sd-list { overflow-y: auto; padding: 4px 0 6px; }
 .sd-wait { padding: 16px; color: var(--text-muted); font-size: var(--fs-sm); }
-.sd-folder { padding: 8px 12px 2px; font-family: 'Oswald', sans-serif; font-size: var(--fs-xs); letter-spacing: .14em;
+.sd-folder { padding: 10px 12px 3px; font-family: 'Oswald', sans-serif; font-size: calc(11.5px * var(--font-scale)); letter-spacing: .14em;
   text-transform: uppercase; color: var(--text-muted); display: flex; justify-content: space-between; }
-.sd-row { display: flex; align-items: center; gap: 6px; padding: 4px 8px 4px 10px; margin: 0 4px; border-radius: 6px; }
+.sd-row { display: flex; align-items: center; gap: 7px; padding: 6px 8px 6px 10px; margin: 0 4px; border-radius: 6px; }
 .sd-row:hover { background: rgba(255,212,0,0.10); }
-.sd-star { cursor: pointer; width: 18px; text-align: center; color: var(--text-muted); font-size: 13px; user-select: none; flex: none; }
+.sd-star { cursor: pointer; width: 20px; text-align: center; color: var(--text-muted); font-size: 16px; user-select: none; flex: none;
+  transition: transform 140ms ease, color 140ms ease; }
+.sd-star:active { transform: scale(1.3); }
+.sd-row.saving .sd-star { opacity: .55; }
 .sd-star.on { color: var(--hq-gold); }
-.sd-name { flex: 1; min-width: 0; cursor: pointer; font-size: var(--fs-base); color: var(--text-primary);
+.sd-name { flex: 1; min-width: 0; cursor: pointer; font-size: calc(14.5px * var(--font-scale)); color: var(--text-primary);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sd-row.hidden .sd-name { color: var(--text-secondary); }
 .sd-row.active .sd-name { font-weight: 700; }
-.sd-dot { width: 7px; height: 7px; border-radius: 50%; background: #2e7d32; flex: none; }
+.sd-dot { width: 8px; height: 8px; border-radius: 50%; background: #2e7d32; flex: none; }
 .sd-row.hidden .sd-dot { background: transparent; border: 1px solid var(--text-muted); }
 .sd-act { border: 1px solid var(--border); background: transparent; color: var(--text-secondary);
-  border-radius: 5px; padding: 1px 6px; font-size: var(--fs-xs); cursor: pointer; flex: none; line-height: 1.5;
+  border-radius: 5px; padding: 3px 8px; font-size: calc(12px * var(--font-scale)); cursor: pointer; flex: none; line-height: 1.5;
   width: auto !important; min-width: 0 !important; margin: 0 !important; box-shadow: none !important; text-transform: none; letter-spacing: 0; }
 .sd-act:hover { border-color: var(--hq-gold); color: var(--text-primary); }
 .sd-act svg { width: 12px; height: 12px; vertical-align: -2px; fill: none; stroke: currentColor; stroke-width: 1.8; }
-.sd-meta { font-size: 10px; color: var(--text-muted); flex: none; }
+.sd-meta { font-size: calc(11px * var(--font-scale)); color: var(--text-muted); flex: none; }
 .sd-new { display: flex; gap: 6px; padding: 6px 12px 2px; align-items: center; flex-wrap: wrap; }
 .sd-new input[type=text] { flex: 1; min-width: 120px; font-size: var(--fs-sm); padding: 5px 7px; }
 .sd-new label { font-size: var(--fs-xs); color: var(--text-secondary); display: flex; gap: 4px; align-items: center; }
 .sd-foot { border-top: 1px solid var(--border); padding: 9px 12px 10px; display: flex; flex-direction: column; gap: 7px; }
 .sd-tidy { width: 100%; margin: 0 !important; }
-.sd-auto { font-size: var(--fs-xs); color: var(--text-secondary); display: flex; gap: 6px; align-items: center; cursor: pointer; }
-.sd-msg { font-size: var(--fs-xs); color: var(--text-secondary); min-height: 1em; }
+.sd-auto { font-size: calc(12px * var(--font-scale)); color: var(--text-secondary); display: flex; gap: 6px; align-items: center; cursor: pointer; }
+.sd-msg { font-size: calc(12px * var(--font-scale)); color: var(--text-secondary); min-height: 1em; }
 .sd-msg.err { color: #b71c1c; }
 .sd-msg a { color: inherit; }
-.sd-help { padding: 4px 12px 0; font-size: 10.5px; color: var(--text-muted); line-height: 1.45; }
+.sd-help { padding: 6px 12px 0; font-size: calc(11.5px * var(--font-scale)); color: var(--text-muted); line-height: 1.45; }
 
 #palette {
   position: fixed;
@@ -4214,10 +4217,13 @@ body.dark-theme .card.band-alt, body.dark-theme .card.band-alt .card-header{ bac
 .header-date{ flex:1 1 auto; min-width:0; overflow:hidden; white-space:nowrap; text-align:center;
   font-family:'Oswald',sans-serif; font-weight:500; font-size:calc(11px * var(--font-scale));
   letter-spacing:.09em; text-transform:uppercase; color:#ffd400; opacity:.8; }
-/* 6 icons since 2026-10-05 (the Sheets drawer). Measured: at 23px + 3px gaps the row ran
-   17px past a 310px panel and cut off the last icon — so 21px keys, 2px gaps, no border. */
-.top-controls{ gap:2px !important; }
-.top-controls .ctrl-btn{ height:23px !important; min-width:21px !important; padding:2px 3px !important; border-width:0 !important; }
+/* 6 icons since 2026-10-05 (the Sheets drawer). The date moved UNDER the clock to make
+   the room, so the keys keep their full size and spacing. */
+.top-controls{ gap:3px !important; margin-left:auto; }
+.top-controls .ctrl-btn{ height:23px !important; min-width:23px !important; padding:2px 4px !important; border-width:0 !important; }
+.clock-stack{ display:flex; flex-direction:column; justify-content:center; line-height:1.05; }
+.clock-stack .header-date{ flex:none !important; text-align:left !important; font-size:calc(9.5px * var(--font-scale)) !important;
+  letter-spacing:.1em !important; margin-top:1px; overflow:visible !important; }
 @media (max-width:304px){
   .header{ gap:4px; padding:6px 5px !important; }
   .hq-roundel{ width:23px; height:23px; margin-right:5px; }
@@ -4325,7 +4331,9 @@ body.dark-theme .card.band-alt, body.dark-theme .card.band-alt .card-header{ bac
     <!-- v5 (2026-10-02): the HQ roundel, so the panel opens with the sheet's mark -->
     <svg class="hq-roundel unknown" id="hqRoundel" viewBox="0 0 40 40" role="img" aria-label="HQ — sync"><title>System pulse</title><circle cx="20" cy="20" r="18" fill="none" stroke="#fff" stroke-width="3.2"/><path class="hq-arc" d="M8 28 A14.5 14.5 0 0 1 32 12" fill="none" stroke="#ffd400" stroke-width="3.4" stroke-linecap="round"/><text x="20" y="26.4" text-anchor="middle" font-family="Oswald, Arial Narrow, sans-serif" font-weight="700" font-size="18" fill="#fff">HQ</text></svg>
     <span class="header-clock-dot"></span>
-    <span id="live-sidebar-clock">00:00 AM</span>
+    <!-- 2026-10-05: the date sits UNDER the time. Beside the icons it was squeezed to
+         nothing once the Sheets drawer made six of them. -->
+    <span class="clock-stack"><span id="live-sidebar-clock">00:00 AM</span><span class="header-date" id="headerDate" aria-label="Houston date"></span></span>
   </div>
   <!-- API Health pill — driven by getLatestApiMetrics().worstPct.
        Color-tiers: green <70%, amber 70-89%, red ≥90% (with pulse).
@@ -4338,7 +4346,6 @@ body.dark-theme .card.band-alt, body.dark-theme .card.band-alt .card-header{ bac
   </div>
   <!-- 2026-10-03: the gap between the API pill and the icons carries the Houston
        date, beside the Houston time. Hidden by JS if a narrow panel cannot fit it. -->
-  <span class="header-date" id="headerDate" aria-label="Houston date"></span>
   <div class="top-controls">
     <div id="drawerBtn" class="ctrl-btn" onclick="openSheetDrawer()" title="Sheets — open, put away, tidy up">▤</div>
     <div id="themeBtn" class="ctrl-btn" onclick="toggleTheme()" title="Toggle Theme">🌙</div>
@@ -8494,7 +8501,7 @@ function closePalette() {
 // ═══════════════════════════════════════════════════════════════════════════════
 // SHEETS DRAWER (2026-10-05) — see SheetDrawer.js for the rules.
 // ═══════════════════════════════════════════════════════════════════════════════
-var _sdData = null, _sdBusy = false;
+var _sdData = null, _sdBusy = false, _sdConfirming = false;
 function openSheetDrawer() {
   var el = document.getElementById('sheetDrawer');
   el.classList.add('active');
@@ -8566,10 +8573,54 @@ function _sdCall(fn, args, after) {
     .withFailureHandler(function (e) { _sdBusy = false; sdMsg((e && e.message) || String(e), true); });
   r[fn].apply(r, args);
 }
-function sdOpen(name)        { sdMsg('Opening ' + name + '…'); _sdCall('openSheetFromDrawer', [name], function (r) { sdMsg(r.message); closeSheetDrawer(); }); }
-function sdHide(name)        { _sdCall('hideSheetFromDrawer', [name], function (r) { sdMsg(r.message); }); }
-function sdStar(name, on)    { _sdCall('setFloorTab', [name, on], function () { sdMsg(on ? name + ' added to the floor view' : name + ' removed from the floor view'); }); }
-function sdSetAuto(on)       { _sdCall('setAutoTidy', [on], function () { sdMsg(on ? 'Auto-tidy is ON — tabs go back to the floor view at 4 AM' : 'Auto-tidy is off'); }); }
+/* INSTANT ON SCREEN, SAVED BEHIND (2026-10-05). The star used to wait for the server
+   round trip (~1-2 s) before changing, which read as "it did not take". Now the drawer
+   changes at once, the write follows, and a refusal puts it back with the reason.
+   ⚠ Writes are QUEUED, one at a time: the floor view is one stored list, and two stars
+   tapped quickly would otherwise both read the old list and one would be lost. */
+var _sdQ = [], _sdQRunning = false;
+function _sdQueue(fn, args, onOk, onFail) {
+  _sdQ.push([fn, args, onOk, onFail]);
+  if (!_sdQRunning) _sdQNext();
+}
+function _sdQNext() {
+  var job = _sdQ.shift();
+  if (!job) { _sdQRunning = false; return; }
+  _sdQRunning = true;
+  var r = google.script.run
+    .withSuccessHandler(function (res) {
+      if (res && res.ok === false) { if (job[3]) job[3](res.message); }
+      else if (job[2]) job[2](res);
+      _sdQNext();
+    })
+    .withFailureHandler(function (e) { if (job[3]) job[3]((e && e.message) || String(e)); _sdQNext(); });
+  r[job[0]].apply(r, job[1]);
+}
+function _sdFind(name) {
+  var d = _sdData, hit = null; if (!d) return null;
+  d.folders.forEach(function (f) { f.tabs.forEach(function (t) { if (t.name === name) hit = t; }); });
+  d.work.forEach(function (t) { if (t.name === name) hit = t; });
+  return hit;
+}
+function sdOpen(name) {
+  closeSheetDrawer();
+  _sdQueue('openSheetFromDrawer', [name], null, function (m) { openSheetDrawer(); sdMsg(m, true); });
+}
+function sdHide(name) {
+  var t = _sdFind(name); if (t) { t.hidden = true; sdPaint(); }
+  sdMsg('Put away ' + name);
+  _sdQueue('hideSheetFromDrawer', [name], null, function (m) { if (t) { t.hidden = false; sdPaint(); } sdMsg(m, true); });
+}
+function sdStar(name, on) {
+  var t = _sdFind(name); if (t) { t.floor = on; sdPaint(); }
+  sdMsg(on ? name + ' is on the floor view' : name + ' is off the floor view');
+  _sdQueue('setFloorTab', [name, on], null, function (m) { if (t) { t.floor = !on; sdPaint(); } sdMsg(m, true); });
+}
+function sdSetAuto(on) {
+  if (_sdData) _sdData.autoTidy = on;
+  sdMsg(on ? 'Auto-tidy is ON — tabs go back to the floor view at 4 AM' : 'Auto-tidy is off');
+  _sdQueue('setAutoTidy', [on], null, function (m) { document.getElementById('sdAuto').checked = !on; sdMsg(m, true); });
+}
 function sdTidy() {
   var b = document.getElementById('sdTidy'); b.disabled = true;
   sdMsg('Putting tabs away…');
@@ -8584,7 +8635,10 @@ function sdNew() {
   _sdCall('createWorkSheet', [name, pin], function (r) { sdMsg(r.message); closeSheetDrawer(); });
 }
 function sdDone(name) {
-  if (!confirm('Finish "' + name + '"?\n\nA copy is saved to the "HQ Work Sheets Archive" spreadsheet in Drive, then this tab is removed.')) return;
+  _sdConfirming = true;
+  var yes = confirm('Finish "' + name + '"?\n\nA copy is saved to the "HQ Work Sheets Archive" spreadsheet in Drive, then this tab is removed.');
+  _sdConfirming = false;
+  if (!yes) return;
   sdMsg('Saving a copy of ' + name + '…');
   _sdCall('finishWorkSheet', [name], function (r) {
     sdMsg(_sdEsc(r.message) + (r.url ? ' · <a href="' + _sdEsc(r.url) + '" target="_blank">open the copy</a>' : ''), false, true);
@@ -8653,6 +8707,11 @@ document.getElementById('cmdEsc').addEventListener('click', function(e) {
    closePalette() has already fired. */
 window.addEventListener('blur', function() {
   if (palette.classList.contains('active')) closePalette();
+  // Same rule for the Sheets drawer (2026-10-05): once you click the sheet, the Esc key
+  // can no longer reach the panel — so leaving the panel closes it. Not while our own
+  // "Done?" confirm box is up (that steals focus too).
+  var sd = document.getElementById('sheetDrawer');
+  if (sd && sd.classList.contains('active') && !_sdConfirming) closeSheetDrawer();
 });
 
 cmdInput.addEventListener('input', function() {
