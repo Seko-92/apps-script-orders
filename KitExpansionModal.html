@@ -926,6 +926,66 @@ input[type=text], input[type=number], textarea{ background: #fffdf8 !important; 
   border-radius: 9px !important; box-shadow: var(--os-press) !important; }
 input[type=text]:focus, input[type=number]:focus, textarea:focus{ outline: none; border-color: #e3b900 !important;
   box-shadow: var(--os-press), 0 0 0 3px rgba(255,212,0,.32) !important; }
+
+/* ═══ REVIEW FIRST, WRITE ONCE (2026-10-05) — overview · action switch · summary ═══
+   Same one-surface language as above: raised panels, pressed inputs, yellow keys.
+   The write shows its progress ON the summary lines (✓ per kit + a thin bar),
+   never under a veil — a covered window reads as a sticker, a working list reads
+   as work. */
+.act-row{ display:flex; align-items:center; gap:10px; margin-top:8px; }
+.act-seg{ display:inline-flex; background:#f6efdc; border:1px solid var(--os-rim); border-radius:10px; padding:3px; box-shadow: var(--os-press); }
+.act-btn{ font-family:'Oswald',sans-serif; font-size:12px; letter-spacing:.06em; text-transform:uppercase; font-weight:600;
+  border:none; background:none; color:#6b5a2a; padding:6px 14px; border-radius:7px; cursor:pointer;
+  transition: background 160ms var(--os-ease), color 160ms var(--os-ease), box-shadow 160ms var(--os-ease); }
+.act-btn:hover{ color:#1d1d1b; }
+.act-btn.on{ background: var(--os-yellow); color:#1d1d1b; box-shadow: inset 0 1px 0 rgba(255,255,255,.7), 0 2px 0 #b89500; }
+.kit-off .col-left, .kit-off .col-right{ opacity:.38; pointer-events:none; filter:saturate(.4); transition: opacity 220ms var(--os-ease); }
+.kit-meta.kit-off .deploy-row, .kit-meta.kit-off .note-row{ opacity:.38; pointer-events:none; }
+
+.ov, .sum{ flex:1; overflow-y:auto; padding:6px 14px 16px; animation: os-rise 360ms var(--os-ease) both; }
+.ov-head, .sum-head{ display:flex; align-items:baseline; justify-content:space-between; gap:12px; padding:6px 2px 12px; }
+.ov-so{ font-family:'Oswald',sans-serif; font-size:20px; font-weight:600; letter-spacing:.02em; }
+.ov-count{ font-family:'Roboto Mono',monospace; font-size:12px; color:#6b5a2a; }
+.ov-group{ background: var(--os-panel); border:1px solid var(--os-rim); border-radius:12px; box-shadow: var(--os-raise);
+  padding:12px 14px; margin-bottom:12px; }
+.ov-group.ready{ border-left:4px solid #ffb84d; }
+.ov-title{ display:flex; align-items:center; gap:10px; font-size:13px; color:#434343; }
+.ov-n{ margin-left:auto; font-family:'Roboto Mono',monospace; font-size:12px; color:#6b5a2a; }
+.ov-chips{ display:flex; flex-wrap:wrap; gap:6px; margin:10px 0 2px; }
+.ov-chip{ display:inline-flex; align-items:center; gap:6px; background:#fff; border:1px solid #e6d9b3; border-radius:8px;
+  padding:4px 9px; font-family:'Roboto Mono',monospace; font-size:12px; box-shadow: var(--os-lift); }
+.ov-chip.warn{ border-color:#ffb84d; background:#fffaf0; }
+.ov-loc{ color:#8a7434; }
+.ov-qty{ color:#1d1d1b; font-weight:700; }
+.ov-warn{ color:#b26a00; }
+.ov-choice{ display:flex; flex-wrap:wrap; align-items:center; gap:10px; margin-top:12px; padding-top:10px; border-top:1px dashed #e6d9b3; font-size:13px; }
+.ov-hint{ font-size:12px; color:#6b5a2a; flex-basis:100%; }
+
+.wr-bar{ height:3px; border-radius:2px; background:#f1e8cf; overflow:hidden; margin:0 2px 10px; }
+.wr-bar span{ display:block; height:100%; width:0; background: linear-gradient(90deg,#ffcf00,#ffe45c); transition: width 400ms var(--os-ease); }
+.sum-list{ display:flex; flex-direction:column; gap:6px; }
+.sum-line{ display:flex; align-items:flex-start; gap:12px; background:#fff; border:1px solid #ece2c6; border-radius:10px;
+  padding:9px 12px; box-shadow: var(--os-lift); transition: background 200ms var(--os-ease); }
+.sum-line.flag{ border-color:#ffd400; background:#fffbe6; box-shadow: inset 3px 0 0 #ffd400, var(--os-lift); }
+.sum-line.bad{ border-color:#e57373; background:#ffebee; }
+.sum-line.quiet{ background:#fbf9f3; }
+.sum-line.quiet .sum-sku, .sum-line.quiet .sum-name{ color:#8a8a80; }
+.sum-st{ width:18px; text-align:center; font-weight:700; color:#b8a76a; flex-shrink:0; padding-top:1px; }
+.sum-st.ok{ color:#2e7d32; }
+.sum-st.bad{ color:#b71c1c; }
+.sum-st.work::before{ content:''; display:inline-block; width:11px; height:11px; border-radius:50%;
+  border:2px solid #f1e3a8; border-top-color:#e3b900; animation: sumspin .7s linear infinite; }
+@keyframes sumspin{ to{ transform: rotate(360deg); } }
+.sum-sku{ font-family:'Roboto Mono',monospace; font-weight:700; width:64px; flex-shrink:0; padding-top:1px; }
+.sum-body{ flex:1; min-width:0; display:flex; flex-direction:column; gap:3px; }
+.sum-name{ font-size:12px; color:#5f5f5f; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.sum-detail{ font-size:13px; }
+.sum-detail .outcome-chip{ margin-left:4px; }
+.sum-msg{ font-size:12px; color:#2e7d32; }
+.sum-line.bad .sum-msg{ color:#b71c1c; }
+.sum-edit{ border:1px solid var(--os-rim); background:#fff; border-radius:8px; padding:4px 10px; font-size:12px; cursor:pointer; color:#6b5a2a; }
+.sum-edit:hover:not(:disabled){ border-color:#e3b900; color:#1d1d1b; }
+.sum-edit:disabled{ opacity:.3; cursor:default; }
 </style>
 </head>
 <body>
@@ -989,49 +1049,76 @@ input[type=text]:focus, input[type=number]:focus, textarea:focus{ outline: none;
 
   <script>
     // ----- SESSION STATE (server-passed bootstrap) -----
-    // Apps Script force-print scriptlets (NOT the HTML-escaping kind) inject
-    // the JSON literals so they parse as JS. Server pre-JSON-stringified
-    // sessionId and pre-escaped any back-to-back angle-slash sequences in
-    // kitJson, so injection-safe.
+    // Force-print scriptlets inject the JSON literals so they parse as JS; the
+    // server pre-escaped angle-slash pairs, so a stray closing script tag inside a
+    // Sales Description cannot end this block early.
+    //
+    // ⭐ REVIEW FIRST, WRITE ONCE (2026-10-05). The window used to write each kit to
+    //   the sheet the moment you pressed Expand — a wait after every kit, and no way
+    //   back to kit 3 once you had seen kit 7. Now every kit's choices live HERE,
+    //   in `decisions`, until the summary's one "Expand all" button. Nothing touches
+    //   the sheet before that, so Back / edit / change-your-mind are all free.
     var SESSION_ID   = <?!= sessionId ?>;
-    var QUEUE_LENGTH = <?= queueLength ?>;
-    var currentKit   = <?!= kitJson ?>;
-    var currentIndex = <?= kitIndex ?>;
-    var excludedSkus = {};   // sku -> true (per-kit, reset on advance)
-    var currentExtras = 0;   // spares-for-us count (additive, default 0 per kit)
+    var QUEUE        = <?!= queueJson ?>;
+    var QUEUE_LENGTH = QUEUE.length;
+    var BODY_HTML    = '';            // the two-column kit body, captured at boot
 
-    /* THE NOTE the picker will commit (2026-09-03).
-       Before this, the annotation was composed server-side and could not be
-       changed: a STOCK BUILD got "1 for customer + 2 for us" on every inserted
-       row and the picker deleted it by hand afterwards, row by row.
-
-       ⚠ noteEdited is the same pattern the per-component qty override already
-         uses in this file — once the picker touches it, stop regenerating from
-         the spares count, or their words get wiped by a later keystroke. */
-    var currentNote = '';
-    var noteEdited  = false;
-
-    /* ⚠ MIRRORS KIT_NOTE_TEXT_MAX in KitExpansion.js. The server trims and slices
-       to the same number; this only stops the picker typing past it unnoticed. */
+    /* ⚠ MIRRORS KIT_NOTE_TEXT_MAX in KitExpansion.js. */
     var NOTE_TEXT_MAX = 120;
 
     /* THE ONE composer for the default annotation. The server has the identical
-       sentence (KitExpansion.js) — test-kit-note.js asserts the two agree across a
-       matrix of rowQty × extras, because a default that differs from what gets
-       written is worse than no default at all. */
+       sentence (KitExpansion.js) — test-kit-note.js asserts the two agree. */
     function noteDefaultFor(rowQty, extras) {
       var q = parseInt(rowQty) || 0, e = parseInt(extras) || 0;
       if (e <= 0) return '';
       return 'deploy ' + (q + e) + ' total (' + q + ' for customer + ' + e + ' for us)';
     }
-    var busy = false;
-    // Per-kit alterations (customer customization) — all reset in renderKit.
-    var compQty  = {};       // origSku -> override qty (final row qty)
-    var compSwap = {};       // origSku -> { sku, name, location, available }
-    var addedItems = [];     // [{ sku, name, location, available, qty }] — custom adds
 
-    // ----- INITIAL RENDER -----
-    renderKit(currentKit, currentIndex);
+    /* One decision per kit. Bundled parts start unchecked (the Sales Description
+       says they ship inside another box) — re-checkable, the rule only proposes.
+       action: 'expand' | 'box' (READY shipped as its pre-assembled box) | 'skip'. */
+    var decisions = QUEUE.map(function (k) {
+      var ex = {};
+      (k.components || []).forEach(function (c) { if (c && c.bundled) ex[c.sku] = true; });
+      return {
+        action:     (k.kitType === 'READY') ? 'box' : 'expand',
+        excluded:   ex, compQty: {}, compSwap: {}, addedItems: [],
+        extras:     0,
+        note:       noteDefaultFor(k.sourceQty, 0),
+        noteEdited: false
+      };
+    });
+
+    var readyMode    = 'box';   // the overview's one choice for every READY kit
+    var appliedReady = null;    // last value pushed onto the decisions — re-applied only if changed
+    var reviewList   = [];      // queue indexes the picker walks, in order
+    var reviewPos    = 0;
+    var fromSummary  = false;   // opened via "edit" on the summary → its button returns there
+    var view         = 'overview';
+
+    // The page the picker is looking at. These ALIAS the current kit's decision
+    // object (objects/arrays by reference); the three primitives are copied back
+    // by saveDecision() whenever the picker leaves the page.
+    var currentKit = null, currentIndex = -1;
+    var excludedSkus = {}, compQty = {}, compSwap = {}, addedItems = [];
+    var currentExtras = 0, currentNote = '', noteEdited = false;
+    var busy = false;
+
+    function loadDecision(i) {
+      var d = decisions[i];
+      excludedSkus = d.excluded; compQty = d.compQty; compSwap = d.compSwap; addedItems = d.addedItems;
+      currentExtras = d.extras; currentNote = d.note; noteEdited = d.noteEdited;
+    }
+    function saveDecision() {
+      if (currentIndex < 0) return;
+      var d = decisions[currentIndex];
+      d.extras = currentExtras; d.note = currentNote; d.noteEdited = noteEdited;
+    }
+    function willInsertFor(i) {
+      var k = QUEUE[i], d = decisions[i], n = 0;
+      (k.components || []).forEach(function (c) { if (!d.excluded[c.sku]) n++; });
+      return n + d.addedItems.length;
+    }
 
     /** Parent text for the "↳ inside …" chip. The sales line carries qty + MPN
      *  ("-1 Full Gasket Set 19077-03310"); the picker only needs the part name. */
@@ -1043,27 +1130,19 @@ input[type=text]:focus, input[type=number]:focus, textarea:focus{ outline: none;
     }
 
     function renderKit(kit, index) {
-      // Start with the parts that ship INSIDE another component already unchecked.
-      // The Sales Description says so ("Full Gasket Set ... + Head Gasket"), so the
-      // picker no longer has to remember it on every expansion — but every box stays
-      // re-checkable, because the rule proposes and the picker decides.
-      excludedSkus = {};
-      (kit.components || []).forEach(function (c) {
-        if (c && c.bundled) excludedSkus[c.sku] = true;
-      });
-      compQty = {}; compSwap = {}; addedItems = [];   // reset alterations per kit
-      currentExtras = 0;   // always reset per kit
-      // ⚠ The note resets per kit too — same ruling as extras. Carrying one kit's
-      //   wording onto the next is how a stock-build note lands on a customer order.
-      noteEdited = false;
-      currentNote = noteDefaultFor(kit.sourceQty, 0);
+      // State comes from decisions[index] (loadDecision ran in showKitAt) — the page
+      // shows whatever the picker already chose, so Back and "edit" lose nothing.
       busy = false;
+      var act = decisions[index].action;
 
       var isReady = (kit.kitType === 'READY');
 
       // Counter
-      document.getElementById('counter').textContent =
-        'Kit ' + (index + 1) + ' of ' + QUEUE_LENGTH;
+      var pos = reviewList.indexOf(index);
+      document.getElementById('counter').textContent = (pos > -1)
+        ? ('Kit ' + (pos + 1) + ' of ' + reviewList.length
+           + (reviewList.length < QUEUE_LENGTH ? ' · ' + QUEUE_LENGTH + ' total' : ''))
+        : ('Kit ' + kit.kitSku);
 
       // Kit meta banner — includes per-kit Deploy× input.
       // READY pages get the amber accent stripe via .ready-mode class.
@@ -1083,13 +1162,14 @@ input[type=text]:focus, input[type=number]:focus, textarea:focus{ outline: none;
         + '</div>'
         + '<div class="deploy-row" id="deployRow">'
         +   '<span class="deploy-label">Spares for us</span>'
-        +   '<input type="number" min="0" max="99" value="0" class="deploy-input" '
+        +   '<input type="number" min="0" max="99" value="' + currentExtras + '" class="deploy-input" '
         +     'id="deployInput" onchange="onExtrasChange()" oninput="onExtrasChange()">'
         +   '<span class="deploy-hint" id="deployHint">'
         +     '<strong>0 spares</strong> — ship exactly ' + kit.sourceQty + ' kit'
         +     (kit.sourceQty > 1 ? 's' : '') + ' to customer. Type N to add N extra for us.'
         +   '</span>'
         + '</div>'
+        + actionSegHtml(isReady, act)
         // THE NOTE ROW. The tag is a locked chip; only the tail is an input.
         + '<div class="note-row" id="noteRow">'
         +   '<span class="note-label">Note</span>'
@@ -1117,10 +1197,9 @@ input[type=text]:focus, input[type=number]:focus, textarea:focus{ outline: none;
           + '<div class="ready-banner-title">⚠ READY KIT — Pre-assembled '
           +   '<span class="loc-pill">' + esc(loc) + '</span>'
           + '</div>'
-          + 'Normally ships as one box from ' + esc(loc) + '. '
-          + 'Skip to ship as-is (default). Force Expand to pick components '
-          + 'individually — useful for DIRECT orders when keeping the '
-          + esc(loc) + ' box reserved for eBay matters more than picker time.';
+          + 'Normally ships as one box from ' + esc(loc) + '. Choose above: '
+          + '<strong>Ship as box</strong>, or <strong>Expand into parts</strong> to pick it '
+          + 'piece by piece for this order (a blind package, or to keep the box for eBay).';
         bannerEl.style.display = 'block';
       } else {
         bannerEl.style.display = 'none';
@@ -1184,6 +1263,8 @@ input[type=text]:focus, input[type=number]:focus, textarea:focus{ outline: none;
 
       // Components checklist (qty = base × currentMultiplier)
       renderComponents();
+      paintExtrasHint();
+      paintNoteRow();
 
       // Sales Description
       var sdHtml = kit.salesDescription
@@ -1194,25 +1275,50 @@ input[type=text]:focus, input[type=number]:focus, textarea:focus{ outline: none;
       updateSummary();
     }
 
+    /* The kit page's own choice: what happens to THIS kit when the summary writes. */
+    function actionSegHtml(isReady, act) {
+      function b(val, label) {
+        return '<button type="button" class="act-btn' + (act === val ? ' on' : '') + '" '
+             + 'onclick="setAction(\'' + val + '\')">' + label + '</button>';
+      }
+      return '<div class="act-row"><span class="deploy-label">This kit</span><div class="act-seg">'
+           + (isReady ? b('box', 'Ship as box') + b('expand', 'Expand into parts')
+                      : b('expand', 'Expand') + b('skip', 'Skip this kit'))
+           + '</div></div>';
+    }
+    function setAction(a) {
+      decisions[currentIndex].action = a;
+      var isReady = currentKit.kitType === 'READY';
+      document.querySelectorAll('.act-btn').forEach(function (el) {
+        el.classList.toggle('on', el.getAttribute('onclick').indexOf("'" + a + "'") > -1);
+      });
+      var off = (a !== 'expand');
+      var body = document.getElementById('bodyEl');
+      if (body) body.classList.toggle('kit-off', off);
+      document.getElementById('kitMeta').classList.toggle('kit-off', off);
+      renderFooterButtons(isReady);
+      updateSummary();
+    }
+
+    function isLastReviewStep() {
+      return !fromSummary && reviewPos >= reviewList.length - 1;
+    }
     function renderFooterButtons(isReady) {
       var ftr = document.getElementById('ftrBtns');
       if (!ftr) return;
-      if (isReady) {
-        // READY: Skip is the safe default (primary, yellow), Force Expand
-        // is the deliberate override (secondary, amber tonal).
-        ftr.innerHTML = ''
-          + '<button class="btn-cancel" id="btnCancel" onclick="onCancel()">✕ Cancel</button>'
-          + '<button class="btn-force"  id="btnExpand" onclick="onForceExpand()">⚠ Force Expand</button>'
-          + '<button class="btn-skip-primary" id="btnSkip" onclick="onSkip()">Skip · ship as box →</button>';
-      } else {
-        // MANUAL: Expand is the primary path, Skip is the override.
-        ftr.innerHTML = ''
-          + '<button class="btn-cancel" id="btnCancel" onclick="onCancel()">✕ Cancel</button>'
-          + '<button class="btn-skip"   id="btnSkip"   onclick="onSkip()">Skip This Kit</button>'
-          + '<button class="btn-expand" id="btnExpand" onclick="onExpand()">Expand &amp; Continue →</button>';
-      }
+      var act = decisions[currentIndex].action;
+      var primary;
+      if (fromSummary)            primary = 'Back to summary →';
+      else if (!isLastReviewStep()) primary = 'Next kit →';
+      else if (QUEUE_LENGTH === 1) primary = (act === 'expand') ? (isReady ? 'Expand into parts →' : 'Expand →')
+                                           : (act === 'box' ? 'Done · ship as box' : 'Done · skip');
+      else                         primary = 'Review all ' + QUEUE_LENGTH + ' →';
+      var canBack = fromSummary || reviewPos > 0 || QUEUE_LENGTH > 1;
+      ftr.innerHTML = ''
+        + '<button class="btn-cancel" id="btnCancel" onclick="onCancel()">✕ Cancel</button>'
+        + (canBack ? '<button class="btn-skip" id="btnBack" onclick="goBack()">← Back</button>' : '')
+        + '<button class="btn-expand" id="btnNext" onclick="goNext()">' + primary + '</button>';
     }
-
     function renderComponents() {
       var kit = currentKit;
       // Queue components carry base × rowQty (previewSelectedKits(1)); display
@@ -1363,8 +1469,18 @@ input[type=text]:focus, input[type=number]:focus, textarea:focus{ outline: none;
       if (val > 99) val = 99;
       input.value = val;
       currentExtras = val;
+      paintExtrasHint();
 
-      // Visual cue: deploy-row turns yellow when extras > 0
+      // Keep the note's DEFAULT in step with the spares count — but never overwrite
+      // words the picker typed. Once noteEdited is true this stops entirely.
+      syncNoteDefault();
+
+      renderComponents();
+      updateSummary();
+    }
+
+    /* Spares hint + yellow cue, from currentExtras. Also run on page restore. */
+    function paintExtrasHint() {
       var row = document.getElementById('deployRow');
       var hint = document.getElementById('deployHint');
       var rowQty = parseInt(currentKit.sourceQty) || 1;
@@ -1379,13 +1495,6 @@ input[type=text]:focus, input[type=number]:focus, textarea:focus{ outline: none;
                        + ' kit' + (rowQty > 1 ? 's' : '')
                        + ' to customer. Type N to add N extra for us.';
       }
-
-      // Keep the note's DEFAULT in step with the spares count — but never overwrite
-      // words the picker typed. Once noteEdited is true this stops entirely.
-      syncNoteDefault();
-
-      renderComponents();
-      updateSummary();
     }
 
     /* Recompose the default annotation from the current spares count and push it into
@@ -1438,157 +1547,339 @@ input[type=text]:focus, input[type=number]:focus, textarea:focus{ outline: none;
     }
 
     function updateSummary() {
+      var act = decisions[currentIndex].action;
+      var el = document.getElementById('summary');
+      var btnNext = document.getElementById('btnNext');
+      if (act !== 'expand') {
+        el.innerHTML = (act === 'box')
+          ? 'Ships as one box from <strong>' + esc(currentKit.kitLocation || 'its K shelf') + '</strong> — nothing will be written'
+          : 'Skipped — nothing will be written for this kit';
+        el.className = 'ftr-summary';
+        if (btnNext) btnNext.disabled = busy;
+        return;
+      }
       var totalComps = currentKit.components.length;
-      var excluded = Object.keys(excludedSkus).length;
+      var excluded = 0;
+      currentKit.components.forEach(function (c) { if (excludedSkus[c.sku]) excluded++; });
       var swaps = Object.keys(compSwap).length;
       var added = addedItems.length;
       var willInsert = (totalComps - excluded) + added;
-      var isReady = (currentKit.kitType === 'READY');
 
       var bits = ['Will insert <strong>' + willInsert + '</strong> component' + (willInsert === 1 ? '' : 's')];
       if (excluded > 0) bits.push(excluded + ' excluded');
       if (swaps > 0)    bits.push(swaps + ' swapped');
       if (added > 0)    bits.push(added + ' added');
-
       var msg = bits.join(' · ');
       var warn = (willInsert === 0);
-      if (warn) {
-        msg += isReady
-          ? ' — nothing to insert; Force Expand disabled. Skip will still ship the box.'
-          : ' — nothing to insert; clicking Expand will fail.';
-      }
-
-      var el = document.getElementById('summary');
+      if (warn) msg += ' — nothing to insert. Tick a part, or choose ' + (currentKit.kitType === 'READY' ? 'Ship as box.' : 'Skip.');
       el.innerHTML = msg;
       el.className = warn ? 'ftr-summary warn' : 'ftr-summary';
-
-      // btnExpand exists in both layouts (= Force Expand on READY, Expand on MANUAL).
-      // Skip is never disabled by willInsert on READY (Skip ships the kit as-is,
-      // doesn't need components); on MANUAL, current behavior preserved.
-      var btnExpand = document.getElementById('btnExpand');
-      var btnSkip   = document.getElementById('btnSkip');
-      var btnCancel = document.getElementById('btnCancel');
-      if (btnExpand) btnExpand.disabled = (willInsert === 0 || busy);
-      if (btnSkip)   btnSkip.disabled   = busy;
-      if (btnCancel) btnCancel.disabled = busy;
+      if (btnNext) btnNext.disabled = (warn || busy);
     }
 
-    // ----- ACTION HANDLERS -----
-    function onExpand() { _expand(false); }
-    function onForceExpand() {
-      // Tiny confirm step on Force — small friction protects against
-      // accidental clicks since this is the override path.
+    // ----- SCREENS -----
+    function setChrome(showKit) {
+      ['kitMeta'].forEach(function (id) {
+        var e = document.getElementById(id); if (e) e.style.display = showKit ? '' : 'none';
+      });
+      if (!showKit) ['readyBanner', 'dupBanner', 'unparsedBanner'].forEach(function (id) {
+        var e = document.getElementById(id); if (e) e.style.display = 'none';
+      });
+    }
+    function setFooter(summaryHtml, btnsHtml) {
+      document.getElementById('summary').innerHTML = summaryHtml || '';
+      document.getElementById('summary').className = 'ftr-summary';
+      document.getElementById('ftrBtns').innerHTML = btnsHtml;
+    }
+    function kitWarnings(k) {
+      var w = [];
+      if (k.alreadyExpanded && k.alreadyExpanded.count > 0) w.push('already expanded on this order');
+      if (k.unparsedLines && k.unparsedLines.length > 0) w.push(k.unparsedLines.length + ' unreadable Zoho line(s)');
+      return w;
+    }
+    function soLine() {
+      var sos = [];
+      QUEUE.forEach(function (k) { var s = k.sourceSalesOrder || '—'; if (sos.indexOf(s) < 0) sos.push(s); });
+      return sos.join(' · ');
+    }
+
+    /* SCREEN 1 — the whole order at a glance, and the one READY decision. */
+    function renderOverview() {
+      saveDecision();
+      view = 'overview'; fromSummary = false; currentIndex = -1;
+      setChrome(false);
+      document.getElementById('counter').textContent = QUEUE_LENGTH + ' kits selected';
+      var ready = [], manual = [];
+      QUEUE.forEach(function (k, i) { (k.kitType === 'READY' ? ready : manual).push(i); });
+      function chips(list) {
+        return list.map(function (i) {
+          var k = QUEUE[i], w = kitWarnings(k);
+          return '<span class="ov-chip' + (w.length ? ' warn' : '') + '"' + (w.length ? ' title="' + esc(w.join(' · ')) + '"' : '') + '>'
+               + '<b>' + esc(k.kitSku) + '</b>'
+               + '<span class="ov-loc">' + esc(k.kitLocation || 'no shelf') + '</span>'
+               + (k.sourceQty > 1 ? '<span class="ov-qty">×' + k.sourceQty + '</span>' : '')
+               + (w.length ? '<span class="ov-warn">⚠</span>' : '')
+               + '</span>';
+        }).join('');
+      }
+      var html = '<div class="ov">'
+        + '<div class="ov-head"><span class="ov-so">' + esc(soLine()) + '</span>'
+        +   '<span class="ov-count">' + QUEUE_LENGTH + ' kits · nothing is written until the summary</span></div>';
+      if (ready.length) {
+        html += '<div class="ov-group ready">'
+          + '<div class="ov-title"><span class="kit-pill READY">READY</span> pre-assembled box on a K shelf'
+          +   '<span class="ov-n">' + ready.length + ' kit' + (ready.length > 1 ? 's' : '') + '</span></div>'
+          + '<div class="ov-chips">' + chips(ready) + '</div>'
+          + '<div class="ov-choice"><span>For these ' + ready.length + ':</span>'
+          +   '<div class="act-seg">'
+          +     '<button type="button" class="act-btn' + (readyMode === 'box' ? ' on' : '') + '" onclick="setReadyMode(\'box\')">Ship as boxes</button>'
+          +     '<button type="button" class="act-btn' + (readyMode === 'expand' ? ' on' : '') + '" onclick="setReadyMode(\'expand\')">Expand all into parts</button>'
+          +   '</div>'
+          +   '<span class="ov-hint">' + (readyMode === 'box'
+                ? 'They skip the review and ship as boxes. You can still open any of them from the summary.'
+                : 'Each one gets its own review page, like the others.') + '</span>'
+          + '</div></div>';
+      }
+      if (manual.length) {
+        html += '<div class="ov-group">'
+          + '<div class="ov-title"><span class="kit-pill MANUAL">MANUAL</span> built from parts'
+          +   '<span class="ov-n">' + manual.length + ' kit' + (manual.length > 1 ? 's' : '') + '</span></div>'
+          + '<div class="ov-chips">' + chips(manual) + '</div></div>';
+      }
+      html += '</div>';
+      document.getElementById('bodyEl').innerHTML = html;
+      setFooter('Choose for the READY kits, then review each kit — you can go back to any of them.',
+        '<button class="btn-cancel" onclick="onCancel()">✕ Cancel</button>'
+        + '<button class="btn-expand" onclick="startReview()">Start review →</button>');
+    }
+    function setReadyMode(m) { readyMode = m; renderOverview(); }
+
+    function startReview() {
+      if (appliedReady !== readyMode) {
+        QUEUE.forEach(function (k, i) { if (k.kitType === 'READY') decisions[i].action = readyMode; });
+        appliedReady = readyMode;
+      }
+      reviewList = [];
+      QUEUE.forEach(function (k, i) { if (!(k.kitType === 'READY' && readyMode === 'box')) reviewList.push(i); });
+      fromSummary = false;
+      if (reviewList.length === 0) { renderSummary(); return; }
+      reviewPos = 0;
+      showKitAt(reviewList[0]);
+    }
+
+    /* SCREENS 2..N — one kit, restored exactly as the picker left it. */
+    function showKitAt(idx) {
+      saveDecision();
+      view = 'kit';
+      var body = document.getElementById('bodyEl');
+      if (!document.getElementById('compsEl')) body.innerHTML = BODY_HTML;
+      setChrome(true);
+      currentIndex = idx;
+      currentKit = QUEUE[idx];
+      loadDecision(idx);
+      renderKit(currentKit, idx);
+      var off = decisions[idx].action !== 'expand';
+      body.classList.toggle('kit-off', off);
+      document.getElementById('kitMeta').classList.toggle('kit-off', off);
+      document.getElementById('compsEl').scrollTop = 0;
+    }
+
+    function goNext() {
       if (busy) return;
-      if (!confirm('Force expand this READY kit?\n\n' + currentKit.kitSku + ' would normally ship as one pre-assembled box. Continue with component-level expansion?')) return;
-      _expand(true);
+      var d = decisions[currentIndex];
+      if (d.action === 'expand' && willInsertFor(currentIndex) === 0) {
+        showStatus('Nothing to insert for ' + currentKit.kitSku + ' — tick a part or skip it.', true);
+        return;
+      }
+      saveDecision();
+      if (fromSummary) { renderSummary(); return; }
+      if (!isLastReviewStep()) { reviewPos++; showKitAt(reviewList[reviewPos]); return; }
+      if (QUEUE_LENGTH === 1) { commitAll(); return; }
+      renderSummary();
     }
-    function _expand(force) {
+    function goBack() {
       if (busy) return;
-      busy = true;
-      updateSummary();
-      var extrasSuffix = currentExtras > 0 ? ' (+ ' + currentExtras + ' for us)' : '';
-      var verb = force ? 'Force expanding ' : 'Expanding ';
-      showStatus(verb + currentKit.kitSku + extrasSuffix + '…');
-      showOverlay(verb + currentKit.kitSku);
-
-      var excluded = Object.keys(excludedSkus);
-      google.script.run
-        .withSuccessHandler(onCommitOk)
-        .withFailureHandler(onCommitFail)
-        .commitKitFromModal(SESSION_ID, excluded, currentExtras, !!force, buildAlterations());
+      saveDecision();
+      if (fromSummary) { renderSummary(); return; }
+      if (reviewPos > 0) { reviewPos--; showKitAt(reviewList[reviewPos]); return; }
+      renderOverview();
+    }
+    function editKit(i) {
+      if (busy) return;
+      fromSummary = true;
+      var p = reviewList.indexOf(i);
+      if (p > -1) reviewPos = p;
+      showKitAt(i);
     }
 
-    /* Package the per-component alterations for the server. overrides is keyed
-     * by the ORIGINAL (lowercased) component SKU; added is a flat list. */
-    function buildAlterations() {
+    /* LAST SCREEN — every kit, what will happen to it, then one write. */
+    function renderSummary() {
+      saveDecision();
+      view = 'summary'; fromSummary = false; currentIndex = -1;
+      setChrome(false);
+      var nExpand = 0, nRows = 0, nBox = 0, nSkip = 0, blocked = 0;
+      var lines = QUEUE.map(function (k, i) {
+        var d = decisions[i], chips = '', detail = '', cls = 'sum-line';
+        if (d.action === 'expand') {
+          var n = willInsertFor(i);
+          var exc = (k.components || []).filter(function (c) { return d.excluded[c.sku]; });
+          var excBundled = exc.filter(function (c) { return c.bundled; }).length;
+          var excByHand  = exc.length - excBundled;
+          nExpand++; nRows += n;
+          if (n === 0) { blocked++; cls += ' bad'; }
+          detail = n + ' part' + (n === 1 ? '' : 's');
+          var kits = (parseInt(k.sourceQty) || 1) + d.extras;
+          if (kits > 1) detail += ' · ' + kits + ' kits';
+          if (k.kitType === 'READY') chips += '<span class="outcome-chip forced">READY · EXPANDED</span>';
+          // Unchecked BY HAND is the one that has cost a shipment before (2026-05-23) —
+          // it gets the loud chip. The bundled defaults are expected and stay quiet.
+          if (excByHand)            { chips += '<span class="outcome-chip excluded">EXCLUDED ' + excByHand + '</span>'; cls += ' flag'; }
+          if (excBundled)           chips += '<span class="outcome-chip ready-box">' + excBundled + ' INSIDE ANOTHER BOX</span>';
+          if (Object.keys(d.compSwap).length) chips += '<span class="outcome-chip swapped">' + Object.keys(d.compSwap).length + ' SWAPPED</span>';
+          if (Object.keys(d.compQty).length)  chips += '<span class="outcome-chip qtychg">QTY EDIT</span>';
+          if (d.addedItems.length)            chips += '<span class="outcome-chip added-chip">' + d.addedItems.length + ' ADDED</span>';
+          if (d.extras > 0)                   chips += '<span class="outcome-chip manual">+' + d.extras + ' SPARE</span>';
+          if (d.noteEdited && d.note)         chips += '<span class="outcome-chip manual" title="' + esc(d.note) + '">NOTE</span>';
+          if (excByHand) detail += '<span class="done-excluded-detail"><span class="label">unchecked:</span>'
+                                 + esc(exc.filter(function (c) { return !c.bundled; }).map(function (c) { return c.sku; }).join('  ·  ')) + '</span>';
+        } else if (d.action === 'box') {
+          nBox++; cls += ' quiet';
+          detail = 'ships as one box from ' + esc(k.kitLocation || 'its K shelf');
+        } else {
+          nSkip++; cls += ' quiet';
+          detail = 'skipped';
+        }
+        var w = kitWarnings(k);
+        if (w.length) chips += '<span class="outcome-chip excluded" title="' + esc(w.join(' · ')) + '">⚠ ' + esc(w[0]) + '</span>';
+        return '<div class="' + cls + '" id="sum-' + i + '">'
+          + '<span class="sum-st" id="st-' + i + '">' + (d.action === 'expand' ? '○' : '–') + '</span>'
+          + '<span class="sum-sku">' + esc(k.kitSku) + '</span>'
+          + '<span class="sum-body"><span class="sum-name">' + esc(k.kitName || '') + '</span>'
+          +   '<span class="sum-detail">' + detail + ' ' + chips + '</span>'
+          +   '<span class="sum-msg" id="msg-' + i + '"></span></span>'
+          + '<button type="button" class="sum-edit" onclick="editKit(' + i + ')">edit</button>'
+          + '</div>';
+      }).join('');
+
+      document.getElementById('counter').textContent = 'Summary · ' + QUEUE_LENGTH + ' kits';
+      document.getElementById('bodyEl').innerHTML = '<div class="sum">'
+        + '<div class="sum-head"><span class="ov-so">' + esc(soLine()) + '</span>'
+        +   '<span class="ov-count">' + nRows + ' row' + (nRows === 1 ? '' : 's') + ' from ' + nExpand + ' kit' + (nExpand === 1 ? '' : 's')
+        +   (nBox ? ' · ' + nBox + ' as box' + (nBox > 1 ? 'es' : '') : '') + (nSkip ? ' · ' + nSkip + ' skipped' : '') + '</span></div>'
+        + '<div class="wr-bar" id="wrBar"><span id="wrFill"></span></div>'
+        + '<div class="sum-list">' + lines + '</div></div>';
+
+      var label = nExpand > 0 ? '✓ Expand all ' + nExpand : '✓ Finish';
+      setFooter(blocked
+          ? '<span style="color:var(--missing)">' + blocked + ' kit' + (blocked > 1 ? 's have' : ' has') + ' no parts ticked — edit or skip ' + (blocked > 1 ? 'them' : 'it') + '.</span>'
+          : 'Nothing has been written yet. Check the amber lines, then write them all at once.',
+        '<button class="btn-cancel" onclick="onCancel()">✕ Cancel</button>'
+        + '<button class="btn-skip" onclick="summaryBack()">← Back</button>'
+        + '<button class="btn-expand" id="btnWrite" onclick="commitAll()"' + (blocked ? ' disabled' : '') + '>' + label + '</button>');
+    }
+    function summaryBack() {
+      if (busy) return;
+      if (reviewList.length) { reviewPos = reviewList.length - 1; showKitAt(reviewList[reviewPos]); }
+      else renderOverview();
+    }
+
+    // ----- THE ONE WRITE -----
+    /* Chunks of a few kits per call: a staff commit hops through /exec and must stay
+       short, and each finished chunk lights its lines — progress shown WHERE the
+       result lands, not under a veil. finishKitBatchFromModal then repaints the
+       sheet once, and runs even if a chunk failed. */
+    var CHUNK = 3;
+    function alterationsFor(d) {
       var overrides = {};
-      Object.keys(compSwap).forEach(function(s) {
-        var k = String(s).toLowerCase();
-        overrides[k] = overrides[k] || {};
-        overrides[k].swap = compSwap[s].sku;
-        overrides[k].swapName = compSwap[s].name;
+      Object.keys(d.compSwap).forEach(function (s) {
+        var k = String(s).toLowerCase(); overrides[k] = overrides[k] || {};
+        overrides[k].swap = d.compSwap[s].sku; overrides[k].swapName = d.compSwap[s].name;
       });
-      Object.keys(compQty).forEach(function(s) {
-        var k = String(s).toLowerCase();
-        overrides[k] = overrides[k] || {};
-        overrides[k].qty = compQty[s];
+      Object.keys(d.compQty).forEach(function (s) {
+        var k = String(s).toLowerCase(); overrides[k] = overrides[k] || {};
+        overrides[k].qty = d.compQty[s];
       });
-      var added = addedItems.map(function(a) { return { sku: a.sku, name: a.name, qty: a.qty }; });
-      // ⚠ noteText rides in `alterations`, NOT as a new positional argument to
-      //   commitKitFromModal — the 3rd parameter there is SPARES, and a codebase note
-      //   warns that passing anything else double-ships. Always sent, so the server
-      //   uses the picker's wording verbatim, including a deliberately EMPTY one.
-      return { overrides: overrides, added: added, noteText: currentNote };
+      var added = d.addedItems.map(function (a) { return { sku: a.sku, name: a.name, qty: a.qty }; });
+      // ⚠ noteText rides in `alterations`, never as a positional argument — the 3rd
+      //   server parameter is SPARES and passing anything else double-ships.
+      return { overrides: overrides, added: added, noteText: d.note };
     }
-
-    function onSkip() {
+    function commitAll() {
       if (busy) return;
-      busy = true;
-      updateSummary();
-      showStatus('Skipping ' + currentKit.kitSku + '…');
-      showOverlay('Skipping ' + currentKit.kitSku);
+      saveDecision();
+      if (view !== 'summary') renderSummary();   // single-kit path: show the line it writes to
+      busy = true; view = 'writing';
+      document.querySelectorAll('.sum-edit').forEach(function (b) { b.disabled = true; });
+      setFooter('Writing to the sheet — keep this window open.', '<button class="btn-expand" disabled>Writing…</button>');
 
-      google.script.run
-        .withSuccessHandler(onCommitOk)   // same shape — just no committed entry
-        .withFailureHandler(onCommitFail)
-        .skipKitFromModal(SESSION_ID);
+      var items = QUEUE.map(function (k, i) {
+        var d = decisions[i];
+        return { index: i, action: d.action,
+                 excludedSkus: Object.keys(d.excluded), extras: d.extras,
+                 force: (k.kitType === 'READY' && d.action === 'expand'),
+                 alterations: alterationsFor(d) };
+      });
+      var chunks = [], cur = [], weight = 0;
+      items.forEach(function (it) {
+        cur.push(it);
+        if (it.action === 'expand' && ++weight >= CHUNK) { chunks.push(cur); cur = []; weight = 0; }
+      });
+      if (cur.length) chunks.push(cur);
+
+      var done = 0, total = items.length;
+      function mark(i, state, msg) {
+        var st = document.getElementById('st-' + i), line = document.getElementById('sum-' + i);
+        if (st) st.textContent = { work: '', ok: '✓', bad: '✗', quiet: '–' }[state] || '';
+        if (st) st.className = 'sum-st ' + state;
+        if (line) line.classList.toggle('bad', state === 'bad');
+        if (msg) { var m = document.getElementById('msg-' + i); if (m) m.textContent = msg; }
+      }
+      function progress() {
+        var f = document.getElementById('wrFill');
+        if (f) f.style.width = Math.round(100 * done / total) + '%';
+      }
+      function finish() {
+        google.script.run
+          .withSuccessHandler(function (res) { busy = false; renderDoneScreen(res && res.results); })
+          .withFailureHandler(function () { busy = false; renderDoneScreen(null); })
+          .finishKitBatchFromModal(SESSION_ID);
+      }
+      function run(c) {
+        if (c >= chunks.length) { finish(); return; }
+        chunks[c].forEach(function (it) { mark(it.index, 'work'); });
+        google.script.run
+          .withSuccessHandler(function (res) {
+            if (!res || !res.ok) {
+              chunks[c].forEach(function (it) { mark(it.index, 'bad', (res && res.reason) || 'not written'); });
+              for (var r = c + 1; r < chunks.length; r++) chunks[r].forEach(function (it) { mark(it.index, 'bad', 'not written — stopped after an error'); });
+              finish(); return;
+            }
+            (res.results || []).forEach(function (r) {
+              done++;
+              mark(r.index, r.ok ? (r.action === 'expand' ? 'ok' : 'quiet') : 'bad',
+                   r.ok ? (r.committed ? r.committed.componentsAdded + ' rows written' : '') : r.reason);
+            });
+            progress();
+            run(c + 1);
+          })
+          .withFailureHandler(function (err) {
+            chunks[c].forEach(function (it) { mark(it.index, 'bad', 'server error: ' + (err && err.message ? err.message : err)); });
+            finish();
+          })
+          .commitKitBatchFromModal(SESSION_ID, chunks[c]);
+      }
+      progress();
+      run(0);
     }
 
     function onCancel() {
       if (busy) return;
-      if (!confirm('Cancel kit expansion? Anything already committed stays — remaining queued kits will be abandoned.')) return;
+      if (!confirm('Close without expanding? Nothing has been written to the sheet yet.')) return;
       google.script.run
         .withSuccessHandler(function() { google.script.host.close(); })
         .withFailureHandler(function() { google.script.host.close(); })
         .closeKitExpansionSession(SESSION_ID);
     }
-
-    function onCommitOk(res) {
-      busy = false;
-      hideOverlay();
-
-      if (!res.ok && res.reason) {
-        showStatus('⚠ ' + res.reason, true);
-        updateSummary();
-        return;
-      }
-
-      // success path — committed or skipped, advance to next or done
-      if (res.committed) {
-        var verb = res.committed.forced ? ' force-expanded' : ' expanded';
-        var msg = '✓ ' + res.committed.kitSku + verb
-                + ' · ' + res.committed.componentsAdded + ' components';
-        if (res.committed.extras && res.committed.extras > 0) {
-          msg += ' · ' + res.committed.totalKits + ' total ('
-              + res.committed.rowQty + '+' + res.committed.extras + ')';
-        }
-        if (res.committed.excludedSkus && res.committed.excludedSkus.length) {
-          msg += ' · ' + res.committed.excludedSkus.length + ' excluded';
-        }
-        if (res.committed.swapped)     msg += ' · ' + res.committed.swapped + ' swapped';
-        if (res.committed.qtyChanged)  msg += ' · ' + res.committed.qtyChanged + ' qty-edit';
-        if (res.committed.addedCustom) msg += ' · ' + res.committed.addedCustom + ' added';
-        showStatus(msg);
-      } else {
-        showStatus('Kit skipped');
-      }
-
-      if (res.done) {
-        setTimeout(function() { renderDoneScreen(res.sessionResults); }, 400);
-      } else {
-        currentKit = res.next;
-        currentIndex = res.nextIndex;
-        setTimeout(function() { renderKit(currentKit, currentIndex); }, 400);
-      }
-    }
-
-    function onCommitFail(err) {
-      busy = false;
-      hideOverlay();
-      updateSummary();
-      showStatus('✗ Server error: ' + (err && err.message ? err.message : err), true);
-    }
-
     // ----- DONE SCREEN (after queue exhausted) -----
     function renderDoneScreen(results) {
       results = results || { committed: [], skipped: [], failed: [] };
@@ -1709,6 +2000,8 @@ input[type=text]:focus, input[type=number]:focus, textarea:focus{ outline: none;
       document.getElementById('kitMeta').style.display = 'none';
       var rb = document.getElementById('readyBanner');
       if (rb) rb.style.display = 'none';
+      ['dupBanner', 'unparsedBanner'].forEach(function (id) { var e = document.getElementById(id); if (e) e.style.display = 'none'; });
+      document.getElementById('bodyEl').classList.remove('kit-off');
       document.getElementById('counter').textContent = 'Complete';
 
       // Replace footer with single Close button + chip-based summary.
@@ -1755,6 +2048,17 @@ input[type=text]:focus, input[type=number]:focus, textarea:focus{ outline: none;
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&#39;');
+    }
+
+    // ----- BOOT -----
+    // Capture the two-column kit body before any screen replaces it.
+    BODY_HTML = document.getElementById('bodyEl').innerHTML;
+    if (QUEUE_LENGTH === 1) {
+      // One kit: no overview, no summary — its page, then straight to the write.
+      reviewList = [0]; reviewPos = 0; appliedReady = readyMode;
+      showKitAt(0);
+    } else {
+      renderOverview();
     }
   </script>
 </body>

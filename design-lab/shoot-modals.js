@@ -89,6 +89,7 @@ const MODALS = [
   { file: 'KitExpansionModal.html', tag: 'kit-expand', w: 1180, h: 820,
     subs: [[/<\?!?=\s*sessionId\s*\?>/g, JSON.stringify('sess-abc')],
            [/<\?!?=\s*kitJson\s*\?>/g,   JSON.stringify(KIT)],
+           [/<\?!?=\s*queueJson\s*\?>/g, JSON.stringify([KIT, KIT])],
            [/<\?!?=\s*queueLength\s*\?>/g, '3'],
            [/<\?!?=\s*kitIndex\s*\?>/g,  '0']] },
   { file: 'ZohoPullModal.html', tag: 'zoho-pull', w: 920, h: 620,

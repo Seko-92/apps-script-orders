@@ -54,6 +54,32 @@ var KIT_NOTE_TEXT_MAX = 120;
 
 
 /**
+ * READY or MANUAL from the kit's LIVE shelf, not the registry's snapshot.
+ *
+ * ⚠ WHY (2026-10-05): the registry stamps the type once — at CSV import or when
+ * the Zoho Purchase Description is edited — and never again. Moving a kit box to
+ * a K shelf is NOT a PD edit, so nothing re-stamps it. Found live on SO-25980:
+ * kit 158670 sat at K-55 (a ready box) while the registry still said MANUAL · D-16,
+ * so the expansion window offered to build it from parts.
+ *
+ * The shelf comes from Master Inventory's location map, which every caller here
+ * has already built, so this costs nothing. When MI has no usable shelf (blank,
+ * "NOT FOUND", "0") the registry's verdict stands — never guess READY.
+ *
+ * @returns {{type:string, location:string, drifted:boolean}}
+ */
+function _kitLiveType(kitSku, regType, regLoc, locationMap) {
+  var live = "";
+  try { live = String((locationMap && locationMap.get(String(kitSku).trim().toLowerCase())) || "").trim(); }
+  catch (_) { live = ""; }
+  var usable = live && live.toUpperCase() !== "NOT FOUND" && live !== "0" && live !== "0.0";
+  if (!usable) return { type: regType, location: regLoc || "", drifted: false };
+  var type = /^K[-\s]/i.test(live) ? KIT_REGISTRY.types.READY : KIT_REGISTRY.types.MANUAL;
+  return { type: type, location: live, drifted: type !== regType };
+}
+
+
+/**
  * Pure function over the Kit Registry. Returns the expansion plan for one
  * kit at a given deploy multiplier — does NOT touch the sheet.
  *
@@ -354,6 +380,11 @@ function previewSelectedKits(deployQty, rowsOverride) {
       };
     });
 
+    // READY/MANUAL from the kit's live shelf (see _kitLiveType).
+    var liveT = _kitLiveType(rowSku, plan.kitType, plan.kitLocation, locInvMaps.locationMap);
+    plan.kitType     = liveT.type;
+    plan.kitLocation = liveT.location;
+
     var table = (__tl.amazon > 0 && sheetRow > __tl.amazon) ? "AMAZON"
               : ((boundaryRow > 0 && sheetRow > boundaryRow) ? "DIRECT" : "eBay");
 
@@ -643,6 +674,9 @@ function openKitExpansionModal(deployQty) {
     template.sessionId   = JSON.stringify(sessionId);             // becomes a valid JS string literal
     template.queueLength = queue.length;                          // number — safe inline
     template.kitJson     = JSON.stringify(firstKit).replace(/<\//g, "<\\/");
+    // The whole queue rides along (2026-10-05) — the window reviews every kit
+    // before anything is written, so it needs them all up front.
+    template.queueJson   = JSON.stringify(queue).replace(/<\//g, "<\\/");
     template.kitIndex    = 0;
 
     // 1180×820 (was 1080×680, enlarged 2026-07-31): the modal is a 100vh flex
@@ -878,6 +912,116 @@ function closeKitExpansionSession(sessionId) {
 
 
 // =======================================================================================
+// BATCH COMMIT (2026-10-05) — review every kit first, write them all at the end
+// =======================================================================================
+//
+// The window now holds every kit's decisions client-side (exclusions, swaps,
+// qty edits, added parts, spares, note, ship-as-box) and writes them together
+// from a summary screen. Reported from SO-25980 (13 kits): one write per kit
+// meant a lock + insert + sheet-wide repaint + board publish thirteen times,
+// with a wait after every kit and no way back to fix kit 3 after seeing kit 7.
+//
+// ⚠ THE CLIENT SENDS CHUNKS, NOT ONE CALL. A staff commit hops through /exec
+//   (OwnerBridge), and one call carrying 13 inserts can outlive that hop. Small
+//   chunks keep each call short AND give the window real progress to show.
+//   finishKitBatchFromModal runs the repaints once, after the last chunk —
+//   and the client calls it even when a chunk failed, so the sheet is never
+//   left half-painted.
+//
+// ⚠ IDEMPOTENT PER KIT. state.handled[index] marks a kit as written or skipped;
+//   a retried chunk (network blip, double click) cannot insert a kit twice.
+
+/**
+ * @param {string} sessionId
+ * @param {Array<{index:number, action:string, excludedSkus:string[], extras:number,
+ *                force:boolean, alterations:object}>} items
+ *        action: "expand" | "box" (READY shipped as one box) | "skip"
+ * @returns {{ok, reason, results:Array<{index, kitSku, ok, action, reason, committed}>}}
+ */
+function commitKitBatchFromModal(sessionId, items) {
+  if (!_obIsOwner()) return _asOwner('commitKitBatchFromModal', [sessionId, items]);
+
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(30000)) {
+    return { ok: false, reason: "Another operation in progress. Try again.", results: [] };
+  }
+  try {
+    var state = _loadKitModalSession(sessionId);
+    if (!state) return { ok: false, reason: "Session expired (>30 min). Close and re-open the window.", results: [] };
+    state.handled = state.handled || {};
+
+    var expanding = (items || []).some(function (it) { return it && it.action === "expand"; });
+    var shared = expanding
+      ? { maps: buildLocationAndInventoryMaps(), zohoMap: buildZohoStockMap(), deferRefresh: true }
+      : null;
+
+    var out = [];
+    for (var i = 0; i < (items || []).length; i++) {
+      var it = items[i] || {};
+      var idx = parseInt(it.index);
+      var q = state.queue[idx];
+      if (!q) { out.push({ index: idx, ok: false, reason: "Unknown kit in this session" }); continue; }
+      if (state.handled[idx]) {
+        out.push({ index: idx, kitSku: q.kitSku, ok: true, action: state.handled[idx], reason: "already done" });
+        continue;
+      }
+
+      if (it.action !== "expand") {
+        var isBox = (it.action === "box");
+        state.results.skipped.push({ kitSku: q.kitSku, kitType: isBox ? "READY" : q.kitType,
+                                     reason: isBox ? "READY · ship as box" : "Picker skipped" });
+        state.handled[idx] = isBox ? "box" : "skip";
+        out.push({ index: idx, kitSku: q.kitSku, ok: true, action: state.handled[idx] });
+        continue;
+      }
+
+      var extras = parseInt(it.extras); if (isNaN(extras) || extras < 0) extras = 0;
+      var r;
+      try {
+        r = _commitOneKitForModal(q, it.excludedSkus || [], extras, !!it.force, it.alterations || {}, shared);
+      } catch (e) {
+        r = { ok: false, reason: "Commit failed: " + (e.message || e) };
+      }
+      if (r.ok) {
+        var committed = {
+          kitSku: q.kitSku, kitType: q.kitType, componentsAdded: r.componentsAdded,
+          excludedSkus: r.excludedSkus, extras: r.extras, totalKits: r.totalKits,
+          rowQty: r.rowQty, forced: r.forced, swapped: r.swapped,
+          qtyChanged: r.qtyChanged, addedCustom: r.addedCustom
+        };
+        state.results.committed.push(committed);
+        state.handled[idx] = "expand";
+        out.push({ index: idx, kitSku: q.kitSku, ok: true, action: "expand", committed: committed });
+      } else {
+        // Not marked handled — the picker can fix and retry this one kit.
+        state.results.failed.push({ kitSku: q.kitSku, kitType: q.kitType, reason: r.reason });
+        out.push({ index: idx, kitSku: q.kitSku, ok: false, action: "expand", reason: r.reason });
+      }
+      // Save after every kit, so a timeout mid-chunk cannot lose what landed.
+      _saveKitModalSession(sessionId, state);
+    }
+    _saveKitModalSession(sessionId, state);
+    return { ok: true, reason: "", results: out };
+  } catch (err) {
+    try { console.log("commitKitBatchFromModal error: " + err + "\n" + err.stack); } catch (_) {}
+    return { ok: false, reason: "Batch failed: " + (err.message || err), results: [] };
+  } finally {
+    try { lock.releaseLock(); } catch (_) {}
+  }
+}
+
+
+/** After the last chunk: the sheet-wide repaints, once. Returns the session results. */
+function finishKitBatchFromModal(sessionId) {
+  if (!_obIsOwner()) return _asOwner('finishKitBatchFromModal', [sessionId]);
+  var state = _loadKitModalSession(sessionId);
+  var any = state && state.results && state.results.committed.length > 0;
+  if (any) _kitCommitRefreshes();
+  return { ok: true, results: state ? state.results : { committed: [], skipped: [], failed: [] } };
+}
+
+
+// =======================================================================================
 // MODAL-PRIVATE HELPERS
 // =======================================================================================
 
@@ -920,7 +1064,12 @@ function _saveKitModalSession(sessionId, state) {
  *                                   floor's indicator).
  * @returns {{ok, reason, componentsAdded, excludedSkus, extras, totalKits, rowQty, forced}}
  */
-function _commitOneKitForModal(queueItem, excludedSkus, multiplier, force, alterations) {
+function _commitOneKitForModal(queueItem, excludedSkus, multiplier, force, alterations, opts) {
+  // opts (2026-10-05, batch commit): { maps, zohoMap, deferRefresh }. A batch of
+  // 13 kits builds the MI + Zoho maps ONCE and runs the sheet-wide refreshes
+  // ONCE at the end (finishKitBatchFromModal). Callers passing nothing get the
+  // old behaviour exactly — WebKits.js and commitKitFromModal included.
+  opts = opts || {};
   var ss = SpreadsheetApp.getActive();
   var sheet = ss.getSheetByName(MAIN_SHEET_NAME);
   if (!sheet) return { ok: false, reason: "All Orders sheet not found" };
@@ -937,8 +1086,8 @@ function _commitOneKitForModal(queueItem, excludedSkus, multiplier, force, alter
   }
 
   var savedHeaders = sheet.getRange(Schema.headerRow, 1, 1, Schema.dataWidth).getValues()[0];
-  var locInvMaps   = buildLocationAndInventoryMaps();
-  var zohoMap      = buildZohoStockMap();   // DIRECT-side HAND source (Zoho-first)
+  var locInvMaps   = opts.maps    || buildLocationAndInventoryMaps();
+  var zohoMap      = opts.zohoMap || buildZohoStockMap();   // DIRECT-side HAND source (Zoho-first)
 
   var SKU_I      = Schema.idx("SKU");
   var QTY_I      = Schema.idx("QTY");
@@ -985,6 +1134,10 @@ function _commitOneKitForModal(queueItem, excludedSkus, multiplier, force, alter
   if (!plan.found) {
     return { ok: false, reason: plan.reason };
   }
+  // Same live-shelf verdict the window showed (see _kitLiveType) — otherwise a
+  // kit that moved onto a K shelf would be refused here as READY-without-force,
+  // or one that moved off it would be stamped "forced" in the audit.
+  plan.kitType = _kitLiveType(rowSku, plan.kitType, plan.kitLocation, locInvMaps.locationMap).type;
   // READY kits require force=true. Picker uses Skip-default + Force Expand
   // secondary on the modal page; if Force was clicked, we proceed and stamp
   // the override in the audit trail (NOTE prefix + Activity Log DETAIL).
@@ -1149,6 +1302,29 @@ function _commitOneKitForModal(queueItem, excludedSkus, multiplier, force, alter
   try { logActivityBatch(activityLog); }
   catch (logErr) { try { console.log("modal commit: activity log failed: " + logErr); } catch (_) {} }
 
+  if (!opts.deferRefresh) _kitCommitRefreshes();
+
+  return {
+    ok: true,
+    reason: "",
+    componentsAdded: N,
+    excludedSkus: capturedExclusions,
+    extras:        extras,
+    totalKits:     totalKits,
+    rowQty:        rowQty,
+    forced:        isReadyForced,
+    swapped:       swapCount,
+    qtyChanged:    qtyChangeCount,
+    addedCustom:   addCount
+  };
+}
+
+
+/**
+ * The sheet-wide repaints a kit commit needs. Split out 2026-10-05 so a batch of
+ * N kits pays for them ONCE instead of N times — each one walks the whole sheet.
+ */
+function _kitCommitRefreshes() {
   // Refresh kit SKU markers (same reasoning as expandSelectedKits — setValues
   // doesn't fire onEdit, plus the "↳ from KIT-" NOTE suppression rule needs
   // to re-run for any sub-assembly component rows)
@@ -1194,20 +1370,6 @@ function _commitOneKitForModal(queueItem, excludedSkus, multiplier, force, alter
     if (typeof publishBoardTickInline === 'function') publishBoardTickInline();
   }
   catch (bustErr) { try { console.log("modal commit: tick publish failed: " + bustErr); } catch (_) {} }
-
-  return {
-    ok: true,
-    reason: "",
-    componentsAdded: N,
-    excludedSkus: capturedExclusions,
-    extras:        extras,
-    totalKits:     totalKits,
-    rowQty:        rowQty,
-    forced:        isReadyForced,
-    swapped:       swapCount,
-    qtyChanged:    qtyChangeCount,
-    addedCustom:   addCount
-  };
 }
 
 

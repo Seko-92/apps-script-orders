@@ -72,6 +72,7 @@ var OWNER_BRIDGE = {
     "highlightAllDuplicates", "clearAllDuplicateHighlights",
     "setupHandConditionalFormatting",
     "commitKitFromModal", "applyZohoPullSelection",
+    "commitKitBatchFromModal", "finishKitBatchFromModal",
     "markPreparingByValues",
     "addReplacementFromSidebar", "recomputeHandFromZohoStock",
     // ⭐ 2026-09-26 — the Amazon table's twins of the Direct buttons, and its door.
@@ -201,6 +202,8 @@ function _obRunAsOwner(fnName, args) {
     clearAllDuplicateHighlights:   function () { return clearAllDuplicateHighlights(); },
     setupHandConditionalFormatting:function () { return setupHandConditionalFormatting(); },
     commitKitFromModal:            function () { return commitKitFromModal(a[0], a[1], a[2], a[3], a[4]); },
+    commitKitBatchFromModal:       function () { return commitKitBatchFromModal(a[0], a[1]); },
+    finishKitBatchFromModal:       function () { return finishKitBatchFromModal(a[0]); },
     applyZohoPullSelection:        function () { return applyZohoPullSelection(a[0], a[1], a[2]); },
     markPreparingByValues:         function () { return markPreparingByValues(a[0]); },
     addReplacementFromSidebar:     function () { return addReplacementFromSidebar(a[0], a[1], a[2], a[3], a[4]); },

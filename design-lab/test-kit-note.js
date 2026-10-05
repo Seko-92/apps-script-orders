@@ -286,15 +286,20 @@ section('F · ⚠⚠ THE MODAL DEFAULT MUST EQUAL THE SERVER DEFAULT');
     (MODAL.match(/var NOTE_TEXT_MAX\s*=\s*(\d+)/) || [])[1], String(NOTE_MAX));
 
   t('F3 ⚠ the modal sends noteText inside alterations, not as an argument',
-    /noteText:\s*currentNote/.test(MODAL) &&
-    /commitKitFromModal\(SESSION_ID,\s*excluded,\s*currentExtras/.test(MODAL), true);
+    // 2026-10-05: the window writes through commitKitBatchFromModal; each item
+    // carries spares as `extras` and the note inside `alterations`.
+    /noteText:\s*d\.note/.test(MODAL) &&
+    /extras:\s*d\.extras/.test(MODAL) &&
+    /alterations:\s*alterationsFor\(d\)/.test(MODAL), true);
 
   t('F4 ⚠ the tag chip is a span, never an input',
     /class="note-tag"/.test(MODAL) &&
     !/<input[^>]*class="note-tag"/.test(MODAL), true);
 
-  t('F5 the note resets per kit, like spares does',
-    /noteEdited\s*=\s*false;[\s\S]{0,120}currentNote\s*=\s*noteDefaultFor/.test(MODAL), true);
+  // 2026-10-05: every kit owns its own decision, seeded with the default note and
+  // noteEdited:false — one kit's wording can never carry onto the next.
+  t('F5 the note is per kit, like spares',
+    /note:\s*noteDefaultFor\(k\.sourceQty,\s*0\),\s*noteEdited:\s*false/.test(MODAL), true);
 })();
 
 console.log('\n' + '='.repeat(74));
