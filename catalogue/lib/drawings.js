@@ -123,4 +123,12 @@ function extractDrawings(pdf, parsed, outDir, id) {
   return result;
 }
 
+// Worker mode, so import.js can run several engines at once (a scanned engine takes ~6 min, nearly
+// all of it tesseract on whole drawings — 4 workers on 4 cores is the win, 2026-10-05):
+//   node lib/drawings.js --worker <task.json>   task = {pdf, parsed, outDir, id, result}
+if (require.main === module && process.argv[2] === "--worker") {
+  const t = JSON.parse(fs.readFileSync(process.argv[3], "utf8"));
+  fs.writeFileSync(t.result, JSON.stringify(extractDrawings(t.pdf, t.parsed, t.outDir, t.id)));
+}
+
 module.exports = { extractDrawings, drawingBand, mergeCallouts };

@@ -147,5 +147,19 @@ for (const w of Vs) for (const r of Vs) for (const c of Vs) for (const x of Vs) 
 }
 eq("OCR: skipping the 3rd qty read never changes a vote", skipBad, 0);
 
+// prefix letter misread (2026-10-05): "1C010" read as "10010" / "16010"
+const { fixMisreadPrefixes } = require("./lib/pn-fix");
+const pfKnown = new Set(["1C010-5675-0", "10244-4232-0", "16241-6401-2"]);
+const pfBooks = [
+  { parts: [{ pn: "10010-5675-0" }, { pn: "10244-4232-0" }, { pn: "16241-6401-2" }, { pn: "16010-6303-0" },
+            { pn: "1C020-1111-0" }, { pn: "10020-2222-0" }, { pn: "10030-3333-0" }, { pn: "16099-4444-0" }] },
+  { parts: [{ pn: "1C010-6303-0" }, { pn: "1C030-9999-0" }, { pn: "1G030-9999-1" }] }];
+const pfr = fixMisreadPrefixes(pfBooks, pn => pfKnown.has(pn));
+eq("OCR prefix fix: known · real 10… untouched · real 16… untouched · read elsewhere · stem · no evidence",
+   pfBooks[0].parts.map(p => p.pn),
+   ["1C010-5675-0", "10244-4232-0", "16241-6401-2", "1C010-6303-0", "1C020-1111-0", "1C020-2222-0", "10030-3333-0", "16099-4444-0"]);
+eq("OCR prefix fix: an inferred fix is not 'agreed'; tiers counted",
+   [pfBooks[0].parts[3].ocr.agree, pfBooks[0].parts[3].ocr.prefixFix, pfr.byTier.known, pfr.byTier.read, pfr.byTier.stem, pfr.left], [false, "read", 1, 1, 1, 1]);
+
 console.log(`${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

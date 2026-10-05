@@ -17,7 +17,7 @@ const vm = require("vm");
 const { execFileSync } = require("child_process");
 const { parseKubota } = require("./lib/kubota");
 const { parseKpad } = require("./lib/kpad");
-const { extractDrawings } = require("./lib/drawings");
+const { fixMisreadPrefixes } = require("./lib/pn-fix");
 
 // ---- args -------------------------------------------------------------------------------
 const args = process.argv.slice(2);
@@ -72,6 +72,14 @@ function pdfPages(f) {
 }
 
 const MACHINE_PAGES = 150;     // engine parts lists run ~50-90 pages; whole-machine books 200+
+/** "KUBOTA ENGINE D1302-BBS-1 PARTS MANUAL.pdf" → "D1302-BBS-1"; "V2203-M-E2B(1).pdf" → "V2203-M-E2B". */
+function modelFromFileName(name) {
+  const m = String(name).replace(/\.pdf$/i, "").replace(/\(\d+\)$/, "").toUpperCase()
+    .match(/\b([A-Z]{1,2}\d{3,4}(?:[A-Z]{0,3})?(?:[-. ][A-Z0-9]+)*?)(?=\s+(?:PARTS?|SPARE|DIESEL)\b|\s*$)/);
+  return m ? m[1].replace(/ /g, "-").replace(/\./g, "-") : "";
+}
+const OCR_BAR = { shape: 0.95, qty: 0.85, name: 0.85 };          // see the OCR block below
+const OCR_PN_SHAPE = /^(\d[A-Z0-9]\d{3}-\d{4}-\d|\d{5}-\d{5})$/; // 1C010-5675-0 · 15221-1443-0 · 04814-10070
 const MIN_LINES = 50;          // fewer readable part lines than this = a scan → OCR batch
 
 const results = [];            // one per file
@@ -108,14 +116,28 @@ const textBooks = results.filter(r => r.status === "ok");
 const knownName = new Map();                     // pn → name, from the clean manuals
 textBooks.forEach(r => r.parsed.sections.forEach(s => s.parts.forEach(p => { if (p.name && !knownName.has(p.pn)) knownName.set(p.pn, p.name); })));
 if (fs.existsSync(ocrDir)) {
+  // load every OCR book first: the prefix fix (lib/pn-fix.js) needs evidence from ALL of them
+  const isKnown = pn => knownName.has(pn) || !!(miIndex && miIndex.has(mpn._mpnKey(pn)));
+  const ocrBooks = [];
+  results.forEach(rec => {
+    if (rec.status === "ok") return;
+    const cache = path.join(ocrDir, rec.name + ".json");
+    if (fs.existsSync(cache)) { rec.ocrParsed = JSON.parse(fs.readFileSync(cache, "utf8")); ocrBooks.push({ parts: rec.ocrParsed.sections.flatMap(s => s.parts) }); }
+  });
+  const pf = fixMisreadPrefixes(ocrBooks, isKnown);
+  console.log(`prefix fix: ${pf.fixed} OCR part numbers corrected (known ${pf.byTier.known} · read ${pf.byTier.read} · stem ${pf.byTier.stem}), ${pf.left} "10…" left for a check`);
   results.forEach(rec => {
     if (rec.status === "ok") return;
     const cache = path.join(ocrDir, rec.name + ".json");
     if (!fs.existsSync(cache)) { if (fs.existsSync(cache.replace(/\.json$/, ".skip"))) rec.status = "scan-not-parts"; return; }
-    const parsed = JSON.parse(fs.readFileSync(cache, "utf8"));
+    const parsed = rec.ocrParsed; delete rec.ocrParsed;
+    // the model comes from the FILE NAME for a scan: the cover read returns serial ranges ("<=15000"),
+    // a French word ("ECHANGE") or another model column — and dedupe keys on the model, so junk
+    // names merged 11 different books as "duplicates" (2026-10-05)
+    parsed.model = modelFromFileName(rec.name) || parsed.model;
     let check = 0, named = 0;
     parsed.sections.forEach(s => s.parts.forEach(p => {
-      const known = knownName.has(p.pn) || (miIndex && miIndex.has(mpn._mpnKey(p.pn)));
+      const known = isKnown(p.pn);
       p.ocr.confirmed = !!(p.ocr.agree || known);
       if (knownName.has(p.pn) && (!p.name || p.ocr.rescued || p.name.length < 3 || /[a-z]/.test(p.name))) { p.name = knownName.get(p.pn); named++; }
       if (!p.ocr.confirmed) check++;
@@ -124,10 +146,27 @@ if (fs.existsSync(ocrDir)) {
     rec.parsed = parsed; rec.ocr = { check, named };
     rec.lines = parsed.sections.reduce((a, s) => a + s.parts.length, 0);
     rec.status = rec.lines >= MIN_LINES ? "ok" : "mostly-scanned";
+    // the publish bar for OCR'd books (agreed 2026-10-05): enough lines must have a Kubota-shaped
+    // number, a quantity and a name — a book below it is reported, not published
+    const all = parsed.sections.flatMap(s => s.parts), n = all.length || 1;
+    const share = f => all.filter(f).length / n;
+    rec.ocr.score = { shape: share(p => OCR_PN_SHAPE.test(p.pn || "")), qty: share(p => Array.isArray(p.qty) && p.qty.some(v => v != null)),
+                      name: share(p => p.name && p.name.length > 2) };
+    if (rec.status === "ok" && !(rec.ocr.score.shape >= OCR_BAR.shape && rec.ocr.score.qty >= OCR_BAR.qty && rec.ocr.score.name >= OCR_BAR.name))
+      rec.status = "ocr-below-bar";
   });
 }
 
 // ---- dedupe: same model (+ code number) from two files → keep the fuller one ----------------
+// a scan that is a copy of a clean text book ("V2203-M-E2B(1).pdf" beside "V2203-M-E2B.pdf"): the text
+// book wins — its numbers are exact, the scan's are OCR. Its model came from the file name, so the
+// model key below would not catch it.
+const baseName = n => String(n).replace(/\.pdf$/i, "").replace(/\s*\(\d+\)$/, "").toUpperCase();
+const textByBase = new Map(results.filter(r => r.status === "ok" && !r.ocr).map(r => [baseName(r.name), r]));
+results.filter(r => r.status === "ok" && r.ocr).forEach(r => {
+  const t = textByBase.get(baseName(r.name));
+  if (t && t !== r) { r.status = "duplicate"; r.dupOf = t.name; }
+});
 const byModel = new Map();
 for (const r of results.filter(r => r.status === "ok")) {
   const key = (r.parsed.model + "|" + r.parsed.codeNo).toUpperCase();
@@ -142,6 +181,26 @@ for (const r of results.filter(r => r.status === "ok")) {
 fs.mkdirSync(opt.out, { recursive: true });
 const slug = s => s.toUpperCase().replace(/[^A-Z0-9]+/g, "-").replace(/^-|-$/g, "");
 const engines = [];
+// drawings for every engine first, DRAWING_JOBS at a time (xargs -P keeps this synchronous)
+const DRAWING_JOBS = 4;
+const drawingsById = {};
+if (opt.drawings) {
+  const tmpD = fs.mkdtempSync(path.join(require("os").tmpdir(), "hqdrw-"));
+  const tasks = [];
+  for (const r of byModel.values()) {
+    if (r.parsed.source === "kpad") continue;   // KPAD prints its drawings on separate pages
+    const id = slug(r.parsed.model), task = path.join(tmpD, id + ".task.json");
+    fs.writeFileSync(task, JSON.stringify({ pdf: r.file, parsed: r.parsed, outDir: opt.out, id, result: path.join(tmpD, id + ".out.json") }));
+    tasks.push({ id, task, result: path.join(tmpD, id + ".out.json") });
+  }
+  console.log(`drawings: ${tasks.length} engine(s), ${DRAWING_JOBS} at a time …`);
+  const t0 = Date.now();
+  execFileSync("xargs", ["-0", "-P", String(DRAWING_JOBS), "-n", "1", process.execPath, path.join(__dirname, "lib", "drawings.js"), "--worker"],
+    { input: tasks.map(t => t.task).join("\0"), stdio: ["pipe", "inherit", "inherit"], maxBuffer: 64 << 20 });
+  tasks.forEach(t => { try { drawingsById[t.id] = JSON.parse(fs.readFileSync(t.result, "utf8")); } catch (e) { console.log(`  ! drawings ${t.id}: worker failed`); } });
+  fs.rmSync(tmpD, { recursive: true, force: true });
+  console.log(`drawings done in ${Math.round((Date.now() - t0) / 60000)} min`);
+}
 for (const r of byModel.values()) {
   const p = r.parsed;
   const id = slug(p.model);
@@ -153,11 +212,10 @@ for (const r of byModel.values()) {
     drawings: null,
     importedAt: new Date().toISOString()
   };
-  if (opt.drawings && p.source !== "kpad") {   // books (text or OCR); KPAD prints its drawings on separate pages
-    process.stdout.write(`  drawings ${p.model} … `);
-    doc.drawings = extractDrawings(r.file, p, opt.out, id);
+  if (drawingsById[id]) {
+    doc.drawings = drawingsById[id];
     const v = Object.values(doc.drawings).filter(x => !x.error);
-    console.log(`${v.length} drawings · ${v.reduce((a, x) => a + x.found, 0)}/${v.reduce((a, x) => a + x.refs, 0)} refs marked`);
+    console.log(`  drawings ${p.model}: ${v.length} · ${v.reduce((a, x) => a + x.found, 0)}/${v.reduce((a, x) => a + x.refs, 0)} refs marked`);
   }
   fs.writeFileSync(path.join(opt.out, id + ".json"), JSON.stringify(doc));
 
@@ -204,12 +262,14 @@ const groups = { "machine-manual": "Whole-machine manuals (engine is one section
                  "oem-parts-list": "Machine-maker parts lists (OEM numbers, e.g. Bobcat) — own parser later",
                  "not-a-parts-list": "Not a parts list (workshop/operation) — skipped",
                  "duplicate": "Duplicates (kept the fuller copy)",
+                 "ocr-below-bar": "OCR'd scans below the publish bar (part-number shape ≥ 95% · qty ≥ 85% · name ≥ 85%) — not published",
                  "scan-not-parts": "Scans that are not Kubota parts books (OCR found no parts table)", "unreadable": "Could not be read" };
 Object.keys(groups).forEach(k => {
   const g = results.filter(r => r.status === k);
   if (!g.length) return;
   L.push(`## ${groups[k]} (${g.length})`, "");
-  g.forEach(r => L.push(`- ${r.name}${r.pages ? " · " + r.pages + " pp" : ""}${r.lines != null ? " · " + r.lines + " lines read" : ""}${r.dupOf ? " · duplicate of " + r.dupOf : ""}`));
+  const sc = r => r.ocr && r.ocr.score ? ` · shape ${Math.round(100 * r.ocr.score.shape)}% · qty ${Math.round(100 * r.ocr.score.qty)}% · name ${Math.round(100 * r.ocr.score.name)}%` : "";
+  g.forEach(r => L.push(`- ${r.name}${r.pages ? " · " + r.pages + " pp" : ""}${r.lines != null ? " · " + r.lines + " lines read" : ""}${k === "ocr-below-bar" ? sc(r) : ""}${r.dupOf ? " · duplicate of " + r.dupOf : ""}`));
   L.push("");
 });
 fs.writeFileSync(path.join(opt.out, "report.md"), L.join("\n"));
