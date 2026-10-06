@@ -33,6 +33,7 @@ function fixMisreadPrefixes(books, isKnown) {
     b.parts.forEach(p => {
       const m = (p.pn || "").match(SUSPECT);
       if (!m || isKnown(p.pn)) return;
+      if (p.ocr && p.ocr.glyph) return;   // the page image was looked at (catalogue/glyph-pass.js) — it wins
       const zero = m[1] === "0" || m[1] === "O";
       const letters = CONFUSE[m[1]].split(""), rest = p.pn.slice(2);
       const as = L => "1" + L + rest;

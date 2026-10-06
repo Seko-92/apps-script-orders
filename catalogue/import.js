@@ -1,6 +1,6 @@
 // Engine Catalogue importer — runs LOCALLY (pdftotext lives here, the VPS has none).
 //
-//   node catalogue/import.js <pdf-or-folder>... [--mi <mi.json>] [--out catalogue/out]
+//   node catalogue/import.js <pdf-or-folder>... [--mi <mi.json>] [--out catalogue/out] [--drawings | --keep-drawings]
 //
 // For every PDF: pick the parser by what the text looks like, extract, validate, then
 // write one JSON per engine plus report.md. Nothing is published from here — the report
@@ -26,6 +26,9 @@ for (let i = 0; i < args.length; i++) {
   if (args[i] === "--mi") opt.mi = args[++i];
   else if (args[i] === "--out") opt.out = args[++i];
   else if (args[i] === "--drawings") opt.drawings = true;   // slow: OCR, a few minutes per engine
+  // reuse each engine's drawings from the previous import (out/<ID>.json): they come from the page
+  // images + REF numbers only, so a part-number fix doesn't change them — saves the ~45 min OCR
+  else if (args[i] === "--keep-drawings") opt.keepDrawings = true;
   else opt.inputs.push(args[i]);
 }
 if (!opt.inputs.length) { console.error("usage: node catalogue/import.js <pdf|folder>... [--mi mi.json]"); process.exit(1); }
@@ -107,6 +110,32 @@ for (const f of files) {
   results.push(rec);
 }
 
+// The second character LOOKED AT on the page image (catalogue/glyph-pass.js → <book>.glyph.json):
+// a loop means the digit is real; an open glyph is C / G / J (or a 5). A direct observation, so it
+// runs before lib/pn-fix.js, and a "loop" verdict stops pn-fix from turning a real "16…" into "1C…".
+// Only the direction the misread runs is changed: digit → letter (and 6 → 5).
+const GLYPH_FROM = { C: "06", G: "06", J: "4", "5": "6" };
+function applyGlyphVerdicts(book, file, tally, isKnown) {
+  if (!fs.existsSync(file)) return 0;
+  const v = JSON.parse(fs.readFileSync(file, "utf8"));
+  book.sections.forEach(s => s.parts.forEach(p => {
+    const k = v[p.page + "|" + p.pn];
+    if (!k) return;
+    if (k === "loop") { p.ocr = Object.assign({}, p.ocr, { glyph: "loop" }); tally.digit++; return; }
+    if (!(GLYPH_FROM[k] || "").includes(p.pn[1])) return;
+    // the shape is sure about letter-vs-digit; C vs G on a small or faint print is its weak spot
+    // (D1503 p15: 1G841 measured as C). If only the OTHER of the two is a known number, take that.
+    const as = L => p.pn[0] + L + p.pn.slice(2), alt = { C: "G", G: "C" }[k];
+    let L = k;
+    if (alt && isKnown && !isKnown(as(k)) && isKnown(as(alt))) { L = alt; tally.swapped++; }
+    // the two reads that agreed agreed on the wrong character → not confirmed by "agree" any more
+    p.ocr = Object.assign({}, p.ocr, { glyph: L, glyphFixedFrom: p.pn, agree: false });
+    p.pn = as(L);
+    tally.fixed++;
+  }));
+  return 1;
+}
+
 // ---- OCR'd scans (catalogue/ocr-batch.js) ---------------------------------------------------
 // A scan's cached parse replaces its "no text" verdict. Part numbers OCR read are CONFIRMED
 // when the two independent reads agreed, or the number is known from a clean manual or from
@@ -118,12 +147,17 @@ textBooks.forEach(r => r.parsed.sections.forEach(s => s.parts.forEach(p => { if 
 if (fs.existsSync(ocrDir)) {
   // load every OCR book first: the prefix fix (lib/pn-fix.js) needs evidence from ALL of them
   const isKnown = pn => knownName.has(pn) || !!(miIndex && miIndex.has(mpn._mpnKey(pn)));
-  const ocrBooks = [];
+  const ocrBooks = [], glyphTally = { books: 0, fixed: 0, digit: 0, swapped: 0 };
   results.forEach(rec => {
     if (rec.status === "ok") return;
     const cache = path.join(ocrDir, rec.name + ".json");
-    if (fs.existsSync(cache)) { rec.ocrParsed = JSON.parse(fs.readFileSync(cache, "utf8")); ocrBooks.push({ parts: rec.ocrParsed.sections.flatMap(s => s.parts) }); }
+    if (fs.existsSync(cache)) {
+      rec.ocrParsed = JSON.parse(fs.readFileSync(cache, "utf8"));
+      glyphTally.books += applyGlyphVerdicts(rec.ocrParsed, cache.replace(/\.json$/, ".glyph.json"), glyphTally, isKnown);
+      ocrBooks.push({ parts: rec.ocrParsed.sections.flatMap(s => s.parts) });
+    }
   });
+  console.log(`glyph check: ${glyphTally.fixed} second characters corrected from the page image (${glyphTally.books} books), ${glyphTally.digit} confirmed as digits, ${glyphTally.swapped} C/G settled by a known number`);
   const pf = fixMisreadPrefixes(ocrBooks, isKnown);
   console.log(`prefix fix: ${pf.fixed} OCR part numbers corrected (known ${pf.byTier.known} · read ${pf.byTier.read} · stem ${pf.byTier.stem}), ${pf.left} "10…" left for a check`);
   results.forEach(rec => {
@@ -212,6 +246,9 @@ for (const r of byModel.values()) {
     drawings: null,
     importedAt: new Date().toISOString()
   };
+  if (!drawingsById[id] && opt.keepDrawings) {
+    try { const prev = JSON.parse(fs.readFileSync(path.join(opt.out, id + ".json"), "utf8")); if (prev.drawings) drawingsById[id] = prev.drawings; } catch (e) { /* new engine: none to keep */ }
+  }
   if (drawingsById[id]) {
     doc.drawings = drawingsById[id];
     const v = Object.values(doc.drawings).filter(x => !x.error);
