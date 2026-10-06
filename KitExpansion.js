@@ -1113,7 +1113,7 @@ function _commitOneKitForModal(queueItem, excludedSkus, multiplier, force, alter
   var rowQty     = parseInt(rowVals[QTY_I]) || 1;
   var rowSo      = String(rowVals[SO_I]     || "");
   var rowNote    = String(rowVals[NOTE_I]   || "");
-  var rowStatus  = String(rowVals[STATUS_I] || Schema.status.PENDING);
+  var rowStatus  = String(rowVals[STATUS_I] || Schema.status.PENDING);   // the kit row's own — components ignore it (see below)
   var rowShip    = String(rowVals[SHIPPING_I] || "");
 
   // Sanity: the located row should still match — _findKitRowBySkuAndSo
@@ -1295,7 +1295,12 @@ function _commitOneKitForModal(queueItem, excludedSkus, multiplier, force, alter
     row[Schema.idx("LOCATION")]    = loc;
     row[Schema.idx("SALES_ORDER")] = rowSo;
     row[Schema.idx("NOTE")]        = rowNoteFinal;
-    row[Schema.idx("STATUS")]      = rowStatus;
+    // ⭐ ALWAYS PENDING (2026-10-06, owner's call). The kit row is often PREPARING — marked with the
+    //   rest of the order to print, then held — and components used to INHERIT that, so brand-new
+    //   pick work showed as "already in hand" (grey PREP on the board, no ✓ Pick) and could be left
+    //   on the shelf. Wrongly PENDING costs one extra tap; wrongly PREPARING can ship a box short.
+    //   The parent row keeps its own status (auto-follow ships it once every component has shipped).
+    row[Schema.idx("STATUS")]      = Schema.status.PENDING;
     row[Schema.idx("HAND")]        = hand;
     row[Schema.idx("LEFT")]        = "";
     row[Schema.idx("SHIPPING")]    = rowShip;
