@@ -226,6 +226,8 @@ function _buildDashboardTick() {
     // "+N more" instead of one pooled number that hides which half was cut.
     // Same array-property lifting problem as `total` above.
     openOrdersBy: (openOrders && openOrders.byChannel) || { EBAY: 0, DIRECT: 0, AMAZON: 0 },
+    // Orders with lines PAST the cap → their real line count (the band says "60 of 84 lines").
+    openOrderLines: (openOrders && openOrders.lines) || {},
     // Kits in progress — same lifting problem as `total` above.
     kits:       (openOrders && openOrders.kits) || [],
     // Held orders, open AND shipped-but-not-yet-collected. Same array-property
@@ -790,6 +792,7 @@ function _dashOpenOrders() {
   capped.total     = out.length;    // all four read by _buildDashboardTick
   capped.paidCount = paidCount;     // before JSON serialisation drops them
   capped.kits      = kits;
+  capped.lines     = capped.orderLines;   // lifted onto the tick as openOrderLines
   capped.byChannel = { EBAY:   _dashCountChannel(out, "EBAY"),
                        DIRECT: _dashCountChannel(out, "DIRECT"),
                        AMAZON: _dashCountChannel(out, "AMAZON") };
@@ -1017,13 +1020,37 @@ function _dashChannelRank(ch) {
  * @returns {Array<Object>}
  */
 function _dashCapPerChannel(rows, cap) {
-  var kept = [], seen = { EBAY: 0, DIRECT: 0, AMAZON: 0 };
+  // ⚠⚠ WHICH rows survive the cap, by priority — not by position (2026-10-06). One 84-line DIRECT
+  //   order (SO-25980, all PREPARING, the oldest) filled all 60 Direct slots, and the NEWER orders —
+  //   one PENDING for two hours — vanished from the tablet entirely. Priority, per channel:
+  //     1. the first line of EVERY order (no order can disappear behind another)
+  //     2. PENDING lines (work nobody has started)
+  //     3. PREPARING lines (already in someone's hand — the ones to trim)
+  //   The kept rows stay in their original (sorted) order.
+  var tier = new Array(rows.length), firstSeen = {};
   for (var i = 0; i < rows.length; i++) {
-    var ch = _dashChannelOf(rows[i]);
-    if (seen[ch] >= cap) continue;
-    seen[ch]++;
-    kept.push(rows[i]);
+    var oid = String(rows[i].orderId || "") + "|" + _dashChannelOf(rows[i]);
+    if (!firstSeen[oid]) { firstSeen[oid] = 1; tier[i] = 1; }
+    else tier[i] = String(rows[i].status || "").toUpperCase() === "PENDING" ? 2 : 3;
   }
+  var keep = new Array(rows.length), seen = { EBAY: 0, DIRECT: 0, AMAZON: 0 };
+  for (var t = 1; t <= 3; t++) {
+    for (var j = 0; j < rows.length; j++) {
+      if (tier[j] !== t || keep[j]) continue;
+      var ch = _dashChannelOf(rows[j]);
+      if (seen[ch] >= cap) continue;
+      seen[ch]++; keep[j] = true;
+    }
+  }
+  var kept = [], total = {}, shown = {};
+  for (var k = 0; k < rows.length; k++) {
+    var id = String(rows[k].orderId || "");
+    total[id] = (total[id] || 0) + 1;
+    if (keep[k]) { kept.push(rows[k]); shown[id] = (shown[id] || 0) + 1; }
+  }
+  // an order with lines past the cap reports its REAL size, so its band can say so
+  kept.orderLines = {};
+  Object.keys(total).forEach(function (id) { if (id && total[id] > (shown[id] || 0)) kept.orderLines[id] = total[id]; });
   return kept;
 }
 

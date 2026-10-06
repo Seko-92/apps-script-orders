@@ -4574,7 +4574,10 @@ body.ch-amazon #pickListAmazon { display: block; }
       //
       // A SPLIT order says so, loudly and in its own words: "3 of 5 lines ·
       // rest below". Never a bare count that reads as the whole order.
-      if (g.split) {
+      if (g.capped) {
+        meta.textContent = g.n + ' of ' + g.total + ' lines  ·  ' + (g.total - g.n) + ' not shown — on the sheet';
+        li.classList.add('split');
+      } else if (g.split) {
         meta.textContent = g.n + ' of ' + g.total + ' lines  ·  rest below';
         li.classList.add('split');
       } else {
@@ -4767,6 +4770,8 @@ body.ch-amazon #pickListAmazon { display: block; }
         var tid = String(rows[t].orderId || '').trim();
         if (tid) orderTotal[tid] = (orderTotal[tid] || 0) + 1;
       }
+      // lines PAST THE CAP don't reach the board at all — the server sends the order's real size
+      var capTotal = (lastTick && lastTick.openOrderLines) || {};
 
       for (var i = 0; i < rows.length; i++) {
         var r    = rows[i];
@@ -4842,8 +4847,10 @@ body.ch-amazon #pickListAmazon { display: block; }
               hasKitRow: runHasKit(rows, i, n),
               held: !!heldOrder[oid],
               // what the ORDER really holds, and whether this band covers it
-              total: orderTotal[oid] || n,
+              total: Math.max(orderTotal[oid] || n, capTotal[oid] || 0),
               split: (orderTotal[oid] || n) > n,
+              // past the cap: the rest is NOT below — it's on paper / the sheet (2026-10-06, SO-25980)
+              capped: (capTotal[oid] || 0) > (orderTotal[oid] || n),
               // ⚠ A SHUT CARD STILL NAMES ITS AISLES. Collapsing must never be
               // the same as hiding — the shut line has to stay actionable on
               // its own, which on this floor means the shelves still to walk.
