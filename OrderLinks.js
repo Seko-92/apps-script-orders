@@ -147,6 +147,10 @@ function applyOrderLinksToColumn(sheet, soCol, startRow, endRow, zohoIdMap) {
 
   // ⚠ In runs around the band rows on All Orders: column D holds each band's logo
   //   (=IMAGE()), and writing its rich text back would replace the formula.
+  if (!columnUnchanged(range, values)) {   // rows moved since the read — writing would misplace order numbers
+    console.log("applyOrderLinksToColumn: " + sheet.getName() + " changed during the refresh — skipped (no write)");
+    return 0;
+  }
   if (sheet.getName() === MAIN_SHEET_NAME) writeColumnAroundBands(sheet, soCol, startRow, rich, null, true);
   else range.setRichTextValues(rich);
   return linked;

@@ -1016,7 +1016,17 @@ function finishKitBatchFromModal(sessionId) {
   if (!_obIsOwner()) return _asOwner('finishKitBatchFromModal', [sessionId]);
   var state = _loadKitModalSession(sessionId);
   var any = state && state.results && state.results.committed.length > 0;
-  if (any) _kitCommitRefreshes();
+  // ⚠⚠ UNDER THE SCRIPT LOCK (2026-10-06). These repaints read the WHOLE SKU and SALES ORDER
+  //   columns and write them back as text. Run without the lock (8a5c109 → here), an n8n arrival
+  //   or a status-sync sort moved rows between that read and write, and the old text landed on
+  //   the WRONG ROWS: SKU/order pairs that were never received (red identity marks) and K tags
+  //   gone. Before the batch, every kit commit ran them inside commitKitFromModal's lock.
+  if (any) {
+    var lock = LockService.getScriptLock();
+    if (!lock.tryLock(30000)) return { ok: false, reason: "Sheet busy — the kits are written; links and K tags refresh on the next sort.",
+                                       results: state.results };
+    try { _kitCommitRefreshes(); } finally { try { lock.releaseLock(); } catch (_) {} }
+  }
   return { ok: true, results: state ? state.results : { committed: [], skipped: [], failed: [] } };
 }
 

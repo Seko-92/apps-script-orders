@@ -132,6 +132,10 @@ function applySkuLinksToColumn(sheet, skuCol, startRow, endRow, map) {
     linked++;
   }
 
+  if (!columnUnchanged(range, values)) {   // rows moved since the read — writing would misplace SKUs
+    console.log("applySkuLinksToColumn: " + sheet.getName() + " changed during the refresh — skipped (no write)");
+    return 0;
+  }
   range.setRichTextValues(rich);
   range.setNotes(blankNotes);
   return linked;

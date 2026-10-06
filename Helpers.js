@@ -133,6 +133,18 @@ function _tableSegment(t, L) {
  * @param {boolean} [rich]    values are RichTextValues (setRichTextValues)
  * @returns {number} runs written
  */
+/**
+ * ⚠ A whole-column rewrite (text included) is only safe if the column is EXACTLY what was read.
+ * Re-read it just before writing; if any cell moved, write nothing (2026-10-06: rows shifted
+ * between read and write and SKUs / order numbers landed on the wrong rows). Returns true = safe.
+ */
+function columnUnchanged(range, values) {
+  var now = range.getValues();
+  if (now.length !== values.length) return false;
+  for (var i = 0; i < now.length; i++) if (String(now[i][0]) !== String(values[i][0])) return false;
+  return true;
+}
+
 function writeColumnAroundBands(sheet, col, startRow, values, layout, rich) {
   if (!values || !values.length) return 0;
   layout = layout || getTableLayout(sheet);
