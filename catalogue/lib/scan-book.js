@@ -6,7 +6,7 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const { execFileSync } = require("child_process");
-const { tsvWords, readScanPage, attachColumn, rescueRows, sectionCodeOf } = require("./kubota-scan");
+const { tsvWords, readScanPage, attachColumn, rescueRows, sectionCodeOf, repairShortRefs } = require("./kubota-scan");
 
 const DPI = 400;
 
@@ -279,6 +279,30 @@ function voteQty(wiped, raw, col, word) {
   return wiped;
 }
 
+/**
+ * Short-REF books: each empty REF cell read alone — psm 10 (one character) then psm 8 (one word),
+ * digits only, batched into two tesseract runs. A row keeps the first 1–2 digit answer.
+ */
+function readRefCells(pdf, page, rows, col, tmp) {
+  const sorted = rows.slice().sort((a, b) => a.y - b.y);
+  const ys = sorted.map(r => r.y);
+  const pitch = ys.length > 1 ? Math.min(...ys.slice(1).map((y, i) => y - ys[i]).filter(d => d > 10)) : 120;
+  const bands = sorted.map((row, i) => ({ row,
+    lo: i ? (ys[i - 1] + ys[i]) / 2 : ys[i] - pitch / 2,
+    hi: i < ys.length - 1 ? (ys[i] + ys[i + 1]) / 2 : ys[i] + pitch / 2 })).filter(b => !b.row.ref);
+  if (!bands.length) return;
+  const job = (b, psm) => prepColumn(pdf, page, { x: col.x, y: b.lo, w: col.end - col.x, h: b.hi - b.lo }, 600, tmp,
+    ["--psm", psm, "-c", "tessedit_char_whitelist=0123456789"], "refcell");
+  const pick = ws => { for (const w of ws || []) { const m = String(w.t).match(/^([1-9]\d?)$/); if (m) return m[1]; } return null; };
+  const r10 = runColumns(bands.map(b => job(b, "10")), tmp).map(pick);
+  const r8 = runColumns(bands.map(b => job(b, "8")), tmp).map(pick);
+  bands.forEach((b, i) => {
+    const v = r10[i] === r8[i] ? r10[i] : (r8[i] || r10[i]);
+    if (process.env.OCR_DEBUG_REF) console.error("ref p" + page + " " + b.row.pn + " psm10=" + r10[i] + " psm8=" + r8[i] + " → " + v);
+    if (v) { b.row.ref = v; b.row.refCell = true; }
+  });
+}
+
 function cellBox(box, colWords, W) {
   const xs = [box.x].concat((colWords.rules || []).slice().sort((a, b) => a - b)).concat([box.x + box.w]);
   const gaps = [];
@@ -459,6 +483,39 @@ function padOnly(file) {
   return P;
 }
 
+// "refcell": keep only DIGIT-SHAPED ink. A REF cell holds 1–2 digits beside a dotted rule and row-line
+// stubs; tesseract reads nothing with those around a lone "1" (D850 p13, 2026-10-06). Connected
+// components (8-neighbour) whose height is 30–90% of the cell are kept (digits); dots, dashes and
+// full-height rules are erased. Then the usual white margin.
+function keepDigitBlobs(file) {
+  const b = fs.readFileSync(file);
+  const m = b.toString("latin1", 0, 64).match(/^P5\s+(\d+)\s+(\d+)\s+(\d+)\s/);
+  if (!m) return 0;
+  const W = +m[1], H = +m[2], off = m[0].length;
+  const lab = new Int32Array(W * H), keep = [];
+  let n = 0;
+  for (let i = 0; i < W * H; i++) {
+    if (lab[i] || b[off + i] >= 128) continue;
+    n++; const stack = [i]; lab[i] = n; const px = [];
+    let y0 = H, y1 = 0, x0 = W, x1 = 0;
+    while (stack.length) {
+      const q = stack.pop(); px.push(q);
+      const x = q % W, y = (q - x) / W;
+      if (y < y0) y0 = y; if (y > y1) y1 = y; if (x < x0) x0 = x; if (x > x1) x1 = x;
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+        const xx = x + dx, yy = y + dy; if (xx < 0 || yy < 0 || xx >= W || yy >= H) continue;
+        const k = yy * W + xx; if (!lab[k] && b[off + k] < 128) { lab[k] = n; stack.push(k); }
+      }
+    }
+    const h = y1 - y0 + 1, w = x1 - x0 + 1;
+    if (h >= 0.3 * H && h <= 0.9 * H && w <= 1.5 * h && w >= 3) keep.push(px);
+  }
+  for (let i = 0; i < W * H; i++) b[off + i] = 255;
+  keep.forEach(px => px.forEach(q => { b[off + q] = 0; }));
+  fs.writeFileSync(file, b);
+  return padOnly(file);
+}
+
 let lastRuleXs = [];   // x (crop px, before padding) of the vertical rules the last wipe erased
 function wipeRules(file, mode) {
   lastRuleXs = [];
@@ -466,6 +523,7 @@ function wipeRules(file, mode) {
   // the row-line wipe SLICES a line of part numbers (a pixel row through the 5/8/6/4 bars and the
   // hyphens is > 32% ink) → tesseract read nothing (D782 gap cells, 2026-10-04)
   if (mode === "raw") return padOnly(file);
+  if (mode === "refcell") return keepDigitBlobs(file);
   const b = fs.readFileSync(file);
   const m = b.toString("latin1", 0, 64).match(/^P5\s+(\d+)\s+(\d+)\s+(\d+)\s/);
   if (!m) return 0;
@@ -617,7 +675,8 @@ function ocrBook(pdf, opts) {
   let current = null, coverText = "";
   let pending = null;   // section code seen on a drawing page, waiting for its table
   let vintageOk = true; // the bare-number section read, until the book shows a real code
-  let vintageSeq = 0, lastVintage = null;   // vintage sections are numbered in page order (their printed numbers misread)
+  let vintageSeq = 0, lastVintage = null;
+  let bookShortRefs = false;   // once a page shows REFs 1, 2, 3 … the whole book does   // vintage sections are numbered in page order (their printed numbers misread)
   try {
     for (const p of pages) {
       const { words, W, H } = ocrPage(pdf, p, tmp);
@@ -672,8 +731,33 @@ function ocrBook(pdf, opts) {
         //     and couldn't be linked to the drawing. Only fills a row that has no REF yet.
         if (isFinite(pnLeft) && !process.env.OCR_NO_REFCOL) {
           const rx = Math.max(0, pnLeft - 0.07 * W);
-          attachColumn(r.rows, ocrColumn(pdf, p, { x: rx, y: top, w: pnLeft + 8 - rx, h: hgt }, 600, tmp,
-            ["-c", "tessedit_char_whitelist=0123456789"]), "ref");
+          const refWords = ocrColumn(pdf, p, { x: rx, y: top, w: pnLeft + 8 - rx, h: hgt }, 600, tmp,
+            ["-c", "tessedit_char_whitelist=0123456789"]);
+          // older books number REFs 1, 2, 3 … (Z400 / D850 / D1402), not 010 — when the column is
+          // mostly 1–2 digit numbers, take those (a 3-digit book's "01" is a dropped digit, so
+          // the short form is only accepted when the PAGE reads that way)
+          const dig = refWords.map(w => String(w.t).replace(/\D/g, "")).filter(Boolean);
+          // short when the page shows no 3-digit REF anywhere (column read or page read) and some
+          // 1–2 digit ones — a 3-digit book always shows a few "010"-style REFs per page
+          const n3 = dig.filter(t => t.length === 3).length + r.rows.filter(x => /^\d{3}$/.test(x.ref || "")).length;
+          const nS = dig.filter(t => t.length <= 2).length;
+          const short = bookShortRefs || (n3 === 0 && nS >= 1) ||
+            (dig.length >= 3 && nS >= 0.6 * dig.length);
+          if (short) bookShortRefs = true;
+          attachColumn(r.rows, refWords, short ? "refShort" : "ref");
+          // a LONE digit ("1" … "9") in a boxed cell is what tesseract drops — the column read gets
+          // 10–19 and loses 1–9 (D850 p13, 2026-10-06). Read each still-empty cell on its own.
+          if (short && !process.env.OCR_NO_REFCELLS) {
+            // the cell's edges: right = where part numbers USUALLY start (median — the min above can
+            // sit on a REF fused onto its number, "16 15841…", and clipped the REF, Z400 p7); left =
+            // the table's left rule, so the margin's punched-hole arcs stay out (D850)
+            const xs = words.filter(w => r.rows.some(x => Math.abs(x.y - (w.y + w.h / 2)) < 30) && w.x < 0.32 * W && /\d{4}/.test(w.t))
+              .map(w => w.x).sort((a, b) => a - b);
+            const end = xs[Math.floor(xs.length / 2)] - 6;
+            const vr = pageVRules(pdf, p, 0, end - 0.012 * W, top, top + hgt, tmp);
+            const left = vr.length ? vr[vr.length - 1] + 10 : end - 0.04 * W;
+            if (end - left > 0.012 * W) readRefCells(pdf, p, r.rows, { x: left, end }, tmp);
+          }
         }
         // 2. names: their own crop (the page read loses whole rows in denser books)
         const nameLeft = isFinite(pnEdge) ? pnEdge + 4 : 0.22 * W;
@@ -705,8 +789,14 @@ function ocrBook(pdf, opts) {
       // a DRAWING page (no table) that carries the section code: remember it for the table that
       // follows — newer books print "E07." only there (the FIRST section's drawing comes before
       // any parts, so this can't wait for parts to start). A table page's own code still wins.
-      if (!r.rows.length) { if (r.code) pending = { code: r.code, name: r.name }; continue; }
+      // ⭐ older books (Z400, D850, D1402) print the drawing on its OWN page before the table, the
+      //   whole page below the title — remember that page as the section's drawing (2026-10-06)
+      if (!r.rows.length) {
+        if (r.code && !r.isIndex) pending = { code: r.code, name: r.name, band: { page: p, y: 0.085 * H, h: 0.835 * H, W } };
+        continue;
+      }
       if (!r.code && pending) { r.code = pending.code; r.name = r.name || pending.name; }
+      const drawPage = pending && pending.code === r.code ? pending.band : null;
       pending = null;
       pageModels(words).forEach(m => { if (!out.models.some(x => x.col === m.col)) out.models.push(m); });
       if (r.model && !out.models.length) out.models.push({ col: "A", name: r.model });
@@ -717,6 +807,8 @@ function ocrBook(pdf, opts) {
           current = { code: r.code, name: r.name || "(section " + r.code + ")", page: p, parts: [] };
           out.sections.push(current);
           if (r.band) out.bands[r.code] = { x: 0, y: r.band.y * 72 / DPI, w: W * 72 / DPI, h: r.band.h * 72 / DPI };
+          else if (drawPage) out.bands[r.code] = { page: drawPage.page, x: 0, y: drawPage.y * 72 / DPI,
+                                                   w: drawPage.W * 72 / DPI, h: drawPage.h * 72 / DPI };
         }
       } else if (!current) {
         current = { code: "????", name: "(untitled)", page: p, parts: [] }; out.sections.push(current);
@@ -725,12 +817,23 @@ function ocrBook(pdf, opts) {
       r.rows.forEach(row => {
         const part = { ref: row.ref, pn: row.pn, name: row.name, remark: row.remark, qty: row.qty, page: p,
                         ocr: { conf: row.conf, agree: !!row.agree, rescued: !!row.rescued } };
+        if (row.refCell) part.refCell = true;   // read alone — repairShortRefs checks it against its neighbours
         current.parts.push(part);
         if (!row.ref) out.flags.push({ page: p, kind: "ocr-no-ref", line: row.pn + " " + row.name });
         if (!row.name) out.flags.push({ page: p, kind: "no-name", line: row.pn });
       });
     }
   } finally { dropRasters(); fs.rmSync(tmp, { recursive: true, force: true }); }
+  // per PAGE: a section whose next page's code was missed carries that page's table too, and its
+  // REFs restart at 1 — the order can't be reasoned across that seam (Z400 p11/p17/p19, 2026-10-06)
+  out.sections.forEach(s => {
+    const pages = [...new Set(s.parts.map(p => p.page))];
+    s.refFixes = pages.reduce((n, pg) => n + repairShortRefs(s.parts.filter(p => p.page === pg), bookShortRefs), 0);
+    s.parts.forEach(p => { delete p.refCell; });
+  });
+  // a row whose REF was filled in is no longer missing one
+  out.flags = out.flags.filter(f => f.kind !== "ocr-no-ref" ||
+    out.sections.some(s => s.parts.some(p => p.page === f.page && !p.ref && f.line.startsWith(p.pn))));
 
   const mc = coverText.match(/\b([A-Z]\d{3,4}[A-Z0-9-]*-E\dB[A-Z0-9-]*|[A-Z]\d{3,4}-[A-Z0-9-]{3,})\s+([0-9A-Z]{5}-\d{5})\b/);
   if (mc) { out.model = mc[1]; out.codeNo = mc[2]; }

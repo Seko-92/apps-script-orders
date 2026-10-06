@@ -197,9 +197,10 @@ function attachColumn(rows, colWords, field) {
       // read from the START of a word: an arrow glued on reads as "1-" (Z400, 2026-10-04)
       const m = t.split(/\s+/).map(x => x.match(/^(\d{1,3})(?!\d)/)).find(Boolean);
       if (m && row.qty == null) row.qty = [Number(m[1])];
-    } else if (field === "ref") {
-      // a REF is exactly three digits (010, 125); a 4+ digit token is a part number spilling in
-      const m = t.split(/\s+/).map(x => x.match(/^(\d{3})$/)).find(Boolean);
+    } else if (field === "ref" || field === "refShort") {
+      // a REF is exactly three digits (010, 125); a 4+ digit token is a part number spilling in.
+      // refShort: the page numbers REFs 1, 2 … 99 (older books) — 1–2 digits, no leading zero
+      const m = t.split(/\s+/).map(x => x.match(field === "ref" ? /^(\d{3})$/ : /^([1-9]\d?)$/)).find(Boolean);
       if (m && !row.ref) row.ref = m[1];
     } else if (field === "name") {
       const nm = cleanName(t);
@@ -272,4 +273,72 @@ function rescueRows(rows, words, pnColWords, L) {
   return rows.concat(added).sort((a, b) => a.y - b.y);
 }
 
-module.exports = { pnByShape, sectionCodeOf, tsvWords, normalisePn, readScanPage, attachColumn, rescueRows, fixRemark };
+/**
+ * Older books number REFs 1, 2, 3 … in table order, so a section's REFs never go down. Repairs,
+ * only where the sequence leaves ONE answer (fills nothing it would have to guess):
+ *   * a misread that breaks the order ("71" between 6 and 8) → the digit of it that fits;
+ *   * a gap between equal REFs (2 _ 2) → that REF;
+ *   * a gap of k rows between p and n with n − p − 1 == k (11 _ _ 14) → p+1 … n−1.
+ * Only for short-REF sections (most REFs 1–2 digits); 3-digit books are left alone.
+ */
+function repairShortRefs(parts, bookShort) {
+  const got = parts.filter(p => /^\d+$/.test(p.ref || ""));
+  // bookShort: the book already showed REFs 1, 2, 3 … — a page of only noise ("131 147 157") still counts
+  if (!bookShort && (got.length < 3 || got.filter(p => p.ref.length <= 2).length < 0.6 * got.length)) return 0;
+  let fixed = 0;
+  const num = i => (/^\d{1,2}$/.test(parts[i].ref || "") ? Number(parts[i].ref) : null);
+  const prevOf = i => { for (let j = i - 1; j >= 0; j--) if (num(j) != null) return num(j); return null; };
+  const nextOf = i => { for (let j = i + 1; j < parts.length; j++) if (num(j) != null) return num(j); return null; };
+  // 0. a REF read from its cell alone is a fallback: keep it only where the column/page reads around
+  //    it agree it fits (prev ≤ v ≤ next of the trusted REFs) — a lone wrong digit is worse than none
+  const trusted = i => (!parts[i].refCell && /^\d{1,2}$/.test(parts[i].ref || "") ? Number(parts[i].ref) : null);
+  parts.forEach((p, i) => {
+    if (!p.refCell) return;
+    let a = null, b = null;
+    for (let j = i - 1; j >= 0 && a == null; j--) a = trusted(j);
+    for (let j = i + 1; j < parts.length && b == null; j++) b = trusted(j);
+    const v = Number(p.ref);
+    if ((a != null && v < a) || (b != null && v > b)) { p.ref = ""; delete p.refCell; }
+  });
+  // 1. out-of-order 2-digit reads
+  parts.forEach((p, i) => {
+    // 2 or 3 digits ("71", "734" — a 3-digit REF is noise in a short-REF section)
+    if (!/^\d{2,3}$/.test(p.ref || "")) return;
+    const v = Number(p.ref), a = prevOf(i), b = nextOf(i);
+    if (a == null || b == null || (v >= a && v <= b)) return;
+    const cands = [...new Set(p.ref.split("").map(Number))].filter(d => d >= a && d <= b && d > 0);
+    if (cands.length === 1) { p.ref = String(cands[0]); p.refFix = true; fixed++; }
+    // no digit of it fits an ordered run (a ≤ b) → it's noise: blank beats a REF that lights the
+    // wrong callout ("8 670 10", "8 57 9" — Z400, 2026-10-06). The gap fill below may then name it.
+    else if (!cands.length && a <= b) { p.ref = ""; p.refFix = true; fixed++; }
+  });
+  // 1a. 3 digits are always noise here (a digit with "15" fused on: "415", "615"). Its first one or
+  //     two digits, if exactly one fits between its neighbours; else blank — never a 3-digit REF.
+  parts.forEach((p, i) => {
+    if (!/^\d{3}$/.test(p.ref || "")) return;
+    const a = prevOf(i), b = nextOf(i);
+    const fits = c => c > 0 && (a == null || c >= a) && (b == null || c <= b);
+    const cands = a != null && b != null ? [Number(p.ref.slice(0, 2)), Number(p.ref[0])].filter(fits) : [];
+    p.ref = cands.length === 1 ? String(cands[0]) : ""; p.refFix = true; fixed++;
+  });
+  // 1b. a single digit outside an ordered run ("1 9 3") — same: blank, let the gap fill decide
+  parts.forEach((p, i) => {
+    if (!/^[1-9]$/.test(p.ref || "")) return;
+    const v = Number(p.ref), a = prevOf(i), b = nextOf(i);
+    if (a != null && b != null && a <= b && (v < a || v > b)) { p.ref = ""; p.refFix = true; fixed++; }
+  });
+  // 2. gaps
+  for (let i = 0; i < parts.length; i++) {
+    if (parts[i].ref) continue;
+    let j = i; while (j < parts.length && !parts[j].ref) j++;
+    const a = prevOf(i), b = j < parts.length ? num(j) : null, k = j - i;
+    if (a != null && b != null) {
+      if (a === b) for (let x = i; x < j; x++) { parts[x].ref = String(a); parts[x].refFix = true; fixed++; }
+      else if (b - a - 1 === k) for (let x = i; x < j; x++) { parts[x].ref = String(a + 1 + x - i); parts[x].refFix = true; fixed++; }
+    }
+    i = j;
+  }
+  return fixed;
+}
+
+module.exports = { repairShortRefs, pnByShape, sectionCodeOf, tsvWords, normalisePn, readScanPage, attachColumn, rescueRows, fixRemark };

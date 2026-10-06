@@ -230,7 +230,10 @@ const DRAWING_JOBS = 4;
 const drawingsById = {};
 // with --keep-drawings, an engine that HAS drawings from the last import keeps them; only the ones
 // without any are extracted (D902, added 2026-10-06 — it never had any)
-const hasKept = id => { try { return !!JSON.parse(fs.readFileSync(path.join(opt.out, id + ".json"), "utf8")).drawings; } catch (e) { return false; } };
+// ⚠ an EMPTY drawings object is "none": Z400 / D850 / D1402 had {} from an import that found no
+//   drawing pages, and a truthiness test kept that {} forever (2026-10-06)
+const hasKept = id => { try { const d = JSON.parse(fs.readFileSync(path.join(opt.out, id + ".json"), "utf8")).drawings;
+  return !!d && Object.keys(d).length > 0; } catch (e) { return false; } };
 if (opt.drawings || opt.keepDrawings) {
   const tmpD = fs.mkdtempSync(path.join(require("os").tmpdir(), "hqdrw-"));
   const tasks = [];
@@ -262,7 +265,7 @@ for (const r of byModel.values()) {
     importedAt: new Date().toISOString()
   };
   if (!drawingsById[id] && opt.keepDrawings) {
-    try { const prev = JSON.parse(fs.readFileSync(path.join(opt.out, id + ".json"), "utf8")); if (prev.drawings) drawingsById[id] = prev.drawings; } catch (e) { /* new engine: none to keep */ }
+    try { const prev = JSON.parse(fs.readFileSync(path.join(opt.out, id + ".json"), "utf8")); if (prev.drawings && Object.keys(prev.drawings).length) drawingsById[id] = prev.drawings; } catch (e) { /* new engine: none to keep */ }
   }
   if (drawingsById[id]) {
     doc.drawings = drawingsById[id];

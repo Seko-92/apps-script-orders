@@ -121,14 +121,15 @@ function extractDrawings(pdf, parsed, outDir, id) {
         (parsed.source === "kpad" ? kpadDrawingBand(wordBoxes(pdf, s.page), s.code) : drawingBand(wordBoxes(pdf, s.page), s.code));
       if (!band) continue;
       const refs = [...new Set(s.parts.map(p => p.ref))];
+      const pg = band.page || s.page;   // older books: the drawing is on its own page before the table
       // Several OCR passes see different callouts (leader lines touch the digits); merge them.
       let callouts = [];
       for (const dpi of OCR_PASSES_DPI) {
-        const hi = render(pdf, s.page, band, dpi, false, path.join(tmp, s.code + "-" + dpi));
+        const hi = render(pdf, pg, band, dpi, false, path.join(tmp, s.code + "-" + dpi));
         const hiSize = pngSize(hi);
         for (const psm of OCR_PSMS) callouts = mergeCallouts(callouts, ocrCallouts(hi, refs, hiSize.w, hiSize.h, psm));
       }
-      const web = render(pdf, s.page, band, WEB_DPI, true, path.join(dir, s.code));
+      const web = render(pdf, pg, band, WEB_DPI, true, path.join(dir, s.code));
       const size = pngSize(web);
       result[s.code] = { img: path.relative(outDir, web), w: size.w, h: size.h, callouts,
                          found: new Set(callouts.map(c => c.ref)).size, refs: refs.length };
