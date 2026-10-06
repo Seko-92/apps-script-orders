@@ -388,6 +388,8 @@ function logActivity(event, orderId, sku, qty, source, detail, picker, note) {
       ? picker
       : (_shouldCapturePicker(source) ? _currentPicker() : "");
 
+    var dl1 = _logLock();
+    try {
     sheet.appendRow([
       new Date(),
       String(event || "").toUpperCase(),
@@ -399,6 +401,7 @@ function logActivity(event, orderId, sku, qty, source, detail, picker, note) {
       String(note || ""),
       pickerOut
     ]);
+    } finally { if (dl1) try { dl1.releaseLock(); } catch (_) {} }
   } catch (err) {
     try { Logger.log("logActivity error: " + err); } catch (_) { }
   }
@@ -453,11 +456,46 @@ function logActivityBatch(rows) {
       ];
     });
 
-    var startRow = sheet.getLastRow() + 1;
-    sheet.getRange(startRow, 1, withTs.length, ACTIVITY_LOG.dataWidth).setValues(withTs);
+    // ⚠⚠ "last row + 1" is only safe while appenders take turns (2026-10-06: an n8n arrival's
+    //   RECEIVED row went missing in a busy second — the identity guard then flagged a correct
+    //   order red). Single events use appendRow; both now hold the DOCUMENT lock (not the script
+    //   lock, which the caller may already hold — this one is never nested). One retry, then a
+    //   loud alert: a missing arrival record is not something to lose silently.
+    var lastErr = null;
+    for (var attempt = 0; attempt < 2; attempt++) {
+      var dl = _logLock();
+      try {
+        var startRow = sheet.getLastRow() + 1;
+        sheet.getRange(startRow, 1, withTs.length, ACTIVITY_LOG.dataWidth).setValues(withTs);
+        SpreadsheetApp.flush();
+        lastErr = null; break;
+      } catch (e) { lastErr = e; }
+      finally { if (dl) try { dl.releaseLock(); } catch (_) {} }
+    }
+    if (lastErr) throw lastErr;
   } catch (err) {
     try { Logger.log("logActivityBatch error: " + err); } catch (_) { }
+    _alertLogLost(rows, err);
   }
+}
+
+/** The Activity Log's own append lock (document lock, 10 s). null = write anyway, unlocked. */
+function _logLock() {
+  try { var l = LockService.getDocumentLock(); return l && l.tryLock(10000) ? l : null; } catch (_) { return null; }
+}
+
+/** An event that could not be recorded → one Telegram line to the admin chat, so it can be re-added. */
+function _alertLogLost(rows, err) {
+  try {
+    var ids = (rows || []).map(function (r) { return String(r[0] || "") + " " + String(r[1] || "") + " " + String(r[2] || ""); })
+      .slice(0, 8).join("\n");
+    UrlFetchApp.fetch("https://api.telegram.org/bot" + TELEGRAM_BOT_TOKEN + "/sendMessage", {
+      method: "post", contentType: "application/json", muteHttpExceptions: true,
+      payload: JSON.stringify({ chat_id: TELEGRAM_ADMIN_CHAT_ID,
+        text: "⚠ Activity Log write FAILED — these events were not recorded:\n" + ids +
+              "\n(" + String(err).slice(0, 120) + ")" })
+    });
+  } catch (_) { }
 }
 
 

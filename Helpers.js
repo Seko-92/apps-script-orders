@@ -134,6 +134,19 @@ function _tableSegment(t, L) {
  * @returns {number} runs written
  */
 /**
+ * The script lock for a SIDEBAR / MENU entry point that writes All Orders (2026-10-06).
+ * Inside doPost (the owner bridge, _OB_IN_OWNER_CONTEXT) the lock is already held, so it runs
+ * straight through — never take it twice or release someone else's. A direct owner call had NO
+ * lock at all, which let a sort or a column rewrite race an n8n arrival.
+ */
+function withEntryLock(fn) {
+  if (typeof _OB_IN_OWNER_CONTEXT !== 'undefined' && _OB_IN_OWNER_CONTEXT) return fn();
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(30000)) return "⚠ The sheet is busy (an order is landing) — try again in a moment.";
+  try { return fn(); } finally { try { lock.releaseLock(); } catch (_) {} }
+}
+
+/**
  * ⚠ A whole-column rewrite (text included) is only safe if the column is EXACTLY what was read.
  * Re-read it just before writing; if any cell moved, write nothing (2026-10-06: rows shifted
  * between read and write and SKUs / order numbers landed on the wrong rows). Returns true = safe.

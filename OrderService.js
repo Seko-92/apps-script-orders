@@ -2025,9 +2025,10 @@ function _compareDirectRows(a, b, soRank) {
                           b.values[Schema.idx("LOCATION")]);
 }
 
-function sortTableByStatusAndLocation(tableNumber) {
+function sortTableByStatusAndLocation(tableNumber, _retried) {
   var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   var sheet = ss.getSheetByName(MAIN_SHEET_NAME);
+  var lastRowAtRead = sheet.getLastRow();
   // ⭐ 2026-09-26: three tables. Direct used to sort "DIRECT+2 → last row", which with the
   //   Amazon table below it would drag Amazon's rows AND its divider into the Direct sort.
   //   The segment comes from getTableLayout(); table 3 (Amazon) sorts like Direct.
@@ -2091,6 +2092,19 @@ function sortTableByStatusAndLocation(tableNumber) {
   var sortedFormats = indexed.map(function(x) { return x.formats; });
   var sortedRich    = indexed.map(function(x) { return [x.rich]; });
   var sortedSoRich  = indexed.map(function(x) { return [x.soRich]; });
+  // ⚠⚠ THE TABLE MUST BE EXACTLY WHAT WAS READ (2026-10-06). A sort rewrites every value of every
+  //   row; if an n8n arrival or another write moved rows since the read above, writing would put
+  //   rows' cells back in the wrong places — the kit-expansion incident, but across the whole table.
+  //   Re-read; if anything differs, start over (once) on the fresh table, else write nothing.
+  var nowData = sheet.getRange(startRow, 1, numRows, Schema.dataWidth).getValues();
+  var moved = sheet.getLastRow() !== lastRowAtRead || nowData.some(function (r, i) {
+    return r.some(function (v, j) { return String(v) !== String(data[i][j]); });
+  });
+  if (moved) {
+    if (!_retried) return sortTableByStatusAndLocation(tableNumber, true);
+    console.log("sortTableByStatusAndLocation: table kept changing during the sort — skipped (no write)");
+    return "⚠ Not sorted — the table was changing. Try again in a moment.";
+  }
   range.setValues(sortedData);
   range.setNumberFormats(sortedFormats);
   // Re-apply col-A + col-D links AFTER setValues (which wrote plain text +
@@ -2120,16 +2134,16 @@ function sortEbayTable() {
   //   the All Orders lock a staff call would be refused. Come back in through /exec,
   //   where doPost executes as the OWNER — see OwnerBridge.js.
   if (!_obIsOwner()) return _asOwner('sortEbayTable', []);
- return sortTableByStatusAndLocation(1); }
+  return withEntryLock(function () { return sortTableByStatusAndLocation(1); }); }
 function sortDirectTable() {
   // ⚠ WRITES A PROTECTED SHEET. google.script.run runs as the INVOKING USER, so under
   //   the All Orders lock a staff call would be refused. Come back in through /exec,
   //   where doPost executes as the OWNER — see OwnerBridge.js.
   if (!_obIsOwner()) return _asOwner('sortDirectTable', []);
- return sortTableByStatusAndLocation(2); }
+  return withEntryLock(function () { return sortTableByStatusAndLocation(2); }); }
 function sortAmazonTable() {
   if (!_obIsOwner()) return _asOwner('sortAmazonTable', []);
-  return sortTableByStatusAndLocation(3); }
+  return withEntryLock(function () { return sortTableByStatusAndLocation(3); }); }
 
 function refreshProDashboard() {
   // Stats banner (G1) refresh. The date in B1 auto-updates via the
