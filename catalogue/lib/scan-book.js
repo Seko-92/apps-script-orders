@@ -274,6 +274,11 @@ function voteQty(wiped, raw, col, word) {
   const best = Object.keys(counts).sort((a, b) => counts[b] - counts[a]);
   if (best.length && counts[best[0]] >= 2 && (best.length === 1 || counts[best[0]] > counts[best[1]])) return Number(best[0]);
   for (const v of all) if (all.filter(x => x === v).length >= 2) return v;
+  // no two agree: a read that is a FRAGMENT of a candidate supports it — col 10 · raw 19 · word 0:
+  // the "0" is part of 10, not of 19 (Z400 p15, manual 10, 2026-10-06). Decides only on a clear winner.
+  const support = c => all.filter(v => v === c || (String(c).length > String(v).length && String(c).includes(String(v)))).length;
+  const ranked = [...new Set(all)].map(c => ({ c, n: support(c) })).sort((a, b) => b.n - a.n);
+  if (col != null && ranked.length > 1 && ranked[0].c === col && ranked[0].n >= 2 && ranked[0].n > ranked[1].n) return col;
   if (raw != null) return raw;
   if (col != null) return col;
   return wiped;
@@ -301,6 +306,72 @@ function readRefCells(pdf, page, rows, col, tmp) {
     if (process.env.OCR_DEBUG_REF) console.error("ref p" + page + " " + b.row.pn + " psm10=" + r10[i] + " psm8=" + r8[i] + " → " + v);
     if (v) { b.row.ref = v; b.row.refCell = true; }
   });
+}
+
+/**
+ * A variant qty that no two reads agreed on is stored as "not used" — but on D1703 p23 ref 040
+ * (6 · 6 · 6 · 6 in the manual) came out "– · 6 · 6 · 6", hiding a real part (user, 2026-10-06).
+ * The page can tell a "–" from a digit: a dash is a thin stroke, a digit is tall. So where the
+ * row's OTHER variants all read the same value and an empty cell holds digit-tall ink, take that
+ * value and mark the row `qtyInk` (stored for review; not shown on the page yet). A dash or a blank cell
+ * stays "not used". Measured on the 400-dpi page raster, rule lines skipped.
+ */
+function cellInkSpan(R, box, lo, hi) {
+  const x0 = Math.max(0, Math.round(box.x)), x1 = Math.min(R.W - 1, Math.round(box.x + box.w));
+  const pad = 0.12 * (hi - lo), y0 = Math.max(0, Math.round(lo + pad)), y1 = Math.min(R.H - 1, Math.round(hi - pad));
+  const w = x1 - x0 + 1; let top = -1, bot = -1, ink = 0;
+  for (let y = y0; y <= y1; y++) {
+    let n = 0; for (let x = x0; x <= x1; x++) if (R.d[y * R.W + x] < 128) n++;
+    if (n > 0.5 * w || n < 2) continue;            // a rule line, or nothing
+    ink += n; if (top < 0) top = y; bot = y;
+  }
+  return { span: top < 0 ? 0 : bot - top + 1, ink };
+}
+function inkFillVariants(pdf, page, rows, boxes, tmp) {
+  const R = pageRaster(pdf, page, DPI, tmp);
+  rowBands(rows).forEach(({ row, lo, hi }) => {
+    const q = row.qty; if (!Array.isArray(q) || q.length < 2) return;
+    // one variant with noise glued onto the shared value ("1 · 1 · 1 · 41", D1703 ref 130) → the value
+    const others = i => q.filter((v, j) => j !== i && v != null);
+    q.forEach((v, i) => {
+      const o = others(i);
+      if (v == null || v < 10 || o.length < 2 || !o.every(x => x === o[0]) || v === o[0]) return;
+      const t = String(v), g = String(o[0]);
+      if (t.endsWith(g) || t.startsWith(g)) { q[i] = o[0]; row.qtyInk = true; }
+    });
+    const got = q.filter(v => v != null);
+    if (got.length < 2 || got.length === q.length || !got.every(v => v === got[0])) return;
+    q.forEach((v, i) => {
+      if (v != null || !boxes[i]) return;
+      const m = cellInkSpan(R, boxes[i], lo, hi);
+      const digit = m.span >= 0.2 * (hi - lo) && m.ink >= 40;   // measured: dash 4 px, digit 22 px of a 72 px row
+      if (process.env.OCR_DEBUG_INK) console.error("ink p" + page + " " + row.pn + " col" + i + " span=" + m.span + "/" + Math.round(hi - lo) + " ink=" + m.ink + " → " + (digit ? got[0] : "–"));
+      if (digit) { q[i] = got[0]; row.qtyInk = true; }
+    });
+  });
+}
+
+/** Step x left (≤ maxBack px) to a blank pixel column, or just past a rule, inside rows y0..y1. */
+function backOffToWhite(pdf, page, x, y0, y1, maxBack, tmp) {
+  const R = pageRaster(pdf, page, DPI, tmp);
+  y0 = Math.max(0, Math.round(y0)); y1 = Math.min(R.H - 1, Math.round(y1));
+  const frac = xx => { let n = 0; for (let y = y0; y <= y1; y++) if (R.d[y * R.W + xx] < 128) n++; return n / (y1 - y0 + 1); };
+  for (let xx = Math.round(x); xx >= Math.max(0, Math.round(x - maxBack)); xx--) {
+    const f = frac(xx);
+    if (f < 0.03) return xx;           // white: the gap before the first letters (row lines alone ≈ 1.5%, letters 10–17%)
+    if (f > 0.5) return xx + 4;        // a rule: start just after it
+  }
+  return x;
+}
+
+/** The first pixel row in 7–14% of the page that is ink across > 55% of the width (a frame's top rule). */
+function frameTop(pdf, page, W, H, tmp) {
+  const R = pageRaster(pdf, page, DPI, tmp);
+  for (let y = Math.round(0.07 * H); y < Math.round(0.14 * H); y++) {
+    let n = 0; for (let x = 0; x < R.W; x++) if (R.d[y * R.W + x] < 128) n++;
+    if (n > 0.55 * R.W) return y - 4;
+  }
+  return null;
 }
 
 function cellBox(box, colWords, W) {
@@ -741,9 +812,12 @@ function ocrBook(pdf, opts) {
           // 1–2 digit ones — a 3-digit book always shows a few "010"-style REFs per page
           const n3 = dig.filter(t => t.length === 3).length + r.rows.filter(x => /^\d{3}$/.test(x.ref || "")).length;
           const nS = dig.filter(t => t.length <= 2).length;
-          const short = bookShortRefs || (n3 === 0 && nS >= 1) ||
-            (dig.length >= 3 && nS >= 0.6 * dig.length);
-          if (short) bookShortRefs = true;
+          // ⚠ the BOOK flips to short only on STRONG page evidence (≥ 3 numbers, ≥ 60% short, no 3-digit).
+          //   A weak page (a single "10" on a sparse 3-digit page) flipped D1703 / D1105 and wiped their
+          //   010-style REFs (2026-10-06) — weak evidence now only counts once the book is known short.
+          const strong = dig.length >= 3 && nS >= 0.6 * dig.length && n3 === 0;
+          if (strong) bookShortRefs = true;
+          const short = bookShortRefs && n3 === 0;
           attachColumn(r.rows, refWords, short ? "refShort" : "ref");
           // a LONE digit ("1" … "9") in a boxed cell is what tesseract drops — the column read gets
           // 10–19 and loses 1–9 (D850 p13, 2026-10-06). Read each still-empty cell on its own.
@@ -760,8 +834,14 @@ function ocrBook(pdf, opts) {
           }
         }
         // 2. names: their own crop (the page read loses whole rows in denser books)
-        const nameLeft = isFinite(pnEdge) ? pnEdge + 4 : 0.22 * W;
-        attachColumn(r.rows, ocrColumn(pdf, p, { x: nameLeft, y: top, w: L.nameEnd - nameLeft, h: hgt }, 600, tmp), "name");
+        // ⭐ a fixed offset after the widest part number cut INTO the first letter where the name column
+        //   starts right there ("ASKET", "LUG" — Z400, 2026-10-06). If the crop's edge passes through ink,
+        //   step left to the nearest blank pixel column (or just past a rule). Already in white → unchanged.
+        //   (Edges from the printed rules were tried first and garbled V3600 names — reverted.)
+        let nameLeft = isFinite(pnEdge) ? pnEdge + 4 : 0.22 * W;
+        const nameEnd = L.nameEnd;
+        if (!process.env.OCR_NO_NAMESHIFT) nameLeft = backOffToWhite(pdf, p, nameLeft, top, top + hgt, 0.025 * W, tmp);
+        attachColumn(r.rows, ocrColumn(pdf, p, { x: nameLeft, y: top, w: nameEnd - nameLeft, h: hgt }, 600, tmp), "name");
         // 3. quantity and 4. remarks (sizes) — printed small, so read at 600 dpi
         const qtyBox = { x: L.stueckX, y: top, w: (L.qtyEnd || L.remarksX - 20) - L.stueckX, h: hgt };
         const qtyCol = ocrColumn(pdf, p, qtyBox, 600, tmp, ["-c", "tessedit_char_whitelist=0123456789-"], "qty");
@@ -781,6 +861,7 @@ function ocrBook(pdf, opts) {
         if (subCols) r.rows.forEach(x => { x.qty = null; });
         if (!process.env.OCR_NO_CELLS) readQtyCells(pdf, p, r.rows, aBox, tmp, !!subCols);
         if (subCols) readVariantQty(pdf, p, r.rows, subCols.map(mid), tmp);
+        if (subCols && !process.env.OCR_NO_INKFILL) inkFillVariants(pdf, p, r.rows, subCols.map(mid), tmp);
         attachColumn(r.rows, ocrColumn(pdf, p, { x: L.remarksX, y: top, w: 0.98 * W - L.remarksX, h: hgt }, 600, tmp,
           ["-c", "tessedit_char_whitelist=0123456789+-.STDEmMSOVRIZEABCHGKLNPU/"]), "remark");
       }
@@ -792,7 +873,12 @@ function ocrBook(pdf, opts) {
       // ⭐ older books (Z400, D850, D1402) print the drawing on its OWN page before the table, the
       //   whole page below the title — remember that page as the section's drawing (2026-10-06)
       if (!r.rows.length) {
-        if (r.code && !r.isIndex) pending = { code: r.code, name: r.name, band: { page: p, y: 0.085 * H, h: 0.835 * H, W } };
+        if (r.code && !r.isIndex) {
+          // start at the drawing's frame (its top rule) when there is one — 8.5% left the title's
+          // last line ("GETRIEBEGEHÄUSE") across the top of Z400's drawings (2026-10-06)
+          const fy = frameTop(pdf, p, W, H, tmp), y0 = fy != null ? fy : 0.085 * H;
+          pending = { code: r.code, name: r.name, band: { page: p, y: y0, h: 0.92 * H - y0, W } };
+        }
         continue;
       }
       if (!r.code && pending) { r.code = pending.code; r.name = r.name || pending.name; }
@@ -817,6 +903,7 @@ function ocrBook(pdf, opts) {
       r.rows.forEach(row => {
         const part = { ref: row.ref, pn: row.pn, name: row.name, remark: row.remark, qty: row.qty, page: p,
                         ocr: { conf: row.conf, agree: !!row.agree, rescued: !!row.rescued } };
+        if (row.qtyInk) part.qtyInk = true;   // a variant qty taken from the page's ink, not two agreeing reads
         if (row.refCell) part.refCell = true;   // read alone — repairShortRefs checks it against its neighbours
         current.parts.push(part);
         if (!row.ref) out.flags.push({ page: p, kind: "ocr-no-ref", line: row.pn + " " + row.name });
@@ -826,9 +913,13 @@ function ocrBook(pdf, opts) {
   } finally { dropRasters(); fs.rmSync(tmp, { recursive: true, force: true }); }
   // per PAGE: a section whose next page's code was missed carries that page's table too, and its
   // REFs restart at 1 — the order can't be reasoned across that seam (Z400 p11/p17/p19, 2026-10-06)
+  // and the repair checks what the book's REFs ACTUALLY are: most of them 1–2 digits, or nothing is touched
+  const allRefs = out.sections.flatMap(s => s.parts).map(p => p.ref).filter(r => /^\d+$/.test(r || ""));
+  const bookShort = bookShortRefs && allRefs.length >= 10 && allRefs.filter(r => r.length <= 2).length >= 0.7 * allRefs.length;
+  out.refStyle = bookShort ? "short" : "3-digit";
   out.sections.forEach(s => {
     const pages = [...new Set(s.parts.map(p => p.page))];
-    s.refFixes = pages.reduce((n, pg) => n + repairShortRefs(s.parts.filter(p => p.page === pg), bookShortRefs), 0);
+    s.refFixes = bookShort ? pages.reduce((n, pg) => n + repairShortRefs(s.parts.filter(p => p.page === pg), true), 0) : 0;
     s.parts.forEach(p => { delete p.refCell; });
   });
   // a row whose REF was filled in is no longer missing one

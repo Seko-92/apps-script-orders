@@ -159,7 +159,18 @@ const FRENCH = new Set(["ENS", "ENS.", "JOINT", "CLAVETTE", "ECROU", "FCROU", "P
   "VILEBREQUIN", "DEFLECTEUR", "DEFLEGTEUR", "GOUJON", "RESSORT", "SOUPAPE", "CULBUTEUR", "ARBRE", "PLAQUE", "LEVIER",
   "CONTACT", "BRIDE", "DEMARREUR", "ALTERNATEUR", "VOLANT", "COUVERCLE", "CACHE", "TIGE", "GOUPILLE", "ANNEAU",
   "COUDE", "SUPPORT", "ROULEMENT", "COLLECTEUR", "FILTRE", "CARTOUCHE", "INJECTEUR", "BOUGIE", "POULIE", "COURROIE",
-  "VENTILATEUR", "TUBE", "RACCORD", "ETIQUETTE", "MANUEL", "CALE", "CLIP", "ATTACHE", "AGRAFE"]);
+  "VENTILATEUR", "TUBE", "RACCORD", "ETIQUETTE", "MANUEL", "CALE", "CLIP", "ATTACHE", "AGRAFE", "V1S", "BOULON", "MOTEUR", "PASTILLE", "GICLEUR", "CHEMISE", "BLOC", "STEPSEL", "AXE"]);
+
+// A French word, or one OCR clipped at the column edge ("BOUCH", "CARTEI", "GOUPII" — Z400,
+// 2026-10-06): 5+ letters whose first n−1 begin a French word. English names never do (checked
+// against the list: no English part word of 5+ letters starts like one).
+const isFrench = t => {
+  const u = t.toUpperCase().replace(/[^A-Z.]/g, "");
+  if (FRENCH.has(u)) return true;
+  if (u.length < 5) return false;
+  const stem = u.replace(/\.$/, "").slice(0, -1);
+  return [...FRENCH].some(f => f.length > stem.length && f.startsWith(stem));
+};
 
 const NOISE = /^[|\[\]_~.,'`"\-=*]+$/;
 const clean = t => t.replace(/^[|\[\]_~]+|[|\[\]_~]+$/g, "").trim();
@@ -170,7 +181,7 @@ function rowAt(words, w, pn, L) {
   const line = words.filter(x => Math.abs((x.y + x.h / 2) - mid) < tol).sort((a, b) => a.x - b.x);
   const refW = line.filter(x => x.x < w.x).map(x => x.t.replace(/\D/g, "")).find(t => /^\d{3}$/.test(t));
   let nameWords = line.filter(x => x.x > w.x + w.w - 5 && x.x < L.nameEnd).map(x => clean(x.t)).filter(t => t && !NOISE.test(t));
-  const cut = nameWords.findIndex((t, i) => i > 0 && FRENCH.has(t.toUpperCase().replace(/[^A-Z.]/g, "")));
+  const cut = nameWords.findIndex((t, i) => i > 0 && isFrench(t));
   if (cut > 0) nameWords = nameWords.slice(0, cut);
   return { ref: refW || "", pn, name: nameWords.join(" ").replace(/\s+,/g, ",").replace(/,\s+/g, ","),
            remark: "", qty: null, conf: Math.round(w.conf), y: mid, h: Math.max(w.h, 40) };
@@ -212,9 +223,10 @@ function attachColumn(rows, colWords, field) {
 /** A name from the name-column crop: OCR noise out, the French spill cut. */
 function cleanName(t) {
   let w = t.split(/\s+/).map(clean).filter(x => x && !NOISE.test(x));
-  const cut = w.findIndex((x, i) => i > 0 && FRENCH.has(x.toUpperCase().replace(/[^A-Z.]/g, "")));
+  const cut = w.findIndex((x, i) => i > 0 && isFrench(x));
   if (cut > 0) w = w.slice(0, cut);
-  return w.join(" ").replace(/\s+,/g, ",").replace(/,\s+/g, ",").trim();
+  // "0 RING": the typewriter O reads as a zero (Z400, 2026-10-06)
+  return w.join(" ").replace(/\s+,/g, ",").replace(/,\s+/g, ",").replace(/(^|[ ,])0 ?RING\b/g, "$1O RING").trim();
 }
 
 /** OCR of the tiny remarks: "+0.25mm", "-0.20mm SET", "STD", "STD SET". */
