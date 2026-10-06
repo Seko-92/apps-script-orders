@@ -197,6 +197,10 @@ function attachColumn(rows, colWords, field) {
       // read from the START of a word: an arrow glued on reads as "1-" (Z400, 2026-10-04)
       const m = t.split(/\s+/).map(x => x.match(/^(\d{1,3})(?!\d)/)).find(Boolean);
       if (m && row.qty == null) row.qty = [Number(m[1])];
+    } else if (field === "ref") {
+      // a REF is exactly three digits (010, 125); a 4+ digit token is a part number spilling in
+      const m = t.split(/\s+/).map(x => x.match(/^(\d{3})$/)).find(Boolean);
+      if (m && !row.ref) row.ref = m[1];
     } else if (field === "name") {
       const nm = cleanName(t);
       if (nm && (!row.name || row.rescued || nm.length >= row.name.length - 2)) row.name = nm;

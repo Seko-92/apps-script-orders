@@ -18,6 +18,7 @@ const { execFileSync } = require("child_process");
 const { parseKubota } = require("./lib/kubota");
 const { parseKpad } = require("./lib/kpad");
 const { fixMisreadPrefixes } = require("./lib/pn-fix");
+const { dropSerialRangeModels } = require("./lib/models");
 
 // ---- args -------------------------------------------------------------------------------
 const args = process.argv.slice(2);
@@ -82,6 +83,13 @@ function modelFromFileName(name) {
   return m ? m[1].replace(/ /g, "-").replace(/\./g, "-") : "";
 }
 const OCR_BAR = { shape: 0.95, qty: 0.85, name: 0.85 };          // see the OCR block below
+// A published book that slipped under the bar for a GOOD reason stays live — named here, with why.
+const OCR_BAR_KEEP = {
+  // 2026-10-06: the variant-column fix removed WRONG C quantities (the old layout read one column
+  // left, inventing values); qty share 85.0% → 83.9% with the data now MORE correct. The cells it
+  // misses print a serial range under the qty ("1" over "~489915") — an empty cell, not a wrong one.
+  "D1105.pdf": "variant-column fix removed wrong quantities"
+};
 const OCR_PN_SHAPE = /^(\d[A-Z0-9]\d{3}-\d{4}-\d|\d{5}-\d{5})$/; // 1C010-5675-0 · 15221-1443-0 · 04814-10070
 const MIN_LINES = 50;          // fewer readable part lines than this = a scan → OCR batch
 
@@ -169,6 +177,7 @@ if (fs.existsSync(ocrDir)) {
     // a French word ("ECHANGE") or another model column — and dedupe keys on the model, so junk
     // names merged 11 different books as "duplicates" (2026-10-05)
     parsed.model = modelFromFileName(rec.name) || parsed.model;
+    dropSerialRangeModels(parsed);   // "<=15000" is a serial range, not a variant (lib/models.js)
     let check = 0, named = 0;
     parsed.sections.forEach(s => s.parts.forEach(p => {
       const known = isKnown(p.pn);
@@ -186,7 +195,8 @@ if (fs.existsSync(ocrDir)) {
     const share = f => all.filter(f).length / n;
     rec.ocr.score = { shape: share(p => OCR_PN_SHAPE.test(p.pn || "")), qty: share(p => Array.isArray(p.qty) && p.qty.some(v => v != null)),
                       name: share(p => p.name && p.name.length > 2) };
-    if (rec.status === "ok" && !(rec.ocr.score.shape >= OCR_BAR.shape && rec.ocr.score.qty >= OCR_BAR.qty && rec.ocr.score.name >= OCR_BAR.name))
+    if (rec.status === "ok" && !(rec.ocr.score.shape >= OCR_BAR.shape && rec.ocr.score.qty >= OCR_BAR.qty && rec.ocr.score.name >= OCR_BAR.name)
+        && !OCR_BAR_KEEP[rec.name])
       rec.status = "ocr-below-bar";
   });
 }
@@ -218,18 +228,23 @@ const engines = [];
 // drawings for every engine first, DRAWING_JOBS at a time (xargs -P keeps this synchronous)
 const DRAWING_JOBS = 4;
 const drawingsById = {};
-if (opt.drawings) {
+// with --keep-drawings, an engine that HAS drawings from the last import keeps them; only the ones
+// without any are extracted (D902, added 2026-10-06 — it never had any)
+const hasKept = id => { try { return !!JSON.parse(fs.readFileSync(path.join(opt.out, id + ".json"), "utf8")).drawings; } catch (e) { return false; } };
+if (opt.drawings || opt.keepDrawings) {
   const tmpD = fs.mkdtempSync(path.join(require("os").tmpdir(), "hqdrw-"));
   const tasks = [];
   for (const r of byModel.values()) {
-    if (r.parsed.source === "kpad") continue;   // KPAD prints its drawings on separate pages
     const id = slug(r.parsed.model), task = path.join(tmpD, id + ".task.json");
+    if (!opt.drawings && hasKept(id)) continue;
     fs.writeFileSync(task, JSON.stringify({ pdf: r.file, parsed: r.parsed, outDir: opt.out, id, result: path.join(tmpD, id + ".out.json") }));
     tasks.push({ id, task, result: path.join(tmpD, id + ".out.json") });
   }
   console.log(`drawings: ${tasks.length} engine(s), ${DRAWING_JOBS} at a time …`);
   const t0 = Date.now();
-  execFileSync("xargs", ["-0", "-P", String(DRAWING_JOBS), "-n", "1", process.execPath, path.join(__dirname, "lib", "drawings.js"), "--worker"],
+  // ⚠ xargs runs its command ONCE even on empty input — a worker with no task crashed the whole
+  //   import (2026-10-06, --keep-drawings with every engine kept). Nothing to draw → skip.
+  if (tasks.length) execFileSync("xargs", ["-0", "-P", String(DRAWING_JOBS), "-n", "1", process.execPath, path.join(__dirname, "lib", "drawings.js"), "--worker"],
     { input: tasks.map(t => t.task).join("\0"), stdio: ["pipe", "inherit", "inherit"], maxBuffer: 64 << 20 });
   tasks.forEach(t => { try { drawingsById[t.id] = JSON.parse(fs.readFileSync(t.result, "utf8")); } catch (e) { console.log(`  ! drawings ${t.id}: worker failed`); } });
   fs.rmSync(tmpD, { recursive: true, force: true });

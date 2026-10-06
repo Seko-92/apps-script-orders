@@ -41,6 +41,20 @@ function drawingBand(box, sectionCode) {
   return { x: 0, y: top, w: box.w, h: bottom - top };
 }
 
+/**
+ * KPAD web printouts (D902): each section's page prints its title line TWICE — at the top, then the
+ * drawing, then again just above the parts table ("D902-E4B-AVN-1 -> ENGINE -> 000300 CYLINDER HEAD").
+ * The drawing is the band between the first title block (+ its "Update Date" line) and the second.
+ */
+function kpadDrawingBand(box, sectionCode) {
+  const codes = box.words.filter(w => w.t === sectionCode).sort((a, b) => a.y0 - b.y0);
+  if (codes.length < 2) return null;
+  const upd = box.words.find(w => /^Update/.test(w.t) && w.y0 > codes[0].y0 && w.y0 < codes[1].y0);
+  const top = (upd ? upd.y1 : codes[0].y1) + 6, bottom = codes[1].y0 - 8;
+  if (bottom - top < 80) return null;
+  return { x: 0, y: top, w: box.w, h: bottom - top };
+}
+
 function render(pdf, page, band, dpi, mono, outBase) {
   const s = dpi / 72;
   const args = ["-f", String(page), "-l", String(page), "-r", String(dpi),
@@ -103,7 +117,8 @@ function extractDrawings(pdf, parsed, outDir, id) {
   for (const s of parsed.sections) {
     try {
       // a scanned book has no text layer: its OCR reader already measured the band
-      const band = (parsed.bands && parsed.bands[s.code]) || drawingBand(wordBoxes(pdf, s.page), s.code);
+      const band = (parsed.bands && parsed.bands[s.code]) ||
+        (parsed.source === "kpad" ? kpadDrawingBand(wordBoxes(pdf, s.page), s.code) : drawingBand(wordBoxes(pdf, s.page), s.code));
       if (!band) continue;
       const refs = [...new Set(s.parts.map(p => p.ref))];
       // Several OCR passes see different callouts (leader lines touch the digits); merge them.
@@ -133,4 +148,4 @@ if (require.main === module && process.argv[2] === "--worker") {
   fs.writeFileSync(t.result, JSON.stringify(extractDrawings(t.pdf, t.parsed, t.outDir, t.id)));
 }
 
-module.exports = { extractDrawings, drawingBand, mergeCallouts };
+module.exports = { extractDrawings, drawingBand, kpadDrawingBand, mergeCallouts };

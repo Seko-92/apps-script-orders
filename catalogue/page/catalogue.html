@@ -155,6 +155,25 @@ tr.miss td.pn { color: var(--ink-soft); }
 .co.on { background: color-mix(in srgb, var(--yellow) 55%, transparent); outline-color: #1a1a1a; }
 @media (prefers-reduced-motion: no-preference) { .co.on { animation: ping .9s ease-out 1; } }
 @keyframes ping { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--yellow) 90%, transparent); } 100% { box-shadow: 0 0 0 14px transparent; } }
+/* drawing PEEK: a row clicked while its drawing is off screen (narrow / split screen — the drawing
+   sits ABOVE the table there and scrolls away). Zoomed on the callout; the list doesn't move. */
+.peek { position: fixed; right: max(16px, env(safe-area-inset-right, 0px)); bottom: max(16px, env(safe-area-inset-bottom, 0px)); z-index: 30;
+  width: min(380px, calc(100vw - 32px)); background: var(--sheet); border: 1px solid var(--ink); border-top: 3px solid var(--yellow);
+  box-shadow: 0 10px 30px rgba(0,0,0,.25); }
+.peek[hidden] { display: none; }
+.peek-head { display: flex; align-items: center; gap: 8px; padding: 6px 8px; font: 500 12px var(--font-display); letter-spacing: .06em; text-transform: uppercase; }
+.peek-head b { font-family: var(--font-mono); letter-spacing: 0; }
+.peek-head .sp { flex: 1; }
+.peek-head button { all: unset; cursor: pointer; padding: 2px 6px; border-bottom: 1px solid var(--ink-soft); }
+.peek-head button.x { border: 0; font-size: 16px; line-height: 1; }
+.peek-head button:focus-visible { outline: 2px solid var(--yellow); }
+.peek-view { position: relative; height: 240px; overflow: hidden; background: #fff; border-top: 1px solid var(--rule); }
+.peek-view img { position: absolute; max-width: none; }
+:root[data-theme="dark"] .peek-view img { filter: invert(.88) hue-rotate(180deg); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .peek-view img { filter: invert(.88) hue-rotate(180deg); } }
+:root[data-theme="dark"] .peek-view { background: #1d1b16; }
+.peek-mark { position: absolute; background: color-mix(in srgb, var(--yellow) 55%, transparent); outline: 2px solid #1a1a1a; border-radius: 3px; }
+.peek-note { padding: 6px 8px; font-size: 12px; color: var(--ink-soft); border-top: 1px solid var(--rule); }
 .dwg-bar { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px; margin-top: 6px; font-size: 12px; color: var(--ink-soft); }
 .dwg-bar button { all: unset; cursor: pointer; font: 500 11px var(--font-display); letter-spacing: .08em; text-transform: uppercase; border-bottom: 1px solid var(--ink-soft); }
 .dwg-bar button:focus-visible { outline: 2px solid var(--yellow); }
@@ -204,6 +223,11 @@ td.ref .dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%
 <div class="wrap">
   <nav class="eng-list" id="engines" aria-label="Engines"><h2>Engines</h2></nav>
   <main id="main"></main>
+</div>
+<div class="peek" id="peek" hidden role="dialog" aria-label="Drawing preview">
+  <div class="peek-head"><span>Ref <b id="peekRef"></b></span><span class="sp"></span>
+    <button id="peekGo">Go to drawing</button><button class="x" id="peekX" aria-label="Close preview">×</button></div>
+  <div class="peek-view" id="peekView"></div><div class="peek-note" id="peekNote" hidden></div>
 </div>
 
 <script>
@@ -264,7 +288,7 @@ function loadStock(e) {
 }
 
 function open(id) {
-  state.engine = id; save();
+  state.engine = id; save(); hidePeek();
   const e = DATA.engines.find(x => x.id === id);
   render();
   ensureEngine(e).then(() => { if (state.engine === id) { render(); loadStock(e); } });
@@ -421,13 +445,46 @@ function light(sec, ref, from) {
   cos.forEach(x => { x.classList.remove("on"); void x.offsetWidth; x.classList.add("on"); });
   rows.forEach(x => x.classList.add("on"));
   if (from === "drawing" && rows[0]) rows[0].scrollIntoView({ block: "nearest", behavior: "smooth" });
-  if (from === "row" && cos[0]) { const r = cos[0].getBoundingClientRect(); if (r.bottom < 0 || r.top > innerHeight) cos[0].scrollIntoView({ block: "center", behavior: "smooth" }); }
+  if (from === "row") {
+    // the drawing on screen → the highlight is enough. Off screen → a PEEK, never a scroll: jumping
+    // to the drawing lost the reader's place in a long list (user test 2026-10-06).
+    const dw = body.querySelector(".dwg");
+    const r = dw && dw.getBoundingClientRect(), seen = r && r.bottom > 40 && r.top < innerHeight - 40;
+    if (dw && !seen) showPeek(sec, ref); else hidePeek();
+  }
 }
+function hidePeek() { $("#peek").hidden = true; }
+function showPeek(sec, ref) {
+  const e = DATA.engines.find(x => x.id === state.engine), d = e && (e.drawings || {})[sec];
+  if (!d || !d.src) return hidePeek();
+  $("#peek").hidden = false;                 // visible first, so the view has a width to measure
+  const view = $("#peekView"), VW = view.clientWidth || 360, VH = 240;
+  const cs = d.callouts.filter(c => c.ref === ref);
+  $("#peekRef").textContent = ref; $("#peekGo").dataset.sec = sec; $("#peekGo").dataset.ref = ref;
+  const note = $("#peekNote");
+  if (!cs.length) {                 // the reader didn't locate this ref on the drawing: show it whole
+    const sc = Math.min(VW / d.w, VH / d.h), w = d.w * sc, h = d.h * sc;
+    view.innerHTML = `<img src="${d.src}" alt="" style="width:${w}px;height:${h}px;left:${(VW - w) / 2}px;top:${(VH - h) / 2}px">`;
+    note.hidden = false; note.textContent = "Ref " + ref + " wasn't found on this drawing — look for it in the picture.";
+  } else {                          // zoomed so the drawing is ~2.2× the panel, centred on the callout
+    const c = cs[0], W = VW * 2.2, H = W * d.h / d.w;
+    const cx = (c.x + c.w / 2) * W, cy = (c.y + c.h / 2) * H;
+    const left = Math.min(0, Math.max(VW - W, VW / 2 - cx)), top = Math.min(0, Math.max(VH - H, VH / 2 - cy));
+    view.innerHTML = `<img src="${d.src}" alt="Exploded view" style="width:${W}px;height:${H}px;left:${left}px;top:${top}px">` +
+      cs.map(k => `<span class="peek-mark" style="left:${left + (k.x - .006) * W}px;top:${top + (k.y - .01) * H}px;width:${(k.w + .012) * W}px;height:${(k.h + .02) * H}px"></span>`).join("");
+    note.hidden = true;
+  }
+}
+document.addEventListener("keydown", ev => { if (ev.key === "Escape") hidePeek(); });
 document.addEventListener("mouseover", ev => {
   const tr = ev.target.closest("tbody tr[data-ref]");
   if (tr && matchMedia("(hover: hover)").matches) light(tr.dataset.sec, tr.dataset.ref);
 });
 document.addEventListener("click", ev => {
+  if (ev.target.closest("#peekX")) { hidePeek(); return; }
+  const pg = ev.target.closest("#peekGo");
+  if (pg) { hidePeek(); const b = document.getElementById("b" + pg.dataset.sec), dw = b && b.querySelector(".dwg");
+    if (dw) { dw.scrollIntoView({ block: "center", behavior: "smooth" }); light(pg.dataset.sec, pg.dataset.ref); } return; }
   const co = ev.target.closest(".co");
   if (co) { light(co.dataset.sec, co.dataset.ref, "drawing"); return; }
   const big = ev.target.closest("[data-big]");

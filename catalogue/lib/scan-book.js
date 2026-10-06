@@ -137,25 +137,56 @@ function pageModels(words) {
 function variantColumns(pdf, page, qtyBox, L, n, W, tmp) {
   const x0 = qtyBox.x - 0.08 * W, x1 = Math.min(L.remarksX - 20, qtyBox.x + 0.25 * W);
   const col = ocrColumn(pdf, page, { x: x0, y: qtyBox.y, w: x1 - x0, h: qtyBox.h }, 600, tmp, ["-c", "tessedit_char_whitelist=0123456789-"], "qty");
-  const rules = (col.rules || []).slice().sort((a, b) => a - b).filter((x, i, a) => !i || x - a[i - 1] > 0.006 * W);
+  // rules from the OCR crop PLUS a direct scan of the page image: a printed rule is a pixel column dark
+  // down most of the table. The crop read found only 2 of D1703 p29's 5 rules (its rows are broken
+  // lines), which left the layout to the heading centre → one column off.
+  const rules = (col.rules || []).concat(pageVRules(pdf, page, x0, Math.max(x1, Math.min(L.remarksX || x1, qtyBox.x + 0.3 * W)), qtyBox.y, qtyBox.y + qtyBox.h, tmp))
+    .sort((a, b) => a - b).filter((x, i, a) => !i || x - a[i - 1] > 0.006 * W);
   const gaps = [];
   for (let i = 0; i < rules.length - 1; i++) { const d = rules[i + 1] - rules[i]; if (d > 0.012 * W && d < 0.06 * W) gaps.push([rules[i], rules[i + 1]]); }
   if (!gaps.length) return null;
   const centre = L.stCenter || qtyBox.x + 0.02 * W;
-  // candidate layouts: each found gap as column A, the rest laid out at that width; keep the one
-  // whose span is centred best under the heading
+  // candidate layouts: each found gap as column A, B, C or D, the rest laid out at that width.
+  // ⭐ Keep the one whose n+1 EDGES land on the most printed rules; the heading centre only breaks a
+  //   tie. Centring alone put D1703 p23 one column LEFT: the rules 2125·2273·2429·2575·2725 were all
+  //   found, but "Q'TE STUECK" heads A–B only, so its centre (2334) pulled the layout left — every
+  //   variant read its left neighbour's quantity (16423-2111-0 A3 B3 C3 D– came out –,3,3,3).
+  const onRule = x => rules.some(r => Math.abs(r - x) < 0.006 * W);
   let best = null;
   gaps.forEach(g => {
     const w = g[1] - g[0];
     [0, 1, 2, 3].slice(0, n).forEach(k => {           // g could be column A, B, C or D
       const a = g[0] - k * w, span = [a, a + n * w];
       const off = Math.abs((span[0] + span[1]) / 2 - centre);
-      if (!best || off < best.off) best = { off, a, w };
+      let hits = 0; for (let e = 0; e <= n; e++) if (onRule(a + e * w)) hits++;
+      if (!best || hits > best.hits || (hits === best.hits && off < best.off)) best = { off, a, w, hits };
     });
   });
-  if (!best || best.off > 1.5 * best.w) return null;
+  if (!best || (best.off > 1.5 * best.w && best.hits < n + 1)) return null;
   const out = []; for (let v = 0; v < n; v++) out.push([best.a + v * best.w, best.a + (v + 1) * best.w]);
+  if (process.env.OCR_DEBUG_QTY) console.error("rules p" + page + ": " + rules.map(Math.round).join(" "));
   if (process.env.OCR_DEBUG_QTY) console.error("variants p" + page + ": " + out.map(g => Math.round(g[0]) + "-" + Math.round(g[1])).join(" ") + " (heading centre " + Math.round(centre) + ")");
+  return out;
+}
+
+/** x positions (400-dpi page px) in [x0, x1] where a vertical rule runs down ≥ 60% of rows y0…y1. */
+function pageVRules(pdf, page, x0, x1, y0, y1, tmp) {
+  const R = pageRaster(pdf, page, DPI, tmp);
+  x0 = Math.max(0, Math.round(x0)); x1 = Math.min(R.W - 1, Math.round(x1));
+  y0 = Math.max(0, Math.round(y0)); y1 = Math.min(R.H - 1, Math.round(y1));
+  const rows = y1 - y0 + 1; if (rows < 50 || x1 <= x0) return [];
+  const frac = [];
+  for (let x = x0; x <= x1; x++) {
+    let n = 0;
+    for (let y = y0; y <= y1; y++) if (R.d[y * R.W + x] < 128) n++;
+    frac.push(n / rows);
+  }
+  const out = [];
+  for (let i = 0; i < frac.length; i++) {
+    if (frac[i] < 0.6) continue;
+    let j = i; while (j + 1 < frac.length && frac[j + 1] >= 0.6) j++;   // a rule is a few px wide
+    out.push(x0 + (i + j) / 2); i = j;
+  }
   return out;
 }
 
@@ -636,6 +667,14 @@ function ocrBook(pdf, opts) {
         //     row. Read just that row's part-number cell, one line, and rescue it if it's a valid
         //     number (D782 p34: 8 of 28 parts were lost, e.g. "1-64T1-0" for 15881-6411-0, 2026-10-04)
         if (!process.env.OCR_NO_GAPS) r.rows = fillRowGaps(pdf, p, r.rows, words, L, x0, (isFinite(pnEdge) ? pnEdge : 0.22 * W), tmp);
+        // 1c. REF column alone, digits only. Rows rescued from the part-number column carry no REF —
+        //     on D1703 p23 the page read caught almost none of the table, so 206 of 509 rows had none
+        //     and couldn't be linked to the drawing. Only fills a row that has no REF yet.
+        if (isFinite(pnLeft) && !process.env.OCR_NO_REFCOL) {
+          const rx = Math.max(0, pnLeft - 0.07 * W);
+          attachColumn(r.rows, ocrColumn(pdf, p, { x: rx, y: top, w: pnLeft + 8 - rx, h: hgt }, 600, tmp,
+            ["-c", "tessedit_char_whitelist=0123456789"]), "ref");
+        }
         // 2. names: their own crop (the page read loses whole rows in denser books)
         const nameLeft = isFinite(pnEdge) ? pnEdge + 4 : 0.22 * W;
         attachColumn(r.rows, ocrColumn(pdf, p, { x: nameLeft, y: top, w: L.nameEnd - nameLeft, h: hgt }, 600, tmp), "name");

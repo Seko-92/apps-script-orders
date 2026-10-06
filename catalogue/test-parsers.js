@@ -161,5 +161,25 @@ eq("OCR prefix fix: known · real 10… untouched · real 16… untouched · rea
 eq("OCR prefix fix: an inferred fix is not 'agreed'; tiers counted",
    [pfBooks[0].parts[3].ocr.agree, pfBooks[0].parts[3].ocr.prefixFix, pfr.byTier.known, pfr.byTier.read, pfr.byTier.stem, pfr.left], [false, "read", 1, 1, 1, 1]);
 
+
+// ---------- variant names: a serial range is not a variant (user test 2026-10-06) ----------
+const { isSerialRange, dropSerialRangeModels } = require("./lib/models");
+eq("serial ranges recognised, real variant names kept",
+   ["<=15000", "14000 to 15000 |", "=<<=15000", "<{=15000", "14000 to 15000 :", "D1703-BB-EC-1", "XXXX |", "ECHANGE", "V2203-M-E2B-EU-Schäffer"].map(isSerialRange),
+   [true, true, true, true, true, false, false, false, false]);
+const sr = { models: [{ col: "A", name: "<=15000" }, { col: "B", name: "14000 to 15000 |" }], sections: [{ parts: [{ qty: [4, 1] }, { qty: [null, null] }] }] };
+dropSerialRangeModels(sr);
+eq("all-range header → no variants, one qty column", [sr.models, sr.sections[0].parts.map(p => p.qty)], [[], [[4], [null]]]);
+const mx = { models: [{ col: "A", name: "D1105-BB-EC-1" }, { col: "B", name: "<=15000" }, { col: "C", name: "XXXX |" }], sections: [{ parts: [{ qty: [1, 9, 2] }] }] };
+dropSerialRangeModels(mx);
+eq("mixed header → the range column alone goes", [mx.models.map(m => m.col), mx.sections[0].parts[0].qty], [["A", "C"], [1, 2]]);
+
+// ---------- KPAD drawing band: between the two copies of the section title (D902, 2026-10-06) ----------
+const { kpadDrawingBand } = require("./lib/drawings");
+const kw = (y0, t) => ({ x0: 50, y0, x1: 100, y1: y0 + 10, t });
+const kbox = { w: 596, h: 842, words: [kw(41, "000300"), kw(65, "Update"), kw(453, "000300"), kw(477, "Update"), kw(524, "No")] };
+eq("KPAD band: from under the first title block to above the second title", kpadDrawingBand(kbox, "000300"), { x: 0, y: 81, w: 596, h: 364 });
+eq("KPAD band: one title only (table page) → none", kpadDrawingBand({ w: 596, h: 842, words: [kw(41, "000300")] }, "000300"), null);
+
 console.log(`${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
