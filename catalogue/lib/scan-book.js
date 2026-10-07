@@ -193,9 +193,9 @@ function pageVRules(pdf, page, x0, x1, y0, y1, tmp) {
 // Variant quantities B…n: the same three cell reads as column A, STRICT vote — a digit must be
 // confirmed by two reads (or be the light read's), else "–" → null ("not used on it"), matching the
 // text manuals. One quick read turned rule fragments into "13", "21" and dashes into "1"/"7".
-function readVariantQty(pdf, page, rows, boxes, tmp) {
+function readVariantQty(pdf, page, rows, boxes, tmp, L) {
   const bands = rowBands(rows), cells = [];
-  bands.forEach(({ row, lo, hi }) => { for (let v = 1; v < boxes.length; v++) cells.push({ row, v, lo, hi }); });
+  for (let v = 1; v < boxes.length; v++) qtyBands(pdf, page, rows, L, boxes[v], tmp).forEach(({ row, lo, hi }) => cells.push({ row, v, lo, hi }));
   const job = (c, mode, psm) => prepColumn(pdf, page, { x: boxes[c.v].x, y: c.lo, w: boxes[c.v].w, h: c.hi - c.lo }, 600, tmp,
     ["--psm", psm, "-c", "tessedit_char_whitelist=0123456789"], mode);
   const digit = ws => { const d = ws.map(w => String(w.t).match(/^(\d{1,3})(?!\d)/)).find(Boolean); return d ? Number(d[1]) : null; };
@@ -231,22 +231,145 @@ function rowBands(rows) {
     hi: i < ys.length - 1 ? (ys[i] + ys[i + 1]) / 2 : ys[i] + pitch / 2 }));
 }
 
+// The marks (digits, dashes) in a qty column: centre y of every connected blob, rule lines removed.
+function columnMarks(R, box, y0, y1) {
+  const x0 = Math.max(0, Math.round(box.x)), x1 = Math.min(R.W - 1, Math.round(box.x + box.w));
+  y0 = Math.max(0, Math.round(y0)); y1 = Math.min(R.H - 1, Math.round(y1));
+  const w = x1 - x0 + 1, h = y1 - y0 + 1; if (w < 10 || h < 10) return [];
+  const on = new Uint8Array(w * h);
+  for (let y = 0; y < h; y++) {
+    let n = 0; for (let x = 0; x < w; x++) if (R.d[(y0 + y) * R.W + x0 + x] < 128) n++;
+    if (n > 0.5 * w) continue;                                       // a row line
+    for (let x = 0; x < w; x++) if (R.d[(y0 + y) * R.W + x0 + x] < 128) on[y * w + x] = 1;
+  }
+  const seen = new Uint8Array(w * h), out = [];
+  for (let i = 0; i < w * h; i++) {
+    if (!on[i] || seen[i]) continue;
+    let n = 0, top = h, bot = -1, left = w, right = -1; const st = [i]; seen[i] = 1;
+    while (st.length) {
+      const q = st.pop(), y = (q / w) | 0, x = q - y * w; n++;
+      if (y < top) top = y; if (y > bot) bot = y; if (x < left) left = x; if (x > right) right = x;
+      for (const [dy, dx] of [[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]]) {
+        const yy = y + dy, xx = x + dx; if (yy < 0 || yy >= h || xx < 0 || xx >= w) continue;
+        const k = yy * w + xx; if (on[k] && !seen[k]) { seen[k] = 1; st.push(k); }
+      }
+    }
+    // keep pieces that could be part of a digit: not speckle, not a flat line fragment, not a vertical rule
+    const bh = bot - top + 1, bw = right - left + 1;
+    if (n >= 12 && bh >= 5 && bh <= 45 && bw <= 0.6 * w && !(bw > 4 * bh)) out.push({ top: y0 + top, bot: y0 + bot });
+  }
+  // a printed digit often breaks into pieces ("3" = top hook + bottom hook): join pieces that overlap
+  // or nearly touch vertically, then keep only digit-sized marks
+  out.sort((a, b) => a.top - b.top);
+  const merged = [];
+  out.forEach(p => { const m = merged[merged.length - 1]; if (m && p.top <= m.bot + 6) m.bot = Math.max(m.bot, p.bot); else merged.push({ top: p.top, bot: p.bot }); });
+  return merged.filter(m => m.bot - m.top + 1 >= 12 && m.bot - m.top + 1 <= 45).map(m => ({ c: (m.top + m.bot) / 2, top: m.top, bot: m.bot }));
+}
+
+// The row lines (horizontal rules) in a NARROW vertical strip x0..x1 (a tilted rule across a wide
+// strip is never dark enough on any one pixel row).
+function hRules(R, x0, x1, y0, y1) {
+  x0 = Math.max(0, Math.round(x0)); x1 = Math.min(R.W - 1, Math.round(x1));
+  y0 = Math.max(0, Math.round(y0)); y1 = Math.min(R.H - 1, Math.round(y1));
+  const w = x1 - x0 + 1, out = []; if (w < 10) return out;
+  let run = -1;
+  for (let y = y0; y <= y1 + 1; y++) {
+    let n = 0;
+    if (y <= y1) for (let x = x0; x <= x1; x++) if (R.d[y * R.W + x] < 128) n++;
+    const dark = y <= y1 && n > 0.7 * w;
+    if (dark && run < 0) run = y;
+    if (!dark && run >= 0) { out.push((run + y - 1) / 2); run = -1; }
+  }
+  return out;
+}
+
+/**
+ * Each row's band IN ONE QTY COLUMN, centred on that row's own printed mark (2026-10-07).
+ * A row's y is its part number's text (far left). On some scans the qty block does not line up with
+ * the text beside it — D1105 p43: every "3" 28–41 px below its part number, the gap wandering down the
+ * page — so the midway bands cut each digit in two and the reads came back empty or a fragment
+ * ("1"/"2" for a printed 3·3·3). So: find the digit marks in the column (below the header's bottom
+ * line), pair them to the rows IN ORDER with the one overall offset that pairs the most, centre each
+ * row on its own mark, and give rows without one (a "–", a blank) their neighbours' offset.
+ * A page that already lines up measures ~0 and keeps its bands untouched.
+ * (Tried first and wrong: pairing the row LINES left vs right — p43's qty lines are not the same lines
+ *  — and one median offset — the gap drifts, so the nearest row flips halfway down the page.)
+ * @return [{row, lo, hi}] sorted like rowBands
+ */
+function qtyBands(pdf, page, rows, L, box, tmp) {
+  const base = rowBands(rows);
+  if (!L || process.env.OCR_NO_SKEW || base.length < 3) return base;
+  const R = pageRaster(pdf, page, DPI, tmp);
+  const ys = base.map(b => b.row.y), n = ys.length;
+  const pitch = Math.min(...ys.slice(1).map((y, i) => y - ys[i]).filter(d => d > 10));
+  // the header's bottom line in this column: the first rule below the header's text
+  const rules = hRules(R, box.x, box.x + box.w, L.headerBottom - 80, ys[n - 1] + pitch);
+  const hdrLine = rules.find(y => y > L.headerBottom - 60);
+  const top = hdrLine != null ? hdrLine + 7 : ys[0] - pitch / 2;   // +7: past the rule's own thickness
+  const found = columnMarks(R, box, top, ys[n - 1] + pitch);
+  if (found.length < 3) return base;
+  const marks = found.map(m => m.c);
+  const half = found.map(m => (m.bot - m.top) / 2).sort((a, b) => a - b)[found.length >> 1];
+  // the overall offset that pairs the most marks (in order, one each), then the closest
+  const tol = 0.35 * pitch;
+  let best = null;
+  for (let off = -Math.round(pitch); off <= Math.round(pitch); off++) {
+    let j = 0, hit = 0, dev = 0; const pair = new Array(n).fill(-1);
+    for (let i = 0; i < n; i++) {
+      const want = ys[i] + off;
+      while (j < marks.length && marks[j] < want - tol) j++;
+      if (j < marks.length && Math.abs(marks[j] - want) <= tol) { pair[i] = j; hit++; dev += Math.abs(marks[j] - want); j++; }
+    }
+    if (!best || hit > best.hit || (hit === best.hit && dev < best.dev)) best = { off, hit, dev, pair };
+  }
+  if (process.env.OCR_DEBUG_SKEW) console.error("skew p" + page + " box=" + Math.round(box.x) + " marks=" + marks.length + " rows=" + n + " off=" + best.off + " paired=" + best.hit + " pitch=" + Math.round(pitch) + " own=" + best.pair.map((j, i) => j >= 0 ? Math.round(marks[j] - ys[i]) : ".").join(","));
+  // ⚠ trust it only when it is unambiguous: most rows paired, and the offset well short of half a row.
+  //   Measured on a 10-book sample: pages that improved sat at 0.43–0.53 of a row; past ~0.55 (V1505
+  //   p13 0.74, p40 0.9, serial-range layouts) "which row owns this digit" is a coin toss — and moving
+  //   made them worse. Those keep their old bands.
+  if (best.hit < Math.max(3, 0.6 * n) || Math.abs(best.off) > 0.55 * pitch) return base;
+  // per-row offset: its own mark; else interpolated between its paired neighbours
+  const offs = best.pair.map((j, i) => j >= 0 ? marks[j] - ys[i] : null);
+  const known = offs.map((o, i) => o != null ? i : -1).filter(i => i >= 0);
+  const offAt = i => {
+    if (offs[i] != null) return offs[i];
+    const a = known.filter(k => k < i).pop(), b = known.find(k => k > i);
+    if (a == null) return offs[b]; if (b == null) return offs[a];
+    return offs[a] + (offs[b] - offs[a]) * (ys[i] - ys[a]) / (ys[b] - ys[a]);
+  };
+  // ⚠ move a band ONLY when its digit does not fit inside it. D1105 p25's digits sit 15 px above the
+  //   text, wholly inside the midway band — re-centring there pulled the row line above into the cell
+  //   and broke a correct 3·3·3 (→ 4·1·1). A digit that fits keeps exactly the band it had.
+  return base.map((b, i) => {
+    const c = ys[i] + offAt(i), t = j => best.pair[i] >= 0 ? found[best.pair[i]][j] : null;
+    const dTop = t("top") != null ? t("top") : c - half, dBot = t("bot") != null ? t("bot") : c + half;
+    // ⚠ only when a real share of the digit is cut off: a few px clipped still reads (V3600 p27's tiny
+    //   "4"s hug the line above, ~17% outside, and read right; moving them read "2"). Over 25% cut → move.
+    //   (Cropping to the digit's own cell lines was tried too: dashed lines can't be found, and p43 got worse.)
+    // ⚠ the FIRST row never moves UP: above it is only header, and every such move read header marks
+    //   (V3600 p40 "1" → 3/4, D905 p30 "1" → 71). Downward (D1105 p43) is fine.
+    if (i === 0 && c < ys[0]) return b;
+    const out = Math.max(0, b.lo - dTop) + Math.max(0, dBot - b.hi);
+    if (out <= 0.25 * (dBot - dTop)) return b;
+    // never above the header's bottom line: row 1 moved up read the header's "A" as a 3 (V3600 p40)
+    return { row: b.row, lo: Math.max(c - pitch / 2, top), hi: c + pitch / 2, moved: true };
+  });
+}
+
 // One OCR per row, of just that row's qty cell — read TWO ways, then a vote with the column read.
 //   "qtycellw": with the row-line wipe — right when dashed row lines sit near the digit (D905)
 //   "qtycell":  without it — right when the digit sits ON the row line and the wipe eats its
 //               base (V1505: "2" → "7")
 // No single cleaning suited every layout (2026-10-04), so: two of three agree → that value;
 // otherwise the order in voteQty (light read, column, wiped read).
-function readQtyCells(pdf, page, rows, box, tmp, strict) {
+function readQtyCells(pdf, page, rows, box, tmp, strict, L) {
   const sorted = rows.slice().sort((a, b) => a.y - b.y);
   const ys = sorted.map(r => r.y);
   const pitch = ys.length > 1 ? Math.min(...ys.slice(1).map((y, i) => y - ys[i]).filter(d => d > 10)) : 120;
   const cellJob = (lo, hi, mode, psm) => prepColumn(pdf, page, { x: box.x, y: lo, w: box.w, h: hi - lo }, 600, tmp,
     ["--psm", psm || "7", "-c", "tessedit_char_whitelist=0123456789"], mode);
   const firstDigit = ws => { for (const w of ws) { const m = String(w.t).match(/^(\d{1,3})(?!\d)/); if (m) return { v: Number(m[1]), conf: w.conf }; } return null; };
-  const bands = sorted.map((row, i) => ({ row,
-    lo: i ? (ys[i - 1] + ys[i]) / 2 : ys[i] - pitch / 2,
-    hi: i < ys.length - 1 ? (ys[i] + ys[i + 1]) / 2 : ys[i] + pitch / 2 }));
+  const bands = qtyBands(pdf, page, rows, L, box, tmp);
   // the two reads every row gets, all in one pass; then the 3rd only where it can matter
   const two = runColumns(bands.flatMap(b => [cellJob(b.lo, b.hi, "qtycellw"), cellJob(b.lo, b.hi, "qtycell")]), tmp).map(firstDigit);
   const need = bands.map((b, i) => needThird(two[2 * i] ? two[2 * i].v : null, two[2 * i + 1] ? two[2 * i + 1].v : null));
@@ -258,7 +381,7 @@ function readQtyCells(pdf, page, rows, box, tmp, strict) {
     const col = row.qty ? row.qty[0] : null;
     const pick = strict ? voteStrict(w ? w.v : null, r0 ? r0.v : null, r8 ? r8.v : null)
                         : voteQty(w ? w.v : null, r0 ? r0.v : null, col, r8 ? r8.v : null);
-    if (process.env.OCR_DEBUG_QTY) console.error("qty p" + page + " " + row.pn + "  wipe=" + JSON.stringify(reads[0]) + " raw=" + JSON.stringify(reads[1]) + " word=" + JSON.stringify(reads[2]) + " col=" + col + " → " + pick);
+    if (process.env.OCR_DEBUG_QTY) console.error("qty p" + page + " " + row.pn + " y=" + Math.round(row.y) + " band=" + Math.round(bands[i].lo) + "-" + Math.round(bands[i].hi) + "  wipe=" + JSON.stringify(reads[0]) + " raw=" + JSON.stringify(reads[1]) + " word=" + JSON.stringify(reads[2]) + " col=" + col + " → " + pick);
     if (pick != null || strict) row.qty = [pick];
   });
 }
@@ -351,9 +474,10 @@ function cellInkSpan(R, box, lo, hi) {
   }
   return best;
 }
-function inkFillVariants(pdf, page, rows, boxes, tmp) {
+function inkFillVariants(pdf, page, rows, boxes, tmp, L) {
   const R = pageRaster(pdf, page, DPI, tmp);
-  rowBands(rows).forEach(({ row, lo, hi }) => {
+  const colBands = boxes.map(b => { const m = new Map(); qtyBands(pdf, page, rows, L, b, tmp).forEach(x => m.set(x.row, x)); return m; });
+  rowBands(rows).forEach(({ row }) => {
     const q = row.qty; if (!Array.isArray(q) || q.length < 2) return;
     // one variant with noise glued onto the shared value ("1 · 1 · 1 · 41", D1703 ref 130) → the value
     const others = i => q.filter((v, j) => j !== i && v != null);
@@ -367,6 +491,7 @@ function inkFillVariants(pdf, page, rows, boxes, tmp) {
     if (got.length < 2 || got.length === q.length || !got.every(v => v === got[0])) return;
     q.forEach((v, i) => {
       if (v != null || !boxes[i]) return;
+      const { lo, hi } = colBands[i].get(row);
       const m = cellInkSpan(R, boxes[i], lo, hi);
       const digit = m.span >= Math.max(9, 0.12 * (hi - lo)) && m.ink >= 25;   // largest blob: dash 2–5 px tall, digit 15–24 px of a 72 px row
       if (process.env.OCR_DEBUG_INK) console.error("ink p" + page + " box=" + Math.round(boxes[i].x) + "," + Math.round(lo) + "," + Math.round(boxes[i].w) + "," + Math.round(hi - lo) + " " + row.pn + " col" + i + " span=" + m.span + "/" + Math.round(hi - lo) + " ink=" + m.ink + " → " + (digit ? got[0] : "–"));
@@ -883,9 +1008,9 @@ function ocrBook(pdf, opts) {
         // ⚠ in a variant book the column read above looked in the wrong place (its left edge is in B):
         //   don't let it vote for A
         if (subCols) r.rows.forEach(x => { x.qty = null; });
-        if (!process.env.OCR_NO_CELLS) readQtyCells(pdf, p, r.rows, aBox, tmp, !!subCols);
-        if (subCols) readVariantQty(pdf, p, r.rows, subCols.map(mid), tmp);
-        if (subCols && !process.env.OCR_NO_INKFILL) inkFillVariants(pdf, p, r.rows, subCols.map(mid), tmp);
+        if (!process.env.OCR_NO_CELLS) readQtyCells(pdf, p, r.rows, aBox, tmp, !!subCols, L);
+        if (subCols) readVariantQty(pdf, p, r.rows, subCols.map(mid), tmp, L);
+        if (subCols && !process.env.OCR_NO_INKFILL) inkFillVariants(pdf, p, r.rows, subCols.map(mid), tmp, L);
         attachColumn(r.rows, ocrColumn(pdf, p, { x: L.remarksX, y: top, w: 0.98 * W - L.remarksX, h: hgt }, 600, tmp,
           ["-c", "tessedit_char_whitelist=0123456789+-.STDEmMSOVRIZEABCHGKLNPU/"]), "remark");
       }
