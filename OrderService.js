@@ -81,7 +81,12 @@ var DOPOST_LOCK_FREE = {
      2. A BLANK channel still locks — mirroring `if (channel && ...)` inside
         upsertPendingSalesOrder exactly. If Zoho ever stops sending the field,
         nothing silently disappears.
-     3. Scoped to action `zohoSalesOrder`. The backfill path is left alone.
+     3. Scoped to `zohoSalesOrder` + `zohoBackfillSalesOrder` (the sidebar's "Fetch from
+        Zoho", widened 2026-10-07). The backfill hands the SAME salesorder payload to the
+        SAME upsertPendingSalesOrder, so the argument above transfers verbatim. Before
+        this, fetching an eBay SO (SO-25532, 2026-10-07) queued for the lock up to 30 s
+        only to be discarded — and n8n's own 30 s timeout fired first, so the operator
+        saw an error instead of "this is an eBay order".
      4. An unparseable body means `payload` is undefined → lock. Fail safe, as before.
 
    ⚠ The n8n proxy should ALSO filter these upstream so they never arrive at all
@@ -91,7 +96,7 @@ var DOPOST_LOCK_FREE = {
 function _doPostNeedsLock(action, payload) {
   if (DOPOST_LOCK_FREE[action]) return false;
 
-  if (action === 'zohoSalesOrder' && payload) {
+  if ((action === 'zohoSalesOrder' || action === 'zohoBackfillSalesOrder') && payload) {
     // Both shapes carry the channel, and both discard a non-direct one BEFORE the
     // first shared touch — so neither needs the lock to be read safely.
     var zoho = payload.salesorder || payload.invoice;
@@ -690,7 +695,9 @@ function doPost(e) {
         // identified during first INV-path test 2026-05-20).
         var invoiceStamped = false;
         var matchedInvoice = String(payload.matched_invoice_number || "").trim();
-        if (matchedInvoice && backfillResult.soNumber) {
+        // ⚠ never for a SKIPPED (non-direct) SO: that call arrives WITHOUT the lock
+        // (_doPostNeedsLock), so it must not reach a sheet write.
+        if (matchedInvoice && backfillResult.soNumber && backfillResult.status !== "skipped") {
           try {
             var ss    = SpreadsheetApp.openById(SPREADSHEET_ID);
             var sheet = ss.getSheetByName(PENDING_SO.sheetName);

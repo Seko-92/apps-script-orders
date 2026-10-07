@@ -84,8 +84,11 @@ section('B · WHAT IT MUST NOT BREAK — the four guards', () => {
 
 section('C · SCOPE — nothing else changes behaviour', () => {
   // The backfill path reaches the same handler but is user-triggered and rare.
-  t('backfill is untouched, still locks',
-    needsLock('zohoBackfillSalesOrder', so('ebay_us')), true);
+  // widened 2026-10-07 — the sidebar's Fetch from Zoho (SO-25532 timed out in the lock queue)
+  t('backfill: ebay_us SO skips the lock',  needsLock('zohoBackfillSalesOrder', { action: 'zohoBackfillSalesOrder', salesorder: { salesorder_number: 'SO-25532', sales_channel: 'ebay_us' } }), false);
+  t('backfill: direct_sales SO STILL locks', needsLock('zohoBackfillSalesOrder', { action: 'zohoBackfillSalesOrder', salesorder: { salesorder_number: 'SO-1', sales_channel: 'direct_sales' } }), true);
+  t('backfill: blank channel STILL locks',   needsLock('zohoBackfillSalesOrder', { action: 'zohoBackfillSalesOrder', salesorder: { salesorder_number: 'SO-1' } }), true);
+  t('backfill: no payload STILL locks',      needsLock('zohoBackfillSalesOrder', undefined), true);
   // A non-direct channel on some OTHER action must not leak the shortcut.
   t('another action with a salesorder still locks',
     needsLock('insertOrders', so('ebay_us')), true);
