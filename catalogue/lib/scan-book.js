@@ -317,15 +317,39 @@ function readRefCells(pdf, page, rows, col, tmp) {
  * stays "not used". Measured on the 400-dpi page raster, rule lines skipped.
  */
 function cellInkSpan(R, box, lo, hi) {
+  // Measured on the LARGEST connected blob, not the cell's total ink: on D1105 the scan's grey
+  // speckle spread "ink" 28 px down a cell whose only mark was a "–", so every dash read as a
+  // digit (2026-10-07). A dash's blob is ~4 px tall; a digit's is ~22 px; speckle blobs are tiny.
   const x0 = Math.max(0, Math.round(box.x)), x1 = Math.min(R.W - 1, Math.round(box.x + box.w));
   const pad = 0.12 * (hi - lo), y0 = Math.max(0, Math.round(lo + pad)), y1 = Math.min(R.H - 1, Math.round(hi - pad));
-  const w = x1 - x0 + 1; let top = -1, bot = -1, ink = 0;
-  for (let y = y0; y <= y1; y++) {
-    let n = 0; for (let x = x0; x <= x1; x++) if (R.d[y * R.W + x] < 128) n++;
-    if (n > 0.5 * w || n < 2) continue;            // a rule line, or nothing
-    ink += n; if (top < 0) top = y; bot = y;
+  const w = x1 - x0 + 1, h = y1 - y0 + 1;
+  if (w <= 0 || h <= 0) return { span: 0, ink: 0 };
+  const on = new Uint8Array(w * h);
+  for (let y = 0; y < h; y++) {
+    let n = 0; for (let x = 0; x < w; x++) if (R.d[(y0 + y) * R.W + x0 + x] < 128) n++;
+    if (n > 0.5 * w) continue;                     // a rule line
+    for (let x = 0; x < w; x++) if (R.d[(y0 + y) * R.W + x0 + x] < 128) on[y * w + x] = 1;
   }
-  return { span: top < 0 ? 0 : bot - top + 1, ink };
+  // a vertical rule caught at the box edge is a full-height column — drop columns inked > 80% of rows
+  for (let x = 0; x < w; x++) {
+    let n = 0; for (let y = 0; y < h; y++) n += on[y * w + x];
+    if (n > 0.8 * h) for (let y = 0; y < h; y++) on[y * w + x] = 0;
+  }
+  const seen = new Uint8Array(w * h); let best = { span: 0, ink: 0 };
+  for (let i = 0; i < w * h; i++) {
+    if (!on[i] || seen[i]) continue;
+    let n = 0, top = h, bot = -1; const st = [i]; seen[i] = 1;
+    while (st.length) {
+      const q = st.pop(), y = (q / w) | 0, x = q - y * w; n++;
+      if (y < top) top = y; if (y > bot) bot = y;
+      for (const [dy, dx] of [[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]]) {
+        const yy = y + dy, xx = x + dx; if (yy < 0 || yy >= h || xx < 0 || xx >= w) continue;
+        const k = yy * w + xx; if (on[k] && !seen[k]) { seen[k] = 1; st.push(k); }
+      }
+    }
+    if (n > best.ink) best = { span: bot - top + 1, ink: n };
+  }
+  return best;
 }
 function inkFillVariants(pdf, page, rows, boxes, tmp) {
   const R = pageRaster(pdf, page, DPI, tmp);
@@ -344,8 +368,8 @@ function inkFillVariants(pdf, page, rows, boxes, tmp) {
     q.forEach((v, i) => {
       if (v != null || !boxes[i]) return;
       const m = cellInkSpan(R, boxes[i], lo, hi);
-      const digit = m.span >= 0.2 * (hi - lo) && m.ink >= 40;   // measured: dash 4 px, digit 22 px of a 72 px row
-      if (process.env.OCR_DEBUG_INK) console.error("ink p" + page + " " + row.pn + " col" + i + " span=" + m.span + "/" + Math.round(hi - lo) + " ink=" + m.ink + " → " + (digit ? got[0] : "–"));
+      const digit = m.span >= Math.max(9, 0.12 * (hi - lo)) && m.ink >= 25;   // largest blob: dash 2–5 px tall, digit 15–24 px of a 72 px row
+      if (process.env.OCR_DEBUG_INK) console.error("ink p" + page + " box=" + Math.round(boxes[i].x) + "," + Math.round(lo) + "," + Math.round(boxes[i].w) + "," + Math.round(hi - lo) + " " + row.pn + " col" + i + " span=" + m.span + "/" + Math.round(hi - lo) + " ink=" + m.ink + " → " + (digit ? got[0] : "–"));
       if (digit) { q[i] = got[0]; row.qtyInk = true; }
     });
   });
@@ -934,4 +958,4 @@ function ocrBook(pdf, opts) {
   return out;
 }
 
-module.exports = { ocrBook, ocrPage, ocrSectionCode, voteQty, voteStrict, needThird, pageModels };
+module.exports = { ocrBook, ocrPage, ocrSectionCode, voteQty, voteStrict, needThird, pageModels, cellInkSpan };
