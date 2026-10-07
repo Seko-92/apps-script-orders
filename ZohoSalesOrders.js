@@ -1027,6 +1027,7 @@ function _payloadToRow(salesorder) {
 /**
  * Build the slim payload kept in col L. Only includes fields read by:
  *   - previewPendingSalesOrder:  customer_name, total_formatted, line_items[sku/qty/name/rate]
+ *   - computeZohoSoDiff:         line_items[description] — the Zoho line note, shown in the Pull modal
  *   - pullSalesOrderToDirect:    customer_name, total_formatted, line_items[sku/qty]
  *   - _propagateToDirectRows:    status, shipped_status, line_items[sku/qty]
  *   - _computePriceCheck:        line_items[sku/rate] vs MI.currentPrice
@@ -1055,7 +1056,10 @@ function _slimSalesOrder(salesorder) {
         sku:      String((li && li.sku)  || ""),
         quantity: (li && li.quantity != null) ? li.quantity : 1,
         name:     String((li && li.name) || ""),
-        rate:     (li && li.rate != null) ? parseFloat(li.rate) || 0 : 0
+        rate:     (li && li.rate != null) ? parseFloat(li.rate) || 0 : 0,
+        // The line's own note in Zoho (the text under the item on the SO). Capped so one
+        // long note can't push the cell toward the 50K limit; the backstop below drops it.
+        description: String((li && li.description) || "").trim().slice(0, 300)
       };
     })
   };

@@ -280,6 +280,45 @@
       color: var(--ink-mute);
       letter-spacing: 0.02em;
     }
+    /* ----- PER-LINE NOTE (only on lines that insert a row) ----- */
+    .line-note {
+      grid-column: 2 / span 2;
+      grid-row: 5;
+      margin-top: 5px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .line-note .zoho-note {
+      font-family: 'Roboto', sans-serif;
+      font-size: 11.5px;
+      font-style: italic;
+      color: #8a7434;
+      cursor: pointer;
+    }
+    .line-note .zoho-note .label {
+      font-family: 'Oswald', sans-serif;
+      font-style: normal;
+      font-size: 9.5px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-right: 4px;
+    }
+    .line-note .zoho-note:hover { text-decoration: underline; }
+    .line-note input {
+      width: 100%;
+      padding: 5px 8px;
+      border: 1px solid #e0d6b8;
+      border-radius: 4px;
+      font-family: 'Roboto', sans-serif;
+      font-size: 12px;
+      background: #fffdf6;
+      color: #1d1d1b;
+    }
+    .line-note input:focus { outline: none; border-color: #cdba7f; }
+    .line.unchecked .line-note { display: none; }
+    .line.new .line-note { grid-row: 2; margin-top: 0; }   /* no action/existing rows above it */
+
     .line-direct-rows .label {
       font-family: 'Oswald', sans-serif;
       font-size: 9.5px;
@@ -620,7 +659,8 @@ button.wk-btn::after{ content:''; display:inline-block; width:10px; height:10px;
         }
         state[line.sku] = {
           checked: true,                   // per-lock: NEW lines default checked
-          action:  defaultAction
+          action:  defaultAction,
+          note:    ''                      // this line's own note → rides on the inserted row
         };
       });
     }
@@ -716,6 +756,23 @@ button.wk-btn::after{ content:''; display:inline-block; width:10px; height:10px;
           + '</div>';
       }
 
+      // Per-line note — only where Apply INSERTS a row (new line, or a delta row);
+      // a flag or a cancel writes no row, so a note there would go nowhere.
+      var noteHtml = '';
+      if (line.status === "new" || line.status === "qty_changed") {
+        var zn = line.zohoNote
+          ? '<div class="zoho-note" title="Click to use it as this line\'s note" '
+            + 'onclick="useZohoNote(\'' + escAttr(sku) + '\')">'
+            + '<span class="label">Zoho note</span>' + esc(line.zohoNote) + '</div>'
+          : '';
+        noteHtml = '<div class="line-note">' + zn
+          + '<input type="text" maxlength="150" autocomplete="off" '
+          +   'id="note-' + escAttr(sku) + '" value="' + escAttr(s.note) + '" '
+          +   'placeholder="Note for this item only (optional)" '
+          +   'oninput="onLineNote(\'' + escAttr(sku) + '\', this.value)">'
+          + '</div>';
+      }
+
       return ''
         + '<div class="' + classes.join(' ') + '" id="line-' + escAttr(sku) + '">'
         +   '<div class="line-cb">' + checkbox + '</div>'
@@ -729,6 +786,7 @@ button.wk-btn::after{ content:''; display:inline-block; width:10px; height:10px;
         +   '<div class="line-chips">' + chips + '</div>'
         +   actions
         +   directRowsHtml
+        +   noteHtml
         + '</div>';
     }
 
@@ -855,6 +913,19 @@ button.wk-btn::after{ content:''; display:inline-block; width:10px; height:10px;
       }
     }
 
+    function onLineNote(sku, val) {
+      if (state[sku]) state[sku].note = val;
+    }
+
+    function useZohoNote(sku) {
+      var line = findLine(sku);
+      var el = document.getElementById('note-' + sku);
+      if (!line || !el || !state[sku]) return;
+      el.value = line.zohoNote.slice(0, 150);
+      state[sku].note = el.value;
+      el.focus();
+    }
+
     function findLine(sku) {
       for (var i = 0; i < DIFF.lines.length; i++) {
         if (DIFF.lines[i].sku === sku) return DIFF.lines[i];
@@ -886,7 +957,10 @@ button.wk-btn::after{ content:''; display:inline-block; width:10px; height:10px;
       var selections = [];
       Object.keys(state).forEach(function(sku) {
         if (state[sku].checked) {
-          selections.push({ sku: sku, action: state[sku].action });
+          var sel = { sku: sku, action: state[sku].action };
+          var ln = (state[sku].note || '').trim();
+          if (ln) sel.note = ln;
+          selections.push(sel);
         }
       });
       if (selections.length === 0) {

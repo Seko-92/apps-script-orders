@@ -62,6 +62,7 @@
  *   lines: Array<{
  *     sku: string,
  *     name: string,
+ *     zohoNote: string,              — the line's own note in Zoho ("" if none)
  *     status: "unchanged" | "new" | "qty_changed" | "removed",
  *     zohoQty: number,               — 0 if removed (SKU no longer in Zoho)
  *     directQty: number,             — sum across non-CANCELED DIRECT rows
@@ -169,6 +170,7 @@ function computeZohoSoDiff(query) {
   // shouldn't translate to picker rows).
   var zohoBySku = {};
   var zohoNames = {};
+  var zohoNotes = {};   // sku -> Zoho's own line note(s), shown in the modal
   var zohoSkuOrder = [];
   var lineItems = Array.isArray(payload.line_items) ? payload.line_items : [];
   for (var i = 0; i < lineItems.length; i++) {
@@ -183,6 +185,11 @@ function computeZohoSoDiff(query) {
       zohoSkuOrder.push(sku);
     }
     zohoBySku[sku] += qty;
+    var desc = String(li.description || "").trim();
+    if (desc) {
+      if (!zohoNotes[sku]) zohoNotes[sku] = [];
+      if (zohoNotes[sku].indexOf(desc) === -1) zohoNotes[sku].push(desc);
+    }
   }
 
   // --- 5. Read DIRECT state for this SO ---
@@ -250,6 +257,7 @@ function computeZohoSoDiff(query) {
     var lineOut = {
       sku:        sku,
       name:       zohoNames[sku] || "",
+      zohoNote:   (zohoNotes[sku] || []).join(" · "),
       status:     status,
       zohoQty:    zohoQty,
       directQty:  directQty,
