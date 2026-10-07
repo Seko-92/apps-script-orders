@@ -40,7 +40,9 @@ var DOPOST_LOCK_FREE = {
   // for a ~4 s search would queue every ✓ Pick behind it — the starvation 2026-08-17 fixed.
   boardFind: 1,
   // Engine Catalogue: one read-only MI read, nothing written (not even the search log).
-  catalogueStock: 1
+  catalogueStock: 1,
+  // Catalogue importer evidence: one bounded MI read (SKU + part-number + status columns), no writes.
+  catalogueMiKeys: 1
 };
 
 /* ⭐ DOES THIS REQUEST NEED THE SCRIPT LOCK? (2026-08-28)
@@ -381,6 +383,12 @@ function doPost(e) {
     if (payload.action === 'catalogueStock') {
       return ContentService.createTextOutput(JSON.stringify(
         catalogueStock(payload.pns)
+      )).setMimeType(ContentService.MimeType.JSON);
+    }
+    // Catalogue importer — every MPN key on MI, active and ended (Catalogue.js).
+    if (payload.action === 'catalogueMiKeys') {
+      return ContentService.createTextOutput(JSON.stringify(
+        catalogueMiKeys()
       )).setMimeType(ContentService.MimeType.JSON);
     }
     if (payload.action === 'boardOrder') {

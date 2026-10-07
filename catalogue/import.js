@@ -6,8 +6,12 @@
 // write one JSON per engine plus report.md. Nothing is published from here — the report
 // is for a human to approve first (plan: ~/.claude/plans/engine-catalogue.md).
 //
-// --mi takes a {headers, rows} export of Master Inventory. It only feeds the REPORT
-// ("we carry 48 of 318"); the page itself looks stock up live.
+// MI EVIDENCE ("is this part number on one of our listings?") — proof for OCR fixes and the
+// report's "we carry" counts. LIVE by default (2026-10-07): one doPost catalogueMiKeys call
+// through /api/board, saved to out/mi-keys.json; offline → that file, with its age printed.
+//   --mi <file>   override with a {headers, rows} MI export (the old way)
+//   --mi-offline  skip the live fetch and use out/mi-keys.json
+// The page itself always looks stock up live.
 
 "use strict";
 
@@ -25,6 +29,7 @@ const args = process.argv.slice(2);
 const opt = { mi: null, out: path.join(__dirname, "out"), inputs: [], drawings: false };
 for (let i = 0; i < args.length; i++) {
   if (args[i] === "--mi") opt.mi = args[++i];
+  else if (args[i] === "--mi-offline") opt.miOffline = true;
   else if (args[i] === "--out") opt.out = args[++i];
   else if (args[i] === "--drawings") opt.drawings = true;   // slow: OCR, a few minutes per engine
   // reuse each engine's drawings from the previous import (out/<ID>.json): they come from the page
@@ -50,21 +55,46 @@ const mpn = (() => {
   return ctx;
 })();
 
-let miIndex = null, miRows = null, miIdx = null;
+// miKeys: Map key → 1 (on an active listing) | 0 (ended listings only). null = no evidence.
+let miKeys = null, miSource = "";
+const MI_KEYS_FILE = path.join(opt.out, "mi-keys.json");
+const MI_API = "https://hq.yassinqurabi.com/api/board";
 if (opt.mi) {
   const mi = JSON.parse(fs.readFileSync(opt.mi, "utf8"));
-  miRows = mi.rows;
-  miIdx = Object.fromEntries(mi.headers.map((h, i) => [h, i]));
+  const idx = Object.fromEntries(mi.headers.map((h, i) => [h, i]));
   const mpnCols = mi.headers.map((h, i) => ({ name: h, off: i })).filter(c => mpn.MPN_SEARCH.colPattern.test(c.name));
-  miIndex = mpn._mpnBuildIndex(miRows, mpnCols);
+  miKeys = new Map();
+  mpn._mpnBuildIndex(mi.rows, mpnCols).forEach((hits, key) => miKeys.set(key,
+    hits.some(h => String(mi.rows[h.row][idx.listingStatus] || "Active") === "Active") ? 1 : 0));
+  miSource = `${path.basename(opt.mi)} (export, override)`;
+} else {
+  let live = null;
+  if (!opt.miOffline) {
+    try {
+      const out = execFileSync("curl", ["-s", "--max-time", "120", "-X", "POST", MI_API,
+        "-H", "Content-Type: application/json", "--data", JSON.stringify({ action: "catalogueMiKeys" })],
+        { maxBuffer: 64 << 20 }).toString();
+      const j = JSON.parse(out);
+      if (j && j.ok && j.keys && Object.keys(j.keys).length > 1000) live = j;
+      else console.warn("⚠ live MI evidence refused: " + ((j && j.reason) || "too few keys"));
+    } catch (e) { console.warn("⚠ live MI evidence unreachable: " + String(e.message || e).split("\n")[0]); }
+  }
+  if (live) {
+    fs.mkdirSync(opt.out, { recursive: true });
+    fs.writeFileSync(MI_KEYS_FILE, JSON.stringify({ at: live.at, rows: live.rows, keys: live.keys }));
+    miKeys = new Map(Object.entries(live.keys));
+    miSource = `live MI ${live.at.slice(0, 16).replace("T", " ")} UTC (${live.rows} rows, ${miKeys.size} numbers)`;
+  } else if (fs.existsSync(MI_KEYS_FILE)) {
+    const f = JSON.parse(fs.readFileSync(MI_KEYS_FILE, "utf8"));
+    miKeys = new Map(Object.entries(f.keys));
+    const days = ((Date.now() - Date.parse(f.at)) / 864e5).toFixed(1);
+    miSource = `saved MI keys from ${f.at.slice(0, 10)} (${days} days old)`;
+    console.warn(`⚠ using ${miSource} — numbers listed since then can't count as proof`);
+  } else console.warn("⚠ no MI evidence at all — OCR fixes rely on the clean manuals only");
 }
-function weCarry(pn) {
-  if (!miIndex) return null;
-  const hits = miIndex.get(mpn._mpnKey(pn)) || [];
-  const rows = hits.map(h => miRows[h.row]);
-  const active = rows.filter(r => String(r[miIdx.listingStatus] || "Active") === "Active");
-  return { active: active.map(r => mpn._mpnCellText(r[miIdx.sku])), ended: rows.length - active.length };
-}
+if (miSource) console.log("MI evidence: " + miSource);
+const miKnown = pn => !!(miKeys && miKeys.has(mpn._mpnKey(pn)));
+const weCarry = pn => !!(miKeys && miKeys.get(mpn._mpnKey(pn)) === 1);
 
 // ---- classify + parse ---------------------------------------------------------------------
 function pdfText(f) {
@@ -154,7 +184,7 @@ const knownName = new Map();                     // pn → name, from the clean 
 textBooks.forEach(r => r.parsed.sections.forEach(s => s.parts.forEach(p => { if (p.name && !knownName.has(p.pn)) knownName.set(p.pn, p.name); })));
 if (fs.existsSync(ocrDir)) {
   // load every OCR book first: the prefix fix (lib/pn-fix.js) needs evidence from ALL of them
-  const isKnown = pn => knownName.has(pn) || !!(miIndex && miIndex.has(mpn._mpnKey(pn)));
+  const isKnown = pn => knownName.has(pn) || miKnown(pn);
   const ocrBooks = [], glyphTally = { books: 0, fixed: 0, digit: 0, swapped: 0 };
   results.forEach(rec => {
     if (rec.status === "ok") return;
@@ -281,10 +311,10 @@ for (const r of byModel.values()) {
   const perSection = p.sections.map(s => {
     const set = new Set(s.parts.map(x => x.pn));
     let c = 0;
-    set.forEach(pn => { const w = weCarry(pn); if (w && w.active.length) c++; });
+    set.forEach(pn => { if (weCarry(pn)) c++; });
     return { code: s.code, name: s.name, total: set.size, carried: c };
   });
-  pns.forEach((v, pn) => { const w = weCarry(pn); if (w && w.active.length) carried++; });
+  pns.forEach((v, pn) => { if (weCarry(pn)) carried++; });
   engines.push({ id, model: p.model, file: r.name, pages: r.pages, sections: p.sections.length,
                  lines: r.lines, distinct: pns.size, carried, perSection, flags: p.flags });
 }
@@ -296,13 +326,13 @@ fs.writeFileSync(path.join(opt.out, "index.json"), JSON.stringify(engines.map(e 
 // ---- report -------------------------------------------------------------------------------
 const L = [];
 L.push(`# Catalogue import report — ${new Date().toISOString().slice(0, 16).replace("T", " ")}`, "");
-L.push(`${files.length} PDF(s) read · ${engines.length} engine(s) imported` + (opt.mi ? ` · stock from ${path.basename(opt.mi)}` : ""), "");
+L.push(`${files.length} PDF(s) read · ${engines.length} engine(s) imported` + (miKeys ? ` · MI evidence: ${miSource}` : ""), "");
 L.push("## Imported", "", "| Engine | Sections | Parts | We carry | Flags | File |", "|---|---|---|---|---|---|");
-engines.forEach(e => L.push(`| ${e.model} | ${e.sections} | ${e.distinct} | ${opt.mi ? e.carried : "—"} | ${e.flags.length} | ${e.file} |`));
+engines.forEach(e => L.push(`| ${e.model} | ${e.sections} | ${e.distinct} | ${miKeys ? e.carried : "—"} | ${e.flags.length} | ${e.file} |`));
 L.push("");
 engines.forEach(e => {
   L.push(`### ${e.model}`, "");
-  if (opt.mi) L.push("Per section (distinct part numbers · we carry):", "", e.perSection.map(s => `- ${s.code} ${s.name} — ${s.total} · **${s.carried}**`).join("\n"), "");
+  if (miKeys) L.push("Per section (distinct part numbers · we carry):", "", e.perSection.map(s => `- ${s.code} ${s.name} — ${s.total} · **${s.carried}**`).join("\n"), "");
   if (e.flags.length) {
     L.push("To check:", "");
     const label = { "section-image-only": "image page — needs OCR", "section-missing": "in contents, not found",
@@ -330,7 +360,7 @@ Object.keys(groups).forEach(k => {
 fs.writeFileSync(path.join(opt.out, "report.md"), L.join("\n"));
 
 console.log(`imported ${engines.length} engine(s) → ${opt.out}`);
-engines.forEach(e => console.log(`  ${e.model.padEnd(24)} ${String(e.distinct).padStart(4)} parts · carry ${opt.mi ? e.carried : "—"} · ${e.flags.length} flag(s)`));
+engines.forEach(e => console.log(`  ${e.model.padEnd(24)} ${String(e.distinct).padStart(4)} parts · carry ${miKeys ? e.carried : "—"} · ${e.flags.length} flag(s)`));
 const counts = {};
 results.forEach(r => { counts[r.status] = (counts[r.status] || 0) + 1; });
 console.log("  by status:", JSON.stringify(counts));

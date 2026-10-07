@@ -61,3 +61,54 @@ function _catalogueRank(hits) {
         || String(a.sku).localeCompare(String(b.sku));
   });
 }
+
+// =======================================================================================
+// LIVE MI EVIDENCE FOR THE IMPORTER (2026-10-07)
+// =======================================================================================
+// The importer (catalogue/import.js, runs LOCALLY) uses "is this number on one of our
+// listings?" as PROOF when it corrects an OCR misread. It used to read a hand-exported
+// MI snapshot (12-9), so numbers listed since then could not count as proof. This hands
+// it the live answer instead.
+//
+// Every MPN key on MI — ACTIVE AND ENDED (an ended listing's number is still proof the
+// number is real) — as { key: 1 active | 0 ended only }. Keys only: no titles, prices or
+// stock, so it stays small (~20k short strings).
+//
+// ⚠ LOAD: lock-free (DOPOST_LOCK_FREE), writes nothing, logs nothing. It reads ONLY the
+// SKU + part-number + status columns — NOT _mpnLoadMi, which also pulls Zoho stock and the
+// kit registry this answer never uses. Called once per import run, by a human, so there is
+// no poll to protect against. The KEY and the INDEX are the Parts Finder's own
+// (_mpnKey via _mpnBuildIndex), so importer and Parts Finder cannot disagree.
+// =======================================================================================
+
+/** @return {{ok:boolean, at:string, keys:Object<string,number>, rows:number, ms:number, reason?:string}} */
+function catalogueMiKeys() {
+  var t0 = Date.now();
+  try {
+    var sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(DB_SHEET_NAME);
+    if (!sheet) return { ok: false, reason: "Master Inventory not found." };
+    var mpnNames = [];
+    MiSchema.headers(sheet).forEach(function (h) {
+      var s = String(h == null ? "" : h).trim();
+      if (MPN_SEARCH.colPattern.test(s) && mpnNames.indexOf(s) === -1) mpnNames.push(s);
+    });
+    var r = MiSchema.readColumns(sheet, [DB_SKU_HEADER, MPN_SEARCH.mainHeader], {
+      optional: [DB_LISTING_STATUS_HEADER].concat(mpnNames.filter(function (n) { return n !== MPN_SEARCH.mainHeader; }))
+    });
+    var mpnCols = mpnNames.map(function (n) { return { name: n, off: r.idx[n] }; })
+                          .filter(function (c) { return c.off >= 0; });
+    var index = _mpnBuildIndex(r.rows, mpnCols);
+    var sOff = r.idx[DB_LISTING_STATUS_HEADER];
+    var keys = {};
+    index.forEach(function (hits, key) {
+      keys[key] = hits.some(function (h) {
+        var st = (sOff != null && sOff >= 0) ? String(r.rows[h.row][sOff] || "").trim() : "";
+        return !st || st === "Active";                // blank status = Active (fail open, house rule)
+      }) ? 1 : 0;
+    });
+    return { ok: true, at: new Date().toISOString(), keys: keys, rows: r.rows.length, ms: Date.now() - t0 };
+  } catch (err) {
+    try { console.log("catalogueMiKeys: " + err + "\n" + (err.stack || "")); } catch (_) {}
+    return { ok: false, reason: String(err.message || err) };
+  }
+}
