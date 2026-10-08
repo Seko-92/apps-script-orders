@@ -58,6 +58,7 @@ function getDisplayUrls() {
   return {
     board:  base ? base + "/"     : legacy,
     wall:   base ? base + "/wall" : "",
+    catalogue: base ? base + "/catalogue" : "",   // the Engine Catalogue (password-protected on the VPS)
     hosted: !!base
   };
 }

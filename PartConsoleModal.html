@@ -213,6 +213,7 @@
   .pc-idgrp { flex-basis:100%; font-family:'Oswald',sans-serif; font-size:9.5px; text-transform:uppercase; letter-spacing:.05em; color:#9a9a90; margin-top:4px; }
   .pc-chip .via { font-family:'Oswald',sans-serif; font-size:9px; text-transform:uppercase; color:#9a9a90; margin-left:5px; letter-spacing:.04em; }
   .pc-chip.main .via { color:#bfa94d; }
+  a.pc-chip.pc-cat { color:inherit; text-decoration:none; }
   .pc-idtext { font-size:12.5px; line-height:1.5; color:#333; flex:1; min-width:0; }
   .pc-more { color:#0a6ebd; cursor:pointer; font-size:12px; white-space:nowrap; }
   .pc-idcopy { margin-left:auto; font-family:'Oswald',sans-serif; font-size:10px; letter-spacing:.05em; text-transform:uppercase; background:#fff; border:1px solid #cdba7f; color:#5f5f5f; border-radius:6px; padding:2px 8px; cursor:pointer; }
@@ -487,6 +488,25 @@ button.wk-btn::after{ content:''; display:inline-block; width:10px; height:10px;
               }).join('');
             }).join('') + '</div></div>';
       }
+      // which Kubota engine manuals (/catalogue) list these numbers — a link opens the search there
+      if (id.catalogue && id.catalogue.length) {
+        var allEng = {};
+        id.catalogue.forEach(function (c) { c.engines.forEach(function (e) { allEng[e] = 1; }); });
+        // book ids are long ("V2003-M-T-E2B-COM-1"); the family code is what people say — full ids stay in the tooltip
+        var fam = {};
+        Object.keys(allEng).forEach(function (e) { fam[String(e).split('-')[0]] = 1; });
+        var engNames = Object.keys(fam).sort();
+        html += '<div class="pc-idrow"><div class="pc-idlab">Catalogues <span class="pc-count">' + Object.keys(allEng).length + '</span></div><div class="pc-chips">'
+          + id.catalogue.map(function (c) {
+              var label = esc(c.num) + ' <span class="via">in ' + c.engines.length + ' engine' + (c.engines.length === 1 ? '' : 's') + ' &#8599;</span>';
+              var tip = 'Listed in: ' + c.engines.join(', ') + ' — opens the engine catalogue on this number';
+              return id.catalogueUrl
+                ? '<a class="pc-chip num pc-cat" target="_blank" rel="noopener" title="' + esc(tip) + '" href="' + esc(id.catalogueUrl + '#find=' + encodeURIComponent(c.num)) + '">' + label + '</a>'
+                : '<span class="pc-chip" title="' + esc(tip) + '">' + label + '</span>';
+            }).join('')
+          + '<span class="pc-idgrp" style="text-transform:none;letter-spacing:0" title="' + esc(Object.keys(allEng).sort().join(', ')) + '">' + esc(engNames.join(' · ')) + '</span>'
+          + '</div></div>';
+      }
       if (id.engines.length) html += '<div class="pc-idrow"><div class="pc-idlab">Engines</div><div class="pc-chips">'
         + id.engines.map(function (e) { return '<span class="pc-chip">' + esc(e) + '</span>'; }).join('') + '</div></div>';
       if (id.brands.length) html += '<div class="pc-idrow"><div class="pc-idlab">Makes</div><div class="pc-idtext">' + esc(id.brands.join(', ')) + '</div></div>';
@@ -511,6 +531,7 @@ button.wk-btn::after{ content:''; display:inline-block; width:10px; height:10px;
       L.push(current.sku + (p.title ? ' — ' + p.title : ''));
       if (id.numbers.length) L.push('Part numbers: ' + id.numbers.map(function (n) { return n.num; }).join(', '));
       if (id.engines.length) L.push('Fits engines: ' + id.engines.join(', '));
+      if (id.catalogue && id.catalogue.length) L.push('In engine catalogues: ' + id.catalogue.map(function (c) { return c.num + ' (' + c.engines.join(', ') + ')'; }).join('; '));
       if (id.brands.length) L.push('Makes: ' + id.brands.join(', '));
       if (id.machines.length) L.push('Machines: ' + id.machines.join(', '));
       var text = L.join('\n');

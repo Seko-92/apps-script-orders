@@ -5369,12 +5369,15 @@ body.dark-theme .card.band-alt, body.dark-theme .card.band-alt .card-header{ bac
         <a class="btn-secondary" id="dsWallLink" href="#" target="_blank" rel="noopener"
            onclick="return dsReady('wall');"
            style="text-align:center;text-decoration:none;">Wall &#8599;</a>
+        <a class="btn-secondary" id="dsCatLink" href="#" target="_blank" rel="noopener"
+           onclick="return dsReady('catalogue');"
+           style="text-align:center;text-decoration:none;">Catalogue &#8599;</a>
       </div>
       <input type="text" id="dsUrl" readonly onclick="this.select();" placeholder="loading links&#8230;"
              style="width:100%;margin-top:6px;padding:6px 8px;font-family:monospace;font-size:11px;" />
       <button class="btn-info" onclick="copyDisplayLink()">Copy board link</button>
       <div class="empty-hint">
-        Both are read-only and need no sign-in. On the warehouse <strong>tablet</strong>: open the board once
+        Board and Wall are read-only and need no sign-in (the Catalogue asks for its password). On the warehouse <strong>tablet</strong>: open the board once
         &rarr; browser menu &rarr; <strong>Add to Home Screen</strong> for a one-tap icon, then tap
         <strong>&#9146;</strong> on the board for fullscreen (it holds the screen awake).
       </div>
@@ -9100,6 +9103,9 @@ var DISPLAY_URLS = { board: '', wall: '' };
     if (i) i.value = DISPLAY_URLS.board || '';
     /* the wall only exists on the hosted host — hide it rather than offer a dead link */
     if (w && !DISPLAY_URLS.wall) w.style.display = 'none';
+    var c = document.getElementById('dsCatLink');
+    if (c && DISPLAY_URLS.catalogue) c.href = DISPLAY_URLS.catalogue;
+    if (c && !DISPLAY_URLS.catalogue) c.style.display = 'none';
   }).getDisplayUrls();
 })();
 function dsReady(which) {

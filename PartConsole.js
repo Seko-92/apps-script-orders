@@ -548,7 +548,17 @@ function _buildPartDossier(raw) {
       } catch (e) { try { console.log("sizes: " + e); } catch (_) {} return []; }
     })(),
     // every part number + what it fits — from the row the snapshot ALREADY read (no extra read)
-    identity: (function () { try { return _pfPartIdentity(snap.headers, snap.row); } catch (e) { return null; } })(),
+    identity: (function () {
+      try {
+        var id = _pfPartIdentity(snap.headers, snap.row);
+        // which Kubota engine manuals list these numbers (Catalogue.js — one small read)
+        if (id && id.numbers.length) {
+          id.catalogue = _catalogueEnginesFor(id.numbers.map(function (n) { return n.num; }));
+          id.catalogueUrl = _catalogueBaseUrl();
+        }
+        return id;
+      } catch (e) { return null; }
+    })(),
     zohoSyncedAt: (function () { try { var d = getZohoStockSyncedAt(); return d ? d.getTime() : null; } catch (e) { return null; } })()
   };
 }

@@ -112,3 +112,90 @@ function catalogueMiKeys() {
     return { ok: false, reason: String(err.message || err) };
   }
 }
+
+// =======================================================================================
+// WHICH ENGINE MANUALS LIST A NUMBER — for the Parts Finder (2026-10-09)
+// =======================================================================================
+// The catalogue lives on the VPS behind a password, so Apps Script cannot read it. Instead
+// the local bundle step builds { key: [engine ids] } (catalogue/bundle.js → out/pn-index.json)
+// and catalogue/push-index.js sends it here once per publish. It is kept in a hidden sheet,
+// read on demand by the Parts Finder's part dossier ("in N engine catalogues ↗").
+//
+// ⚠ The WRITE is gated by CATALOGUE_PUBLISH_KEY, not the shared token: /api/board forwards any
+// action with the token already attached (it is the public board's door), so the token proves
+// nothing here. The key is never given to n8n.
+// The KEY is _mpnKey — the same as the page's own search and the importer's evidence.
+// =======================================================================================
+
+var CATALOGUE_INDEX = {
+  sheet: "__Catalogue Index",
+  maxKeys: 20000,          // ~4,200 today (29 engines); a body far past this is not ours
+  maxEnginesPerKey: 60
+};
+
+/** doPost action catalogueIndexPut — replace the whole index. @return {{ok, keys?, reason?}} */
+function catalogueIndexPut(publishKey, index, meta) {
+  try {
+    if (typeof CATALOGUE_PUBLISH_KEY !== "string" || !CATALOGUE_PUBLISH_KEY ||
+        String(publishKey || "") !== CATALOGUE_PUBLISH_KEY) return { ok: false, reason: "Not allowed." };
+    if (!index || typeof index !== "object" || Array.isArray(index)) return { ok: false, reason: "No index sent." };
+    var keys = Object.keys(index);
+    if (!keys.length || keys.length > CATALOGUE_INDEX.maxKeys) return { ok: false, reason: "Index size " + keys.length + " refused." };
+
+    var rows = [];
+    keys.forEach(function (k) {
+      var key = _mpnKey(k);
+      var eng = Array.isArray(index[k]) ? index[k] : [];
+      eng = eng.map(function (e) { return String(e).replace(/[^A-Za-z0-9._ -]/g, "").slice(0, 40); })
+               .filter(Boolean).slice(0, CATALOGUE_INDEX.maxEnginesPerKey);
+      if (key.length >= 5 && eng.length) rows.push([key, eng.join(",")]);
+    });
+    if (!rows.length) return { ok: false, reason: "Index had no usable rows." };
+
+    var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    var sh = ss.getSheetByName(CATALOGUE_INDEX.sheet) || ss.insertSheet(CATALOGUE_INDEX.sheet);
+    sh.clearContents();
+    sh.getRange(1, 1, 1, 4).setValues([["KEY", "ENGINES", "PUBLISHED",
+      new Date().toISOString() + (meta && meta.engines ? " · " + Number(meta.engines) + " engines" : "")]]);
+    sh.getRange(2, 1, rows.length, 2).setNumberFormat("@").setValues(rows);   // keys like 1E+05 must stay text
+    if (!sh.isSheetHidden()) sh.hideSheet();
+    return { ok: true, keys: rows.length };
+  } catch (err) {
+    try { console.log("catalogueIndexPut: " + err + "\n" + (err.stack || "")); } catch (_) {}
+    return { ok: false, reason: String(err.message || err) };
+  }
+}
+
+/**
+ * numbers (as printed) → [{num, engines:[ids]}] for the ones a manual lists. Empty when the
+ * index has never been sent. One 2-column read (~4k rows); errors degrade to [].
+ */
+function _catalogueEnginesFor(numbers) {
+  try {
+    if (!numbers || !numbers.length) return [];
+    var sh = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(CATALOGUE_INDEX.sheet);
+    if (!sh || sh.getLastRow() < 2) return [];
+    var found = {}, vals = sh.getRange(2, 1, sh.getLastRow() - 1, 2).getValues();
+    for (var i = 0; i < vals.length; i++) found[String(vals[i][0])] = String(vals[i][1]);
+    var out = [], seen = {};                       // in the part's own order — the main MPN first
+    numbers.forEach(function (n) {
+      var k = _mpnKey(n);
+      if (k.length < 5 || seen[k] || found[k] == null) return;
+      seen[k] = true;
+      out.push({ num: n, engines: found[k].split(",").filter(Boolean) });
+    });
+    return out;
+  } catch (err) {
+    try { console.log("_catalogueEnginesFor: " + err); } catch (_) {}
+    return [];
+  }
+}
+
+/** The page URL a Parts Finder link opens: <host>/catalogue#find=<number>. "" when unhosted. */
+function _catalogueBaseUrl() {
+  try {
+    if (typeof HQ_BOARD_API_URL === "string" && HQ_BOARD_API_URL)
+      return HQ_BOARD_API_URL.replace(/\/api\/board\/?$/, "") + "/catalogue";
+  } catch (e) {}
+  return "";
+}

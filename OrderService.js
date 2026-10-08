@@ -396,6 +396,13 @@ function doPost(e) {
         catalogueMiKeys()
       )).setMimeType(ContentService.MimeType.JSON);
     }
+    // Catalogue publish — the part-number → engines index for the Parts Finder (Catalogue.js).
+    // A WRITE (one hidden sheet), so it keeps the script lock; gated by its own publish key.
+    if (payload.action === 'catalogueIndexPut') {
+      return ContentService.createTextOutput(JSON.stringify(
+        catalogueIndexPut(payload.publishKey, payload.index, payload.meta)
+      )).setMimeType(ContentService.MimeType.JSON);
+    }
     if (payload.action === 'boardOrder') {
       return ContentService.createTextOutput(JSON.stringify(
         getOrderCaseData(payload.orderId)

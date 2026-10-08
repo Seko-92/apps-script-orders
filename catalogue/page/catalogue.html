@@ -301,6 +301,9 @@ function boot(data) {
   try { const s = JSON.parse(localStorage.getItem("hqCatalogue") || "{}");
     if (s.engine && DATA.engines.some(e => e.id === s.engine)) state.engine = s.engine; if (s.filter) state.filter = s.filter; if (s.variants) state.variants = s.variants; } catch (e) {}
   if (location.hash && DATA.engines.some(e => e.id === location.hash.slice(1))) state.engine = location.hash.slice(1);
+  // #find=<part number> — the Parts Finder's "in N engine catalogues" link opens straight on the search
+  const fm = /^#find=(.+)$/.exec(location.hash || "");
+  if (fm) { state.q = decodeURIComponent(fm[1]).slice(0, 40); $("#q").value = state.q; }
   $("#snap").textContent = LIVE ? "live stock" : "sample stock · " + DATA.snapshot.replace(/\.json$/, "");
   open(state.engine);
   // load the other engines quietly so a part-number search covers all of them
