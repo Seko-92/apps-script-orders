@@ -3011,7 +3011,7 @@ function refreshKitSkuMarkers() {
   var plan = null, tagged = 0;
   if (typeof _orderLookOn === 'function' && _orderLookOn()) {
     var sos = sheet.getRange(startRow, Schema.cols.SALES_ORDER, lastRow - startRow + 1, 1).getValues();
-    plan = _kitTagPlan(values.map(function (v, i) {
+    plan = _kitTagPlanSticky(values.map(function (v, i) {
       return { sku: v[0], so: sos[i][0], note: notes[i][0] };
     }), kitSkus);
   }

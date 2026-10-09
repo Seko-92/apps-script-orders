@@ -119,7 +119,18 @@ function _orderLookFormulas(r) {
  * A part whose parent line is not on the sheet gets no number — a tag pointing at nothing
  * would send someone looking.
  */
-function _kitTagPlan(rows, kitSkus) {
+function _kitTagPlan(rows, kitSkus, prior) {
+  // ⚠⚠ 2026-10-09 — K NUMBERS ARE UNIQUE ACROSS THE WHOLE SHEET, AND STICKY.
+  //   This used to number kits PER ORDER, so every order's first kit was "K1". Two kit
+  //   orders on one table (the floor's report: 157563 on 12-15269-54269 and 159093 on
+  //   06-15279-95092) both read K1, and on the aisle-sorted eBay table their parts
+  //   interleave — a picker could not tell which part belongs to which box.
+  //   Now: one number per KIT (order + kit SKU), never shared with any other kit on the
+  //   sheet. A kit keeps its number for as long as it is on the sheet (`prior`, the map
+  //   the last run assigned — see _kitTagPlanSticky), so paper printed an hour ago still
+  //   matches; a new kit takes the LOWEST FREE number; a number frees when its kit leaves.
+  //   With no prior map, numbering is deterministic: order id, then kit SKU lowest first.
+  prior = prior || {};
   var partsOf = {};                                   // "SO|PARENTSKU" → true
   rows.forEach(function (r) {
     var p = kitComponentTag(r.note);
@@ -129,18 +140,25 @@ function _kitTagPlan(rows, kitSkus) {
     var so = String(r.so || '').trim(), sku = String(r.sku || '').trim().toUpperCase();
     return so && sku && !kitComponentTag(r.note) && kitSkus.has(sku) && partsOf[so + '|' + sku];
   }
-  var kitsBySo = {};
+  var keys = [], seen = {};
   rows.forEach(function (r) {
     if (!isParent(r)) return;
-    var so = String(r.so).trim(), sku = String(r.sku).trim().toUpperCase();
-    (kitsBySo[so] = kitsBySo[so] || {})[sku] = true;
+    var key = String(r.so).trim() + '|' + String(r.sku).trim().toUpperCase();
+    if (!seen[key]) { seen[key] = true; keys.push(key); }
   });
-  var numOf = {};
-  Object.keys(kitsBySo).forEach(function (so) {
-    Object.keys(kitsBySo[so]).sort(function (a, b) {
-      var na = Number(a), nb = Number(b);
-      return (isFinite(na) && isFinite(nb)) ? na - nb : (a < b ? -1 : a > b ? 1 : 0);
-    }).forEach(function (sku, i) { numOf[so + '|' + sku] = i + 1; });
+  var numOf = {}, used = {};
+  keys.forEach(function (k) {                         // keep every number already given
+    var n = Math.floor(Number(prior[k]));
+    if (n >= 1 && !used[n]) { numOf[k] = n; used[n] = true; }
+  });
+  keys.filter(function (k) { return !(k in numOf); }).sort(function (a, b) {
+    var pa = a.split('|'), pb = b.split('|');
+    if (pa[0] !== pb[0]) return pa[0] < pb[0] ? -1 : 1;
+    var na = Number(pa[1]), nb = Number(pb[1]);
+    return (isFinite(na) && isFinite(nb)) ? na - nb : (pa[1] < pb[1] ? -1 : pa[1] > pb[1] ? 1 : 0);
+  }).forEach(function (k) {                            // new kits: lowest free number
+    var n = 1; while (used[n]) n++;
+    numOf[k] = n; used[n] = true;
   });
   var out = rows.map(function (r) {
     if (!isParent(r)) return null;
@@ -152,7 +170,27 @@ function _kitTagPlan(rows, kitSkus) {
     var key = String(r.so || '').trim() + '|' + String(p).toUpperCase();
     if (key in numOf) out[i] = { k: numOf[key], parent: false };
   });
+  out.numbers = numOf;
   return out;
+}
+
+/** The K-number memory. Document property, not cell formats: a new row INHERITS its
+ *  neighbour's number format on insert, so a format-based memory would let a brand-new
+ *  kit steal an old kit's number. The sheet's marker refresh and the print both go
+ *  through here, so paper and sheet always agree. */
+var KIT_TAG_PROP = 'KIT_TAG_NUMBERS';
+function _kitTagPlanSticky(rows, kitSkus) {
+  var props = null, prior = {};
+  try {
+    props = PropertiesService.getDocumentProperties();
+    prior = JSON.parse(props.getProperty(KIT_TAG_PROP) || '{}') || {};
+  } catch (e) { prior = {}; }
+  var plan = _kitTagPlan(rows, kitSkus, prior);
+  try {
+    var next = JSON.stringify(plan.numbers);
+    if (props && next !== JSON.stringify(prior)) props.setProperty(KIT_TAG_PROP, next);
+  } catch (e) { console.log('kit tag memory not saved: ' + e); }
+  return plan;
 }
 
 /** The number format a SKU cell wears for a plan entry (null = decide as before). */

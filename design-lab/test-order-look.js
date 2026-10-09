@@ -169,12 +169,34 @@ const plan = ctx._kitTagPlan ? ctx._kitTagPlan([
   R('199999', 'SO-1', '↳ added to KIT-157644'),         // 4 custom add → K1
   R('158679', 'SO-1', ''),                              // 5 kit NOT expanded here → plain
   R('171111', 'SO-1', 'Miguel'),                        // 6 loose
-  R('157644', 'SO-2', ''),                              // 7 other order: parent → K1 there
-  R('160000', 'SO-2', '⚠️ QTY: 2 → 1 IN ZOHO\n↳ from KIT-157644'),  // 8 flagged part → K1
+  R('157644', 'SO-2', ''),                              // 7 other order: its OWN number, K3
+  R('160000', 'SO-2', '⚠️ QTY: 2 → 1 IN ZOHO\n↳ from KIT-157644'),  // 8 flagged part → K3
   R('155555', 'SO-3', '↳ from KIT-217205')              // 9 orphan part: parent not in SO-3
 ], kits) : [];
 const fmt = e => e ? (e.parent ? 'P' : 'C') + e.k : '-';
-ok('numbered by kit SKU, lowest first (157644=K1, 217205=K2)', plan.map(fmt).join(' ') === 'C2 P2 P1 C1 C1 - - P1 C1 -', plan.map(fmt).join(' '));
+ok('numbered by order, then kit SKU lowest first; unique across the sheet', plan.map(fmt).join(' ') === 'C2 P2 P1 C1 C1 - - P3 C3 -', plan.map(fmt).join(' '));
+// 2026-10-09 floor report: two orders, one kit each, both read "K1".
+const floor = ctx._kitTagPlan ? ctx._kitTagPlan([
+  R('164988', '12-15269-54269', '↳ from KIT-157563 · deploy 3 total'), R('157563', '12-15269-54269', ''),
+  R('194568', '12-15269-54269', 'HOLD . ↳ from KIT-157563 · deploy 3 total'),
+  R('173817', '06-15279-95092', '↳ from KIT-159093'), R('159093', '06-15279-95092', '')
+], new Set(['157563', '159093'])) : [];
+ok('two kits on two orders never share a K number', floor.length && floor[1].k !== floor[4].k && floor[0].k === floor[1].k && floor[2].k === floor[1].k && floor[3].k === floor[4].k, floor.map(fmt));
+// sticky: a kit keeps its number; a new kit takes the lowest FREE number
+const st = ctx._kitTagPlan ? ctx._kitTagPlan([
+  R('159093', 'SO-9', ''), R('1', 'SO-9', '↳ from KIT-159093'),
+  R('157563', 'SO-1', ''), R('2', 'SO-1', '↳ from KIT-157563')
+], new Set(['157563', '159093']), { 'SO-1|157563': 2 }) : [];
+ok('a kit keeps the number it already had (K2 stays K2)', st.length && st[2].k === 2 && st[3].k === 2, st.map(fmt));
+ok('a new kit takes the lowest free number (K1)', st.length && st[0].k === 1, st.map(fmt));
+// the sticky wrapper remembers between runs
+const store = {};
+ctx.PropertiesService.getDocumentProperties = () => ({ getProperty: k => store[k] || null, setProperty: (k, v) => { store[k] = v; } });
+const kitsB = new Set(['157563', '159093']);
+const run1 = ctx._kitTagPlanSticky ? ctx._kitTagPlanSticky([R('157563', 'SO-5', ''), R('9', 'SO-5', '↳ from KIT-157563')], kitsB) : [];
+const run2 = ctx._kitTagPlanSticky ? ctx._kitTagPlanSticky([R('159093', 'SO-0', ''), R('8', 'SO-0', '↳ from KIT-159093'),
+                                                            R('157563', 'SO-5', ''), R('9', 'SO-5', '↳ from KIT-157563')], kitsB) : [];
+ok('remembered: an earlier kit is not renumbered when a new order sorts above it', run1.length && run1[0].k === 1 && run2[2].k === 1 && run2[0].k === 2, [run1.map(fmt), run2.map(fmt)]);
 ok('parent format "▣ K1 "@, part "K1 "@', ctx._kitTagFormat && ctx._kitTagFormat({ k: 1, parent: true }) === '"▣ K1 "@' && ctx._kitTagFormat({ k: 3, parent: false }) === '"K3 "@');
 const re = ctx._kitTagPlan ? ctx._kitTagPlan([2,0,1,3,4,5,6,7,8,9].map(i => [
   R('164979','SO-1','↳ from KIT-217205 · Miguel'), R('217205','SO-1','Miguel'), R('157644','SO-1',''),

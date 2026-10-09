@@ -105,7 +105,7 @@ function preparePrintSheet(opts) {
       var kitSet = new Set();
       buildKitMap().forEach(function (_v, k) { kitSet.add(String(k).toUpperCase().trim()); });
       var first = Schema.dataStartRow - 1;
-      var kp = _kitTagPlan(data.slice(first).map(function (rw) {
+      var kp = _kitTagPlanSticky(data.slice(first).map(function (rw) {
         return { sku: rw[Schema.idx("SKU")], so: rw[Schema.idx("SALES_ORDER")], note: rw[Schema.idx("NOTE")] };
       }), kitSet);
       kp.forEach(function (e, j) { if (e) kitTags[first + j] = (e.parent ? 'P' : 'C') + e.k; });
