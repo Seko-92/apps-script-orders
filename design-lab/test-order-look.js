@@ -46,6 +46,7 @@ function makeSheet(cfg) {
     getRange: (r, c, n, w) => {
       const R = mkRange(r, c, n, w);
       R.getValues = () => Array.from({ length: n || 1 }, (_, i) => [cfg.col(c, r + i)]);
+      R.getValue = () => cfg.col(c, r);
       R.getBackgrounds = () => Array.from({ length: n || 1 }, () => Array(w || 1).fill(null));
       R.setBackgrounds = () => R;
       R.setBorder = function () { borderCalls.push({ r, n, args: [...arguments] }); return R; };
@@ -124,7 +125,7 @@ console.log('\nD · the order boxes');
 // DIRECT divider at 10 → data from 12. A live · B finished · C live.
 const SO = { 12: 'SO-A', 13: 'SO-A', 14: 'SO-B', 15: 'SO-B', 16: 'SO-C' };
 const ST = { 12: 'PREPARING', 13: 'PENDING', 14: 'SHIPPED', 15: 'CANCELED', 16: 'PREPARING' };
-const sheetD = makeSheet({ maxRows: 30, col: (c, r) => c === S.cols.STATUS ? (ST[r] || '') : c === S.cols.NOTE ? '' : (SO[r] || '') });
+const sheetD = makeSheet({ maxRows: 30, col: (c, r) => (c === S.cols.SKU && r === 10) ? 'DIRECT' : c === S.cols.STATUS ? (ST[r] || '') : c === S.cols.NOTE ? '' : (SO[r] || '') });
 const colD = []; for (let r = S.dataStartRow; r <= 16; r++) colD.push([SO[r] || '']);
 function paint() {
   borderCalls.length = 0;
@@ -138,6 +139,12 @@ ok('three boxes drawn', boxes.length === 3, boxes.length);
 ok('finished SO-B: pale colour', byRow(14) && byRow(14).args[6] === '#ddd3b0', byRow(14) && byRow(14).args[6]);
 ok('finished SO-B: thin line', byRow(14) && byRow(14).args[7] === 'SOLID', byRow(14) && byRow(14).args[7]);
 ok('live SO-A and SO-C stay gold', byRow(12) && byRow(12).args[6] === '#c9a227' && byRow(16) && byRow(16).args[6] === '#c9a227');
+borderCalls.length = 0;
+ctx._paintDirectOrderDividers(sheetD, 10, colD, 16, 0, { noBoxes: true });
+ok('noBoxes (Amazon): clears but draws no per-order box', borderCalls.filter(b => b.args.length >= 7).length === 0 && borderCalls.length > 0, borderCalls.length);
+borderCalls.length = 0;
+ctx._paintDirectOrderDividers(sheetD, 11, colD, 16, 0);   // divider "moved" — row 11 holds no marker
+ok('rows moved under the paint: nothing written', borderCalls.length === 0, borderCalls.length);
 ok('finished box drawn FIRST (live owns the shared edge)', boxes.length === 3 && boxes[0].r === 14, boxes.map(b => b.r));
 delete props.ORDER_LOOK_ON;
 boxes = paint();

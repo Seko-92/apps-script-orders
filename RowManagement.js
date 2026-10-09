@@ -756,10 +756,21 @@ function setupDuplicateSalesOrderHighlighting() {
                                 layout.amazon > 0 ? layout.amazon - 1 : 0);
     } catch (dividerErr) { console.log("SO divider paint error: " + dividerErr); }
   }
+  // ⭐ 2026-10-09 (owner's call): the AMAZON table gets NO per-order boxes — its orders
+  //   are one or two lines, and a box per order was just ruling. The pass still runs, in
+  //   clear-only mode, so it wipes the boxes the old code drew and keeps the banding clean.
   if (layout.amazon > 0) {
-    try { _paintDirectOrderDividers(sheet, layout.amazon, allData, lastRow, 0); }
-    catch (amzErr) { console.log("Amazon order-box paint error: " + amzErr); }
+    try { _paintDirectOrderDividers(sheet, layout.amazon, allData, lastRow, 0, { noBoxes: true }); }
+    catch (amzErr) { console.log("Amazon order clear error: " + amzErr); }
   }
+
+  // ⭐ 2026-10-09 — RE-ASSERT THE BAND FILLS, from a FRESH read of column A.
+  //   The paint above works from row numbers read at the start. n8n's ~1 AM sweep deletes
+  //   shipped rows ABOVE the tables, one by one, while this painter (fired by onChange)
+  //   is mid-run — every band below moves up into the rows being reset to null, and the
+  //   AMAZON band lost its yellow (2026-10-09). Nothing else ever puts that yellow back,
+  //   so every repaint now does. Cheap: one column read + one fill per band.
+  try { _reassertBandFills(sheet); } catch (bandErr) { console.log("band fill re-assert: " + bandErr); }
 
   // Force the clear-then-apply sequence to land before any subsequent reads.
   SpreadsheetApp.flush();
@@ -778,7 +789,8 @@ function setupDuplicateSalesOrderHighlighting() {
  * @param {Array}  colDData  col-D values from Schema.dataStartRow (reused from the caller)
  * @param {number} lastRow   sheet.getLastRow()
  */
-function _paintDirectOrderDividers(sheet, boundary, colDData, lastRow, stopRow) {
+function _paintDirectOrderDividers(sheet, boundary, colDData, lastRow, stopRow, opts) {
+  opts = opts || {};
   var firstData = boundary + 2;      // first data row below this divider
   var clearLast = Math.min(sheet.getMaxRows(), lastRow + 200);
   // ⭐ 2026-09-26: `stopRow` (optional) ends the segment ABOVE the next divider, so the
@@ -808,6 +820,13 @@ function _paintDirectOrderDividers(sheet, boundary, colDData, lastRow, stopRow) 
     }
     // else: leave bg[di] null → the sheet's banding shows (no tint)
   }
+  // ⚠ 2026-10-09: the dividers must still be where we read them — if rows moved
+  //   underneath us (n8n deleting shipped rows), these row numbers now point INTO the
+  //   next table's band. Skip this pass; the next onChange repaints from fresh numbers.
+  if (!_markerStillAt(sheet, boundary) || (stopRow > 0 && !_markerStillAt(sheet, stopRow + 1))) {
+    console.log("SO divider paint skipped: rows moved during the paint");
+    return;
+  }
   sheet.getRange(firstData, 1, bandRows, W).setBackgrounds(bg);
 
   // ---- GOLD BOX per order — box each sales-order group (top + left + right +
@@ -823,6 +842,7 @@ function _paintDirectOrderDividers(sheet, boundary, colDData, lastRow, stopRow) 
   // ⭐ 2026-09-26: when the paint stops above the AMAZON divider, its last row's bottom
   //   edge IS the divider's thick black top border — leave it alone (bottom=null).
   sheet.getRange(firstData, 1, bandRows, W).setBorder(null, false, stopRow > 0 ? null : false, false, false, false);
+  if (opts.noBoxes) return;   // clear-only (the Amazon table — no per-order boxes)
 
   var boxColor  = "#c9a227";                             // brand gold — order is whole
   var splitColor = "#b71c1c";                            // alarm red — order is SPLIT
@@ -915,6 +935,25 @@ function _paintDirectOrderDividers(sheet, boundary, colDData, lastRow, stopRow) 
                     isSplit ? splitColor : (pale ? ORDER_LOOK.paleBox : boxColor),
                     pale ? SpreadsheetApp.BorderStyle.SOLID : boxStyle);
   }
+}
+
+/** True when column A at `row` still holds a table divider marker (DIRECT / AMAZON). */
+function _markerStillAt(sheet, row) {
+  if (!(row > 0) || row > sheet.getMaxRows()) return false;
+  var v = String(sheet.getRange(row, Schema.cols.SKU).getValue()).trim().toUpperCase();
+  return v === Schema.boundaryMarker || v === Schema.amazonMarker;
+}
+
+/**
+ * Puts the brand yellow back on every table band (DIRECT, AMAZON), A..J, read fresh.
+ * Only the background — values, formulas, merges, borders and floating images are left
+ * alone, so this is safe to run on every repaint.
+ */
+function _reassertBandFills(sheet) {
+  var L = getTableLayout(sheet);
+  [L.direct, L.amazon].forEach(function (row) {
+    if (row > 0) sheet.getRange(row, 1, 1, Schema.dataWidth).setBackground(BRAND.yellow);
+  });
 }
 
 function highlightAllDuplicateSalesOrders() {
