@@ -1652,6 +1652,9 @@ function diagnoseDirectBand() {
   show('oldest past ' + MASTHEAD.lateMinutes + ' min', 'A24');
   show('log tail starts at row', 'A25');
   show('band verdict', 'A26');
+  show('Amazon orders waiting (PENDING, not held)', 'A34');
+  show('any Amazon order late (ship-by)', 'A35');
+  show('showing order # (Direct, then Amazon)', 'A36');
   // ⭐ 2026-09-26 — the NAMEPLATE cells themselves (reported: DIRECT's read "0 waiting" for
   //   a while). Formula AND display, per band, so a stale formula or a static string shows.
   try {
@@ -1668,6 +1671,15 @@ function diagnoseDirectBand() {
   var held = sd.getRange('Y1:Y8').getDisplayValues().map(function (r) { return r[0]; })
     .filter(function (v) { if (ERR.test(v)) bad++; return v !== ''; });
   L.push('  on HOLD, skipped by the band: ' + (held.length ? held.join(' · ') : '(none)'));
+  var amzRows = sd.getRange('AG1:AM' + Math.min(AMAZON_BAND_LIST_ROWS, 8)).getDisplayValues();
+  L.push('  Amazon waiting (order · arrived · ship-by · min · lines · ship-by text · late):');
+  amzRows.forEach(function (r) {
+    if (r.join('') === '') return;
+    if (r.some(function (c) { return ERR.test(c); })) bad++;
+    L.push('     ' + r.join(' · '));
+  });
+  var amzHeld = sd.getRange('AF1:AF8').getDisplayValues().map(function (r) { return r[0]; }).filter(function (v) { return v !== ''; });
+  L.push('  Amazon on HOLD, skipped: ' + (amzHeld.length ? amzHeld.join(' · ') : '(none)'));
   L.push('  waiting list (SO · arrived · min · lines · customer):');
   rows.forEach(function (r) {
     if (r.join('') === '') return;
@@ -4007,6 +4019,7 @@ function _ensureSparkData(ss) {
   );
 
   _ensureDirectWaiting(sheet);
+  _ensureAmazonWaiting(sheet);
   return sheet;
 }
 
@@ -4095,7 +4108,93 @@ function _ensureDirectWaiting(sheet) {
   sheet.getRange('A23').setFormula('=IF(A21>0,MOD(MINUTE(NOW()),A21)+1,"")');
   sheet.getRange('A24').setFormula('=AND(ISNUMBER(A22),A22>' + MASTHEAD.lateMinutes + ')');
   sheet.getRange('A25').setFormula("=MAX(2,COUNTA('" + logSheet + "'!A:A)-" + (tail - 1) + ')');
-  sheet.getRange('A26').setFormula('=IF(OR(A13,A6="stale",NOT(A21>0)),"",IF(A24,"late","wait"))');
+  // ⭐ 2026-10-09 — the verdict covers AMAZON too (A34 orders waiting, A35 any of them late;
+  //   _ensureAmazonWaiting). With no Amazon table both are 0/FALSE and this is exactly the
+  //   old Direct-only rule.
+  sheet.getRange('A26').setFormula('=IF(OR(A13,A6="stale",NOT(A21+A34>0)),"",IF(OR(A24,A35),"late","wait"))');
+}
+
+/** The AMAZON-waiting block's list height (same idea as DIRECT_BAND_LIST_ROWS). */
+var AMAZON_BAND_LIST_ROWS = 30;
+/** Ship-by TODAY turns the band red from this hour (Houston — the sheet's timezone).
+ *  UPS/USPS pick up at 3:30 PM, so 2 PM leaves time to act. */
+var AMAZON_BAND_LATE_HOUR = 14;
+
+/** One column of the AMAZON table: from its header+1 to the end (it is the last table). */
+function _sdAmazonCol(c) {
+  return 'INDIRECT("\'' + MAIN_SHEET_NAME + '\'!' + c + '"&(A27+2)&":' + c + '")';
+}
+
+/**
+ * THE AMAZON-WAITING BLOCK (2026-10-09) — Amazon joins the Direct band.
+ *
+ *   AF  Amazon orders on HOLD (the same whole-word rule as Y — Holds.js holdNoteHasHold)
+ *   AG  Amazon orders with a PENDING line, not on hold, in table order
+ *   AH  when each arrived — earliest RECEIVED in the log tail (A25), the AA rule
+ *   AI  its ship-by DATE, read from the "ship by M/D" the Amazon door writes into NOTE
+ *   AJ  minutes waiting           AK  PENDING lines on that order
+ *   AL  the ship-by text as written ("10/10")
+ *   AM  late? — ship-by already passed, or ship-by is today and it is past
+ *       AMAZON_BAND_LATE_HOUR; with no ship-by at all, the Direct rule (lateMinutes)
+ *   A34 orders waiting   A35 any of them late   A36 which order the band shows this minute,
+ *       counted across Direct THEN Amazon (Direct keeps its old rotation when there is none)
+ *
+ * ⚠ The ship-by is a DATE, not a time (_amzShipBy stores M/D), which is why "late" on the
+ *   day itself is an hour of the day. A ship-by more than ~6 months behind today is read as
+ *   next year (an order entered in December for January).
+ * ⚠ With no AMAZON table (A27 blank) every cell here is blank/0, so the band is exactly
+ *   what it was before.
+ * ⚠⚠ All Orders through INDIRECT only, no LET — the same two rules as the Direct block.
+ */
+function _ensureAmazonWaiting(sheet) {
+  var N = AMAZON_BAND_LIST_ROWS;
+  var col = function (c) { return c + '1:' + c + N; };
+  var D = _sdAmazonCol('D'), E = _sdAmazonCol('E'), F = _sdAmazonCol('F');
+  var logSheet = (typeof ACTIVITY_LOG === 'object' && ACTIVITY_LOG.sheetName) ? ACTIVITY_LOG.sheetName : 'Activity Log';
+  var log = function (c) { return 'INDIRECT("\'' + logSheet + '\'!' + c + '"&A25&":' + c + '")'; };
+
+  // Room for the block: an older helper sheet may stop at column AD.
+  try { if (sheet.getMaxColumns() < 39) sheet.insertColumnsAfter(sheet.getMaxColumns(), 39 - sheet.getMaxColumns()); } catch (e) {}
+  try { sheet.getRange('AF1:AM' + (N + 20)).clearContent(); } catch (e) {}
+
+  sheet.getRange('AF1').setFormula(
+    '=IF(A27="","",IFERROR(UNIQUE(FILTER(' + D + ',' + D + '<>"",' + F + '<>"CANCELED",' +
+    'REGEXMATCH(' + E + '&"","(?i)\\bhold\\b"))),""))'
+  );
+  sheet.getRange('AG1').setFormula(
+    '=IF(A27="","",IFERROR(UNIQUE(FILTER(' + D + ',' + F + '="PENDING",' + D + '<>"",' +
+    'ISNA(MATCH(' + D + ',AF1:AF,0)))),""))'
+  );
+  sheet.getRange('AH1').setFormula(
+    '=ARRAYFORMULA(IF(LEN(' + col('AG') + ')=0,"",IFERROR(VLOOKUP(' + col('AG') +
+    ',FILTER({' + log('C') + ',' + log('A') + '},' + log('B') + '="RECEIVED"),2,FALSE),"")))'
+  );
+  try { sheet.getRange(col('AH')).setNumberFormat('M/d h:mm AM/PM'); } catch (e) {}
+  sheet.getRange('AL1').setFormula(
+    '=ARRAYFORMULA(IF(LEN(' + col('AG') + ')=0,"",IFERROR(REGEXEXTRACT(VLOOKUP(' + col('AG') +
+    ',{' + D + ',' + E + '},2,FALSE)&"","(?i)ship by (\\d{1,2}/\\d{1,2})"),"")))'
+  );
+  var mo = 'VALUE(REGEXEXTRACT(' + col('AL') + ',"^(\\d+)"))';
+  var dy = 'VALUE(REGEXEXTRACT(' + col('AL') + ',"/(\\d+)$"))';
+  sheet.getRange('AI1').setFormula(
+    '=ARRAYFORMULA(IF(LEN(' + col('AL') + ')=0,"",IFERROR(DATE(YEAR(TODAY())+' +
+    'IF(DATE(YEAR(TODAY()),' + mo + ',' + dy + ')<TODAY()-180,1,0),' + mo + ',' + dy + '),"")))'
+  );
+  try { sheet.getRange(col('AI')).setNumberFormat('M/d'); } catch (e) {}
+  sheet.getRange('AJ1').setFormula(
+    '=ARRAYFORMULA(IF(ISNUMBER(' + col('AH') + '),ROUND((NOW()-' + col('AH') + ')*1440),""))'
+  );
+  sheet.getRange('AK1').setFormula(
+    '=ARRAYFORMULA(IF(LEN(' + col('AG') + ')=0,"",COUNTIFS(' + D + ',' + col('AG') + ',' + F + ',"PENDING")))'
+  );
+  sheet.getRange('AM1').setFormula(
+    '=ARRAYFORMULA(IF(LEN(' + col('AG') + ')=0,"",IF(ISNUMBER(' + col('AI') + '),' +
+    '((' + col('AI') + '<TODAY())+(' + col('AI') + '=TODAY())*(HOUR(NOW())>=' + AMAZON_BAND_LATE_HOUR + '))>0,' +
+    'IF(ISNUMBER(' + col('AJ') + '),' + col('AJ') + '>' + MASTHEAD.lateMinutes + ',FALSE))))'
+  );
+  sheet.getRange('A34').setFormula('=SUMPRODUCT(--(LEN(' + col('AG') + ')>0))');
+  sheet.getRange('A35').setFormula('=COUNTIF(' + col('AM') + ',TRUE)>0');
+  sheet.getRange('A36').setFormula('=IF(A21+A34>0,MOD(MINUTE(NOW()),A21+A34)+1,"")');
 }
 
 /**
@@ -4250,16 +4349,31 @@ function _setSystemPulseBannerFormulas(sheet) {
   var directBranch = '';
   if (MASTHEAD.directBand) {
     var N = DIRECT_BAND_LIST_ROWS;
-    var at = function (c) { return 'INDEX(' + SD + c + '1:' + c + N + ',' + SD + 'A23)'; };
-    var directText =
-      '"▼ DIRECT · "&' + SD + 'A21&" WAITING"&CHAR(10)&' +
+    // ⭐ 2026-10-09 — Direct and Amazon share one rotation (A36): Direct orders first, then
+    //   Amazon. With no Amazon order waiting, A36 is exactly A23 and every line below reads
+    //   as it always did.
+    var at  = function (c) { return 'INDEX(' + SD + c + '1:' + c + N + ',' + SD + 'A36)'; };
+    var atA = function (c) { return 'INDEX(' + SD + c + '1:' + c + AMAZON_BAND_LIST_ROWS + ',' + SD + 'A36-' + SD + 'A21)'; };
+    var total = '(' + SD + 'A21+' + SD + 'A34)';
+    var head =
+      'IF(' + SD + 'A34=0,"▼ DIRECT · "&' + SD + 'A21&" WAITING",' +
+      'IF(' + SD + 'A21=0,"▼ AMAZON · "&' + SD + 'A34&" WAITING",' +
+      '"▼ DIRECT "&' + SD + 'A21&" · AMAZON "&' + SD + 'A34&" WAITING"))';
+    var directOrder =
       at('Z') + '&IF(' + at('AD') + '="",""," · "&LEFT(' + at('AD') + ',20)&' +
         'IF(LEN(' + at('AD') + ')>20,"…",""))&CHAR(10)&' +
       at('AC') + '&IF(' + at('AC') + '=1," line"," lines")&' +
-      'IF(ISNUMBER(' + at('AB') + ')," · waiting "&' + _fmtMinsExpr(at('AB')) + ',"")&' +
-      'IF(' + SD + 'A21>1,"   "&' + SD + 'A23&"/"&' + SD + 'A21,"")';
-    directBranch = 'IF(' + SD + 'A26<>"",IFERROR(' + directText + ',"▼ DIRECT · "&' +
-                   SD + 'A21&" WAITING"),';
+      'IF(ISNUMBER(' + at('AB') + ')," · waiting "&' + _fmtMinsExpr(at('AB')) + ',"")';
+    var amazonOrder =
+      atA('AG') + '&IF(' + atA('AL') + '="",""," · ship by "&' + atA('AL') + ')&CHAR(10)&' +
+      atA('AK') + '&IF(' + atA('AK') + '=1," line"," lines")&' +
+      'IF(ISNUMBER(' + atA('AJ') + ')," · waiting "&' + _fmtMinsExpr(atA('AJ')) + ',"")';
+    var directText =
+      head + '&CHAR(10)&' +
+      'IF(' + SD + 'A36<=' + SD + 'A21,' + directOrder + ',' + amazonOrder + ')&' +
+      'IF(' + total + '>1,"   "&' + SD + 'A36&"/"&' + total + ',"")';
+    directBranch = 'IF(' + SD + 'A26<>"",IFERROR(' + directText + ',"▼ WAITING · "&' +
+                   total + '),';
   }
   var headlineFormula =
     '=IF(' + SD + 'A6="rest","the floor is asleep"&' +

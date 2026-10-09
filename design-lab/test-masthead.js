@@ -227,9 +227,9 @@ ok('⚠ D1 is lowercase — the face does the shouting',
    // ⭐ The Direct band (2026-09-15) is exempt BY DESIGN and cut out first: it is the one
    //   branch that exists to be noticed, the face it deferred to sits under the loop GIF,
    //   and "▼ DIRECT · 2 WAITING" is the wording the user approved in the mockup.
-   !/[A-Z]{4,}/.test((W.D1 || '').replace(/IF\('__SparkData'!A26<>"",IFERROR\(.*?" WAITING"\),/, '')
+   !/[A-Z]{4,}/.test((W.D1 || '').replace(/IF\('__SparkData'!A26<>"",IFERROR\(.*?"▼ WAITING · "&\([^)]*\)\),/, '')
      .replace(/'__SparkData'!A\d+|IFERROR|REGEXEXTRACT|VALUE|CHAR|TEXT|IF/g, '')),
-   (W.D1 || '').replace(/IF\('__SparkData'!A26<>"",IFERROR\(.*?" WAITING"\),/, '')
+   (W.D1 || '').replace(/IF\('__SparkData'!A26<>"",IFERROR\(.*?"▼ WAITING · "&\([^)]*\)\),/, '')
      .replace(/'__SparkData'!A\d+|IFERROR|REGEXEXTRACT|VALUE|CHAR|TEXT|IF/g, '').match(/[A-Z]{4,}/g));
 // ⚠ LET() threw "Formula parse error" on this live sheet (2026-06-05). It must never
 //   reappear in a banner formula, however tempting the repeated base expression is.
@@ -528,15 +528,15 @@ console.log('\nK · ⭐ the Direct band (2026-09-15)');
      /^=MAX\(2,COUNTA\('Activity Log'!A:A\)-2499\)$/.test(S.A25 || ''), S.A25);
   ok('AD1 names the customer from Pending Sales Orders', /VLOOKUP\(Z1:Z30,'Pending Sales Orders'!A:B,2,FALSE\)/.test(S.AD1 || ''));
   ok('A24 uses MASTHEAD.lateMinutes', new RegExp('A22>' + sandbox.MASTHEAD.lateMinutes + '\\)$').test(S.A24 || ''), S.A24);
-  ok('⚠ A26 stays blank while resting or stale', /^=IF\(OR\(A13,A6="stale",NOT\(A21>0\)\),""/.test(S.A26 || ''), S.A26);
-  ok('A26 says late / wait', /IF\(A24,"late","wait"\)\)$/.test(S.A26 || ''));
+  ok('⚠ A26 stays blank while resting or stale', /^=IF\(OR\(A13,A6="stale",NOT\(A21\+A34>0\)\),""/.test(S.A26 || ''), S.A26);
+  ok('A26 says late / wait — late when Direct (A24) OR Amazon (A35) is late', /IF\(OR\(A24,A35\),"late","wait"\)\)$/.test(S.A26 || ''), S.A26);
 
   const H = W.F1 || '';
   const iRest = H.indexOf('A6="rest"'), iDir = H.indexOf("A26<>\"\""), iLate = H.indexOf('A6="late"');
   ok('the headline has a Direct branch', iDir > -1);
   ok('rest outranks the Direct branch, the Direct branch outranks late', iRest > -1 && iRest < iDir && iDir < iLate, [iRest, iDir, iLate]);
-  ok('⚠ a formula fault falls back to the bare count, never #ERROR', /IFERROR\("▼ DIRECT · "&/.test(H) && /,"▼ DIRECT · "&'__SparkData'!A21&" WAITING"\),/.test(H));
-  ok('it rotates through orders with A23', /INDEX\('__SparkData'!Z1:Z30,'__SparkData'!A23\)/.test(H));
+  ok('⚠ a formula fault falls back to the bare count, never #ERROR', /IFERROR\(IF\('__SparkData'!A34=0,"▼ DIRECT · "&/.test(H) && /,"▼ WAITING · "&\('__SparkData'!A21\+'__SparkData'!A34\)\),/.test(H));
+  ok('it rotates through orders with A36 (Direct first, then Amazon)', /INDEX\('__SparkData'!Z1:Z30,'__SparkData'!A36\)/.test(H) && /INDEX\('__SparkData'!AG1:AG30,'__SparkData'!A36-'__SparkData'!A21\)/.test(H));
   ok('D1 and F1 carry the SAME headline', W.D1 === W.F1);
 
   // rollback: the flag off gives the old headline back
@@ -581,6 +581,48 @@ console.log('\nK · ⭐ the Direct band (2026-09-15)');
   sandbox.MASTHEAD.directBand = prevBand;
   ok('⚠ ROLLBACK · directBand=false removes the colour rules and adds none',
      saved && saved.length === 1 && saved[0] === other, saved && saved.length);
+}
+
+// ======================================================================================
+console.log('\nL · ⭐ Amazon joins the band (2026-10-09)');
+{
+  const AMZ = c => "INDIRECT(\"'All orders'!" + c + '"&(A27+2)&":' + c + '")';
+  ok('AG1 lists AMAZON orders with a PENDING line, from the Amazon table only (A27+2 down)',
+     (S.AG1 || '').indexOf('FILTER(' + AMZ('D') + ',' + AMZ('F') + '="PENDING"') > -1 && /^=IF\(A27="",""/.test(S.AG1 || ''), S.AG1);
+  ok('⚠ with no AMAZON table every Amazon cell is blank (A27="")', ['AF1', 'AG1'].every(k => /^=IF\(A27="",""/.test(S[k] || '')));
+  ok('HOLD · AG1 drops Amazon orders listed in AF', (S.AG1 || '').indexOf('ISNA(MATCH(' + AMZ('D') + ',AF1:AF,0))') > -1, S.AG1);
+  {
+    const m = /REGEXMATCH\(.+?&"","\(\?i\)(.*?)"\)/.exec(S.AF1 || '');
+    const re = m ? new RegExp(m[1], 'i') : null;
+    const board = n => /\bHOLD\b/i.test(n);
+    const notes = ['ship by 10/10 · HOLD', 'hold for the buyer', 'ship by 10/10', 'household goods', ''];
+    ok('HOLD · the Amazon hold regex agrees with the board\'s on every note', !!re && notes.every(n => re.test(n) === board(n)),
+       re ? notes.map(n => n + '→' + re.test(n)) : 'no regex in AF1');
+  }
+  {
+    // ⚠ EXECUTED against the notes the Amazon door really writes (_amzNote: "ship by M/D" + " · note").
+    const m = /REGEXEXTRACT\(VLOOKUP\(.+?&"","\(\?i\)(.*?)"\)/.exec(S.AL1 || '');
+    const re = m ? new RegExp(m[1], 'i') : null;
+    const cases = [['ship by 10/10', '10/10'], ['ship by 9/29 · fragile, call first', '9/29'], ['Ship By 12/1', '12/1'], ['fragile', null], ['', null]];
+    ok('AL1 reads the ship-by date out of the note the Amazon door writes', !!re && cases.every(c => { const x = re.exec(c[0]); return (x ? x[1] : null) === c[1]; }),
+       re ? cases.map(c => { const x = re.exec(c[0]); return c[0] + '→' + (x ? x[1] : null); }) : 'no regex in AL1');
+  }
+  ok('AI1 turns M/D into a date, rolling to next year when it is ~6 months behind', /DATE\(YEAR\(TODAY\(\)\)\+IF\(DATE\(YEAR\(TODAY\(\)\),/.test(S.AI1 || '') && /<TODAY\(\)-180,1,0\)/.test(S.AI1 || ''), S.AI1);
+  ok('AH1 takes arrival from RECEIVED in the log tail, the Direct rule', /FILTER\(\{INDIRECT\("'Activity Log'!C"&A25&":C"\),INDIRECT\("'Activity Log'!A"&A25&":A"\)\},INDIRECT\("'Activity Log'!B"&A25&":B"\)="RECEIVED"\)/.test(S.AH1 || ''), S.AH1);
+  ok('AM1 · late = ship-by passed, or ship-by today after AMAZON_BAND_LATE_HOUR',
+     (S.AM1 || '').indexOf('<TODAY())+(AI1:AI30=TODAY())*(HOUR(NOW())>=' + sandbox.AMAZON_BAND_LATE_HOUR + ')') > -1, S.AM1);
+  ok('AM1 · with no ship-by it falls back to the Direct rule (lateMinutes)',
+     (S.AM1 || '').indexOf('AJ1:AJ30>' + sandbox.MASTHEAD.lateMinutes) > -1, S.AM1);
+  ok('the late hour is 2 PM, before the 3:30 PM pickup', sandbox.AMAZON_BAND_LATE_HOUR === 14);
+  ok('A34 counts Amazon orders waiting, A35 says if any is late', /^=SUMPRODUCT\(--\(LEN\(AG1:AG30\)>0\)\)$/.test(S.A34 || '') && /^=COUNTIF\(AM1:AM30,TRUE\)>0$/.test(S.A35 || ''), [S.A34, S.A35]);
+  ok('A36 rotates across Direct + Amazon, and equals A23\'s rule when Amazon is empty', /^=IF\(A21\+A34>0,MOD\(MINUTE\(NOW\(\)\),A21\+A34\)\+1,""\)$/.test(S.A36 || ''), S.A36);
+  const H = W.F1 || '';
+  ok('the headline keeps "▼ DIRECT · N WAITING" when only Direct waits', /IF\('__SparkData'!A34=0,"▼ DIRECT · "&'__SparkData'!A21&" WAITING"/.test(H));
+  ok('…says "▼ AMAZON · N WAITING" when only Amazon waits', /IF\('__SparkData'!A21=0,"▼ AMAZON · "&'__SparkData'!A34&" WAITING"/.test(H));
+  ok('…and names both when both wait', /"▼ DIRECT "&'__SparkData'!A21&" · AMAZON "&'__SparkData'!A34&" WAITING"/.test(H));
+  ok('an Amazon order shows its ship-by', /" · ship by "&INDEX\('__SparkData'!AL1:AL30,'__SparkData'!A36-'__SparkData'!A21\)/.test(H));
+  ok('⚠ the colour rules still read A26 only — nothing new for the strippers to delete', /var DIRECT_BAND_SIGNATURE = "__SparkData'!A26";/.test(R('BrandTheme.js')));
+  ok('diagnoseDirectBand reports the Amazon half', /Amazon orders waiting \(PENDING, not held\)/.test(R('BrandTheme.js')) && /Amazon on HOLD, skipped/.test(R('BrandTheme.js')));
 }
 
 console.log('\n' + (fail ? '✗ ' + fail + ' FAILED' : '✓ all') + ' · ' + pass + ' passed\n');

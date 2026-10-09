@@ -176,7 +176,7 @@ function boot(rows) {
     buildLocationMap: () => new Map([['444444', 'D-4'], ['555555', 'E-5'], ['666666', 'A-1'], ['167517', 'K-7']]),
     logActivityBatch: (b) => logs.push.apply(logs, b),
     _dashBustTickCache: () => {}, refreshKitSkuMarkers: () => {}, refreshAllOrdersEnrichment: () => {},
-    publishBoardTickInline: (why) => published.push(why),
+    publishBoardTickInline: (gap, why) => published.push(why),
     refreshAllOrdersLockCarveOuts: () => {}, refreshDynamicBandings: () => {}, _ensureSparkData: () => {},
     _obIsOwner: () => true, _obRequireOwner: () => '', _asOwner: () => { throw new Error('no hop in tests'); },
     // ⭐ The band styler is the REAL one from BrandTheme.js (loaded below). It used to be a
