@@ -1148,6 +1148,25 @@ body {
   50%      { box-shadow: inset 3px 0 0 #ffb800, inset 0 0 22px 0 rgba(255,184,0,0.10); }
 }
 
+/* ── EVENT FILMS (2026-10-09) — the film window in the cockpit + the resting panel ── */
+.hq-film { position: relative; height: 56px; max-height: 56px; margin-top: 7px;
+  border-top: 1px solid rgba(255,212,0,0.12); overflow: hidden;
+  transition: max-height 240ms ease, opacity 240ms ease, margin 240ms ease; }
+.hq-film canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.hq-film-cap { position: absolute; top: 0; bottom: 0; left: 92px; right: 6px; display: flex; align-items: center;
+  font-family: 'Roboto Mono', monospace; font-size: 10px; color: #6d6a62; letter-spacing: .02em;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: opacity 500ms ease; pointer-events: none; }
+.hq-film.playing .hq-film-cap { opacity: 0; }
+.hq-film.off { display: none; }
+body.cockpit-condensed .hq-film { max-height: 0; opacity: 0; margin-top: 0; border-top-width: 0; }
+.rp-film { height: 96px; max-height: 96px; margin-top: 12px; flex: none; z-index: 2;
+  border-bottom: 1px solid rgba(255,212,0,0.12); opacity: 0; transform: translateY(10px);
+  transition: opacity 300ms cubic-bezier(.37,0,.63,1), transform 300ms ease; }
+.rp.rp-show .rp-film { opacity: 1; transform: none; transition-delay: 630ms;
+  transition: opacity 640ms cubic-bezier(.37,0,.63,1) 630ms, transform 640ms cubic-bezier(.16,1,.3,1) 630ms; }
+.rp-film .hq-film-cap { left: 124px; font-size: 11px; }
+.rp-pip.rp-pip-new { stroke: #8fd18f; filter: drop-shadow(0 0 4px #8fd18f); transition: stroke 400ms ease; }
+
 /* ════════════════════════════════════════════════════════════════════════
    CONDENSED COCKPIT — applied to <body> while #modules is scrolled down.
    The full cockpit folds to a compact vitals strip (shrunk numbers + queue);
@@ -4433,6 +4452,10 @@ body.dark-theme .card.band-alt, body.dark-theme .card.band-alt .card-header{ bac
     </div>
   </div>
 
+  <!-- EVENT FILMS (2026-10-09) — a short film when something happens on the floor,
+       a quiet loop between. Drawn by HQFilm; folds away with the cockpit on scroll. -->
+  <div class="hq-film" id="cockpitFilm"></div>
+
 </div>
 
 <div class="status-bar">
@@ -5472,6 +5495,17 @@ body.dark-theme .card.band-alt, body.dark-theme .card.band-alt .card-header{ bac
           <input class="hqs-sw" type="checkbox" id="hqsHours">
         </div>
       </div>
+      <div class="hqs-sec">
+        <span class="hqs-cap">Films</span>
+        <div class="hqs-row">
+          <label for="hqsFilms">Event films<small>A short film when an order lands, a box is ready, an order ships</small></label>
+          <input class="hqs-sw" type="checkbox" id="hqsFilms" checked>
+        </div>
+        <div class="hqs-row">
+          <label for="hqsAmbient">Ambient loop<small>Quiet scenes between events, shop hours only</small></label>
+          <input class="hqs-sw" type="checkbox" id="hqsAmbient" checked>
+        </div>
+      </div>
       <div class="empty-hint">Saved in this browser only — each tablet or PC keeps its own.</div>
     </div>
   </div>
@@ -5724,6 +5758,9 @@ body.dark-theme .card.band-alt, body.dark-theme .card.band-alt .card-header{ bac
       <div class="rp-s" id="rpReceivedSub"></div>
     </div>
   </div>
+
+  <!-- the same films, larger, under the flank (2026-10-09). A film never wakes the panel. -->
+  <div class="hq-film rp-film" id="rpFilm"></div>
 
   <!-- the quiet rows — appended only when they have something to say -->
   <div class="rp-rows" id="rpRows"></div>
@@ -7029,6 +7066,8 @@ function _sidebarPaint(cockpit, lastSync, api, alerts, picker, full) {
   try { _rpNoteTick(cockpit, alerts, full); } catch (e) {}
   // Order voices read the same tick — arrivals by SO number, the unattended repeat.
   try { _hqsNoteTick(full); } catch (e) { console.warn('order voices: ' + e); }
+  // Event films read the same tick too — after the cockpit, so the bar sparks first.
+  try { if (window.HQFilm) HQFilm.noteTick(cockpit, full); } catch (e) { console.warn('films: ' + e); }
   dismissBootSplash();     // panel is populated — drop the splash
 }
 
@@ -11256,7 +11295,12 @@ window.HQFlow = (function () {
     }
     function armQuiet() {
       clearTimeout(quietT);
-      quietT = setTimeout(function () { if (!reduce) retrig(scan, 'go'); armQuiet(); }, 45000);
+      quietT = setTimeout(function () {
+        // ⭐ 2026-10-09: one ambient motion at a time — the film loop owns the quiet beats
+        var loopOn = (typeof hqFilm !== 'undefined') && hqFilm.films && hqFilm.ambient;
+        if (!reduce && !loopOn) retrig(scan, 'go');
+        armQuiet();
+      }, 45000);
     }
     function caption(d, win) {
       var diff = d.shipped - d.received;
@@ -11338,6 +11382,503 @@ function _paintFlow(snap) {
                    projection: pc.projection, inside: pc.insideWorkday });
   } catch (e) { console.warn('flow: ' + e); }
 }
+
+/* ═══ EVENT FILMS (2026-10-09) — Phase 1 of the afterglow ═════════════════════════
+   A short film in the cockpit (and on the resting panel) when something real happens
+   on the floor: an order lands, a box is ready, an order ships, the floor clears.
+   Between events, a dim wordless loop in shop hours. Drawn in the band-mark language:
+   our kraft HQ parcel, its shadow, the red hand truck, the scan line, a warm light.
+   Approved on https://claude.ai/artifact/9RZZUEhbftrUxepSNvG6L5 — the drawing below is
+   ported from that mockup unchanged; only the wiring is new.
+   ⭐ ZERO SERVER WORK. Every event is read off the tick this panel already polls —
+      comparing this tick with the last one, exactly like the order voices.
+   ⚠ COLD START PLAYS NOTHING. The first tick only remembers; history is not news.
+   ⚠ Drawing runs ONLY while a film or scene plays, and never while its window is out
+     of sight (tab hidden, cockpit folded on scroll, resting panel down).
+   ⚠ Per-computer switches in the Sound card (localStorage, like the sounds). */
+var HQ_FILM_KEY = 'hqFilmSettings.v1';
+var hqFilm = (function () {
+  var s = null;
+  try { s = JSON.parse(localStorage.getItem(HQ_FILM_KEY) || 'null'); } catch (e) { s = null; }
+  s = s || {};
+  return { films: s.films !== false, ambient: s.ambient !== false };
+})();
+function _hqFilmSave() { try { localStorage.setItem(HQ_FILM_KEY, JSON.stringify(hqFilm)); } catch (e) {} }
+
+window.HQFilm = (function () {
+  var reduce = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  var C = { cream: '#f0e6c8', yellow: '#ffd400', gold: '#f0c75e', green: '#8fd18f', dim: '#6d6a62' };
+  var DISP = "'Oswald', 'Arial Narrow', sans-serif", MONO = "'Roboto Mono', monospace";
+  var fw = 0;
+  // ---- timing, in the same language as the band marks (CSS-style curves + keyframes) ----
+  function bez(x1, y1, x2, y2) {
+    var cx = 3 * x1, bx = 3 * (x2 - x1) - cx, ax = 1 - cx - bx, cy = 3 * y1, by = 3 * (y2 - y1) - cy, ay = 1 - cy - by;
+    function X(t) { return ((ax * t + bx) * t + cx) * t; } function Y(t) { return ((ay * t + by) * t + cy) * t; }
+    function dX(t) { return (3 * ax * t + 2 * bx) * t + cx; }
+    return function (x) { var t = x; for (var i = 0; i < 10; i++) { var d = dX(t); if (Math.abs(d) < 1e-6) break; t -= (X(t) - x) / d; t = Math.min(1, Math.max(0, t)); } return Y(t); };
+  }
+  var SINE = bez(.37, 0, .63, 1), GLIDE = bez(.45, 0, .25, 1), BRISK = bez(.55, 0, .35, 1), EASE = bez(.25, .1, .25, 1), FALL = bez(.55, 0, 1, .45);
+  function kf(fr, t) {
+    if (t <= fr[0][0]) return fr[0][1];
+    for (var i = 1; i < fr.length; i++) { var a = fr[i - 1], b = fr[i]; if (t <= b[0]) return a[1] + (b[1] - a[1]) * (a[2] || EASE)((t - a[0]) / (b[0] - a[0] || 1)); }
+    return fr[fr.length - 1][1];
+  }
+  function clamp(t) { return Math.max(0, Math.min(1, t)); }
+  function seg(t, a, b) { return clamp((t - a) / (b - a)); }
+  var RED = '#e8312f', KRAFT = '#c8954f', EDGE = '#0b0a08';
+
+  // ---- our HQ parcel (the band-mark parcel), with flaps that open and tape that seals ----
+  function parcel(ctx, x, yBottom, size, o) {
+    o = o || {}; var k = size / 40;
+    ctx.save(); ctx.globalAlpha *= (o.alpha == null ? 1 : o.alpha);
+    ctx.translate(x + size / 2, yBottom); ctx.scale((o.sx || 1) * k, (o.sy || 1) * k); ctx.translate(-20, -40);
+    ctx.lineJoin = 'round'; ctx.lineCap = 'round'; ctx.strokeStyle = EDGE; ctx.lineWidth = 2.2;
+    var body = new Path2D('M6 14 20 7l14 7v15l-14 7-14-7z');
+    ctx.fillStyle = KRAFT; ctx.fill(body);
+    ctx.fillStyle = 'rgba(0,0,0,.16)'; ctx.fill(new Path2D('M20 21l14-7v15l-14 7z'));          // shaded right face
+    ctx.stroke(body); ctx.stroke(new Path2D('M6 14l14 7 14-7M20 21v15'));
+    var op = o.open || 0;
+    if (op > 0) {
+      ctx.fillStyle = '#3a2810'; ctx.fill(new Path2D('M6 14 20 7l14 7-14 7z'));                 // the open mouth
+      var h = 11 * op;
+      var lf = new Path2D('M6 14 20 21 ' + (17) + ' ' + (21 - h) + ' ' + (3) + ' ' + (14 - h) + 'z');
+      var rf = new Path2D('M34 14 20 21 ' + (23) + ' ' + (21 - h) + ' ' + (37) + ' ' + (14 - h) + 'z');
+      ctx.fillStyle = '#d9a764'; ctx.fill(lf); ctx.stroke(lf); ctx.fillStyle = '#b8853f'; ctx.fill(rf); ctx.stroke(rf);
+    } else {
+      var tp = o.tape == null ? 1 : o.tape;
+      if (tp > 0) { ctx.strokeStyle = '#ffd400'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(13, 10.5); ctx.lineTo(13 + 14 * tp, 10.5 + 7 * tp); ctx.stroke(); }
+    }
+    if (o.hq) { ctx.fillStyle = EDGE; ctx.beginPath(); ctx.arc(13, 25, 3.6, 0, 6.283); ctx.fill(); }
+    if (o.label) {
+      ctx.save(); ctx.globalAlpha *= o.label.a; ctx.translate(27, 24); ctx.scale(o.label.k, o.label.k); ctx.translate(-27, -24);
+      var lb = new Path2D('M23.5 23.5l7.5-3.6v5.4l-7.5 3.6z'); ctx.fillStyle = '#fff'; ctx.fill(lb); ctx.lineWidth = 1; ctx.strokeStyle = EDGE; ctx.stroke(lb);
+      ctx.lineWidth = .8; ctx.stroke(new Path2D('M25 25.6l4.6-2.2M25 27.2l3-1.4')); ctx.restore();
+    }
+    ctx.restore();
+  }
+  function shadow(ctx, x, yBottom, w, sx, a) {
+    if (a <= 0.01) return;
+    ctx.save(); ctx.globalAlpha *= a;
+    var cx = x + w / 2, cy = yBottom, rx = (w / 2) * sx, g = ctx.createRadialGradient(cx, cy, 0, cx, cy, rx);
+    g.addColorStop(0, 'rgba(0,0,0,.75)'); g.addColorStop(.75, 'rgba(0,0,0,0)');
+    ctx.fillStyle = g; ctx.beginPath(); ctx.ellipse(cx, cy, rx, 2.6, 0, 0, 6.283); ctx.fill();
+    var w2 = ctx.createRadialGradient(cx, cy, 0, cx, cy, rx * 1.3);                                 // a warm floor glint
+    w2.addColorStop(0, 'rgba(255,212,0,.07)'); w2.addColorStop(1, 'rgba(255,212,0,0)');
+    ctx.fillStyle = w2; ctx.beginPath(); ctx.ellipse(cx, cy + 1, rx * 1.3, 4, 0, 0, 6.283); ctx.fill();
+    ctx.restore();
+  }
+  function ground(ctx, x0, x1, y) {
+    var g = ctx.createLinearGradient(x0, 0, x1, 0);
+    g.addColorStop(0, 'rgba(240,230,200,0)'); g.addColorStop(.2, 'rgba(240,230,200,.16)'); g.addColorStop(.8, 'rgba(240,230,200,.16)'); g.addColorStop(1, 'rgba(240,230,200,0)');
+    ctx.fillStyle = g; ctx.fillRect(x0, y, x1 - x0, 1);
+  }
+  // the word, with the band marks' warm light gliding over its letters
+  var wordCv = document.createElement('canvas');
+  function word(ctx, text, color, a, light, detail, da) {
+    if (a <= 0.01 && da <= 0.01) return;
+    var x = 92, y = 31, fs = 17, k = ctx.getTransform().a;
+    ctx.save(); ctx.font = '500 17px ' + DISP; while (fs > 12 && ctx.measureText(text).width + text.length * .5 > fw - x - 10) { fs--; ctx.font = '500 ' + fs + 'px ' + DISP; } ctx.restore();
+    ctx.save(); ctx.font = '500 ' + fs + 'px ' + DISP; var w = Math.ceil(ctx.measureText(text).width + text.length * .5) + 6; ctx.restore();
+    var H = 30; wordCv.width = Math.ceil(w * k); wordCv.height = Math.ceil(H * k);
+    var o = wordCv.getContext('2d'); o.setTransform(k, 0, 0, k, 0, 0); o.clearRect(0, 0, w, H);
+    o.font = '500 ' + fs + 'px ' + DISP; o.textBaseline = 'alphabetic'; o.fillStyle = color;
+    if ('letterSpacing' in o) o.letterSpacing = '.4px';
+    o.fillText(text, 1, 20);
+    if (light > -0.19 && light < 1.19) {
+      o.globalCompositeOperation = 'source-atop';
+      var span = w * 1.8, x0 = -(span - w) * light, gr = o.createLinearGradient(x0, 0, x0 + span, H * .2);
+      gr.addColorStop(0, 'rgba(255,248,220,0)'); gr.addColorStop(.44, 'rgba(255,248,220,0)'); gr.addColorStop(.485, 'rgba(255,250,230,.45)');
+      gr.addColorStop(.5, 'rgba(255,255,245,.8)'); gr.addColorStop(.515, 'rgba(255,250,230,.45)'); gr.addColorStop(.56, 'rgba(255,248,220,0)'); gr.addColorStop(1, 'rgba(255,248,220,0)');
+      o.fillStyle = gr; o.fillRect(0, 0, w, H); o.globalCompositeOperation = 'source-over';
+    }
+    ctx.save(); ctx.globalAlpha *= a; ctx.drawImage(wordCv, x, y - 20 + (1 - a) * 4, w, H); ctx.restore();
+    ctx.save(); ctx.globalAlpha *= da; ctx.font = '500 9.5px ' + MONO; ctx.fillStyle = '#a7a191'; ctx.textBaseline = 'alphabetic';
+    var dt = detail, room = fw - x - 8; while (dt.length > 4 && ctx.measureText(dt).width > room) dt = dt.slice(0, -2) + '…';
+    ctx.fillText(dt, x + 1, 48 + (1 - da) * 3); ctx.restore();
+  }
+  function wordIn(t, start) { return [kf([[start, 0, SINE], [start + 380, 1]], t), kf([[start + 420, 1.2, GLIDE], [start + 1300, -0.2]], t), kf([[start + 200, 0, SINE], [start + 560, 1]], t)]; }
+
+  var TRUCK = {
+    handle: new Path2D('M14 8 Q25 6 28 15 L47 106'),
+    box: new Path2D('M148 82 L137 25 Q135 16 126 17 L61 28 Q52 30 54 39 L66 99 Q68 107 77 105'),
+    label: new Path2D('M84 49 L112 44'),
+    base: new Path2D('M66 120 L141 106 Q150 104 149 96')
+  };
+
+  var FILMS = {
+    // eBay: our parcel drops onto the floor line, squashes a touch, settles on its shadow
+    land: { dur: 2300, draw: function (ctx, t, d) {
+      ground(ctx, 8, 84, 52);
+      var y = kf([[0, -30, FALL], [520, 0]], t);
+      var sx = kf([[520, 1, SINE], [630, 1.08, SINE], [860, 1]], t), sy = kf([[520, 1, SINE], [630, .88, SINE], [860, 1]], t);
+      shadow(ctx, 30, 52, 30, kf([[0, .35], [520, 1]], t), kf([[0, .15], [520, 1]], t));
+      parcel(ctx, 30, 51 + y, 30, { hq: true, sx: sx, sy: sy });
+      var w = wordIn(t, 560); word(ctx, 'Landed', C.yellow, w[0], w[1], d, w[2]);
+    } },
+    // a batch from one eBay sync: one film, the parcels land one after another
+    landMany: { dur: 2600, draw: function (ctx, t, d) {
+      ground(ctx, 4, 84, 52);
+      [0, 1, 2].forEach(function (i) {
+        var at = i * 170, y = kf([[at, -30, FALL], [at + 480, 0]], t), sq = kf([[at + 480, 1, SINE], [at + 580, .88, SINE], [at + 780, 1]], t);
+        var x = 8 + i * 24;
+        shadow(ctx, x, 52, 22, kf([[at, .35], [at + 480, 1]], t), kf([[at, .1], [at + 480, 1]], t));
+        parcel(ctx, x, 51 + y, 22, { hq: i === 1, sy: sq, sx: 2 - sq });
+      });
+      var w = wordIn(t, 900); word(ctx, d.split('|')[0], C.yellow, w[0], w[1], d.split('|')[1] || '', w[2]);
+    } },
+    // Direct: the red hand truck rolls in, tips back, sets the load down — the DIRECT band's own mark
+    landD: { dur: 2700, draw: function (ctx, t, d) {
+      ground(ctx, 4, 84, 52);
+      var k = 34 / 144, tx = kf([[0, -70, GLIDE], [1100, 0]], t);
+      var rot = kf([[0, -9, SINE], [1100, -9, SINE], [1500, 2, SINE], [1700, 0]], t) * Math.PI / 180;
+      var spin = kf([[0, 0, GLIDE], [1100, 520]], t) * Math.PI / 180;
+      shadow(ctx, 14 + tx + 8, 52, 30, 1, 1);
+      ctx.save(); ctx.translate(14 + tx, 52 - 131 * k); ctx.scale(k, k);
+      ctx.translate(55, 121); ctx.rotate(rot); ctx.translate(-55, -121);
+      ctx.strokeStyle = RED; ctx.lineWidth = 10; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+      ctx.stroke(TRUCK.handle); ctx.stroke(TRUCK.base); ctx.stroke(TRUCK.box); ctx.stroke(TRUCK.label);
+      ctx.save(); ctx.translate(55, 121); ctx.rotate(spin); ctx.beginPath(); ctx.arc(0, 0, 10, 0, 6.283); ctx.stroke(); ctx.beginPath(); ctx.moveTo(0, -10); ctx.lineTo(0, -4); ctx.stroke(); ctx.restore();
+      ctx.restore();
+      var w = wordIn(t, 1300); word(ctx, 'Direct order', C.yellow, w[0], w[1], d, w[2]);
+    } },
+    // Amazon: our parcel glides in, a red scan line reads it, a white label stamps on
+    landA: { dur: 2700, draw: function (ctx, t, d) {
+      ground(ctx, 4, 84, 52);
+      var px = kf([[0, -60, GLIDE], [700, 0]], t), X0 = 30, SZ = 30;
+      var tw = kf([[0, 0, GLIDE], [350, 30], [700, 0]], t);
+      if (tw > .5) { var g = ctx.createLinearGradient(X0 + px - tw, 0, X0 + px + 6, 0); g.addColorStop(0, 'rgba(240,230,200,0)'); g.addColorStop(1, 'rgba(240,230,200,.14)'); ctx.fillStyle = g; ctx.beginPath(); ctx.roundRect(X0 + px - tw, 38, tw + 6, 9, 4.5); ctx.fill(); }
+      shadow(ctx, X0 + px, 52, SZ, 1, 1);
+      var la = kf([[1450, 0], [1650, 1]], t), lk = kf([[1450, 1.8], [1650, .92], [1780, 1]], t);
+      parcel(ctx, X0 + px, 51, SZ, { hq: true, label: la > 0 ? { a: la, k: lk } : null });
+      var so = kf([[750, 0], [880, 1], [1330, 1], [1450, 0]], t);
+      if (so > .01) { var syy = kf([[880, 0, SINE], [1100, 25, SINE], [1330, 0]], t); ctx.save(); ctx.globalAlpha *= so; ctx.shadowColor = RED; ctx.shadowBlur = 5; ctx.fillStyle = RED; ctx.fillRect(X0 - 3, 51 - SZ + syy, SZ + 6, 1.5); ctx.restore(); }
+      var w = wordIn(t, 1500); word(ctx, 'Amazon order', C.yellow, w[0], w[1], d, w[2]);
+    } },
+    // Box ready: the parts arc into the open parcel, the flaps close, the tape seals it
+    ready: { dur: 3000, draw: function (ctx, t, d) {
+      ground(ctx, 8, 84, 52);
+      var X0 = 40, SZ = 30, open = kf([[0, 1], [1450, 1, SINE], [1800, 0]], t), tape = kf([[1820, 0, SINE], [2150, 1]], t);
+      shadow(ctx, X0, 52, SZ, 1, 1);
+      var glow = kf([[2150, 0, SINE], [2400, .55, SINE], [2900, 0]], t);
+      if (glow > .01) { var gg = ctx.createRadialGradient(X0 + 15, 38, 0, X0 + 15, 38, 26); gg.addColorStop(0, 'rgba(240,199,94,' + glow + ')'); gg.addColorStop(1, 'rgba(240,199,94,0)'); ctx.fillStyle = gg; ctx.fillRect(X0 - 12, 10, 54, 44); }
+      parcel(ctx, X0, 51, SZ, { open: open, tape: open > 0 ? 0 : tape, hq: true });
+      var parts = [
+        function (c) { c.fillStyle = '#d8d2c0'; c.beginPath(); c.arc(0, 0, 4.5, 0, 6.283); c.fill(); c.fillStyle = '#6b665a'; c.fillRect(-4.5, -1.2, 9, 1.4); c.beginPath(); c.fillStyle = '#2a2722'; c.arc(0, 1.6, 1.4, 0, 6.283); c.fill(); },
+        function (c) { c.strokeStyle = '#ffd400'; c.lineWidth = 1.8; c.beginPath(); c.arc(0, 0, 4, 0, 6.283); c.stroke(); },
+        function (c) { c.fillStyle = '#d8d2c0'; c.fillRect(-1.3, -4, 2.6, 8); c.fillRect(-3.2, -5.2, 6.4, 2.2); }
+      ];
+      parts.forEach(function (fn, i) {
+        var p = kf([[180 + i * 330, 0, GLIDE], [680 + i * 330, 1]], t);
+        if (p <= 0 || p >= 1) return;
+        var x = 8 + (X0 + 15 - 8) * p, y = 22 + (37 - 22) * p - Math.sin(p * Math.PI) * 14;
+        ctx.save(); ctx.globalAlpha *= p > .82 ? (1 - p) / .18 : 1; ctx.translate(x, y); ctx.rotate(p * 2.4); fn(ctx); ctx.restore();
+      });
+      var w = wordIn(t, 2050); word(ctx, 'Box ready', C.gold, w[0], w[1], d, w[2]);
+    } },
+    // Shipped: the sealed, labelled parcel glides out to the right on a soft trail
+    ship: { dur: 2600, draw: function (ctx, t, d) {
+      ground(ctx, 4, fw - 4, 52);
+      var X0 = 30, SZ = 30, px = kf([[250, 0, BRISK], [1250, fw + 20]], t);
+      var tw = kf([[250, 0, BRISK], [700, 46], [1250, 10], [1400, 0]], t);
+      if (tw > .5) { var g = ctx.createLinearGradient(X0 + px - tw, 0, X0 + px + 6, 0); g.addColorStop(0, 'rgba(143,209,143,0)'); g.addColorStop(1, 'rgba(143,209,143,.22)'); ctx.fillStyle = g; ctx.beginPath(); ctx.roundRect(X0 + px - tw, 38, tw + 6, 9, 4.5); ctx.fill(); }
+      shadow(ctx, X0 + px, 52, SZ, 1, 1);
+      parcel(ctx, X0 + px, 51, SZ, { hq: true, label: { a: 1, k: 1 } });
+      var w = wordIn(t, 1150); word(ctx, 'Shipped', C.green, w[0], w[1], d, w[2]);
+    } },
+    // All caught up: the floor clears — the last parcels glide away one by one, then the empty floor line warms green
+    caught: { dur: 3300, draw: function (ctx, t, d) {
+      [0, 1, 2].forEach(function (i) {
+        var at = (2 - i) * 260, px = kf([[at, 0, BRISK], [at + 900, fw + 20]], t), x = 6 + i * 26;
+        var tw = kf([[at, 0, BRISK], [at + 400, 28], [at + 900, 0]], t);
+        if (tw > .5) { var g = ctx.createLinearGradient(x + px - tw, 0, x + px + 4, 0); g.addColorStop(0, 'rgba(240,230,200,0)'); g.addColorStop(1, 'rgba(240,230,200,.12)'); ctx.fillStyle = g; ctx.fillRect(x + px - tw, 42, tw + 4, 6); }
+        shadow(ctx, x + px, 52, 20, 1, 1); parcel(ctx, x + px, 51, 20, {});
+      });
+      ground(ctx, 4, 84, 52);
+      var L = kf([[1500, 0, GLIDE], [2200, 1]], t), cx = 44;
+      if (L > 0) { var gg = ctx.createLinearGradient(cx - 40 * L, 0, cx + 40 * L, 0); gg.addColorStop(0, 'rgba(143,209,143,0)'); gg.addColorStop(.5, 'rgba(143,209,143,.95)'); gg.addColorStop(1, 'rgba(143,209,143,0)'); ctx.fillStyle = gg; ctx.fillRect(cx - 40 * L, 51.2, 80 * L, 1.8);
+        var hz = ctx.createRadialGradient(cx, 52, 0, cx, 52, 34 * L); hz.addColorStop(0, 'rgba(143,209,143,' + (.18 * L) + ')'); hz.addColorStop(1, 'rgba(143,209,143,0)'); ctx.fillStyle = hz; ctx.fillRect(cx - 40, 30, 80, 24); }
+      var w = wordIn(t, 2000); word(ctx, 'All caught up', C.green, w[0], w[1], d, w[2]);
+    } }
+  };
+  // ---- the ambient loop: quiet scenes, no words, long pauses — paced like the row-1 film ----
+  var AMB_PAUSE = 8000;           // between ambient scenes the RESTING picture holds (never an empty window — owner, 2026-10-09)
+  var ambientOn = !reduce;
+  var AMBIENT = [
+    { dur: 5200, draw: function (ctx, t) {      // the parcel rests; a warm light passes over it
+      ground(ctx, 8, 84, 52); shadow(ctx, 30, 52, 30, 1, 1); parcel(ctx, 30, 51, 30, { hq: true });
+      var g = kf([[600, -0.3, SINE], [3600, 1.3]], t);
+      if (g > -0.3 && g < 1.3) {   // the light lives only on the parcel itself
+        ctx.save(); ctx.translate(45, 51); ctx.scale(.75, .75); ctx.translate(-20, -40);
+        ctx.clip(new Path2D('M6 14 20 7l14 7v15l-14 7-14-7z'));
+        var x = 2 + g * 36, lg = ctx.createLinearGradient(x - 7, 0, x + 7, 6);
+        lg.addColorStop(0, 'rgba(255,240,190,0)'); lg.addColorStop(.5, 'rgba(255,240,190,.45)'); lg.addColorStop(1, 'rgba(255,240,190,0)');
+        ctx.fillStyle = lg; ctx.fillRect(x - 7, 0, 14, 40); ctx.restore(); }
+    } },
+    { dur: 6000, draw: function (ctx, t) {      // the hand truck eases by, unhurried
+      ground(ctx, 4, 84, 52);
+      var k = 30 / 144, tx = kf([[0, -30, SINE], [2400, 22, SINE], [3400, 22, SINE], [5600, 58]], t);
+      var spin = kf([[0, 0, SINE], [2400, 300, SINE], [3400, 300, SINE], [5600, 760]], t) * Math.PI / 180;
+      var rot = kf([[0, -7, SINE], [2400, -7, SINE], [2800, 0, SINE], [3100, 0, SINE], [3400, -7]], t) * Math.PI / 180;
+      ctx.save(); ctx.globalAlpha *= kf([[0, 0, SINE], [900, 1], [4400, 1, SINE], [5600, 0]], t);
+      shadow(ctx, 8 + tx, 52, 26, 1, 1);
+      ctx.translate(8 + tx, 52 - 131 * k); ctx.scale(k, k); ctx.translate(55, 121); ctx.rotate(rot); ctx.translate(-55, -121);
+      ctx.strokeStyle = RED; ctx.lineWidth = 10; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+      ctx.stroke(TRUCK.handle); ctx.stroke(TRUCK.base); ctx.stroke(TRUCK.box); ctx.stroke(TRUCK.label);
+      ctx.translate(55, 121); ctx.rotate(spin); ctx.beginPath(); ctx.arc(0, 0, 10, 0, 6.283); ctx.stroke(); ctx.beginPath(); ctx.moveTo(0, -10); ctx.lineTo(0, -4); ctx.stroke();
+      ctx.restore();
+    } },
+    { dur: 5600, draw: function (ctx, t) {      // the engine idles: a soft glow walks 1-3-4-2, twice, slowly
+      var cx = [16, 33, 50, 67], cy = 34, order = [0, 2, 3, 1];
+      cx.forEach(function (x, i) {
+        var k = order.indexOf(i), p = 0;
+        [0, 2200].forEach(function (base) { var at = 400 + base + k * 480; p = Math.max(p, kf([[at, 0, SINE], [at + 400, 1, SINE], [at + 1000, 0]], t)); });
+        ctx.fillStyle = '#16150f'; ctx.beginPath(); ctx.arc(x, cy, 6.5, 0, 6.283); ctx.fill();
+        ctx.strokeStyle = '#4a463c'; ctx.lineWidth = 1.2; ctx.beginPath(); ctx.arc(x, cy, 6.5, 0, 6.283); ctx.stroke();
+        if (p > .01) { var g = ctx.createRadialGradient(x, cy, 0, x, cy, 9); g.addColorStop(0, 'rgba(255,212,0,' + (.45 * p) + ')'); g.addColorStop(1, 'rgba(255,212,0,0)'); ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, cy, 9, 0, 6.283); ctx.fill(); }
+      });
+      ground(ctx, 8, 84, 52);
+    } },
+    { dur: 5400, draw: function (ctx, t) {      // the scan line reads a parcel, a label settles on
+      ground(ctx, 8, 84, 52); shadow(ctx, 30, 52, 30, 1, 1);
+      var la = kf([[2600, 0, SINE], [3100, 1]], t);
+      parcel(ctx, 30, 51, 30, { hq: true, label: la > 0 ? { a: la, k: 1 } : null });
+      var so = kf([[700, 0], [900, .8], [2300, .8], [2500, 0]], t);
+      if (so > .01) { var y = kf([[900, 0, SINE], [1600, 29, SINE], [2300, 0]], t); ctx.save(); ctx.globalAlpha *= so; ctx.shadowColor = RED; ctx.shadowBlur = 5; ctx.fillStyle = RED; ctx.fillRect(27, 51 - 30 + y, 36, 1.3); ctx.restore(); }
+    } }
+  ];
+
+  /* ── the stages ─────────────────────────────────────────────────────────── */
+  var STAGES = [], last = null, running = false;
+  var HOLD = 1700, OUT = 600, AMB_OUT = 900;
+
+  function setup(cv, w, h) {
+    var dpr = Math.min(window.devicePixelRatio || 1, 3);
+    cv.width = Math.max(1, Math.round(w * dpr)); cv.height = Math.max(1, Math.round(h * dpr));
+    var ctx = cv.getContext('2d'); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); return ctx;
+  }
+  function mount(box, opts) {
+    if (!box) return null;
+    box.innerHTML = '<canvas aria-hidden="true"></canvas><div class="hq-film-cap">last · nothing yet</div>';
+    var st = { box: box, cv: box.querySelector('canvas'), cap: box.querySelector('.hq-film-cap'),
+               scale: opts.scale || 1, isRest: !!opts.isRest, q: [], cur: null, drawn: false,
+               ambIdx: -1, ambNext: Date.now() + 8000, w: 0, h: 0 };
+    STAGES.push(st);
+    return st;
+  }
+  function size(st) {
+    var w = st.box.clientWidth, h = st.box.clientHeight;
+    if (w !== st.w || h !== st.h) { st.w = w; st.h = h; st.rest = false; if (w && h) st.ctx = setup(st.cv, w, h); }
+    return w > 10 && h > 10;
+  }
+  function inSight(st) {
+    if (document.hidden || !hqFilm.films) return false;
+    var rest = document.getElementById('restPanel');
+    var resting = !!(rest && rest.classList.contains('rp-show'));
+    if (st.isRest) return resting;
+    if (resting || document.body.classList.contains('cockpit-condensed')) return false;
+    return st.box.offsetHeight > 10;
+  }
+  function shopOpen() { return (typeof _hqsShopOpen === 'function') ? _hqsShopOpen() : true; }
+
+  function clear(st) { st.rest = false; if (st.drawn && st.ctx) { st.ctx.clearRect(0, 0, st.w, st.h); st.drawn = false; } }
+  /* ⭐ THE RESTING PICTURE (2026-10-09, owner: "this place is dedicated to the movie — empty
+     feels like dead space"). The HQ parcel on its ground, still, whenever no scene plays —
+     between ambient scenes, after an event, and off-hours. Scenes cross-fade out of it and
+     back into it, so the window is never blank. Drawn once and left: a still costs nothing. */
+  function restFrame(st, a) {
+    if (a <= 0) return;
+    var ctx = st.ctx, lh = st.h / st.scale;
+    ctx.save(); ctx.globalAlpha = .72 * a; ctx.scale(st.scale, st.scale); ctx.translate(0, (lh - 60) / 2);
+    fw = st.w / st.scale;
+    try { AMBIENT[0].draw(ctx, 0); } catch (e) {}
+    ctx.restore(); st.drawn = true;
+  }
+  function showRest(st) {
+    if (st.rest || !st.ctx) return;
+    st.ctx.clearRect(0, 0, st.w, st.h); restFrame(st, 1); st.rest = true;
+  }
+
+  /* One stage, one frame. Returns true while it still needs frames. */
+  function step(st, now) {
+    if (!inSight(st)) {
+      st.q = st.q.filter(function (j) { return now - j.at < 6000; });   // a missed film is not replayed later
+      if (st.cur) { st.cur = null; }
+      clear(st); st.box.classList.remove('playing');
+      return false;
+    }
+    if (!size(st)) return false;
+    // a real event always wins: it cuts into an ambient scene at once
+    if (st.q.length && now >= st.q[0].at && (!st.cur || st.cur.amb)) {
+      var job = st.q.shift(); st.cur = { f: FILMS[job.kind], d: job.detail, t0: now, amb: false, kind: job.kind };
+      if (st.isRest && (job.kind === 'ship' || job.kind === 'caught')) _glowNewestPip();
+    }
+    if (!st.cur && hqFilm.ambient && !reduce && shopOpen() && now >= st.ambNext) {
+      st.ambIdx = (st.ambIdx + 1) % AMBIENT.length;
+      st.cur = { f: AMBIENT[st.ambIdx], t0: now, amb: true };
+    }
+    st.box.classList.toggle('playing', !!(st.cur && !st.cur.amb));
+    if (!st.cur) { showRest(st); return st.q.length > 0; }
+    var c = st.cur, f = c.f, el = now - c.t0, hold = c.amb ? 0 : HOLD, out = c.amb ? AMB_OUT : OUT;
+    var total = f.dur + hold + out, ms = reduce ? f.dur : Math.min(f.dur, el);
+    var lw = st.w / st.scale, lh = st.h / st.scale;
+    var inA = c.amb ? clamp(el / 700) : 1, fade = el > f.dur + hold ? 1 - clamp((el - f.dur - hold) / out) : 1;
+    var ctx = st.ctx;
+    ctx.clearRect(0, 0, st.w, st.h); st.rest = false;
+    restFrame(st, 1 - fade * inA);     // the resting picture cross-fades with the scene
+    ctx.save(); ctx.globalAlpha = fade * inA * (c.amb ? .72 : 1); ctx.scale(st.scale, st.scale); ctx.translate(0, (lh - 60) / 2);
+    fw = lw;
+    try { f.draw(ctx, ms, c.d || ''); } catch (e) { console.warn('film: ' + e); }
+    ctx.restore(); st.drawn = true;
+    if (el >= total) { st.ambNext = now + (c.amb ? AMB_PAUSE : 3000); st.cur = null; showRest(st); st.box.classList.remove('playing'); }
+    return true;
+  }
+  function loop() {
+    var now = Date.now(), more = false;
+    STAGES.forEach(function (st) { if (step(st, now)) more = true; });
+    if (more) requestAnimationFrame(loop); else running = false;
+  }
+  function kick() { if (!running) { running = true; requestAnimationFrame(loop); } }
+
+  /* the dim "last · …" line beside the drawing, and the wake-up check, once a second */
+  function caption() {
+    var txt = 'last · nothing yet';
+    if (last) {
+      var m = Math.max(0, Math.round((Date.now() - last.at) / 60000));
+      txt = 'last · ' + last.word + ' · ' + (m < 1 ? 'just now' : (m < 60 ? m + 'm ago' : Math.floor(m / 60) + 'h ' + (m % 60) + 'm ago'));
+    }
+    STAGES.forEach(function (st) {
+      st.box.classList.toggle('off', !hqFilm.films);
+      if (st.cap.textContent !== txt) st.cap.textContent = txt;
+    });
+    var now = Date.now();
+    var due = STAGES.some(function (st) {
+      return inSight(st) && (!st.rest || st.q.length || st.cur || (hqFilm.ambient && !reduce && shopOpen() && now >= st.ambNext));
+    });
+    if (due) kick();
+  }
+  setInterval(caption, 1000);
+
+  /* the resting panel: the newest mark on the clock ring glows while the film plays */
+  function _glowNewestPip() {
+    try {
+      var pips = document.querySelectorAll('#rpPips .rp-pip');
+      var p = pips[pips.length - 1];
+      if (!p) return;
+      p.classList.remove('rp-pip-new'); void p.getBoundingClientRect(); p.classList.add('rp-pip-new');
+      setTimeout(function () { p.classList.remove('rp-pip-new'); }, 2600);
+    } catch (e) {}
+  }
+
+  /* Queue a film on every stage. Max 3 waiting; the oldest waiting one gives way. */
+  function play(kind, detail, word, delay) {
+    if (!hqFilm.films || !FILMS[kind]) return;
+    var at = Date.now() + (delay || 0);
+    STAGES.forEach(function (st) {
+      if (st.q.length >= 3) st.q.shift();
+      st.q.push({ kind: kind, detail: detail, at: at });
+    });
+    last = { word: word, at: at };
+    caption(); kick();
+  }
+
+  /* ── the events, read off the tick ────────────────────────────────────── */
+  var prev = null, seen = null, SEEN_TTL = 45 * 60000, ARRIVAL_MAX_AGE = 20;
+  function summarise(full) {
+    var ages = (full.cockpit && full.cockpit.orderAgeMin) || {};
+    var pubMs = full._publishedAt ? new Date(full._publishedAt).getTime() : Date.now();
+    var lagMin = Math.max(0, (Date.now() - pubMs) / 60000);
+    var orders = {};
+    (full.openOrders || []).forEach(function (r) {
+      if (!r || !r.orderId) return;
+      var o = orders[r.orderId] || (orders[r.orderId] = { id: String(r.orderId), ch: r.channel, lines: 0, pending: 0, prep: 0, locs: [], note: '' });
+      o.lines++;
+      if (String(r.status || '').toUpperCase() === 'PENDING') o.pending++; else o.prep++;
+      if (r.location && !/NOT FOUND/i.test(r.location) && o.locs.indexOf(r.location) === -1) o.locs.push(r.location);
+      if (!o.note && r.note) o.note = String(r.note);
+    });
+    Object.keys(orders).forEach(function (k) {
+      var a = ages[k]; orders[k].age = (typeof a === 'number' && a >= 0) ? a + lagMin : null;
+    });
+    return orders;
+  }
+  function shortId(id) { id = String(id); return id.length > 14 ? id.slice(0, 13) + '…' : id; }
+  function shelves(o, n) { return o.locs.slice(0, n || 2).join(' '); }
+
+  function noteTick(cockpit, full) {
+    if (!cockpit || !full || !Array.isArray(full.openOrders)) return;   // the live fallback carries no list
+    var now = Date.now(), orders = summarise(full);
+    var grab = (+cockpit.ebayGrab || 0) + (+cockpit.directGrab || 0) + (+cockpit.amazonGrab || 0);
+    var cur = { orders: orders, shipped: +cockpit.shippedToday || 0, grab: grab };
+    if (seen === null) {                       // cold start: remember, announce nothing
+      seen = {}; Object.keys(orders).forEach(function (k) { seen[k] = now; });
+      prev = cur; return;
+    }
+    // 1 · arrivals
+    var newE = [], newD = [], newA = [];
+    Object.keys(orders).forEach(function (k) {
+      var o = orders[k];
+      if (!seen[k] && o.pending > 0 && o.age !== null && o.age <= ARRIVAL_MAX_AGE) {
+        if (o.ch === 'AMAZON') newA.push(o); else if (o.ch === 'DIRECT') newD.push(o); else newE.push(o);
+      }
+      seen[k] = now;
+    });
+    Object.keys(seen).forEach(function (k) { if (now - seen[k] > SEEN_TTL) delete seen[k]; });
+    var customers = full.customers || {};
+    if (newE.length === 1) play('land', shortId(newE[0].id) + ' · ' + shelves(newE[0]), 'eBay order landed');
+    else if (newE.length > 1) play('landMany', newE.length + ' eBay orders landed|' +
+        newE.map(function (o) { return o.locs[0]; }).filter(Boolean).slice(0, 5).join(' '), newE.length + ' eBay orders landed');
+    newD.forEach(function (o) {
+      var who = customers[o.id] ? String(customers[o.id]).split(' ').slice(0, 2).join(' ') : '';
+      play('landD', o.id + (who ? ' · ' + who : '') + (o.locs[0] ? ' · ' + o.locs[0] : ''), 'Direct order landed');
+    });
+    newA.forEach(function (o) {
+      var by = /ship\s*by\s*([0-9]{1,2}\/[0-9]{1,2})/i.exec(o.note);
+      play('landA', shortId(o.id) + (by ? ' · ship by ' + by[1] : (o.locs[0] ? ' · ' + o.locs[0] : '')), 'Amazon order landed');
+    });
+    // 2 · box ready — an order of 2+ lines whose last PENDING line was just picked
+    Object.keys(orders).forEach(function (k) {
+      var o = orders[k], p = prev.orders[k];
+      if (p && o.lines >= 2 && p.pending > 0 && o.pending === 0 && o.prep > 0) {
+        play('ready', shortId(o.id) + ' · all ' + o.lines + ' picked', 'Box ready');
+      }
+    });
+    // 3 · shipped, or the floor cleared — the bar sparks first, the film follows
+    var shippedUp = prev.shipped >= 0 && cur.shipped > prev.shipped;
+    var cleared = prev.grab > 0 && cur.grab === 0 && shopOpen();
+    if (cleared) {
+      play('caught', cur.shipped + ' out today', 'All caught up', 900);
+    } else if (shippedUp) {
+      var tl = (cockpit.timeline || []).filter(function (e) { return e && e.event === 'SHIPPED'; });
+      var newest = null;
+      tl.forEach(function (e) { if (!newest || +e.hourFraction >= +newest.hourFraction) newest = e; });
+      var n = cur.shipped - prev.shipped, det;
+      if (newest && newest.orderId) {
+        var lines = tl.filter(function (e) { return e.orderId === newest.orderId; }).length;
+        det = shortId(newest.orderId) + ' · ' + lines + (lines === 1 ? ' line' : ' lines');
+      } else det = n + (n === 1 ? ' line out' : ' lines out');
+      play('ship', det, 'Shipped', 700);
+    }
+    prev = cur;
+  }
+
+  function settings(films, ambient) {
+    hqFilm.films = !!films; hqFilm.ambient = !!ambient; _hqFilmSave();
+    STAGES.forEach(function (st) { if (st.cur && st.cur.amb && !hqFilm.ambient) st.cur = null; st.ambNext = Date.now() + 1500; });
+    caption(); kick();
+  }
+
+  return { mount: mount, play: play, noteTick: noteTick, settings: settings, _stages: STAGES, _films: FILMS };
+})();
+
+(function hqFilmInit() {
+  try {
+    HQFilm.mount(document.getElementById('cockpitFilm'), { scale: 1 });
+    HQFilm.mount(document.getElementById('rpFilm'), { scale: 1.3, isRest: true });
+    var f = document.getElementById('hqsFilms'), a = document.getElementById('hqsAmbient');
+    if (f) { f.checked = hqFilm.films; f.addEventListener('change', function () { HQFilm.settings(f.checked, a ? a.checked : hqFilm.ambient); }); }
+    if (a) { a.checked = hqFilm.ambient; a.addEventListener('change', function () { HQFilm.settings(f ? f.checked : hqFilm.films, a.checked); }); }
+  } catch (e) { console.warn('films: ' + e); }
+})();
 
 /* ═══ FIRST WALK — the resting panel's next shelves (2026-10-01) ════════════════
    The pick list already rides the tick; the first PENDING shelves in aisle order
