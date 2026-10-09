@@ -362,12 +362,12 @@ function _gatherStragglers(maps) {
         var kr = rows[m];
         if (!kr.inDirect) continue;
         if (kr.status !== Schema.status.PENDING && kr.status !== Schema.status.PREPARING) continue;
-        if (kr.note.indexOf("↳ from KIT-") === 0) continue;      // it IS a component
+        if (kitComponentTag(kr.note)) continue;                  // it IS a component
         var kit = kitMap.get(kr.sku);
         if (!kit) continue;
 
         var next = rows[m + 1];
-        if (next && next.note.indexOf("↳ from KIT-" + kr.sku) === 0) continue;  // expanded
+        if (next && String(kitComponentTag(next.note)).toUpperCase() === String(kr.sku).toUpperCase()) continue;  // expanded
 
         out.kits.push({
           key:  "kx:" + kr.so + ":" + kr.sku,

@@ -254,10 +254,10 @@ function _webFindKitRows(sheet) {
     if (status !== Schema.status.PENDING && status !== Schema.status.PREPARING) continue;
 
     var note = String(data[i][NOTE_I] || "");
-    if (note.indexOf("↳ from KIT-") === 0) continue;          // it IS a component
+    if (kitComponentTag(note)) continue;                       // it IS a component
 
     var next = data[i + 1];
-    if (next && String(next[NOTE_I] || "").indexOf("↳ from KIT-" + sku) === 0) continue;  // expanded
+    if (next && String(kitComponentTag(next[NOTE_I])).toUpperCase() === String(sku).toUpperCase()) continue;  // expanded
 
     out.push(Schema.dataStartRow + i);
   }

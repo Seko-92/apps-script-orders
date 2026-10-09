@@ -725,12 +725,14 @@ function _parseShelfLocation(v) {
  * @returns {string} parent kit SKU, or ""
  */
 function kitComponentTag(note) {
-  var s = String(note || "").trim();
-  if (s.charAt(0) === "⚠") {              // ⚠ — a Zoho flag line, skip it
-    var nl = s.indexOf("\n");
-    s = (nl === -1) ? "" : s.slice(nl + 1).trim();
-  }
-  var m = s.match(/^↳ (?:from|added to) KIT-(\S+)/);
+  // ⚠ FOUND ANYWHERE IN THE NOTE, NOT ONLY AT THE START (2026-10-09). A person can
+  //   type in front of the tag — the floor wrote "HOLD . ↳ from KIT-157563 · …" on
+  //   one part of an expanded kit, and an anchored match dropped that part out of
+  //   its kit everywhere: no K1 tag, no board thread, and parent auto-follow could
+  //   ship the kit while the part was held. "↳" is a machine-only glyph and the
+  //   pattern needs "KIT-" after it, so "↳ added in Zoho" / "↳ delta from Zoho"
+  //   never match. This also covers a Zoho ⚠ flag line prepended above the tag.
+  var m = String(note || "").match(/↳ (?:from|added to) KIT-(\S+)/);
   return m ? m[1] : "";
 }
 

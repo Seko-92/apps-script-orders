@@ -1001,7 +1001,9 @@ document.addEventListener('mousemove', function () {
 function humanNote(note) {
   var s = String(note || '').trim();
   if (!s) return '';
-  if (s.indexOf('↳') === 0) return '';          // machine kit tag
+  var at = s.search(/↳\s*(?:from|added to)\s+KIT-/i);   // machine kit tag (a human prefix survives)
+  if (at >= 0) s = s.slice(0, at).replace(/[\s·.]+$/, '').trim();
+  if (!s) return '';
   return s.replace(/\*\*/g, ' ').replace(/\s+/g, ' ').trim();
 }
 

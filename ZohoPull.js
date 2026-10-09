@@ -379,8 +379,8 @@ function _findKitComponentRows(sheet, soNumber, kitSku) {
     if (String(data[i][Schema.idx("SALES_ORDER")] || "").trim().toUpperCase() !== so) continue;
 
     var note = String(data[i][Schema.idx("NOTE")] || "");
-    var m = note.match(/^↳ (?:from|added to) KIT-(\S+)/);
-    if (!m || String(m[1]).trim().toUpperCase() !== kit) continue;
+    var tag = kitComponentTag(note);
+    if (!tag || String(tag).trim().toUpperCase() !== kit) continue;
 
     out.push({
       row:    startRow + i,

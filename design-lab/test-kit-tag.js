@@ -72,9 +72,11 @@ check('empty', tag(''), '');
 check('null', tag(null), '');
 check('undefined', tag(undefined), '');
 check('a floor note', tag('** HOLD — do not ship'), '');
-// The tag must LEAD. Text that merely mentions it is not a component row.
-check('tag must lead, not merely appear',
-      tag('see the note ↳ from KIT-159012 below'), '');
+// 2026-10-09: the tag no longer has to LEAD — a person can type in front of it.
+check('a human prefix before the tag (HOLD . ↳ from KIT-…)',
+      tag('HOLD . ↳ from KIT-157563 · deploy 3 total (1 for customer + 2 for us)'), '157563');
+check('"↳ added in Zoho" is not a kit tag', tag('↳ added in Zoho'), '');
+check('"↳ delta from Zoho" is not a kit tag', tag('↳ delta from Zoho · was 2, now 3'), '');
 
 // ── EXACT capture — the prefix trap ───────────────────────────────────────
 check('captures the whole SKU, not a prefix', tag('↳ from KIT-158652 · Miguel'), '158652');

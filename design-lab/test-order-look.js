@@ -86,7 +86,7 @@ ok('no rule range touches STATUS (F)', rules.length === 4 && rules.every(r => r.
 ok('the three quiet rules only set a quiet font', rules.slice(1).every(r => r._o.font === '#a39b86'));
 const note = fx[2] || '';
 ok('HOLD regex reaches Sheets as \\b (not a backspace)', note.indexOf('(?i)\\bhold\\b') !== -1 && note.indexOf('\b') === -1, note);
-ok('kit (↳) and Zoho-flag (⚠) notes exempt', /LEFT\(\$E4,1\)<>"↳"/.test(note) && /LEFT\(\$E4,1\)<>"⚠"/.test(note));
+ok('kit (↳) and Zoho-flag (⚠) notes exempt', /ISERROR\(FIND\("↳",\$E4&""\)\)/.test(note) && /LEFT\(\$E4,1\)<>"⚠"/.test(note));
 ok('SO rule avoids COUNTIF / TRIM( (col-D stripper words)', !/COUNTIF|TRIM\(/.test(fx[1] || 'COUNTIF'), fx[1]);
 ok('done rule needs this line terminal AND no open line', /OR\(\$F4="SHIPPED",\$F4="CANCELED"\)/.test(fx[0]) && /"PENDING"\)\+COUNTIFS/.test(fx[0]));
 

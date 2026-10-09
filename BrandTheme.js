@@ -3023,7 +3023,7 @@ function refreshKitSkuMarkers() {
     var isBoundary = Schema.isStructuralMarker(upper);
     var isHeader = raw.charAt(0) === "◈";
     var noteRaw = String(notes[i][0] || "").trim();
-    var isExpansionComponent = noteRaw.indexOf("↳ from KIT-") === 0;
+    var isExpansionComponent = !!kitComponentTag(noteRaw);
 
     if (isEmpty || isBoundary || isHeader) {
       // Preserve whatever was there (e.g. DIRECT divider's '"▌  "@' glyph).
@@ -3134,7 +3134,7 @@ function kitSkuOnEdit(e) {
     var isBoundary = Schema.isStructuralMarker(upper);
     var isHeader   = raw.charAt(0) === "◈";
     var noteRaw    = String(notes[i][0] || "").trim();
-    var isExpansionComponent = noteRaw.indexOf("↳ from KIT-") === 0;
+    var isExpansionComponent = !!kitComponentTag(noteRaw);
 
     if (isEmpty || isBoundary || isHeader) {
       formats.push(['@']);              // plain text

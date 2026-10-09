@@ -85,7 +85,7 @@ function _orderLookFormulas(r) {
     // A note that only repeats the order's FIRST line's note. MATCH finds that first line.
     note: '=AND(' + tag + ',' + below + ',$E' + r + '<>"",$D' + r + '<>"",$D' + r + '=$D' + prev + ',' +
           '$E' + r + '=INDEX($E:$E,MATCH($D' + r + ',$D:$D,0)),' +
-          'LEFT($E' + r + ',1)<>"↳",LEFT($E' + r + ',1)<>"⚠",' +
+          'ISERROR(FIND("↳",$E' + r + '&"")),LEFT($E' + r + ',1)<>"⚠",' +
           'NOT(REGEXMATCH($E' + r + '&"","(?i)\\bhold\\b")))',
     // A kit PARENT whose parts are all picked. A part's note reads "↳ from KIT-<sku>…"
     // (or "added to", or after a ⚠ Zoho flag line) — matched as "*↳ * KIT-<sku>" alone or
@@ -95,7 +95,7 @@ function _orderLookFormulas(r) {
           Fs = '$F$' + Schema.dataStartRow + ':$F';
       var p1 = '"*↳ * KIT-"&$A' + r, p2 = '"*↳ * KIT-"&$A' + r + '&" *"';
       return '=AND(' + tag + ',$A' + r + '<>"",$D' + r + '<>"",' +
-             '$F' + r + '<>"SHIPPED",$F' + r + '<>"CANCELED",LEFT($E' + r + ',1)<>"↳",' +
+             '$F' + r + '<>"SHIPPED",$F' + r + '<>"CANCELED",ISERROR(FIND("↳",$E' + r + '&"")),' +
              'COUNTIFS(' + D + ',$D' + r + ',' + E + ',' + p1 + ')+COUNTIFS(' + D + ',$D' + r + ',' + E + ',' + p2 + ')>0,' +
              'COUNTIFS(' + D + ',$D' + r + ',' + E + ',' + p1 + ',' + Fs + ',"PENDING")+' +
              'COUNTIFS(' + D + ',$D' + r + ',' + E + ',' + p2 + ',' + Fs + ',"PENDING")=0)';

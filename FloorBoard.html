@@ -2815,11 +2815,17 @@ body.ch-amazon #pickListAmazon { display: block; }
          machine word on the floor is visible and fixable in a minute; a
          swallowed human note is the bug we are standing in. NOTE SURFACES MUST
          FAIL TOWARD SHOWING. */
-      if (raw.indexOf('↳') === 0) {
-        var segs = raw.split(' · ');
+      /* ⚠ A person can type IN FRONT of the tag ("HOLD . ↳ from KIT-…", 2026-10-09).
+         Keep what sits before the ↳ as human text, strip the machine run after it,
+         keep the human tail. */
+      var at = raw.search(/↳\s*(?:from|added to)\s+KIT-/i);
+      if (at >= 0) {
+        var head = raw.slice(0, at).replace(/[\s·.]+$/, '').trim();
+        var segs = raw.slice(at).split(' · ');
         var s = 0;
         while (s < segs.length && _isKitMachineSeg(segs[s])) s++;
-        raw = segs.slice(s).join(' · ').trim();
+        var tail = segs.slice(s).join(' · ').trim();
+        raw = [head, tail].filter(Boolean).join(' · ');
         if (!raw) return { text: '', warn: warn };
       }
 
@@ -5137,7 +5143,7 @@ body.ch-amazon #pickListAmazon { display: block; }
       var h = '<div class="drw-banner">✓ Pick marks <b>every</b> line of this order that carries ' + esc(sku) +
               '. Mark them picked once all ' + total + ' are off the shelf.</div>';
       lines.forEach(function (r) {
-        var kit = /^↳ (?:from|added to) KIT-(\S+)/.exec(String(r.note || ''));
+        var kit = /↳ (?:from|added to) KIT-(\S+)/.exec(String(r.note || ''));
         h += '<div class="same-line"><b>' + esc(r.location || '—') + '</b><span>×' + esc(r.qty) + '</span><i>' +
              (kit ? 'kit part · ' + esc(kit[1]) : 'on its own') + '</i></div>';
       });

@@ -224,8 +224,8 @@ function _countExistingKitComponents(allData, soNumber, kitSku) {
 
     // Exact captured-SKU compare, never a prefix test: `indexOf(tag + sku) === 0`
     // would let kit "1586" match kit "158652"'s components.
-    var m = String(r[NOTE_I] || "").match(/^↳ (?:from|added to) KIT-(\S+)/);
-    if (!m || String(m[1]).trim().toUpperCase() !== kit) continue;
+    var tag = kitComponentTag(r[NOTE_I]);
+    if (!tag || String(tag).trim().toUpperCase() !== kit) continue;
 
     out.count++;
     if (out.skus.length < 8) out.skus.push(String(r[SKU_I] || "").trim());
@@ -1426,7 +1426,7 @@ function _findKitRowBySkuAndSo(sheet, kitSku, soNumber, hintRow) {
     // Skip already-expanded matches (row directly below has the kit tag)
     if (i + 1 < data.length) {
       var belowNote = String(data[i + 1][NOTE_I] || "");
-      if (belowNote.indexOf("↳ from KIT-" + targetSku) === 0) continue;
+      if (String(kitComponentTag(belowNote)).toUpperCase() === String(targetSku).toUpperCase()) continue;
     }
 
     matches.push(actualRow);
